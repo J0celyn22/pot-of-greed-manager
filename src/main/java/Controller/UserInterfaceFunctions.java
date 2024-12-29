@@ -28,7 +28,6 @@ import static Model.FormatList.OuicheListToHtml.generateOuicheListAsListHtml;
 import static Model.FormatList.OuicheListToHtml.generateOuicheListAsMosaicHtml;
 
 public class UserInterfaceFunctions {
-    //public static HashMap<String, String> printCodeToKonamiId;
     public static File filePath = null;
     public static File folderPath = null;
     public static File thirdPartyListPath = null;
