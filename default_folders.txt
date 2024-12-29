@@ -1,0 +1,2 @@
+D:\Documents\Jeux\Yu-Gi-Oh!\PotOfGreedManager\PotOfGreedManager\src\main\java\Model\Files\OwnedCardsCollection\Collection.txt
+D:\Programmes\MDPro3\Deck
