@@ -1,6 +1,9 @@
 package Controller;
 
-import Model.CardsLists.*;
+import Model.CardsLists.CardElement;
+import Model.CardsLists.DecksAndCollectionsList;
+import Model.CardsLists.OwnedCardsCollection;
+import Model.CardsLists.SubListCreator;
 import Model.FormatList.DeckToHtml;
 import Model.FormatList.OwnedCardsCollectionToHtml;
 import javafx.scene.control.TextField;
@@ -13,10 +16,7 @@ import javafx.stage.Stage;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 
 import static Model.CardsLists.OuicheList.*;
