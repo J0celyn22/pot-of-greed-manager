@@ -1,0 +1,88 @@
+package Model.FormatList;
+
+import Model.CardsLists.Card;
+import Model.CardsLists.CardElement;
+import Model.CardsLists.ThemeCollection;
+
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import static Model.FormatList.HtmlGenerator.*;
+
+public class ThemeCollectionToHtml {
+    /**
+     * Generate an HTML file displaying a ThemeCollection, as a list
+     * @param themeCollection The ThemeCollection to display
+     * @param dirPath The path of the output file
+     * @throws IOException
+     */
+    public static void generateThemeCollectionAsListHtml(ThemeCollection themeCollection, String dirPath) throws IOException {
+        String filePath = dirPath + themeCollection.getName().replace("\\", "-").replace("/", "-").replace("\"", "") + " - List.html";
+        createHtmlFile(filePath);
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+            String relativeImagePath = "..\\Images\\";
+            addHeader(writer, themeCollection.getName(), relativeImagePath, dirPath);
+            addTitle(writer, themeCollection.getName(), themeCollection.getCardCount(), themeCollection.getPrice());
+
+            for (int i = 0; i < themeCollection.getLinkedDecks().size(); i++) {
+                addRectangleBeginning(writer);
+                addTitle3(writer, themeCollection.getLinkedDecks().get(i).getName(), themeCollection.getLinkedDecks().get(i).getCardCount(), themeCollection.getLinkedDecks().get(i).getPrice());
+                displayList(themeCollection.getLinkedDecks().get(i).getMainDeck(), "Main deck", writer, dirPath, relativeImagePath);
+                displayList(themeCollection.getLinkedDecks().get(i).getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
+                displayList(themeCollection.getLinkedDecks().get(i).getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
+                addRectangleEnd(writer);
+            }
+
+            addRectangleBeginning(writer);
+            displayList(themeCollection.getCardsList(), "Collection", writer, dirPath, relativeImagePath);
+            addRectangleEnd(writer);
+
+            addFooter(writer);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Generate an HTML file displaying a ThemeCollection, as a mosaic
+     * @param themeCollection The Deck to display
+     * @param dirPath The path of the output file
+     * @throws IOException
+     */
+    public static void generateThemeCollectionAsMosaicHtml(ThemeCollection themeCollection, String dirPath) throws IOException {
+        String filePath = dirPath + themeCollection.getName().replace("\\", "-").replace("/", "-").replace("\"", "") + " - Mosaic.html";
+        createHtmlFile(filePath);
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+            String relativeImagePath = "..\\Images\\";
+            addHeader(writer, themeCollection.getName(), relativeImagePath, dirPath);
+            addTitle(writer, themeCollection.getName(), themeCollection.getCardCount(), themeCollection.getPrice());
+
+            for (int i = 0; i < themeCollection.getLinkedDecks().size(); i++) {
+                addRectangleBeginning(writer);
+                addTitle3(writer, themeCollection.getLinkedDecks().get(i).getName(), themeCollection.getLinkedDecks().get(i).getCardCount(), themeCollection.getLinkedDecks().get(i).getPrice());
+
+                displayMosaic(themeCollection.getLinkedDecks().get(i).getMainDeck(), "Main deck", writer, dirPath, relativeImagePath);
+                displayMosaic(themeCollection.getLinkedDecks().get(i).getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
+                displayMosaic(themeCollection.getLinkedDecks().get(i).getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
+                addRectangleEnd(writer);
+            }
+
+            addRectangleBeginning(writer);
+            displayMosaic(themeCollection.getCardsList(), "Collection", writer, dirPath, relativeImagePath);
+            addRectangleEnd(writer);
+
+            addFooter(writer);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
