@@ -5,15 +5,9 @@ import Model.CardsLists.CardElement;
 import Model.CardsLists.OwnedCardsCollection;
 
 import java.io.BufferedWriter;
-import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -22,8 +16,9 @@ import static Model.FormatList.HtmlGenerator.*;
 public class OwnedCardsCollectionToHtml {
     /**
      * Generate an HTML file displaying a list of all cards with each card appearing only once, with its number of occurences displayed
-     * @param collection The Collection to display
-     * @param dirPath The path of the output file
+     *
+     * @param collection     The Collection to display
+     * @param dirPath        The path of the output file
      * @param outputFileName The name of the output file
      * @throws IOException
      */
@@ -31,9 +26,7 @@ public class OwnedCardsCollectionToHtml {
         List<CardElement> cards = new ArrayList<>();
         for (int i = 0; i < collection.getOwnedCollection().size(); i++) {
             for (int j = 0; j < collection.getOwnedCollection().get(i).getContent().size(); j++) {
-                for (int k = 0; k < collection.getOwnedCollection().get(i).getContent().get(j).cardList.size(); k++) {
-                    cards.add(collection.getOwnedCollection().get(i).getContent().get(j).cardList.get(k));
-                }
+                cards.addAll(collection.getOwnedCollection().get(i).getContent().get(j).cardList);
             }
         }
 
@@ -50,7 +43,7 @@ public class OwnedCardsCollectionToHtml {
             Map<Card, Integer> cardCount = createCardsMap(cards);
 
             for (Map.Entry<Card, Integer> entry : cardCount.entrySet()) {
-                writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, relativeImagePath, dirPath);
+                writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, relativeImagePath);
             }
 
             addFooter(writer);
@@ -61,8 +54,9 @@ public class OwnedCardsCollectionToHtml {
 
     /**
      * Generate an HTML file displaying a list of all cards within their boxes and categories, as a list
-     * @param collection The Collection to display
-     * @param dirPath The path of the output file
+     *
+     * @param collection     The Collection to display
+     * @param dirPath        The path of the output file
      * @param outputFileName The name of the output file
      * @throws IOException
      */
@@ -82,17 +76,14 @@ public class OwnedCardsCollectionToHtml {
             for (int i = 0; i < collection.getOwnedCollection().size(); i++) {
                 addTitle2(writer, collection.getOwnedCollection().get(i).getName().replace("=", ""), collection.getOwnedCollection().get(i).getCardCount(), collection.getOwnedCollection().get(i).getPrice());
                 for (int j = 0; j < collection.getOwnedCollection().get(i).getContent().size(); j++) {
-                    addTitle3(writer, collection.getOwnedCollection().get(i).getContent().get(j).getName().replace("-",""),collection.getOwnedCollection().get(i).getContent().get(j).getCardCount(),collection.getOwnedCollection().get(i).getContent().get(j).getPrice());
+                    addTitle3(writer, collection.getOwnedCollection().get(i).getContent().get(j).getName().replace("-", ""), collection.getOwnedCollection().get(i).getContent().get(j).getCardCount(), collection.getOwnedCollection().get(i).getContent().get(j).getPrice());
 
-                    cards = new ArrayList<>();
-                    for (int k = 0; k < collection.getOwnedCollection().get(i).getContent().get(j).cardList.size(); k++) {
-                        cards.add(collection.getOwnedCollection().get(i).getContent().get(j).cardList.get(k));
-                    }
+                    cards = new ArrayList<>(collection.getOwnedCollection().get(i).getContent().get(j).cardList);
 
                     Map<Card, Integer> cardCount = createCardsMap(cards);
 
                     for (Map.Entry<Card, Integer> entry : cardCount.entrySet()) {
-                        writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, relativeImagePath, dirPath);
+                        writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, relativeImagePath);
                     }
                 }
             }
@@ -105,8 +96,9 @@ public class OwnedCardsCollectionToHtml {
 
     /**
      * Generate an HTML file displaying a list of all cards within their boxes and categories, as a mosaic
-     * @param collection The Collection to display
-     * @param dirPath The path of the output file
+     *
+     * @param collection     The Collection to display
+     * @param dirPath        The path of the output file
      * @param outputFileName The name of the output file
      * @throws IOException
      */
@@ -126,10 +118,10 @@ public class OwnedCardsCollectionToHtml {
                 addRectangleBeginning(writer);
                 addTitle2(writer, collection.getOwnedCollection().get(i).getName().replace("=", ""), collection.getOwnedCollection().get(i).getCardCount(), collection.getOwnedCollection().get(i).getPrice());
                 for (int j = 0; j < collection.getOwnedCollection().get(i).getContent().size(); j++) {
-                    HtmlGenerator.addTitle3(writer, collection.getOwnedCollection().get(i).getContent().get(j).getName().replace("-", ""),collection.getOwnedCollection().get(i).getContent().get(j).getCardCount(),collection.getOwnedCollection().get(i).getContent().get(j).getPrice());
+                    HtmlGenerator.addTitle3(writer, collection.getOwnedCollection().get(i).getContent().get(j).getName().replace("-", ""), collection.getOwnedCollection().get(i).getContent().get(j).getCardCount(), collection.getOwnedCollection().get(i).getContent().get(j).getPrice());
 
                     for (int k = 0; k < collection.getOwnedCollection().get(i).getContent().get(j).cardList.size(); k++) {
-                        writeCardElement(writer, collection.getOwnedCollection().get(i).getContent().get(j).cardList.get(k), imagesDirPath, relativeImagePath, dirPath);
+                        writeCardElement(writer, collection.getOwnedCollection().get(i).getContent().get(j).cardList.get(k), imagesDirPath, relativeImagePath);
                     }
                 }
                 addRectangleEnd(writer);

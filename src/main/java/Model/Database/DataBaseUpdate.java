@@ -5,16 +5,23 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.net.URL;
-import java.util.Map;
-
-import static Model.Database.ReadFile.readFile;
 
 public class DataBaseUpdate {
+    /**
+     * Updates the local cache to the latest revision available online.
+     * <p>
+     * It does this by first comparing the local revision with the remote revision
+     * and then fetching the manifests for the missing revisions. The manifests
+     * are then passed to the {@link #invalidatePaths(JSONObject)} method to
+     * invalidate the paths for the files that have changed.
+     * <p>
+     * After that, the local revision is updated to the latest revision.
+     */
     public static void updateCache() {
         try {
             int localRevision = readLocalRevision();
@@ -32,11 +39,24 @@ public class DataBaseUpdate {
         }
     }
 
+    /**
+     * Reads the current revision from the local file at {@code src/main/resources/revision.txt}.
+     *
+     * @return the current revision as an integer
+     * @throws IOException if the file cannot be read
+     */
     public static int readLocalRevision() throws IOException {
         String content = new String(Files.readAllBytes(Paths.get("src/main/resources/revision.txt")));
         return Integer.parseInt(content.trim());
     }
 
+    /**
+     * Reads the current revision from the remote location at
+     * {@code https://db.ygoresources.com/manifest/0}.
+     *
+     * @return the current revision as an integer
+     * @throws IOException if the file cannot be read
+     */
     public static int getRemoteRevision() throws IOException {
         URL url = new URL("https://db.ygoresources.com/manifest/0"); // Dummy request to get the header
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -45,6 +65,16 @@ public class DataBaseUpdate {
         return Integer.parseInt(connection.getHeaderField("X-Cache-Revision"));
     }
 
+    /**
+     * Fetches the manifest file for the specified revision from the remote location.
+     *
+     * <p>This method constructs a URL using the given revision number, connects to the
+     * remote server, and retrieves the manifest file as a string.</p>
+     *
+     * @param revision the revision number of the manifest to fetch
+     * @return the contents of the manifest file as a string
+     * @throws IOException if an I/O exception occurs during the fetch
+     */
     public static String fetchManifest(int revision) throws IOException {
         URL url = new URL("https://db.ygoresources.com/manifest/" + revision);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -55,6 +85,19 @@ public class DataBaseUpdate {
         }
     }
 
+    /**
+     * Invalidates local file paths based on the provided manifest JSON object.
+     *
+     * <p>This method iterates through the keys and nested objects within the given
+     * manifest JSON. For each relevant sub-key, it retrieves the corresponding local
+     * file path using the {@link DataBaseUpdate#getAddresses(String)} method and adds
+     * the path to the set of invalidated paths in {@link FileFetcher}. Additionally,
+     * it specifically invalidates the local paths for "cardinfo.json", "archetypes.json",
+     * and "_sets.txt" files.</p>
+     *
+     * @param manifestJson the JSON object containing the manifest data used to determine
+     *                     which local paths need to be invalidated
+     */
     private static void invalidatePaths(JSONObject manifestJson) {
         for (String key : manifestJson.keySet()) {
             JSONObject subJson = manifestJson.getJSONObject(key);
@@ -100,7 +143,15 @@ public class DataBaseUpdate {
     }
 
 
-
+    /**
+     * Updates the local revision number in the file located at {@code src/main/resources/revision.txt}.
+     *
+     * <p>If the revision file does not exist, it is created. The new revision number is then written
+     * to this file, replacing any existing content.</p>
+     *
+     * @param newRevision the new revision number to be recorded in the file
+     * @throws IOException if an I/O error occurs during file creation or writing
+     */
     public static void updateLocalRevision(int newRevision) throws IOException {
         Path revisionFilePath = Paths.get("src/main/resources/revision.txt");
         if (!Files.exists(revisionFilePath)) {
@@ -130,9 +181,7 @@ public class DataBaseUpdate {
             } else if (element.contains("-")) {
                 key = "<printcode>.json";
                 replacement = element.split("\\.")[0];
-            } /*else if (element.equals("_sets.txt")) {
-                key = "_sets.txt";
-            }*/
+            }
 
             // Find the element in the JSON object
             String[] result = findElement(json, key, element, "..\\Database\\", replacement);
@@ -155,7 +204,6 @@ public class DataBaseUpdate {
      * @param replacement the replacement string for passcode and printcode
      * @return an array containing the local path and the remote path if the key is found, null otherwise
      */
-    //TODO redo to make it recursive again + repair sets
     private static String[] findElement(JSONObject json, String key, String originalKey, String path, String replacement) {
         // Iterate over keys in the JSON object
         for (String k : json.keySet()) {

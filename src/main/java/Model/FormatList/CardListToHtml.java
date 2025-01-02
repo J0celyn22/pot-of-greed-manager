@@ -1,17 +1,30 @@
 package Model.FormatList;
 
-import java.io.*;
+import Model.CardsLists.Card;
+import Model.CardsLists.CardElement;
+
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 
-import Model.CardsLists.Card;
-import Model.CardsLists.CardElement;
-
 import static Model.FormatList.HtmlGenerator.*;
 
 public class CardListToHtml {
+    /**
+     * Generate an HTML file from a list of CardElements.
+     * The HTML file contains the names and prices of the cards.
+     * The file also contains a link to the Menu.html file.
+     * If the Menu.html file doesn't exist, it is created using the generateMenu method.
+     *
+     * @param cards          the list of cards to be displayed
+     * @param dirPath        the directory path where the HTML file will be created
+     * @param outputFileName the name of the HTML file to be created
+     * @throws IOException if the file cannot be created
+     */
     public static void generateHtml(List<CardElement> cards, String dirPath, String outputFileName) throws IOException {
         outputFileName = outputFileName.replace("\\", "-").replace("/", "-").replace("\"", "");
         String filePath = dirPath + outputFileName + ".html";
@@ -27,13 +40,13 @@ public class CardListToHtml {
             Map<Card, Integer> cardCount = createCardsMap(cards);
 
             for (Map.Entry<Card, Integer> entry : cardCount.entrySet()) {
-                writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, relativeImagePath, dirPath);
+                writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, relativeImagePath);
             }
 
             addFooter(writer);
 
             //If Menu.html doesn't exist, create it using generateMenu method
-            if(!Files.exists(Paths.get(dirPath + "..\\Menu.html"))) {
+            if (!Files.exists(Paths.get(dirPath + "..\\Menu.html"))) {
                 generateMenu(dirPath + "..\\");
             }
         } catch (IOException e) {
@@ -41,6 +54,14 @@ public class CardListToHtml {
         }
     }
 
+    /**
+     * Generates a menu HTML file in the given directory with the given name.
+     * The menu contains links to all the available lists.
+     * The file also contains a link to the Menu.html file, which is created if it doesn't exist.
+     *
+     * @param dirPath the directory path where the menu HTML file will be created
+     * @throws IOException if the file cannot be created
+     */
     public static void generateMenu(String dirPath) throws IOException {
         String outputFileName = "Menu";
         String filePath = dirPath + outputFileName + ".html";
@@ -132,6 +153,19 @@ public class CardListToHtml {
         }
     }
 
+    /**
+     * Writes a list of CardElements to the given writer as an HTML list, where cards which are not owned are displayed first, followed by cards which are owned.
+     *
+     * <p>This method generates an HTML list of CardElements, each of which is displayed
+     * with a link to its corresponding HTML page. A title is also generated, which
+     * displays the name of the list and the total number of cards in the list.
+     *
+     * @param cards          A list of CardElements to be written to the writer.
+     * @param dirPath        The directory path used to construct the links to the HTML pages.
+     * @param outputFileName The name of the output file.
+     * @param printOwned     A boolean indicating whether the cards which are owned should be printed.
+     * @throws IOException If an I/O error occurs while writing to the writer.
+     */
     public static void generateHtmlWithOwned(List<CardElement> cards, String dirPath, String outputFileName, Boolean printOwned) throws IOException {
         outputFileName = outputFileName.replace("\\", "-").replace("/", "-").replace("\"", "");
         String filePath = dirPath + outputFileName + ".html";
@@ -148,12 +182,12 @@ public class CardListToHtml {
             Map<CardElement, Integer> cardCountWithoutO = cardCount[1];
 
             for (Map.Entry<CardElement, Integer> entry : cardCountWithoutO.entrySet()) {
-                writeCardElement(writer, entry.getKey(), entry.getValue(), imagesDirPath, relativeImagePath, dirPath);
+                writeCardElement(writer, entry.getKey(), entry.getValue(), imagesDirPath, relativeImagePath);
             }
 
-            if(printOwned == true) {
+            if (printOwned) {
                 for (Map.Entry<CardElement, Integer> entry : cardCountWithO.entrySet()) {
-                    writeCardElement(writer, entry.getKey(), entry.getValue(), imagesDirPath, relativeImagePath, dirPath);
+                    writeCardElement(writer, entry.getKey(), entry.getValue(), imagesDirPath, relativeImagePath);
                 }
             }
 

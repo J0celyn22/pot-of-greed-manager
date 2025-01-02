@@ -1,28 +1,26 @@
 package Model.FormatList;
 
-import Model.CardsLists.Card;
-import Model.CardsLists.CardElement;
 import Model.CardsLists.DecksAndCollectionsList;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 
 import static Model.FormatList.HtmlGenerator.*;
 
 public class OuicheListToHtml {
     /**
-     * Generate an HTML file displaying a ThemeCollection, as a list
-     * @param ouicheList The ThemeCollection to display
-     * @param dirPath The path of the output file
-     * @throws IOException
+     * Generates an HTML file displaying a detailed list of the OuicheList.
+     *
+     * <p>This function creates an HTML file that represents the provided OuicheList as a detailed list.
+     * It includes headers, titles, and buttons for navigation, as well as sections for both collections
+     * and decks. Each section displays relevant card information and utilizes the provided directory path
+     * for saving the file.</p>
+     *
+     * @param ouicheList The DecksAndCollectionsList to display.
+     * @param dirPath The path of the output file.
+     * @param fileName The name of the file, which will be sanitized and used as the HTML file name.
+     * @throws IOException If an I/O error occurs during file creation or writing.
      */
     public static void generateOuicheListAsListHtml(DecksAndCollectionsList ouicheList, String dirPath, String fileName) throws IOException {
         String filePath = dirPath + fileName.replace("\\", "-").replace("/", "-").replace("\"", "") + " - List.html";
@@ -34,7 +32,7 @@ public class OuicheListToHtml {
             addMosaicButton(writer, fileName);
             addOuicheListButton(writer);
 
-            if(ouicheList.getCollections() != null) {
+            if (ouicheList.getCollections() != null) {
                 addTitle2(writer, "Collections", ouicheList.getCollectionsCardCount(), ouicheList.getCollectionsPrice());
                 for (int i = 0; i < ouicheList.getCollections().size(); i++) {
                     addRectangleBeginning(writer);
@@ -57,7 +55,7 @@ public class OuicheListToHtml {
                 }
             }
 
-            if(ouicheList.getDecks() != null) {
+            if (ouicheList.getDecks() != null) {
                 addTitle2(writer, "Decks", ouicheList.getDecksCardCount(), ouicheList.getDecksPrice());
                 for (int i = 0; i < ouicheList.getDecks().size(); i++) {
                     addRectangleBeginning(writer);
@@ -76,10 +74,18 @@ public class OuicheListToHtml {
     }
 
     /**
-     * Generate an HTML file displaying a ThemeCollection, as a mosaic
-     * @param ouicheList The Deck to display
-     * @param dirPath The path of the output file
-     * @throws IOException
+     * Generates an HTML file displaying the OuicheList as a mosaic.
+     *
+     * <p>This method creates an HTML file that represents the provided OuicheList
+     * in a mosaic format. It includes headers, titles, and buttons for navigation,
+     * and displays information about collections and decks with their respective
+     * card details. The file is saved to the specified directory path with the
+     * given file name.</p>
+     *
+     * @param ouicheList The DecksAndCollectionsList to display.
+     * @param dirPath The path of the output directory.
+     * @param fileName The name of the file, which will be sanitized and used as the HTML file name.
+     * @throws IOException If an I/O error occurs during file creation or writing.
      */
     public static void generateOuicheListAsMosaicHtml(DecksAndCollectionsList ouicheList, String dirPath, String fileName) throws IOException {
         String filePath = dirPath + fileName.replace("\\", "-").replace("/", "-").replace("\"", "") + " - Mosaic.html";
@@ -91,7 +97,7 @@ public class OuicheListToHtml {
             addListButton(writer, fileName);
             addOuicheListButton(writer);
 
-            if(ouicheList.getCollections() != null) {
+            if (ouicheList.getCollections() != null) {
                 addTitle2(writer, "Collections", ouicheList.getCollectionsCardCount(), ouicheList.getCollectionsPrice());
                 for (int i = 0; i < ouicheList.getCollections().size(); i++) {
                     addRectangleBeginning(writer);
@@ -114,7 +120,7 @@ public class OuicheListToHtml {
                 }
             }
 
-            if(ouicheList.getDecks() != null) {
+            if (ouicheList.getDecks() != null) {
                 addTitle2(writer, "Decks", ouicheList.getDecksCardCount(), ouicheList.getDecksPrice());
                 for (int i = 0; i < ouicheList.getDecks().size(); i++) {
                     addRectangleBeginning(writer);

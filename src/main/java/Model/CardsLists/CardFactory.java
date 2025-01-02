@@ -2,12 +2,21 @@ package Model.CardsLists;
 
 import java.util.ArrayList;
 
-import static Model.Database.Database.getAllCardsList;
 import static Model.Database.CardDatabaseManager.getKonamiIdToPassCode;
+import static Model.Database.Database.getAllCardsList;
 import static Model.Database.PrintCodeToKonamiId.getPrintCodeToKonamiId;
 
 public class CardFactory {
-    public static Card CreateCardFromPassCode(String passCode) throws Exception {
+    /**
+     * Creates a new Card object based on the provided passCode by copying
+     * properties from the original Card found in the all cards list.
+     *
+     * @param passCode the passcode of the card to be created
+     * @return a new Card object with properties copied from the original card,
+     * or null if the original card does not exist or an error occurs
+     * @throws Exception if there is an issue during the card creation process
+     */
+    public static Card CreateCardFromPassCode(String passCode) {
         try {
             Card originalCard = getAllCardsList().get(Integer.valueOf(passCode));
             if (originalCard == null) {
@@ -21,7 +30,8 @@ public class CardFactory {
                 if (originalCard.getPrintCode() != null) newCard.setPrintCode(originalCard.getPrintCode());
                 if (originalCard.getImagePath() != null) newCard.setImagePath(originalCard.getImagePath());
                 if (originalCard.getCardType() != null) newCard.setCardType(originalCard.getCardType());
-                if (originalCard.getCardProperties() != null) newCard.setCardProperties(new ArrayList<>(originalCard.getCardProperties()));
+                if (originalCard.getCardProperties() != null)
+                    newCard.setCardProperties(new ArrayList<>(originalCard.getCardProperties()));
                 if (originalCard.getMonsterType() != null) newCard.setMonsterType(originalCard.getMonsterType());
                 newCard.setAtk(originalCard.getAtk());
                 newCard.setDef(originalCard.getDef());
@@ -29,27 +39,36 @@ public class CardFactory {
                 newCard.setRank(originalCard.getRank());
                 if (originalCard.getAttribute() != null) newCard.setAttribute(originalCard.getAttribute());
                 newCard.setLinkVal(originalCard.getLinkVal());
-                if (originalCard.getLinkMarker() != null) newCard.setLinkMarker(new ArrayList<>(originalCard.getLinkMarker()));
+                if (originalCard.getLinkMarker() != null)
+                    newCard.setLinkMarker(new ArrayList<>(originalCard.getLinkMarker()));
                 newCard.setScale(originalCard.getScale());
                 if (originalCard.getPrice() != null) newCard.setPrice(originalCard.getPrice());
                 if (originalCard.getName_EN() != null) newCard.setName_EN(originalCard.getName_EN());
                 if (originalCard.getName_FR() != null) newCard.setName_FR(originalCard.getName_FR());
                 if (originalCard.getName_JA() != null) newCard.setName_JA(originalCard.getName_JA());
-                if (originalCard.getArchetypes() != null) newCard.setArchetypes(new ArrayList<>(originalCard.getArchetypes()));
+                if (originalCard.getArchetypes() != null)
+                    newCard.setArchetypes(new ArrayList<>(originalCard.getArchetypes()));
                 if (originalCard.getArtNumber() != null) newCard.setArtNumber(originalCard.getArtNumber());
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 System.out.println(newCard);
             }
             return newCard;
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             System.out.println("Error during the Card creation");
             return null;
         }
     }
 
 
+    /**
+     * Creates a new Card object based on the provided print code by copying
+     * properties from the original Card found in the all cards list.
+     *
+     * @param printCode the print code of the card to be created
+     * @return a new Card object with properties copied from the original card,
+     *         or null if the original card does not exist or an error occurs
+     * @throws Exception if there is an issue during the card creation process
+     */
     public static Card CreateCardFromPrintCode(String printCode) throws Exception {
         String id = getPrintCodeToKonamiId().get(printCode);
         if (id == null || id.equals("null")) {
@@ -67,15 +86,25 @@ public class CardFactory {
     }
 
 
+    /**
+     * Creates a new Card object based on the provided id.
+     * If the id is in the format of a print code, it will be used to create a new Card object.
+     * If the id is a passcode, it will be used to create a new Card object.
+     * If the id is null, the method will return null and print a message to the console.
+     *
+     * @param id the id of the card to be created
+     * @return a new Card object with properties copied from the original card,
+     *         or null if the original card does not exist or an error occurs
+     * @throws Exception if there is an issue during the card creation process
+     */
     public static Card createCard(String id) throws Exception {
-        if(id != null) {
+        if (id != null) {
             if (id.contains("-") && !id.startsWith("-")) {
                 return CreateCardFromPrintCode(id);
             } else {
                 return CreateCardFromPassCode(id);
             }
-        }
-        else {
+        } else {
             System.out.println("Card id is null");
             //return new Card();
             return null;

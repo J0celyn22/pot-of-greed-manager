@@ -1,29 +1,23 @@
 package Model.FormatList;
 
-import Model.CardsLists.Card;
-import Model.CardsLists.CardElement;
 import Model.CardsLists.Deck;
 
 import java.io.BufferedWriter;
-import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import static Model.FormatList.HtmlGenerator.*;
 
 public class DeckToHtml {
+
     /**
-     * Generate an HTML file displaying a deck, as a list
-     * @param deck The Deck to display
-     * @param dirPath The path of the output file
-     * @throws IOException
+     * Generate an HTML file displaying a Deck, as a list
+     *
+     * @param deck     The Deck to display
+     * @param dirPath  The path of the output file
+     * @param decksList The list of all decks
+     * @throws IOException if an I/O error occurs
      */
     public static void generateDeckAsListHtml(Deck deck, String dirPath, List<Deck> decksList) throws IOException {
         String filePath = dirPath + deck.getName().replace("\\", "-").replace("/", "-").replace("\"", "") + " - List.html";
@@ -46,10 +40,12 @@ public class DeckToHtml {
     }
 
     /**
-     * Generate an HTML file displaying a deck, as a mosaic
-     * @param deck The Deck to display
-     * @param dirPath The path of the output file
-     * @throws IOException
+     * Generate an HTML file displaying a Deck, as a mosaic
+     *
+     * @param deck     The Deck to display
+     * @param dirPath  The path of the output file
+     * @param decksList The list of all decks
+     * @throws IOException if an I/O error occurs
      */
     public static void generateDeckAsMosaicHtml(Deck deck, String dirPath, List<Deck> decksList) throws IOException {
         String filePath = dirPath + deck.getName().replace("\\", "-").replace("/", "-").replace("\"", "") + " - Mosaic.html";
@@ -71,6 +67,13 @@ public class DeckToHtml {
         }
     }
 
+    /**
+     * Generate an HTML file containing a menu of all decks.
+     *
+     * @param dirPath   The path of the output file
+     * @param decksList The list of all decks
+     * @throws IOException if an I/O error occurs
+     */
     public static void generateDecksMenu(String dirPath, List<Deck> decksList) throws IOException {
         String filePath = dirPath + "Decks Menu.html";
         createHtmlFile(filePath);

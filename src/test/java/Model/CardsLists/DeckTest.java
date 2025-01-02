@@ -1,11 +1,12 @@
 package Model.CardsLists;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class DeckTest {
 
@@ -74,7 +75,7 @@ public class DeckTest {
     @Test
     public void testAddCardMain() throws Exception {
         Deck deck = new Deck();
-        Card card = new Card("TestCard");
+        CardElement card = new CardElement("TestCard");
         deck.AddCardMain(card);
         assertTrue(deck.getMainDeck().contains(card));
     }
@@ -82,7 +83,7 @@ public class DeckTest {
     @Test
     public void testAddCardExtra() throws Exception {
         Deck deck = new Deck();
-        Card card = new Card("TestCard");
+        CardElement card = new CardElement("TestCard");
         deck.AddCardExtra(card);
         assertTrue(deck.getExtraDeck().contains(card));
     }
@@ -90,7 +91,7 @@ public class DeckTest {
     @Test
     public void testAddCardSide() throws Exception {
         Deck deck = new Deck();
-        Card card = new Card("TestCard");
+        CardElement card = new CardElement("TestCard");
         deck.AddCardSide(card);
         assertTrue(deck.getSideDeck().contains(card));
     }

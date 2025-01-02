@@ -1,15 +1,16 @@
 package Model.CardsLists;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 import org.junit.jupiter.api.Test;
+
 import java.util.ArrayList;
 import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class DecksAndCollectionsListTest {
 
     @Test
-    public void testGetDecks() throws Exception {
+    public void testGetDecks() {
         DecksAndCollectionsList list = new DecksAndCollectionsList();
         List<Deck> decks = new ArrayList<>();
         list.setDecks(decks);
@@ -17,7 +18,7 @@ public class DecksAndCollectionsListTest {
     }
 
     @Test
-    public void testSetDecks() throws Exception {
+    public void testSetDecks() {
         DecksAndCollectionsList list = new DecksAndCollectionsList();
         List<Deck> decks = new ArrayList<>();
         list.setDecks(decks);
@@ -25,7 +26,7 @@ public class DecksAndCollectionsListTest {
     }
 
     @Test
-    public void testGetCollections() throws Exception {
+    public void testGetCollections() {
         DecksAndCollectionsList list = new DecksAndCollectionsList();
         List<ThemeCollection> collections = new ArrayList<>();
         list.setCollections(collections);
@@ -33,7 +34,7 @@ public class DecksAndCollectionsListTest {
     }
 
     @Test
-    public void testSetCollections() throws Exception {
+    public void testSetCollections() {
         DecksAndCollectionsList list = new DecksAndCollectionsList();
         List<ThemeCollection> collections = new ArrayList<>();
         list.setCollections(collections);
@@ -69,7 +70,7 @@ public class DecksAndCollectionsListTest {
     }
 
     @Test
-    public void testAddDeck() throws Exception {
+    public void testAddDeck() {
         DecksAndCollectionsList list = new DecksAndCollectionsList();
         list.setDecks(new ArrayList<>());
         Deck deck = new Deck();
@@ -78,7 +79,7 @@ public class DecksAndCollectionsListTest {
     }
 
     @Test
-    public void testAddCollection() throws Exception {
+    public void testAddCollection() {
         DecksAndCollectionsList list = new DecksAndCollectionsList();
         list.setCollections(new ArrayList<>());
         ThemeCollection collection = new ThemeCollection();
@@ -87,7 +88,7 @@ public class DecksAndCollectionsListTest {
     }
 
     @Test
-    public void testToString() throws Exception {
+    public void testToString() {
         DecksAndCollectionsList list = new DecksAndCollectionsList();
         List<Deck> decks = new ArrayList<>();
         Deck deck = new Deck();

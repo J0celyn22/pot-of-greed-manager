@@ -1,91 +1,11 @@
 package Model.CardsLists;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 public class DecksAndCollectionsList {
     public List<Deck> decks;
     public List<ThemeCollection> collections;
-
-    public List<Deck> getDecks() {
-        return decks;
-    }
-
-    public void setDecks(List<Deck> decks) {
-        this.decks = decks;
-    }
-
-    public List<ThemeCollection> getCollections() {
-        return collections;
-    }
-
-    public void setCollections(List<ThemeCollection> collections) {
-        this.collections = collections;
-    }
-
-    /*public DecksList(Map<String, List<String>> collectionFileList) throws Exception {
-        this.decks = new ArrayList<>();
-
-        for (Map.Entry<String, List<String>> entry : collectionFileList.entrySet()) {
-            this.decks.add(new Deck(entry.getKey()));
-            for (String line : entry.getValue()) {
-                //System.out.println(line);
-                if (!line.contains("#") && !line.contains("!")&& !line.contains("=")&& !line.contains("--") && !line.equals("")) {
-                    if (entry.getKey().endsWith(".ydk")) {
-                        if(passCodeToId(Integer.valueOf(line)) != null) {
-                            this.decks.get(this.decks.size() - 1).AddCard(new Card(passCodeToId(Integer.valueOf(line))));
-                        }
-                    }
-                    else {
-                        this.decks.get(this.decks.size() - 1).AddCard(new Card(line));
-                    }
-                }
-            }
-        }
-    }*/
-
-    /*public DecksList(Map<String, List<String>> collectionFileList) throws Exception {
-        this.decks = new ArrayList<>();
-
-        for (Map.Entry<String, List<String>> entry : collectionFileList.entrySet()) {
-            // Create a temporary file to hold the deck data
-            File tempFile = File.createTempFile("tempDeck", ".ydk");
-            try (PrintWriter writer = new PrintWriter(tempFile)) {
-                for (String line : entry.getValue()) {
-                    writer.println(line);
-                }
-            }
-
-            // Create a new Deck using the temporary file
-            this.decks.add(new Deck(tempFile.getAbsolutePath()));
-
-            // Delete the temporary file
-            tempFile.delete();
-        }
-    }*/
-
-    /*public DecksAndCollectionsList(String dirPath) throws Exception {
-        this.decks = new ArrayList<>();
-        File dir = new File(dirPath);
-
-        //TODO start with collections, and after that, only add the decks which are not in any collection
-        for (File file : dir.listFiles()) {
-            if(file.getPath().contains(".ydk")) {
-                Deck deck = new Deck(file.getPath());
-                this.decks.add(deck);
-            }
-            else if(file.getPath().contains(".ytc")) {
-                ThemeCollection themeCollection = new ThemeCollection(file.getPath());
-                this.collections.add(themeCollection);
-            }
-            else {
-                System.out.println("Unable to load file : " + file.getPath());
-            }
-        }
-    }*/
 
     public DecksAndCollectionsList(String dirPath) throws Exception {
         this.decks = new ArrayList<>();
@@ -93,7 +13,7 @@ public class DecksAndCollectionsList {
         File dir = new File(dirPath);
 
         // First, import the collections
-        for (File file : dir.listFiles()) {
+        for (File file : Objects.requireNonNull(dir.listFiles())) {
             if (file.getPath().endsWith(".ytc")) {
                 ThemeCollection themeCollection = new ThemeCollection(file.getPath());
                 this.collections.add(themeCollection);
@@ -108,7 +28,7 @@ public class DecksAndCollectionsList {
             }
         }
 
-        for (File file : dir.listFiles()) {
+        for (File file : Objects.requireNonNull(dir.listFiles())) {
             if (file.getPath().endsWith(".ydk")) {
                 Deck deck = new Deck(file.getPath());
                 if (!linkedDeckNames.contains(deck.getName())) {
@@ -120,21 +40,68 @@ public class DecksAndCollectionsList {
         }
     }
 
-    public DecksAndCollectionsList() throws Exception {
+    public DecksAndCollectionsList() {
         this.decks = new ArrayList<>();
         this.collections = new ArrayList<>();
     }
 
+    /**
+     * Retrieves the list of all decks in the list.
+     *
+     * @return a List of Deck objects
+     */
+    public List<Deck> getDecks() {
+        return decks;
+    }
+
+    /**
+     * Sets the list of decks in the list.
+     *
+     * @param decks the list of Deck objects to set
+     */
+    public void setDecks(List<Deck> decks) {
+        this.decks = decks;
+    }
+
+    /**
+     * Retrieves the list of all collections in the list.
+     * <p>
+     * A collection is a group of cards and decks that are linked together.
+     * </p>
+     *
+     * @return a List of ThemeCollection objects
+     */
+    public List<ThemeCollection> getCollections() {
+        return collections;
+    }
+
+    /**
+     * Sets the list of collections in the DecksAndCollectionsList.
+     *
+     * @param collections the list of ThemeCollection objects to set
+     */
+    public void setCollections(List<ThemeCollection> collections) {
+        this.collections = collections;
+    }
+
+    /**
+     * Returns a list of all CardElement objects in the DecksAndCollectionsList.
+     * <p>
+     * This includes all cards in all decks and collections.
+     * </p>
+     *
+     * @return a List of CardElement objects
+     */
     public List<CardElement> toList() {
         List<CardElement> returnValue = new ArrayList<>();
 
-        if(this.getDecks() != null) {
+        if (this.getDecks() != null) {
             for (int i = 0; i < this.getDecks().size(); i++) {
                 returnValue.addAll(this.getDecks().get(i).toList());
             }
         }
 
-        if(this.getCollections() != null) {
+        if (this.getCollections() != null) {
             for (int i = 0; i < this.getCollections().size(); i++) {
                 returnValue.addAll(this.getCollections().get(i).getCardsList());
             }
@@ -143,6 +110,13 @@ public class DecksAndCollectionsList {
         return returnValue;
     }
 
+    /**
+     * Returns a list of all CardElement objects in the DecksAndCollectionsList that are in a collection or a linked deck.
+     * <p>
+     * This includes all cards in all collections and their linked decks.
+     * </p>
+     * @return a List of CardElement objects
+     */
     public List<CardElement> toListCollectionsAndLinkedDecks() {
         List<CardElement> returnValue = new ArrayList<>();
 
@@ -153,74 +127,149 @@ public class DecksAndCollectionsList {
         return returnValue;
     }
 
+    /**
+     * Adds a deck to the list of decks in this DecksAndCollectionsList.
+     * @param deckToAdd the deck to add to the list
+     */
     public void addDeck(Deck deckToAdd) {
         this.decks.add(deckToAdd);
     }
 
+    /**
+     * Adds a collection to the list of collections in this DecksAndCollectionsList.
+     * <p>
+     * This collection and its linked decks will be included in the results of
+     * {@link #toList()} and {@link #toListCollectionsAndLinkedDecks()}.
+     * </p>
+     * @param collectionToAdd the collection to add to the list
+     */
     public void addCollection(ThemeCollection collectionToAdd) {
         this.collections.add(collectionToAdd);
     }
 
-    @Override
-    public String toString() {
-        String returnValue = "";
-
-        for (int i = 0; i < this.decks.size(); i++) {
-            returnValue = returnValue.concat(this.decks.get(i).toString() + "\n");
-        }
-
-        return returnValue;
-    }
-
+    /**
+     * Returns the total number of cards in all decks and collections in this DecksAndCollectionsList.
+     * <p>
+     * This includes all cards in all decks and collections.
+     * </p>
+     * @return the total number of cards in all decks and collections
+     */
     public Integer getCardCount() {
         return getCollectionsCardCount() + getDecksCardCount();
     }
 
+    /**
+     * Calculates the total price of all cards in the decks and collections.
+     *
+     * <p>
+     * This method sums the prices of all cards in both the collections and
+     * decks contained within this DecksAndCollectionsList. The price is
+     * represented as a string in a float format.
+     * </p>
+     *
+     * @return the total price of all cards as a String
+     */
     public String getPrice() {
-        float returnValue = 0;
+        float returnValue;
 
-        returnValue = Float.valueOf(getCollectionsPrice()) + Float.valueOf(getDecksPrice());
+        returnValue = Float.parseFloat(getCollectionsPrice()) + Float.parseFloat(getDecksPrice());
 
         return String.valueOf(returnValue);
     }
 
+    /**
+     * Returns the total number of cards in all collections in this DecksAndCollectionsList.
+     * <p>
+     * This method sums the number of cards in all collections contained within this
+     * DecksAndCollectionsList.
+     * </p>
+     * @return the total number of cards in all collections
+     */
     public Integer getCollectionsCardCount() {
-        Integer returnValue = 0;
+        int returnValue = 0;
 
-        for (int i = 0; i < this.collections.size(); i++) {
-            returnValue = returnValue + this.collections.get(i).getCardCount();
+        for (ThemeCollection collection : this.collections) {
+            returnValue = returnValue + collection.getCardCount();
         }
 
         return returnValue;
     }
 
+    /**
+     * Calculates the total price of all cards in all collections in this DecksAndCollectionsList.
+     *
+     * <p>
+     * This method sums the prices of all cards in all collections contained within this
+     * DecksAndCollectionsList. The price is represented as a string in a float format.
+     * </p>
+     *
+     * @return the total price of all cards in all collections as a String
+     */
     public String getCollectionsPrice() {
         float returnValue = 0;
 
-            for (int i = 0; i < this.collections.size(); i++) {
-            returnValue = returnValue + Float.valueOf(this.collections.get(i).getPrice());
+        for (ThemeCollection collection : this.collections) {
+            returnValue = returnValue + Float.parseFloat(collection.getPrice());
         }
 
         return String.valueOf(returnValue);
     }
 
+    /**
+     * Returns the total number of cards in all decks in this DecksAndCollectionsList.
+     * <p>
+     * This method sums the number of cards in all decks contained within this
+     * DecksAndCollectionsList.
+     * </p>
+     * @return the total number of cards in all decks
+     */
     public Integer getDecksCardCount() {
-        Integer returnValue = 0;
+        int returnValue = 0;
 
-        for (int i = 0; i < this.decks.size(); i++) {
-            returnValue = returnValue + this.decks.get(i).getCardCount();
+        for (Deck deck : this.decks) {
+            returnValue = returnValue + deck.getCardCount();
         }
 
         return returnValue;
     }
 
+    /**
+     * Calculates the total price of all cards in all decks in this DecksAndCollectionsList.
+     *
+     * <p>
+     * This method sums the prices of all cards in all decks contained within this
+     * DecksAndCollectionsList. The price is represented as a string in a float format.
+     * </p>
+     *
+     * @return the total price of all cards in all decks as a String
+     */
     public String getDecksPrice() {
         float returnValue = 0;
 
-        for (int i = 0; i < this.decks.size(); i++) {
-            returnValue = returnValue + Float.valueOf(this.decks.get(i).getPrice());
+        for (Deck deck : this.decks) {
+            returnValue = returnValue + Float.parseFloat(deck.getPrice());
         }
 
         return String.valueOf(returnValue);
+    }
+
+    /**
+     * Returns a string representation of this DecksAndCollectionsList.
+     * <p>
+     * The string representation of this DecksAndCollectionsList is a newline-separated
+     * list of the string representations of all decks in this DecksAndCollectionsList.
+     * </p>
+     *
+     * @return a string representation of this DecksAndCollectionsList
+     */
+    @Override
+    public String toString() {
+        String returnValue = "";
+
+        for (Deck deck : this.decks) {
+            returnValue = returnValue.concat(deck.toString() + "\n");
+        }
+
+        return returnValue;
     }
 }

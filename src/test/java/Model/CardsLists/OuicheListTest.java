@@ -1,12 +1,11 @@
 package Model.CardsLists;
 
-import static org.junit.jupiter.api.Assertions.*;
-
-import Model.CardsLists.DecksAndCollectionsList;
-import Model.CardsLists.OuicheList;
 import org.junit.jupiter.api.Test;
+
 import java.util.ArrayList;
 import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class OuicheListTest {
 
@@ -53,14 +52,14 @@ public class OuicheListTest {
     }
 
     @Test
-    public void testGetDetailedOuicheList() throws Exception {
+    public void testGetDetailedOuicheList() {
         DecksAndCollectionsList list = new DecksAndCollectionsList();
         OuicheList.setDetailedOuicheList(list);
         assertEquals(list, OuicheList.getDetailedOuicheList());
     }
 
     @Test
-    public void testSetDetailedOuicheList() throws Exception {
+    public void testSetDetailedOuicheList() {
         DecksAndCollectionsList list = new DecksAndCollectionsList();
         OuicheList.setDetailedOuicheList(list);
         assertEquals(list, OuicheList.getDetailedOuicheList());

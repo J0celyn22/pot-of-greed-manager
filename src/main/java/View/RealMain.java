@@ -1,6 +1,6 @@
 package View;
 
-import Model.CardsLists.Card;
+import Controller.UserInterfaceFunctions;
 import Model.CardsLists.CardElement;
 import Model.Database.DataBaseUpdate;
 import Model.UltraJeux.CardScraper;
@@ -19,23 +19,43 @@ import javafx.stage.FileChooser;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
 
-import java.io.*;
-import java.util.ArrayList;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-
-
-import Controller.UserInterfaceFunctions;
 
 import static Controller.UserInterfaceFunctions.*;
 import static Model.CardsLists.OuicheList.getMaOuicheList;
 
 public class RealMain extends Application {
-    public static void main(String[] args) throws Exception {
+    /**
+     * Updates the local cache to the latest revision available online.
+     * This needs to be done every time the application is launched so that
+     * the local cache is always up to date.
+     * <p>
+     * Then, it launches the JavaFX application.
+     *
+     * @param args the command line arguments
+     */
+    public static void main(String[] args) {
         DataBaseUpdate.updateCache();
         launch(args);
     }
 
+    /**
+     * This is the main method of the JavaFX application.
+     * It will launch the GUI and set up the main layout.
+     * It will also set up the FileChooser dialogs and the DirectoryChooser dialogs.
+     * It will also set up the TextFields and the Buttons.
+     * It will also set up the event handlers for the buttons.
+     * It will also load the OuicheList from the file selected by the user.
+     * It will also generate the HTML files for the Collection and the Decks and Collections.
+     * It will also generate the OuicheList.
+     * It will also generate the Archetypes lists.
+     * @param primaryStage the stage for the application
+     * @throws FileNotFoundException if the file selected by the user cannot be found
+     */
     @Override
     public void start(Stage primaryStage) throws FileNotFoundException {
         primaryStage.setTitle("Pot of Greed Manager");
@@ -302,7 +322,7 @@ public class RealMain extends Application {
         mainLayout.setSpacing(20);
         mainLayout.setAlignment(Pos.CENTER_LEFT);
 
-        mainLayout.setMargin(generateArchetypesListsButton, new Insets(10, 10, 10, 20));
+        VBox.setMargin(generateArchetypesListsButton, new Insets(10, 10, 10, 20));
 
         BackgroundImage backgroundImage = new BackgroundImage(
                 iconImage,
@@ -319,15 +339,26 @@ public class RealMain extends Application {
         Button cardScraperButton = new Button("Scrape Cards");
         cardScraperButton.setOnAction(e -> {
             try {
-                List<CardElement> maOuicheList = getMaOuicheList(); // Populate this list with your CardElement objects
-                double maxPrice = 100; // Set the maximum price
+                if (!getOuicheListIsLoaded()) {
+                    if (ouicheListPath == null) {
+                        //TODO fenêtre erreur :
+                        System.out.println("OuicheList must be selected");
+                    } else {
+                        loadOuicheList();
+                    }
+                }
 
-                Map<String, List<String>> cardNamesFromWebsite = CardScraper.getCardNamesFromWebsite(maOuicheList, maxPrice);
+                if (getOuicheListIsLoaded()) {
+                    List<CardElement> maOuicheList = getMaOuicheList(); // Populate this list with your CardElement objects
+                    double maxPrice = 100; // Set the maximum price
 
-                for (Map.Entry<String, List<String>> entry : cardNamesFromWebsite.entrySet()) {
-                    System.out.println("Page: " + entry.getKey());
-                    for (String cardName : entry.getValue()) {
-                        System.out.println("Card Name: " + cardName + ", Page: " + entry.getKey());
+                    Map<String, List<String>> cardNamesFromWebsite = CardScraper.getCardNamesFromWebsite(maOuicheList, maxPrice);
+
+                    for (Map.Entry<String, List<String>> entry : cardNamesFromWebsite.entrySet()) {
+                        System.out.println("Page: " + entry.getKey());
+                        for (String cardName : entry.getValue()) {
+                            System.out.println("Card Name: " + cardName + ", Page: " + entry.getKey());
+                        }
                     }
                 }
             } catch (Exception ex) {
@@ -337,7 +368,7 @@ public class RealMain extends Application {
 
         // Add the card scraper button to the main layout
         mainLayout.getChildren().add(cardScraperButton);
-        mainLayout.setMargin(cardScraperButton, new Insets(10, 10, 10, 20));
+        VBox.setMargin(cardScraperButton, new Insets(10, 10, 10, 20));
         //TODO TEMP ? END
 
         Scene scene = new Scene(mainLayout, 600, 300);

@@ -14,9 +14,9 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static Model.Database.KonamiIdToNames.*;
-import static Model.Database.FileFetcher.fetchFile;
 import static Model.Database.CardDatabaseManager.getPassCodeToKonamiId;
+import static Model.Database.FileFetcher.fetchFile;
+import static Model.Database.KonamiIdToNames.*;
 
 //TODO see DAO design pattern ?
 public class Database {
@@ -24,7 +24,19 @@ public class Database {
     private static final List<String> setsList = new ArrayList<>();
     private static final Map<Integer, Card> allCardsList = new HashMap<>();
 
-    // Function to open a JSON file and return its content as a JSONObject
+    // Static block to initialize the Map
+    static {
+        populateJsonContentMap();
+    }
+
+    /**
+     * Fetches a JSON file from the remote location if it does not exist locally, then opens the local copy and returns its content as a JSONObject.
+     * If the content is a JSON array, it is wrapped in a JSONObject with the single key "array".
+     * If an error occurs while reading the file, null is returned.
+     *
+     * @param element the element to search for in the addresses.json file, which can be a file name or a key
+     * @return the content of the JSON file as a JSONObject, or null if an error occurs
+     */
     public static JSONObject openJson(String element) {
         fetchFile(element);
         String[] addresses = DataBaseUpdate.getAddresses(element);
@@ -48,8 +60,14 @@ public class Database {
         return null;
     }
 
-
-    // Function to open a text file and return its content as a List
+    /**
+     * Fetches a file specified by the given element from the remote location if it does not exist locally, then opens the local copy and returns its content as a list of strings.
+     * The content is expected to be a JSON array of strings, and the list returned is a list of these strings, without any enclosing "[", "]", or "\" characters.
+     * If an error occurs while reading the file, null is returned.
+     *
+     * @param element the element to search for in the addresses.json file, which can be a file name or a key
+     * @return the content of the file as a list of strings, or null if an error occurs
+     */
     public static List<String> openSets(String element) {
         fetchFile(element);
         String[] addresses = DataBaseUpdate.getAddresses(element);
@@ -65,23 +83,11 @@ public class Database {
         return null;
     }
 
-    // Function to copy an image file to a specified destination path
-    public static void copyImage(String element, String destinationPath) {
-        element += ".jpg";
-        fetchFile(element);
-        String[] addresses = DataBaseUpdate.getAddresses(element);
-        if (addresses.length > 0) {
-            String localPath = addresses[0];
-            try {
-                Files.copy(Paths.get(localPath), Paths.get(destinationPath));
-                System.out.println("Image copied to destination: " + destinationPath);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-    // Function to populate the static Map with JSON content
+    /**
+     * Populates the jsonContentMap from the JSON object in the addresses.json file.
+     * This method is called at the start of the program to initialize the map.
+     * If an error occurs while reading the file, it is printed to the console.
+     */
     public static void populateJsonContentMap() {
         try {
             String content = new String(Files.readAllBytes(Paths.get("src/main/java/Model/Database/addresses.json")));
@@ -92,7 +98,18 @@ public class Database {
         }
     }
 
-    // Recursive function to populate the Map from the JSON object TODO make it recursive again
+    /**
+     * Populates the jsonContentMap and setsList from a given JSON object.
+     * This method is called recursively to traverse the JSON object.
+     * If a JSON object is encountered, the method is called recursively with the JSON object and the path + key + "/".
+     * If a string is encountered and it does not contain "<" or ">", it is added to the jsonContentMap or setsList depending on whether the element ends with ".json" or ".txt".
+     * The jsonContentMap contains the JSON objects with the key being the element without the part before "/" and the "/".
+     * The setsList contains the strings from the JSON array with the key being the element without the part before "/" and the "/".
+     * If an error occurs while reading the file, it is not printed to the console.
+     *
+     * @param json the JSON object to populate the jsonContentMap and setsList from
+     * @param path the current path to append to
+     */
     private static void populateMapFromJson(JSONObject json, String path) {
         for (String key : json.keySet()) {
             Object value = json.get(key);
@@ -117,8 +134,36 @@ public class Database {
         }
     }
 
-    private static void createAllCardsList() throws Exception {
-        JSONObject jsonObject = (JSONObject) Database.jsonContentMap.get("cardinfo.json");
+    /**
+     * Populates the allCardsList map with all the cards from the cardinfo.json file.
+     *
+     * <p>This method reads the cardinfo.json file and creates a Card object for each card in the JSON array.
+     * The method then populates the allCardsList map with the Card objects.
+     * </p>
+     *
+     * <p>The Card objects are created with the following attributes:
+     * <ul>
+     * <li>passCode: the id of the card</li>
+     * <li>konamiId: the Konami ID of the card</li>
+     * <li>name_EN: the English name of the card</li>
+     * <li>name_FR: the French name of the card</li>
+     * <li>name_JA: the Japanese name of the card</li>
+     * <li>imagePath: the path to the image of the card</li>
+     * <li>archetypes: the archetypes of the card</li>
+     * <li>cardType: the type of the card (Monster, Spell, Trap)</li>
+     * <li>monsterType: the type of the Monster card (e.g. Normal, Effect, Ritual)</li>
+     * <li>level: the level of the Monster card</li>
+     * <li>rank: the rank of the Monster card</li>
+     * <li>attribute: the attribute of the Monster card (e.g. LIGHT, DARK)</li>
+     * <li>linkVal: the link value of the Monster card</li>
+     * <li>linkMarker: the link markers of the Monster card</li>
+     * <li>scale: the scale of the Monster card</li>
+     * <li>price: the price of the card</li>
+     * </ul>
+     * </p>
+     */
+    private static void createAllCardsList() {
+        JSONObject jsonObject = Database.jsonContentMap.get("cardinfo.json");
         try {
             if (jsonObject != null) {
                 JSONArray dataArray = jsonObject.getJSONArray("data");
@@ -186,7 +231,7 @@ public class Database {
                             // Set the price of the card
                             if (dataObject.has("card_prices")) {
                                 JSONArray cardPricesArray = dataObject.getJSONArray("card_prices");
-                                if (cardPricesArray.length() > 0) {
+                                if (!cardPricesArray.isEmpty()) {
                                     JSONObject cardPriceObject = cardPricesArray.getJSONObject(0);
                                     card.setPrice(cardPriceObject.optString("cardmarket_price", "0.0"));
                                 }
@@ -200,8 +245,7 @@ public class Database {
                                     typeline.add(typelineArray.getString(k));
                                 }
                                 card.setCardProperties(typeline);
-                            }
-                            else if (dataObject.has("race")) {
+                            } else if (dataObject.has("race")) {
                                 String race = dataObject.getString("race");
                                 List<String> typeline = new ArrayList<>();
                                 typeline.add(race);
@@ -221,16 +265,18 @@ public class Database {
         }
     }
 
-
-    public static Map<Integer, Card> getAllCardsList() throws Exception {
+    /**
+     * Retrieves the list of all cards in the database.
+     * <p>
+     * If the list is empty, it will be created first.
+     * </p>
+     *
+     * @return the list of all cards in the database
+     */
+    public static Map<Integer, Card> getAllCardsList() {
         if (allCardsList.isEmpty()) {
             createAllCardsList();
         }
         return allCardsList;
-    }
-
-    // Static block to initialize the Map
-    static {
-        populateJsonContentMap();
     }
 }

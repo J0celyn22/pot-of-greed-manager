@@ -66,31 +66,36 @@ public class SubListCreator {
     public static List<String> archetypesList = new ArrayList<>();
 
 
+    /**
+     * Separates the given cardsList into 3 sublists: monsterList, spellList, and trapList.
+     *
+     * @param cardsList The list of cards to separate.
+     */
     public static void CreateSubLists(List<CardElement> cardsList) {
         monsterList = new ArrayList<>();
         spellList = new ArrayList<>();
         trapList = new ArrayList<>();
         for (CardElement card : cardsList) {
-            if(card.getCard().getCardType() != null) {
-                if(card.getCard().getCardType().contains("Monster")) {
+            if (card.getCard().getCardType() != null) {
+                if (card.getCard().getCardType().contains("Monster")) {
                     monsterList.add(card);
-                }
-                else if (card.getCard().getCardType().contains("Spell")) {
+                } else if (card.getCard().getCardType().contains("Spell")) {
                     spellList.add(card);
-                }
-                else if (card.getCard().getCardType().contains("Trap")) {
+                } else if (card.getCard().getCardType().contains("Trap")) {
                     trapList.add(card);
-                }
-                else {
+                } else {
                     System.out.println("Card type not found : " + card.getCard().getName_EN() + " - " + card.getCard().getPrintCode() + " - " + card.getCard().getKonamiId());
                 }
-            }
-            else {
+            } else {
                 System.out.println("Card type not found : " + card.getCard().getName_EN() + " - " + card.getCard().getPrintCode() + " - " + card.getCard().getKonamiId());
             }
         }
     }
 
+    /**
+     * Separates the given monsterList into several sublists based on the different types of monsters.
+     * @param cardsList The list of cards to separate.
+     */
     public static void CreateSubMonsterLists(List<CardElement> cardsList) {
         pyroTypeMonster = new ArrayList<>();
         aquaTypeMonster = new ArrayList<>();
@@ -133,7 +138,7 @@ public class SubListCreator {
         geminiMonsterCard = new ArrayList<>();
 
         for (CardElement card : cardsList) {
-            if(card.getCard().getCardType() != null) {
+            if (card.getCard().getCardType() != null) {
                 for (String property : card.getCard().getCardProperties()) {
                     switch (property) {
                         case "Pyro":
@@ -297,14 +302,18 @@ public class SubListCreator {
                             break;
                     }
                 }
-            }
-            else {
+            } else {
                 System.out.println("Monster Card subtype not found : " + card.getCard().getName_EN() + " - " + card.getCard().getPrintCode() + " - " + card.getCard().getKonamiId());
             }
         }
     }
 
 
+    /**
+     * Generates several sublists of the given list of Spell cards based on the different types of cards.
+     *
+     * @param cardsList the list of Spell cards to generate the sublists from
+     */
     public static void CreateSubSpellLists(List<CardElement> cardsList) {
         normalSpellCard = new ArrayList<>();
         continuousSpellCard = new ArrayList<>();
@@ -314,7 +323,7 @@ public class SubListCreator {
         ritualSpellCard = new ArrayList<>();
 
         for (CardElement card : cardsList) {
-            if(card.getCard().getCardType() != null) {
+            if (card.getCard().getCardType() != null) {
                 for (String property : card.getCard().getCardProperties()) {
                     switch (property) {
                         case "Normal":
@@ -346,20 +355,24 @@ public class SubListCreator {
                             break;
                     }
                 }
-            }
-            else {
+            } else {
                 System.out.println("Spell Card subtype not found : " + card.getCard().getName_EN() + " - " + card.getCard().getPrintCode() + " - " + card.getCard().getKonamiId());
             }
         }
     }
 
+    /**
+     * Generates several sublists of the given list of Trap cards based on the different types of cards.
+     *
+     * @param cardsList the list of Trap cards to generate the sublists from
+     */
     public static void CreateSubTrapLists(List<CardElement> cardsList) {
         normalTrapCard = new ArrayList<>();
         continuousTrapCard = new ArrayList<>();
         counterTrapCard = new ArrayList<>();
 
         for (CardElement card : cardsList) {
-            if(card.getCard().getCardType() != null) {
+            if (card.getCard().getCardType() != null) {
                 for (String property : card.getCard().getCardProperties()) {
                     switch (property) {
                         case "Normal":
@@ -379,13 +392,20 @@ public class SubListCreator {
                             break;
                     }
                 }
-            }
-            else {
+            } else {
                 System.out.println("Trap Card subtype not found : " + card.getCard().getName_EN() + " - " + card.getCard().getPrintCode() + " - " + card.getCard().getKonamiId());
             }
         }
     }
 
+    /**
+     * Creates the archetypes lists from the given list of cards.
+     * <p>
+     * The archetypes are loaded from the "archetypes.json" file.
+     * Each archetype is represented by its name and a list of cards.
+     * </p>
+     * @param cardsList the list of cards to generate the archetypes lists from
+     */
     public static void CreateArchetypeLists(Map<Integer, Card> cardsList) {
         archetypesCardsLists = new ArrayList<>();
         archetypesList = new ArrayList<>();
@@ -407,25 +427,7 @@ public class SubListCreator {
         // Iterate through the list of cards and add each card to the corresponding archetypes
         for (Map.Entry<Integer, Card> entry : cardsList.entrySet()) {
             Card card = entry.getValue();
-            List<Integer> indexes = new ArrayList<>();
-            for (int i = 0; i < archetypesList.size(); i++) {
-                if (card.getArchetypes() != null) {
-                    boolean added = false;
-                    for (int j = 0; j < card.getArchetypes().size(); j++) {
-                        if (card.getArchetypes().get(j).equalsIgnoreCase(archetypesList.get(i))) {
-                            indexes.add(i);
-                            added = true;
-                        }
-                    }
-                    if (!added) {
-                        if(card.getName_EN() != null) {
-                            if (card.getName_EN().toLowerCase().contains(archetypesList.get(i).toLowerCase())) {
-                                indexes.add(i);
-                            }
-                        }
-                    }
-                }
-            }
+            List<Integer> indexes = getIntegers(card);
 
             if (!indexes.isEmpty()) {
                 for (int index : indexes) {
@@ -433,5 +435,40 @@ public class SubListCreator {
                 }
             }
         }
+    }
+
+    /**
+     * Retrieves a list of indexes for archetypes associated with the given card.
+     * <p>
+     * This method iterates over the list of archetypes and checks if each archetype
+     * is associated with the provided card. An archetype is considered associated
+     * if it matches any of the card's archetypes or if the card's English name contains
+     * the archetype name.
+     * </p>
+     *
+     * @param card the Card object for which to find associated archetype indexes
+     * @return a List of Integer indexes representing the positions of associated archetypes
+     */
+    private static List<Integer> getIntegers(Card card) {
+        List<Integer> indexes = new ArrayList<>();
+        for (int i = 0; i < archetypesList.size(); i++) {
+            if (card.getArchetypes() != null) {
+                boolean added = false;
+                for (int j = 0; j < card.getArchetypes().size(); j++) {
+                    if (card.getArchetypes().get(j).equalsIgnoreCase(archetypesList.get(i))) {
+                        indexes.add(i);
+                        added = true;
+                    }
+                }
+                if (!added) {
+                    if (card.getName_EN() != null) {
+                        if (card.getName_EN().toLowerCase().contains(archetypesList.get(i).toLowerCase())) {
+                            indexes.add(i);
+                        }
+                    }
+                }
+            }
+        }
+        return indexes;
     }
 }

@@ -4,17 +4,18 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.Mockito;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import static org.junit.jupiter.api.Assertions.*;
 
-import org.mockito.Mock;
-import org.mockito.Mockito;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.doReturn;
 
+@SuppressWarnings({"DuplicateExpressions", "InstantiationOfUtilityClass"})
 public class IntegrationTest {
 
     @ParameterizedTest
@@ -47,9 +48,9 @@ public class IntegrationTest {
         String localPath = addresses[0];
 
         // Modify en.json locally
-        String originalContent = new String(Files.readAllBytes(Paths.get(localPath)), StandardCharsets.UTF_8);
+        String originalContent = Files.readString(Paths.get(localPath));
         String modifiedContent = originalContent + "\nModified content";
-        Files.write(Paths.get(localPath), modifiedContent.getBytes(StandardCharsets.UTF_8));
+        Files.writeString(Paths.get(localPath), modifiedContent);
 
         // Invalidate the path
         FileFetcher.invalidatedPaths.add(localPath);
@@ -58,7 +59,7 @@ public class IntegrationTest {
         FileFetcher.fetchFile(file);
 
         // Verify the file has been reverted to remove the changes
-        String fetchedContent = new String(Files.readAllBytes(Paths.get(localPath)), StandardCharsets.UTF_8);
+        String fetchedContent = Files.readString(Paths.get(localPath));
         assertEquals(originalContent, fetchedContent);
     }
 
@@ -114,7 +115,7 @@ public class IntegrationTest {
     @Test
     public void testReadLocalRevision() throws IOException {
         // Read the current revision from the file
-        String content = new String(Files.readAllBytes(Paths.get("src/main/resources/revision.txt")), StandardCharsets.UTF_8);
+        String content = Files.readString(Paths.get("src/main/resources/revision.txt"));
         int expectedRevision = Integer.parseInt(content.trim());
 
         // Read the revision using the function
@@ -123,9 +124,6 @@ public class IntegrationTest {
         // Check that the values are equal
         assertEquals(expectedRevision, actualRevision);
     }
-
-    //@Mock
-    //DataBaseUpdate cacheUpdater;
 
     @Disabled
     @Test
@@ -141,23 +139,24 @@ public class IntegrationTest {
         FileFetcher.fetchFile(file);
 
         // Modify en.json locally
-        String originalContent = new String(Files.readAllBytes(Paths.get(localPath)), StandardCharsets.UTF_8);
+        String originalContent = Files.readString(Paths.get(localPath));
         String modifiedContent = originalContent + "\nModified content";
-        Files.write(Paths.get(localPath), modifiedContent.getBytes(StandardCharsets.UTF_8));
+        Files.writeString(Paths.get(localPath), modifiedContent);
 
         // Mock the fetchManifest function to invalidate en.json's path
         DataBaseUpdate cacheUpdater = Mockito.spy(new DataBaseUpdate());
-        doReturn("{ \"ygoresources\": { \"name\": { \"en.json\": 1 } } }").when(cacheUpdater).fetchManifest(anyInt());
+        doReturn("{ \"ygoresources\": { \"name\": { \"en.json\": 1 } } }").when(cacheUpdater);
+        DataBaseUpdate.fetchManifest(anyInt());
         //when(cacheUpdater.fetchManifest(anyInt())).thenReturn("{ \"ygoresources\": { \"name\": { \"en.json\": 1 } } }");
 
         // Call the updateCache function
-        cacheUpdater.updateCache();
+        DataBaseUpdate.updateCache();
 
         // Fetch en.json again
         FileFetcher.fetchFile(file);
 
         // Verify the file has been reverted to remove the changes
-        String fetchedContent = new String(Files.readAllBytes(Paths.get(localPath)), StandardCharsets.UTF_8);
+        String fetchedContent = Files.readString(Paths.get(localPath));
         assertEquals(originalContent, fetchedContent);
 
         // Revert the revision number to its original value

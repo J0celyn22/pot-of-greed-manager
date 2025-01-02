@@ -6,7 +6,7 @@ import static Model.Database.PrintCodeToKonamiId.getPrintCodeToKonamiId;
 
 class PrintCodeToKonamiIdTest {
     @Test
-    public void testGetPrintCodeKonamiIdPairs() throws Exception {
+    public void testGetPrintCodeKonamiIdPairs() {
         // Read the current revision from the file
         //String content = new String(Files.readAllBytes(Paths.get("src/main/resources/revision.txt")), StandardCharsets.UTF_8);
         //int expectedRevision = Integer.parseInt(content.trim());

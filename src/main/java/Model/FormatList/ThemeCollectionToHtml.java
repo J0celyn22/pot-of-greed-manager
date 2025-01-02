@@ -1,28 +1,19 @@
 package Model.FormatList;
 
-import Model.CardsLists.Card;
-import Model.CardsLists.CardElement;
 import Model.CardsLists.ThemeCollection;
 
 import java.io.BufferedWriter;
-import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 
 import static Model.FormatList.HtmlGenerator.*;
 
 public class ThemeCollectionToHtml {
     /**
      * Generate an HTML file displaying a ThemeCollection, as a list
+     *
      * @param themeCollection The ThemeCollection to display
-     * @param dirPath The path of the output file
+     * @param dirPath         The path of the output file
      * @throws IOException
      */
     public static void generateThemeCollectionAsListHtml(ThemeCollection themeCollection, String dirPath) throws IOException {
@@ -54,8 +45,9 @@ public class ThemeCollectionToHtml {
 
     /**
      * Generate an HTML file displaying a ThemeCollection, as a mosaic
+     *
      * @param themeCollection The Deck to display
-     * @param dirPath The path of the output file
+     * @param dirPath         The path of the output file
      * @throws IOException
      */
     public static void generateThemeCollectionAsMosaicHtml(ThemeCollection themeCollection, String dirPath) throws IOException {

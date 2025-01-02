@@ -5,10 +5,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 import static Model.CardsLists.ListDifferenceIntersection.ListDifIntersectArtworkWithExceptions;
-import static Model.CardsLists.ListDifferenceIntersection.ListDifIntersectKonamiIdWithExceptions;
 
 /**
  * Collection of cards with a theme.
@@ -26,82 +26,17 @@ public class ThemeCollection {
 
     public Boolean connectToWholeCollection;
 
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public List<CardElement> getCardsList() {
-        return cardsList;
-    }
-
-    public void setCardsList(List<CardElement> cardsList) {
-        this.cardsList = cardsList;
-    }
-
-    public List<CardElement> getExceptionsToNotAdd() {
-        return exceptionsToNotAdd;
-    }
-
-    public void setExceptionsToNotAdd(List<CardElement> exceptionsToNotAdd) {
-        this.exceptionsToNotAdd = exceptionsToNotAdd;
-    }
-
-    public List<Deck> getLinkedDecks() {
-        return linkedDecks;
-    }
-
-    public void setLinkedDecks(List<Deck> linkedDecks) {
-        this.linkedDecks = linkedDecks;
-    }
-
-    public Boolean getConnectToWholeCollection() {
-        return connectToWholeCollection;
-    }
-
-    public void setConnectToWholeCollection(Boolean connectToWholeCollection) {
-        this.connectToWholeCollection = connectToWholeCollection;
-    }
-
-        /* open file
-        *  name = fileName
-        *  parcourir lignes fichier jusqu'à ligne "Not to add" (si présent), créer et compléter cardsList, booléen à True si "*" dans la ligne
-        *  créer liste exceptionsToNotRemove et ajouter toutes les cartes ayant un "+" dans leur ligne
-        *  parcourir lignes fichier à partir de "Not to add" (si présent), créer et compléter exceptionsToNotAdd
-        *  si connectToWholeCollection == false :
-        *  parcourir decks liés si liste non vide, ouvrir fichiers concernés, parcourir listes, retirer cartes présentes dans la liste sauf si "+" dans la ligne
-        *  sinon parcourir Collection et retirer les cartes présentes sauf si "+" présent dans la liste
-        * */
     public ThemeCollection(String filePath) throws Exception {
         Path path = Paths.get(filePath);
         this.name = path.getFileName().toString().replaceFirst("[.][^.]+$", "");
 
         List<String> lines = Files.readAllLines(path);
 
+        cardsList = new ArrayList<>();
+
         for (String line : lines) {
             if (line.equals("#Not to add")) break;
 
-            /*Card card;
-            if (line.contains(",")) {
-                String[] parts = line.split(",", 2);
-                String part1 = parts[0].replace("*", "").replace("+", "").trim();
-                String part2 = parts[1];
-                card = new Card(part1, part2);
-            }
-            else {
-                card = new Card(line.replace("*", "").replace("+", "").trim());
-            }
-            String markers = "";
-            if(line.contains("*")) {
-                markers += "*";
-            }
-            if(line.contains("+")) {
-                markers += "+";
-            }
-            cardsList.put(card, markers);*/
             cardsList.add(new CardElement(line));
         }
 
@@ -109,17 +44,14 @@ public class ThemeCollection {
         if (index != -1) {
             for (int i = index + 1; i < lines.size(); i++) {
                 if (lines.get(i).equals("#Not to add")) break;
-                exceptionsToNotAdd.add(new CardElement(lines.get(i)));
+                if (exceptionsToNotAdd != null) {
+                    exceptionsToNotAdd.add(new CardElement(lines.get(i)));
+                }
             }
         }
 
         index = lines.indexOf("#Link to whole collection");
-        if (index != -1) {
-            connectToWholeCollection = true;
-        }
-        else {
-            connectToWholeCollection = false;
-        }
+        connectToWholeCollection = index != -1;
 
         if (!connectToWholeCollection) {
             index = lines.indexOf("#Linked decks");
@@ -148,13 +80,157 @@ public class ThemeCollection {
         this.connectToWholeCollection = false;
     }
 
+    /**
+     * Retrieves the name of this theme collection.
+     * <p>
+     * The name of the theme collection should be a String that represents the name of the theme collection.
+     * </p>
+     *
+     * @return the name of this theme collection as a String
+     */
+    public String getName() {
+        return name;
+    }
 
-        /* Create or replace file with this.name as a name and "ytc" as extension
-        *  parcourir liste cartes et ajouter PassCodes dans fichier, avec "*" si booléen correspondant à True, et "+" si carte dans exceptionsToNotRemove (parcours exceptionsToNotRemove en parallèle)
-        *  ajout ligne "Not to add" si exceptionsToNotAdd n'est pas vide
-        *  parcourir liste exceptionsToNotAdd si non vide et ajouter PassCodes
-        *  Enregistrer/libérer fichier
-        * */
+    /**
+     * Sets the name of this theme collection.
+     * <p>
+     * The name should be a String that represents the name of the theme collection.
+     * </p>
+     *
+     * @param name the name to set for this theme collection
+     */
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    /**
+     * Retrieves the list of all cards in this theme collection.
+     * <p>
+     * The returned list contains all cards that are part of this theme collection.
+     * </p>
+     *
+     * @return the list of all cards in this theme collection
+     */
+    public List<CardElement> getCardsList() {
+        return cardsList;
+    }
+
+    /**
+     * Sets the list of cards in this theme collection.
+     * <p>
+     * The provided list of cards should contain all cards that are part of this theme collection.
+     * </p>
+     *
+     * @param cardsList the list of cards to set for this theme collection
+     */
+    public void setCardsList(List<CardElement> cardsList) {
+        this.cardsList = cardsList;
+    }
+
+    /**
+     * Retrieves the list of exceptions to not add to this theme collection.
+     * <p>
+     * This list contains all cards that are explicitly not to be added to this theme collection.
+     * </p>
+     *
+     * @return the list of exceptions to not add to this theme collection
+     */
+    public List<CardElement> getExceptionsToNotAdd() {
+        return exceptionsToNotAdd;
+    }
+
+    /**
+     * Sets the list of exceptions for cards that should not be added to this theme collection.
+     * <p>
+     * This method assigns the given list of {@link CardElement} objects to the exceptions list
+     * for this theme collection. These cards will be explicitly excluded from being added to
+     * the collection.
+     * </p>
+     *
+     * @param exceptionsToNotAdd the list of {@link CardElement} objects to set as exceptions
+     */
+    public void setExceptionsToNotAdd(List<CardElement> exceptionsToNotAdd) {
+        this.exceptionsToNotAdd = exceptionsToNotAdd;
+    }
+
+    /**
+     * Retrieves the list of linked decks for this theme collection.
+     * <p>
+     * These decks are linked to the theme collection. Cards from these decks are
+     * automatically added to the theme collection.
+     * </p>
+     *
+     * @return the list of linked decks for this theme collection
+     */
+    public List<Deck> getLinkedDecks() {
+        return linkedDecks;
+    }
+
+    /**
+     * Sets the list of linked decks for this theme collection.
+     * <p>
+     * The provided list of decks should contain all decks that are linked to this theme collection.
+     * Cards from these decks are automatically added to the theme collection.
+     * </p>
+     *
+     * @param linkedDecks the list of decks to set as linked decks for this theme collection
+     */
+    public void setLinkedDecks(List<Deck> linkedDecks) {
+        this.linkedDecks = linkedDecks;
+    }
+
+    /**
+     * Retrieves a boolean indicating if this theme collection should connect to the whole collection of cards.
+     * <p>
+     * If this is set to true, the theme collection will automatically include all cards in the whole collection.
+     * </p>
+     *
+     * @return true if this theme collection should connect to the whole collection, false if not
+     */
+    public Boolean getConnectToWholeCollection() {
+        return connectToWholeCollection;
+    }
+
+    /**
+     * Sets a boolean indicating if this theme collection should connect to the whole collection of cards.
+     * <p>
+     * If this is set to true, the theme collection will automatically include all cards in the whole collection.
+     * </p>
+     *
+     * @param connectToWholeCollection true if this theme collection should connect to the whole collection, false if not
+     */
+    public void setConnectToWholeCollection(Boolean connectToWholeCollection) {
+        this.connectToWholeCollection = connectToWholeCollection;
+    }
+
+    /**
+     * Saves the theme collection to a file.
+     * <p>
+     * The file name is the name of the theme collection, followed by ".ytc".
+     * The file is written in the following format:
+     * <pre>
+     * Card1
+     * Card2
+     * ...
+     * Not to add
+     * Card3
+     * Card4
+     * ...
+     * Deck1
+     * Deck2
+     * ...
+     * Archetype1
+     * Archetype2
+     * ...
+     * </pre>
+     * If the list of cards to not add is empty, the "Not to add" line is not written.
+     * If the list of linked decks is empty, the cards are not written.
+     * If the list of archetypes is empty, the archetypes are not written.
+     * </p>
+     * @param savePath the path to which to save the file
+     * @throws IOException if there is an error writing to the file
+     */
     public void SaveToFile(String savePath) throws IOException {
         Path path = Paths.get(savePath + this.name + ".ytc");
         BufferedWriter writer = Files.newBufferedWriter(path);
@@ -171,18 +247,17 @@ public class ThemeCollection {
                 writer.write(card.toString());
                 writer.newLine();
             }
-        }
-        else {
-            if(linkedDecks.size() != 0) {
-                for(int i = 0; i < linkedDecks.size(); i++) {
-                    writer.write(linkedDecks.get(i).getName());
+        } else {
+            if (!linkedDecks.isEmpty()) {
+                for (Deck linkedDeck : linkedDecks) {
+                    writer.write(linkedDeck.getName());
                     writer.newLine();
                 }
             }
         }
 
-        if(!archetypes.isEmpty()) {
-            for(String archetype : archetypes) {
+        if (!archetypes.isEmpty()) {
+            for (String archetype : archetypes) {
                 writer.write(archetype);
                 writer.newLine();
             }
@@ -195,26 +270,31 @@ public class ThemeCollection {
         this.cardsList.add(cardToAdd);
     }*/
 
+    /**
+     * Adds a deck to the list of linked decks.
+     *
+     * @param deckToAdd the deck to add to the list of linked decks
+     */
     public void AddDeck(Deck deckToAdd) {
         this.linkedDecks.add(deckToAdd);
     }
-
-    /*public String toString() {
-        String returnValue = this.name;
-
-        for (int i = 0; i < this.cardsList.size(); i++) {
-            returnValue = returnValue.concat("\n" + this.cardsList.get(i).toString());
-        }
-
-        return returnValue;
-    }*/
 
     public void AddArchetypeCards(String archetype) {
         //TODO parcourir cartes archétype, ajouter celles qui n'y sont pas, si elles ne sont pas présentes dans la liste des cartes à ne pas ajouter
         // ajouter archétype à liste des archétypes
     }
 
-    public void createCardsList() throws Exception {
+    /**
+     * Creates and updates the list of cards for this theme collection by performing
+     * intersection operations with linked decks and applying exceptions.
+     * <p>
+     * This method first performs a difference-intersection operation with artwork exceptions
+     * and then performs a difference-intersection with Konami ID exceptions. The resulting
+     * list of cards, after applying these operations, becomes the new list of cards for
+     * this theme collection.
+     * </p>
+     */
+    public void createCardsList() {
         List<CardElement> linkedDecksList = new ArrayList<>();
         List<CardElement> tempCardsList;
         List<List<CardElement>> tempList;
@@ -226,6 +306,43 @@ public class ThemeCollection {
         this.cardsList = tempList.get(0);
     }
 
+    /**
+     * Retrieves the total number of cards in this theme collection.
+     * <p>
+     * The returned value is the total number of cards in the list of cards for
+     * this theme collection.
+     * </p>
+     * @return the total number of cards in this theme collection
+     */
+    public Integer getCardCount() {
+        return this.cardsList.size();
+    }
+
+    /**
+     * Calculates the total price of all cards in this theme collection.
+     * <p>
+     * This method sums the prices of all cards in the list of cards for this theme collection.
+     * </p>
+     * @return the total price as a String
+     */
+    public String getPrice() {
+        float price = 0;
+        for (CardElement card : this.cardsList) {
+            price += Float.parseFloat(card.getCard().getPrice());
+        }
+        return String.valueOf(price);
+    }
+
+    /**
+     * Retrieves the list of all cards in this theme collection.
+     * <p>
+     * The returned list contains all cards that are part of this theme collection.
+     * This includes all cards in all linked decks and all cards in the list of cards
+     * for this theme collection.
+     * </p>
+     *
+     * @return the list of all cards in this theme collection
+     */
     public List<CardElement> toList() {
         List<CardElement> returnValue = new ArrayList<>();
 
@@ -236,21 +353,5 @@ public class ThemeCollection {
         returnValue.addAll(this.getCardsList());
 
         return returnValue;
-    }
-
-    public void setCardsMap(List<CardElement> cardStringMap) {
-
-    }
-
-    public Integer getCardCount() {
-        return this.cardsList.size();
-    }
-
-    public String getPrice() {
-        float price = 0;
-        for (CardElement card : this.cardsList) {
-            price += Float.valueOf(card.getCard().getPrice());
-        }
-        return String.valueOf(price);
     }
 }

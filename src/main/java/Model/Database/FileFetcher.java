@@ -11,16 +11,16 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
-import java.util.concurrent.Semaphore;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Semaphore;
 
 public class FileFetcher {
 
+    public static final Set<String> invalidatedPaths = new HashSet<>();
     private static final int MAX_CALLS_PER_SECOND = 20;
     private static final Semaphore semaphore = new Semaphore(MAX_CALLS_PER_SECOND);
-    public static final Set<String> invalidatedPaths = new HashSet<>();
 
     /**
      * Fetches a file specified by the given element from the remote location.
@@ -67,7 +67,7 @@ public class FileFetcher {
     /**
      * Fetches a file from the remote location and saves it locally.
      *
-     * @param element the element to search for in the addresses.json file
+     * @param element    the element to search for in the addresses.json file
      * @param remotePath the remote path of the file to fetch
      */
     public static void fetchFile(String element, String remotePath) {
@@ -131,7 +131,6 @@ public class FileFetcher {
      * {@link #fetchFile(String)} with the passcode and ".jpg" appended to the end. The <printcode>.json files are
      * retrieved by calling {@link #fetchFile(String)} with the printcode and ".json" appended to the end.
      *
-     * @throws IOException if an error occurs while reading the addresses.json file or fetching a file
      * @throws JSONException if an error occurs while parsing the addresses.json file
      */
     public static void fetchAllFiles() {
@@ -144,13 +143,13 @@ public class FileFetcher {
             fetchFilesFromJson(json);
 
             // Process <passcode>.jpg files
-            List<String> passcodes = getPasscodesList();
+            List<String> passcodes = getPasscodesList(); //TODO
             for (String passcode : passcodes) {
                 fetchFile(passcode + ".jpg");
             }
 
             // Process <printcode>.json files
-            List<String> printcodes = getPrintcodesList();
+            List<String> printcodes = getPrintcodesList(); //TODO
             for (String printcode : printcodes) {
                 fetchFile(printcode + ".json");
             }

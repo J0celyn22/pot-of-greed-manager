@@ -27,22 +27,41 @@ import static Model.FormatList.CardListToHtml.generateHtmlWithOwned;
 import static Model.FormatList.OuicheListToHtml.generateOuicheListAsListHtml;
 import static Model.FormatList.OuicheListToHtml.generateOuicheListAsMosaicHtml;
 
+/**
+ * Class containing all functions called by the user interface.
+ */
 public class UserInterfaceFunctions {
+    //private static String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
+    private static final String outputPath = "..\\Output\\"/* + dateTime + "\\"*/;
+    private static final String outputPathLists = outputPath + "Lists\\";
     public static File filePath = null;
     public static File folderPath = null;
     public static File thirdPartyListPath = null;
     public static File ouicheListPath = null;
-
     private static Boolean myCollectionIsLoaded = false;
     private static Boolean decksAndCollectionIsLoaded = false;
     private static Boolean thirdPartyCollectionIsLoaded = false;
     private static Boolean ouicheListIsLoaded = false;
     private static Boolean detailedOuicheListIsLoaded = false;
 
-    //private static String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-    private static String outputPath = "..\\Output\\"/* + dateTime + "\\"*/;
-    private static String outputPathLists = outputPath + "Lists\\";
+    /**
+     * Returns the status of whether the Ouiche list is loaded.
+     *
+     * @return true if the Ouiche list is loaded, false otherwise.
+     */
+    public static Boolean getOuicheListIsLoaded() {
+        return ouicheListIsLoaded;
+    }
 
+    /**
+     * Reads the default file and folder paths from a file named "default_folders.txt".
+     * The file is expected to contain two lines, the first line being the path to the
+     * collection save file, and the second line being the path to the folder containing
+     * all the decks.
+     * <p>
+     * If the file does not exist or there is an error reading the file, the default paths
+     * are not changed.
+     */
     public static void readPathsFromFile() {
         try {
             File file = new File("default_folders.txt");
@@ -55,6 +74,9 @@ public class UserInterfaceFunctions {
                 if ((line = reader.readLine()) != null) {
                     folderPath = new File(line);
                 }
+                if ((line = reader.readLine()) != null) {
+                    thirdPartyListPath = new File(line);
+                }
                 reader.close();
             }
         } catch (IOException e) {
@@ -63,6 +85,23 @@ public class UserInterfaceFunctions {
         }
     }
 
+    /**
+     * Writes the given file paths to a file named "default_folders.txt".
+     * The file is expected to contain three lines, the first line being the path to the
+     * collection save file, the second line being the path to the folder containing
+     * all the decks and the third line being the path to the third party list.
+     * The paths are written in absolute terms.
+     * If a path is null, an empty string is written instead.
+     * <p>
+     * If the file does not exist, it is created. If it does exist, its contents are
+     * overwritten.
+     * <p>
+     * If there is an error writing to the file, it is not handled.
+     * You can log an error message or handle it as needed.
+     * @param filePath The path to the collection save file.
+     * @param folderPath The path to the folder containing all the decks.
+     * @param thirdPartyListPath The path to the third party list.
+     */
     public static void savePathsToFile(File filePath, File folderPath, File thirdPartyListPath) {
         try {
             File file = new File("default_folders.txt");
@@ -79,6 +118,12 @@ public class UserInterfaceFunctions {
         }
     }
 
+    /**
+     * Plays the Pot of Greed's laugh sound effect.
+     * <p>
+     * The sound effect is loaded from the file "PotOfGreedLaugh.mp3" in the resources
+     * directory. If the file does not exist, the method does nothing.
+     */
     public static void playLaughSound() {
         // Load the audio file
         String audioFilePath = ".\\src\\main\\resources\\PotOfGreedLaugh.mp3"; // Adjust the path if needed
@@ -89,13 +134,25 @@ public class UserInterfaceFunctions {
         mediaPlayer.play();
     }
 
-    public static void generateOuicheListFunction(File filePath, File folderPath) throws Exception {
+    /**
+     * Generates the detailed ouiche list in both list and mosaic formats.
+     * <p>
+     * If the collection and decks and collections have not been loaded yet,
+     * they are loaded first. The detailed ouiche list is then saved to
+     * files in the directory specified by {@code outputPathLists}, both as
+     * a list and as a mosaic. Additionally, the available cards are saved
+     * as a list and a mosaic, both with and without the "Complete" tag.
+     * <p>
+     * If there is an error writing to the file, it is not handled. You can
+     * log an error message or handle it as needed.
+     */
+    public static void generateOuicheListFunction() {
         try {
-            if(myCollectionIsLoaded == false) {
+            if (!myCollectionIsLoaded) {
                 loadCollectionFile();
             }
 
-            if(decksAndCollectionIsLoaded == false) {
+            if (!decksAndCollectionIsLoaded) {
                 loadDecksAndCollectionsDirectory();
             }
 
@@ -112,14 +169,26 @@ public class UserInterfaceFunctions {
 
             detailedOuicheListIsLoaded = true;
 
-        } catch (
-                IOException e) {
+        } catch (IOException e) {
             e.printStackTrace();
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
+    /**
+     * Generate archetypes lists from the list of all cards, and generate HTML files
+     * from these lists.
+     * <p>
+     * The archetypes lists are generated from the list of all cards, which is also
+     * automatically generated. Then, the HTML files are generated from these lists.
+     * The HTML files are saved in a directory named "Archetypes" in the output
+     * directory.
+     * <p>
+     * If there is an error writing to the file, it is not handled. You can log an
+     * error message or handle it as needed.
+     * @throws Exception
+     */
     public static void generateArchetypesListsFunction() throws Exception {
         //Generate Archetypes lists from this list
         System.out.println("Generate Archetypes lists from the list of all cards, that is also automatically generated");
@@ -134,7 +203,15 @@ public class UserInterfaceFunctions {
         System.out.println("Generation complete!");
     }
 
-    // New functions for the events
+
+    /**
+     * Opens a file chooser dialog to select a collection file and updates
+     * the provided text field with the selected file's absolute path.
+     *
+     * @param fileChooser The file chooser used to open the dialog.
+     * @param primaryStage The primary stage of the application.
+     * @param collectionFileField The text field to display the selected file's path.
+     */
     public static void browseCollectionFile(FileChooser fileChooser, Stage primaryStage, TextField collectionFileField) {
         File filePath = fileChooser.showOpenDialog(primaryStage);
         if (filePath != null) {
@@ -142,6 +219,13 @@ public class UserInterfaceFunctions {
         }
     }
 
+    /**
+     * Load the collection file previously selected in the GUI.
+     * The file's absolute path is stored in the static variable filePath.
+     * The collection is loaded into the static variable myCardsCollection.
+     * The static variable myCollectionIsLoaded is set to true.
+     * @throws Exception
+     */
     public static void loadCollectionFile() throws Exception {
         String filePathStr = filePath.getAbsolutePath();
         setMyCardsCollection(new OwnedCardsCollection(filePathStr));
@@ -153,16 +237,18 @@ public class UserInterfaceFunctions {
         getMyCardsCollection().SaveCollection(outputPath + "Collection.txt");
     }*/
 
+    /**
+     * Exports the collection to a directory specified by the user.
+     * The directory is stored in the static variable outputPathLists.
+     * The collection is exported to three different HTML files:
+     *  - A complete list of all cards in the collection.
+     *  - A list of all cards in the collection, grouped by category (deck, collection, etc.).
+     *  - A mosaic of all cards in the collection.
+     * @throws Exception
+     */
     public static void exportCollectionFile() throws Exception {
-        if(myCollectionIsLoaded == false) {
+        if (!myCollectionIsLoaded) {
             loadCollectionFile();
-        }
-
-        List<CardElement> ownedCards = new ArrayList<>(); //TODO pas de création de liste ici mais utilisation de la fonction de génération HTML spécifique
-        for (int i = 0; i < getMyCardsCollection().getOwnedCollection().size(); i++) {
-            for (int j = 0; j < getMyCardsCollection().getOwnedCollection().get(i).getContent().size(); j++) {
-                ownedCards.addAll(getMyCardsCollection().getOwnedCollection().get(i).getContent().get(j).cardList);
-            }
         }
 
         Files.createDirectories(Paths.get(outputPathLists));
@@ -172,6 +258,14 @@ public class UserInterfaceFunctions {
         OwnedCardsCollectionToHtml.generateCollectionAsMosaicHtml(getMyCardsCollection(), outputPathLists, "Collection");
     }
 
+    /**
+     * Opens a directory chooser dialog to select a directory containing decks and collections and updates
+     * the provided text field with the selected directory's absolute path.
+     *
+     * @param folderChooser The directory chooser used to open the dialog.
+     * @param primaryStage The primary stage of the application.
+     * @param decksAndCollectionDirectoryField The text field to display the selected directory's path.
+     */
     public static void browseDecksAndCollectionsDirectory(DirectoryChooser folderChooser, Stage primaryStage, TextField decksAndCollectionDirectoryField) {
         File folderPath = folderChooser.showDialog(primaryStage);
         if (folderPath != null) {
@@ -179,6 +273,16 @@ public class UserInterfaceFunctions {
         }
     }
 
+    /**
+     * Loads the directory containing decks and collections into the application.
+     *
+     * The directory path is retrieved from the static variable `folderPath`, and
+     * a new `DecksAndCollectionsList` object is created and set using this path.
+     * The static variable `decksAndCollectionIsLoaded` is updated to true upon
+     * successful loading.
+     *
+     * @throws Exception if an error occurs during directory loading or initialization
+     */
     public static void loadDecksAndCollectionsDirectory() throws Exception {
         String dirPath = folderPath.getAbsolutePath();
         setDecksList(new DecksAndCollectionsList(dirPath));
@@ -191,8 +295,18 @@ public class UserInterfaceFunctions {
         getDecksList().Save(outputPath + "Collection.txt");
     }*/
 
+    /**
+     * Exports the decks and collections to a directory specified by the user.
+     * The directory is stored in the static variable outputPathLists.
+     * The decks and collections are exported to four different HTML files:
+     *  - A list of all cards in all decks.
+     *  - A menu of all decks, with links to each deck's list and mosaic HTML files.
+     *  - A list of all cards in each deck.
+     *  - A mosaic of all cards in each deck.
+     * @throws Exception
+     */
     public static void exportDecksAndCollectionsDirectory() throws Exception {
-        if(decksAndCollectionIsLoaded == false) {
+        if (!decksAndCollectionIsLoaded) {
             loadDecksAndCollectionsDirectory();
         }
 
@@ -203,7 +317,7 @@ public class UserInterfaceFunctions {
             decksCardsList.addAll(getDecksList().getDecks().get(i).getSideDeck());
         }
 
-        generateHtml(decksCardsList, outputPathLists , "Decks List");
+        generateHtml(decksCardsList, outputPathLists, "Decks List");
 
         DeckToHtml.generateDecksMenu(outputPath + "Decks\\", getDecksList().getDecks());
         for (int i = 0; i < getDecksList().getDecks().size(); i++) {
@@ -212,6 +326,14 @@ public class UserInterfaceFunctions {
         }
     }
 
+    /**
+     * Opens a file chooser dialog to select a file containing a third-party list of available cards
+     * and updates the provided text field with the selected file's absolute path.
+     *
+     * @param fileChooser The file chooser used to open the dialog.
+     * @param primaryStage The primary stage of the application.
+     * @param thirdPartyAvailableCardsField The text field to display the selected file's path.
+     */
     public static void browseThirdPartyAvailableCards(FileChooser fileChooser, Stage primaryStage, TextField thirdPartyAvailableCardsField) {
         thirdPartyListPath = fileChooser.showOpenDialog(primaryStage);
         if (thirdPartyListPath != null) {
@@ -219,6 +341,14 @@ public class UserInterfaceFunctions {
         }
     }
 
+    /**
+     * Opens a file chooser dialog to select a file containing the OuicheList
+     * and updates the provided text field with the selected file's absolute path.
+     *
+     * @param fileChooser     The file chooser used to open the dialog.
+     * @param primaryStage    The primary stage of the application.
+     * @param ouicheListField The text field to display the selected file's path.
+     */
     public static void browseOuicheList(FileChooser fileChooser, Stage primaryStage, TextField ouicheListField) {
         ouicheListPath = fileChooser.showOpenDialog(primaryStage);
         if (ouicheListPath != null) {
@@ -226,6 +356,11 @@ public class UserInterfaceFunctions {
         }
     }
 
+    /**
+     * Loads the third-party available cards list from the previously selected file.
+     *
+     * @throws Exception If the file could not be loaded.
+     */
     public static void loadThirdPartyAvailableCards() throws Exception {
         String dirPath = thirdPartyListPath.getAbsolutePath();
         importThirdPartyList(dirPath);
@@ -233,6 +368,11 @@ public class UserInterfaceFunctions {
         thirdPartyCollectionIsLoaded = true;
     }
 
+    /**
+     * Loads the OuicheList from the previously selected file.
+     *
+     * @throws Exception If the file could not be loaded.
+     */
     public static void loadOuicheList() throws Exception {
         String dirPath = ouicheListPath.getAbsolutePath();
         importOuicheList(dirPath);
@@ -241,73 +381,111 @@ public class UserInterfaceFunctions {
         ouicheListIsLoaded = true;
     }
 
+    /**
+     * Generates a list of third-party cards needed by comparing the OuicheList
+     * with a third-party available cards list. If the third-party list or the OuicheList
+     * is not already loaded, it attempts to load them from previously selected files.
+     *
+     * @throws Exception If an error occurs during loading the third-party or OuicheList files.
+     */
     public static void generateThirdPartyList() throws Exception {
-        if(thirdPartyCollectionIsLoaded == false) {
-            if(thirdPartyListPath == null) {
+        if (!thirdPartyCollectionIsLoaded) {
+            if (thirdPartyListPath == null) {
                 //TODO fenêtre erreur :
                 System.out.println("Third Party List must be selected");
             }
             loadThirdPartyAvailableCards();
         }
 
-        if(ouicheListIsLoaded == false) {
-            if(ouicheListPath == null) {
+        if (!ouicheListIsLoaded) {
+            if (ouicheListPath == null) {
                 //TODO fenêtre erreur :
                 System.out.println("OuicheList must be selected");
+            } else {
+                loadOuicheList();
             }
-            loadOuicheList();
         }
 
-
-        generateThirdPartyCardsINeedList();
+        if (ouicheListIsLoaded) {
+            generateThirdPartyCardsINeedList();
+        }
     }
 
+    /**
+     * Saves the list of third-party cards needed to the file "3rdPartyList.txt" in the
+     * directory specified by {@link #outputPath}.
+     *
+     * @throws IOException If the file could not be created.
+     */
     public static void saveThirdPartyList() throws IOException {
         thirdPartyCardsINeedListSave(outputPath, "3rdPartyList.txt");
     }
 
+    /**
+     * Generates the OuicheList by calling {@link #generateOuicheListFunction()} and
+     * plays a laugh sound when finished.
+     *
+     * @throws RuntimeException If an exception occurs during generation.
+     */
     public static void generateOuicheList() {
         try {
             Thread savePathsThread = new Thread(() -> savePathsToFile(filePath, folderPath, null));
             savePathsThread.start();
 
-            generateOuicheListFunction(filePath, folderPath);
+            generateOuicheListFunction();
             playLaughSound();
         } catch (Exception ex) {
             throw new RuntimeException(ex);
         }
     }
 
+    /**
+     * Saves the OuicheList to the file "OuicheList.txt" in the
+     * directory specified by {@link #outputPath}.
+     *
+     * @throws IOException If the file could not be created.
+     */
     public static void saveOuicheList() throws IOException {
-        if(detailedOuicheListIsLoaded == false) {
+        if (!detailedOuicheListIsLoaded) {
             //TODO fenêtre erreur :
             System.out.println("OuicheList must be generated or loaded");
-        }
-        else {
+        } else {
             Files.createDirectories(Paths.get(outputPath));
             ouicheListSave(outputPath + "OuicheList.txt");
         }
     }
 
+    /**
+     * Generates the OuicheList by calling {@link #generateOuicheListTypeFunction()} and
+     * plays a laugh sound when finished.
+     *
+     * @throws RuntimeException If an exception occurs during generation.
+     */
     public static void generateOuicheListType() {
         try {
             Thread savePathsThread = new Thread(() -> savePathsToFile(filePath, folderPath, null));
             savePathsThread.start();
 
-            generateOuicheListTypeFunction(filePath, folderPath);
+            generateOuicheListTypeFunction();
             playLaughSound();
         } catch (Exception ex) {
             throw new RuntimeException(ex);
         }
     }
 
-    public static void generateOuicheListTypeFunction(File filePath, File folderPath) throws Exception {
+    /**
+     * Generates the OuicheList by calling {@link Model.CardsLists.OuicheList#CreateOuicheList(OwnedCardsCollection, DecksAndCollectionsList)} and
+     * generates several sublists of the OuicheList based on the different types of cards.
+     *
+     * @throws RuntimeException If an exception occurs during generation.
+     */
+    public static void generateOuicheListTypeFunction() {
         try {
-            if(myCollectionIsLoaded == false) {
+            if (!myCollectionIsLoaded) {
                 loadCollectionFile();
             }
 
-            if(decksAndCollectionIsLoaded == false) {
+            if (!decksAndCollectionIsLoaded) {
                 loadDecksAndCollectionsDirectory();
             }
 
@@ -368,20 +546,19 @@ public class UserInterfaceFunctions {
             generateHtml(SubListCreator.linkMonsterCard, outputPathLists, "LinkMonsterCard");
             generateHtml(SubListCreator.geminiMonsterCard, outputPathLists, "GeminiMonsterCard");
 
-            generateHtml(SubListCreator. normalSpellCard, outputPathLists, "NormalSpellCard");
-            generateHtml(SubListCreator. continuousSpellCard, outputPathLists, "ContinuousSpellCard");
-            generateHtml(SubListCreator. quickPlaySpellCard, outputPathLists, "QuickPlaySpellCard");
-            generateHtml(SubListCreator. equipSpellCard, outputPathLists, "EquipSpellCard");
-            generateHtml(SubListCreator. fieldSpellCard, outputPathLists, "FieldSpellCard");
-            generateHtml(SubListCreator. ritualSpellCard, outputPathLists, "RitualSpellCard");
+            generateHtml(SubListCreator.normalSpellCard, outputPathLists, "NormalSpellCard");
+            generateHtml(SubListCreator.continuousSpellCard, outputPathLists, "ContinuousSpellCard");
+            generateHtml(SubListCreator.quickPlaySpellCard, outputPathLists, "QuickPlaySpellCard");
+            generateHtml(SubListCreator.equipSpellCard, outputPathLists, "EquipSpellCard");
+            generateHtml(SubListCreator.fieldSpellCard, outputPathLists, "FieldSpellCard");
+            generateHtml(SubListCreator.ritualSpellCard, outputPathLists, "RitualSpellCard");
 
             generateHtml(SubListCreator.normalTrapCard, outputPathLists, "NormalTrapCard");
             generateHtml(SubListCreator.continuousTrapCard, outputPathLists, "ContinuousTrapCard");
             generateHtml(SubListCreator.counterTrapCard, outputPathLists, "CounterTrapCard");
 
             ouicheListIsLoaded = true;
-        } catch (
-                IOException e) {
+        } catch (IOException e) {
             e.printStackTrace();
         } catch (Exception e) {
             throw new RuntimeException(e);

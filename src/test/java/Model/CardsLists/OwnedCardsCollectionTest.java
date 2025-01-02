@@ -1,15 +1,16 @@
 package Model.CardsLists;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 import org.junit.jupiter.api.Test;
+
 import java.util.ArrayList;
 import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class OwnedCardsCollectionTest {
 
     @Test
-    public void testGetOwnedCollection() throws Exception {
+    public void testGetOwnedCollection() {
         OwnedCardsCollection collection = new OwnedCardsCollection();
         List<Box> boxes = new ArrayList<>();
         collection.setOwnedCollection(boxes);
@@ -17,7 +18,7 @@ public class OwnedCardsCollectionTest {
     }
 
     @Test
-    public void testSetOwnedCollection() throws Exception {
+    public void testSetOwnedCollection() {
         OwnedCardsCollection collection = new OwnedCardsCollection();
         List<Box> boxes = new ArrayList<>();
         collection.setOwnedCollection(boxes);
@@ -38,7 +39,7 @@ public class OwnedCardsCollectionTest {
     }
 
     @Test
-    public void testAddBox() throws Exception {
+    public void testAddBox() {
         OwnedCardsCollection collection = new OwnedCardsCollection();
         collection.setOwnedCollection(new ArrayList<>());
         collection.AddBox("TestBox");
@@ -47,7 +48,7 @@ public class OwnedCardsCollectionTest {
     }
 
     @Test
-    public void testAddCategoryToLastBox() throws Exception {
+    public void testAddCategoryToLastBox() {
         OwnedCardsCollection collection = new OwnedCardsCollection();
         collection.setOwnedCollection(new ArrayList<>());
         collection.AddBox("TestBox");
