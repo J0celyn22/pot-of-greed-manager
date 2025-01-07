@@ -3,9 +3,13 @@ package Model.Database;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.net.URISyntaxException;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+
+import static Model.FilePaths.databaseDir;
 
 public class PrintCodeToKonamiId {
     private static HashMap<String, String> printCodeToKonamiId;
@@ -20,7 +24,7 @@ public class PrintCodeToKonamiId {
      *
      * @return a map of print codes to Konami IDs
      */
-    public static HashMap<String, String> getPrintCodeToKonamiId() {
+    public static HashMap<String, String> getPrintCodeToKonamiId() throws URISyntaxException {
         if (printCodeToKonamiId == null) {
             createKonamiIdPrintCodeMaps();
         }
@@ -48,7 +52,7 @@ public class PrintCodeToKonamiId {
      *
      * @return a map of Konami IDs to lists of print codes
      */
-    public static HashMap<String, List<String>> getKonamiIdToPrintCodes() {
+    public static HashMap<String, List<String>> getKonamiIdToPrintCodes() throws URISyntaxException {
         if (konamiIdToPrintCodes == null) {
             createKonamiIdPrintCodeMaps();
         }
@@ -84,7 +88,7 @@ public class PrintCodeToKonamiId {
      * of Konami IDs to their corresponding print codes has not yet been
      * initialized, it will be created before returning.
      */
-    public static void createKonamiIdPrintCodeMaps() {
+    public static void createKonamiIdPrintCodeMaps() throws URISyntaxException {
         List<String> setCodes = Database.openSets("_sets.txt");
         printCodeToKonamiId = new HashMap<>();
         konamiIdToPrintCodes = new HashMap<>();
@@ -112,7 +116,7 @@ public class PrintCodeToKonamiId {
         }
 
         // Process all other JSON files in the directory
-        File directory = new File("..\\Database\\ygoresources\\printcode");
+        File directory = new File(databaseDir.resolve(Paths.get("ygoresources", "printcode")).toUri());
         File[] files = directory.listFiles((dir, name) -> name.endsWith(".json"));
 
         if (files != null) {

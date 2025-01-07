@@ -136,7 +136,7 @@ public class FileFetcher {
     public static void fetchAllFiles() {
         try {
             // Read the JSON file
-            String content = new String(Files.readAllBytes(Paths.get("src/main/java/Model/Database/addresses.json")));
+            String content = new String(Files.readAllBytes(Paths.get("./src/main/java/Model/Database/addresses.json")));
             JSONObject json = new JSONObject(content);
 
             // Fetch all files except <passcode>.jpg and <printcode>.json

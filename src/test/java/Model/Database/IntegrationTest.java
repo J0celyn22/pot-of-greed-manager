@@ -7,9 +7,12 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 
+import static Model.FilePaths.databaseDir;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.anyInt;
@@ -20,17 +23,20 @@ public class IntegrationTest {
 
     @ParameterizedTest
     @CsvSource({
-            "cardinfo.json, ..\\Database\\ygoprodeck\\cardinfo.json, https://db.ygoprodeck.com/api/v7/cardinfo.php",
-            "en.json, ..\\Database\\ygoresources\\name\\en.json, https://db.ygoresources.com/data/idx/card/name/en",
-            "fr.json, ..\\Database\\ygoresources\\name\\fr.json, https://db.ygoresources.com/data/idx/card/name/fr",
-            "ja.json, ..\\Database\\ygoresources\\name\\ja.json, https://db.ygoresources.com/data/idx/card/name/ja",
-            "_sets.txt, ..\\Database\\ygoresources\\printcode\\_sets.txt, https://db.ygoresources.com/data/idx/printcode/_sets",
-            "15AX-JP.json, ..\\Database\\ygoresources\\printcode\\15AX-JP.json, https://db.ygoresources.com/data/idx/printcode/15AX-JP",
-            "46986414.jpg, ..\\Database\\ygoprodeck\\images\\46986414.jpg, https://images.ygoprodeck.com/images/cards/46986414.jpg",
-            "cards_Lite.json, ..\\Database\\mdpro3\\cards_Lite.json, https://code.moenext.com/sherry_chaos/MDPro3/-/raw/master/Data/cards_Lite.json",
-            "archetypes.json, ..\\Database\\ygoprodeck\\archetypes.json, https://db.ygoprodeck.com/api/v7/archetypes.php"
+            "cardinfo.json, ygoprodeck\\cardinfo.json, https://db.ygoprodeck.com/api/v7/cardinfo.php",
+            "en.json, ygoresources\\name\\en.json, https://db.ygoresources.com/data/idx/card/name/en",
+            "fr.json, ygoresources\\name\\fr.json, https://db.ygoresources.com/data/idx/card/name/fr",
+            "ja.json, ygoresources\\name\\ja.json, https://db.ygoresources.com/data/idx/card/name/ja",
+            "_sets.txt, ygoresources\\printcode\\_sets.txt, https://db.ygoresources.com/data/idx/printcode/_sets",
+            "15AX-JP.json, ygoresources\\printcode\\15AX-JP.json, https://db.ygoresources.com/data/idx/printcode/15AX-JP",
+            "46986414.jpg, ygoprodeck\\images\\46986414.jpg, https://images.ygoprodeck.com/images/cards/46986414.jpg",
+            "cards_Lite.json, mdpro3\\cards_Lite.json, https://code.moenext.com/sherry_chaos/MDPro3/-/raw/master/Data/cards_Lite.json",
+            "archetypes.json, ygoprodeck\\archetypes.json, https://db.ygoprodeck.com/api/v7/archetypes.php"
     })
-    public void testFetchFile(String input, String expectedPath, String expectedAddress) throws IOException {
+    public void testFetchFile(String input, String expectedPath, String expectedAddress) throws IOException, URISyntaxException {
+        // Get the directory where the JAR file is located
+        expectedPath = databaseDir + "\\" + expectedPath;
+
         // Delete the file if it exists
         Files.deleteIfExists(Paths.get(expectedPath));
 
@@ -64,37 +70,37 @@ public class IntegrationTest {
     }
 
     @Test
-    public void testIntegrationSet() throws IOException {
+    public void testIntegrationSet() throws IOException, URISyntaxException {
         IntegrationTest integrationTest = new IntegrationTest();
 
         // Call the first integration test
-        integrationTest.testFetchFile("cardinfo.json", "..\\Database\\ygoprodeck\\cardinfo.json", "https://db.ygoprodeck.com/api/v7/cardinfo.php");
-        integrationTest.testFetchFile("en.json", "..\\Database\\ygoresources\\name\\en.json", "https://db.ygoresources.com/data/idx/card/name/en");
-        integrationTest.testFetchFile("fr.json", "..\\Database\\ygoresources\\name\\fr.json", "https://db.ygoresources.com/data/idx/card/name/fr");
-        integrationTest.testFetchFile("ja.json", "..\\Database\\ygoresources\\name\\ja.json", "https://db.ygoresources.com/data/idx/card/name/ja");
-        integrationTest.testFetchFile("_sets.txt", "..\\Database\\ygoresources\\printcode\\_sets.txt", "https://db.ygoresources.com/data/idx/printcode/_sets");
-        integrationTest.testFetchFile("15AX-JP.json", "..\\Database\\ygoresources\\printcode\\15AX-JP.json", "https://db.ygoresources.com/data/idx/printcode/15AX-JP");
-        integrationTest.testFetchFile("46986414.jpg", "..\\Database\\ygoprodeck\\images\\46986414.jpg", "https://images.ygoprodeck.com/images/cards/46986414.jpg");
-        integrationTest.testFetchFile("cards_Lite.json", "..\\Database\\mdpro3\\cards_Lite.json", "https://code.moenext.com/sherry_chaos/MDPro3/-/raw/master/Data/cards_Lite.json");
-        integrationTest.testFetchFile("archetypes.json", "..\\Database\\ygoprodeck\\archetypes.json", "https://db.ygoprodeck.com/api/v7/archetypes.php");
+        integrationTest.testFetchFile("cardinfo.json", "ygoprodeck\\cardinfo.json", "https://db.ygoprodeck.com/api/v7/cardinfo.php");
+        integrationTest.testFetchFile("en.json", "ygoresources\\name\\en.json", "https://db.ygoresources.com/data/idx/card/name/en");
+        integrationTest.testFetchFile("fr.json", "ygoresources\\name\\fr.json", "https://db.ygoresources.com/data/idx/card/name/fr");
+        integrationTest.testFetchFile("ja.json", "ygoresources\\name\\ja.json", "https://db.ygoresources.com/data/idx/card/name/ja");
+        integrationTest.testFetchFile("_sets.txt", "ygoresources\\printcode\\_sets.txt", "https://db.ygoresources.com/data/idx/printcode/_sets");
+        integrationTest.testFetchFile("15AX-JP.json", "ygoresources\\printcode\\15AX-JP.json", "https://db.ygoresources.com/data/idx/printcode/15AX-JP");
+        integrationTest.testFetchFile("46986414.jpg", "ygoprodeck\\images\\46986414.jpg", "https://images.ygoprodeck.com/images/cards/46986414.jpg");
+        integrationTest.testFetchFile("cards_Lite.json", "mdpro3\\cards_Lite.json", "https://code.moenext.com/sherry_chaos/MDPro3/-/raw/master/Data/cards_Lite.json");
+        integrationTest.testFetchFile("archetypes.json", "ygoprodeck\\archetypes.json", "https://db.ygoprodeck.com/api/v7/archetypes.php");
 
         // Call the second integration test
         integrationTest.testInvalidateAndFetchFile();
 
         // Call the first integration test again
-        integrationTest.testFetchFile("cardinfo.json", "..\\Database\\ygoprodeck\\cardinfo.json", "https://db.ygoprodeck.com/api/v7/cardinfo.php");
-        integrationTest.testFetchFile("en.json", "..\\Database\\ygoresources\\name\\en.json", "https://db.ygoresources.com/data/idx/card/name/en");
-        integrationTest.testFetchFile("fr.json", "..\\Database\\ygoresources\\name\\fr.json", "https://db.ygoresources.com/data/idx/card/name/fr");
-        integrationTest.testFetchFile("ja.json", "..\\Database\\ygoresources\\name\\ja.json", "https://db.ygoresources.com/data/idx/card/name/ja");
-        integrationTest.testFetchFile("_sets.txt", "..\\Database\\ygoresources\\printcode\\_sets.txt", "https://db.ygoresources.com/data/idx/printcode/_sets");
-        integrationTest.testFetchFile("15AX-JP.json", "..\\Database\\ygoresources\\printcode\\15AX-JP.json", "https://db.ygoresources.com/data/idx/printcode/15AX-JP");
-        integrationTest.testFetchFile("46986414.jpg", "..\\Database\\ygoprodeck\\images\\46986414.jpg", "https://images.ygoprodeck.com/images/cards/46986414.jpg");
-        integrationTest.testFetchFile("cards_Lite.json", "..\\Database\\mdpro3\\cards_Lite.json", "https://code.moenext.com/sherry_chaos/MDPro3/-/raw/master/Data/cards_Lite.json");
-        integrationTest.testFetchFile("archetypes.json", "..\\Database\\ygoprodeck\\archetypes.json", "https://db.ygoprodeck.com/api/v7/archetypes.php");
+        integrationTest.testFetchFile("cardinfo.json", "ygoprodeck\\cardinfo.json", "https://db.ygoprodeck.com/api/v7/cardinfo.php");
+        integrationTest.testFetchFile("en.json", "ygoresources\\name\\en.json", "https://db.ygoresources.com/data/idx/card/name/en");
+        integrationTest.testFetchFile("fr.json", "ygoresources\\name\\fr.json", "https://db.ygoresources.com/data/idx/card/name/fr");
+        integrationTest.testFetchFile("ja.json", "ygoresources\\name\\ja.json", "https://db.ygoresources.com/data/idx/card/name/ja");
+        integrationTest.testFetchFile("_sets.txt", "ygoresources\\printcode\\_sets.txt", "https://db.ygoresources.com/data/idx/printcode/_sets");
+        integrationTest.testFetchFile("15AX-JP.json", "ygoresources\\printcode\\15AX-JP.json", "https://db.ygoresources.com/data/idx/printcode/15AX-JP");
+        integrationTest.testFetchFile("46986414.jpg", "ygoprodeck\\images\\46986414.jpg", "https://images.ygoprodeck.com/images/cards/46986414.jpg");
+        integrationTest.testFetchFile("cards_Lite.json", "mdpro3\\cards_Lite.json", "https://code.moenext.com/sherry_chaos/MDPro3/-/raw/master/Data/cards_Lite.json");
+        integrationTest.testFetchFile("archetypes.json", "ygoprodeck\\archetypes.json", "https://db.ygoprodeck.com/api/v7/archetypes.php");
     }
 
     @Test
-    public void testUpdateLocalRevision() throws IOException {
+    public void testUpdateLocalRevision() throws IOException, URISyntaxException {
         // Read the current revision
         int currentRevision = DataBaseUpdate.readLocalRevision();
 
@@ -113,9 +119,9 @@ public class IntegrationTest {
     }
 
     @Test
-    public void testReadLocalRevision() throws IOException {
+    public void testReadLocalRevision() throws IOException, URISyntaxException {
         // Read the current revision from the file
-        String content = Files.readString(Paths.get("src/main/resources/revision.txt"));
+        String content = Files.readString(Path.of(databaseDir + "\\ygoresources\\revision.txt"));
         int expectedRevision = Integer.parseInt(content.trim());
 
         // Read the revision using the function
@@ -127,7 +133,7 @@ public class IntegrationTest {
 
     @Disabled
     @Test
-    public void testUpdateCache() throws IOException {
+    public void testUpdateCache() throws IOException, URISyntaxException {
         String file = "en.json";
         String[] addresses = DataBaseUpdate.getAddresses(file);
         String localPath = addresses[0];
@@ -147,7 +153,6 @@ public class IntegrationTest {
         DataBaseUpdate cacheUpdater = Mockito.spy(new DataBaseUpdate());
         doReturn("{ \"ygoresources\": { \"name\": { \"en.json\": 1 } } }").when(cacheUpdater);
         DataBaseUpdate.fetchManifest(anyInt());
-        //when(cacheUpdater.fetchManifest(anyInt())).thenReturn("{ \"ygoresources\": { \"name\": { \"en.json\": 1 } } }");
 
         // Call the updateCache function
         DataBaseUpdate.updateCache();

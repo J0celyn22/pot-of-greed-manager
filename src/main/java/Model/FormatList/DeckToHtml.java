@@ -28,7 +28,7 @@ public class DeckToHtml {
             addTitle(writer, deck.getName(), deck.getCardCount(), deck.getPrice());
             addMosaicButton(writer, deck.getName());
 
-            displayList(deck.getMainDeck(), "Main deck", writer, dirPath, relativeImagePath);
+            displayList(deck.getMainDeck(), "Main.Main deck", writer, dirPath, relativeImagePath);
             displayList(deck.getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
             displayList(deck.getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
 
@@ -56,7 +56,7 @@ public class DeckToHtml {
             addTitle(writer, deck.getName(), deck.getCardCount(), deck.getPrice());
             addListButton(writer, deck.getName());
 
-            displayMosaic(deck.getMainDeck(), "Main deck", writer, dirPath, relativeImagePath);
+            displayMosaic(deck.getMainDeck(), "Main.Main deck", writer, dirPath, relativeImagePath);
             displayMosaic(deck.getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
             displayMosaic(deck.getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
 

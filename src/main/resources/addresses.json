@@ -1,0 +1,23 @@
+{
+  "ygoprodeck": {
+    "cardinfo.json": "https://db.ygoprodeck.com/api/v7/cardinfo.php",
+    "images": {
+      "<passcode>.jpg": "https://images.ygoprodeck.com/images/cards/<passcode>.jpg"
+    },
+    "archetypes.json": "https://db.ygoprodeck.com/api/v7/archetypes.php"
+  },
+  "ygoresources": {
+    "name": {
+      "en.json": "https://db.ygoresources.com/data/idx/card/name/en",
+      "fr.json": "https://db.ygoresources.com/data/idx/card/name/fr",
+      "ja.json": "https://db.ygoresources.com/data/idx/card/name/ja"
+    },
+    "printcode": {
+      "_sets.txt": "https://db.ygoresources.com/data/idx/printcode/_sets",
+      "<printcode>.json": "https://db.ygoresources.com/data/idx/printcode/<printcode>"
+    }
+  },
+  "mdpro3": {
+    "cards_Lite.json": "https://code.moenext.com/sherry_chaos/MDPro3/-/raw/master/Data/cards_Lite.json"
+  }
+}

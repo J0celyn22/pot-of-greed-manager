@@ -57,10 +57,13 @@ public class RealMain extends Application {
      * @throws FileNotFoundException if the file selected by the user cannot be found
      */
     @Override
-    public void start(Stage primaryStage) throws FileNotFoundException {
+    public void start(Stage primaryStage) throws IOException {
         primaryStage.setTitle("Pot of Greed Manager");
 
+        //Commented code : works only with the application run/debug configuration while the current code works with the jar
         Image iconImage = new Image(new FileInputStream("./src/main/resources/WokOfGreedSpirit.jpg"));
+
+        //Image iconImage = new Image("/resources/WokOfGreedSpirit.jpg");
 
         primaryStage.getIcons().addAll(
                 new Image(new FileInputStream("./src/main/resources/WokOfGreedSpirit_64.jpg")),
@@ -311,7 +314,7 @@ public class RealMain extends Application {
         secondSet.setStyle("-fx-background-color: rgba(50, 50, 50, 0.5);");
         secondSet.setMaxHeight(200); // Adjust the height
 
-        // Main layout
+        // Main.Main layout
         VBox mainLayout = new VBox(20);
         HBox contentLayout = new HBox(20);
         contentLayout.getChildren().addAll(firstSet, secondSet);

@@ -5,11 +5,14 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+
+import static Model.FilePaths.databaseDir;
 
 public class DataBaseUpdate {
     /**
@@ -27,10 +30,12 @@ public class DataBaseUpdate {
             int localRevision = readLocalRevision();
             int remoteRevision = getRemoteRevision();
 
-            for (int revision = localRevision; revision < remoteRevision; revision++) {
-                String manifestContent = fetchManifest(revision);
-                JSONObject manifestJson = new JSONObject(manifestContent);
-                invalidatePaths(manifestJson);
+            if (localRevision != 0) {
+                for (int revision = localRevision; revision < remoteRevision; revision++) {
+                    String manifestContent = fetchManifest(revision);
+                    JSONObject manifestJson = new JSONObject(manifestContent);
+                    invalidatePaths(manifestJson);
+                }
             }
 
             updateLocalRevision(remoteRevision);
@@ -40,13 +45,21 @@ public class DataBaseUpdate {
     }
 
     /**
-     * Reads the current revision from the local file at {@code src/main/resources/revision.txt}.
+     * Reads the current revision from the local file at {@code ../Database/ygoresources/revision.txt}.
      *
      * @return the current revision as an integer
      * @throws IOException if the file cannot be read
      */
-    public static int readLocalRevision() throws IOException {
-        String content = new String(Files.readAllBytes(Paths.get("src/main/resources/revision.txt")));
+    public static int readLocalRevision() throws IOException, URISyntaxException {
+        Path filePath = databaseDir.resolve(Paths.get("ygoresources", "revision.txt"));
+
+        if (!Files.exists(filePath)) {
+            Files.createDirectories(filePath.getParent());
+            Files.createFile(filePath);
+            Files.writeString(filePath, "0"); // Initialize with revision 0 if the file is created
+        }
+
+        String content = new String(Files.readAllBytes(filePath));
         return Integer.parseInt(content.trim());
     }
 
@@ -144,7 +157,7 @@ public class DataBaseUpdate {
 
 
     /**
-     * Updates the local revision number in the file located at {@code src/main/resources/revision.txt}.
+     * Updates the local revision number in the file located at {@code ../Database/ygoresources/revision.txt}.
      *
      * <p>If the revision file does not exist, it is created. The new revision number is then written
      * to this file, replacing any existing content.</p>
@@ -152,9 +165,11 @@ public class DataBaseUpdate {
      * @param newRevision the new revision number to be recorded in the file
      * @throws IOException if an I/O error occurs during file creation or writing
      */
-    public static void updateLocalRevision(int newRevision) throws IOException {
-        Path revisionFilePath = Paths.get("src/main/resources/revision.txt");
+    public static void updateLocalRevision(int newRevision) throws IOException, URISyntaxException {
+        Path revisionFilePath = databaseDir.resolve(Paths.get("ygoresources", "revision.txt"));
+
         if (!Files.exists(revisionFilePath)) {
+            Files.createDirectories(revisionFilePath.getParent());
             Files.createFile(revisionFilePath);
         }
         Files.write(revisionFilePath, String.valueOf(newRevision).getBytes());
@@ -169,7 +184,8 @@ public class DataBaseUpdate {
     public static String[] getAddresses(String element) {
         try {
             // Read the JSON file
-            String content = new String(Files.readAllBytes(Paths.get("src/main/java/Model/Database/addresses.json")));
+            String content = new String(Files.readAllBytes(Paths.get("./src/main/java/Model/Database/addresses.json")));
+
             JSONObject json = new JSONObject(content);
 
             // Determine the key to use based on the exceptions
@@ -184,7 +200,7 @@ public class DataBaseUpdate {
             }
 
             // Find the element in the JSON object
-            String[] result = findElement(json, key, element, "..\\Database\\", replacement);
+            String[] result = findElement(json, key, element, String.valueOf(databaseDir), replacement);
             if (result != null) {
                 return result;
             }
@@ -210,6 +226,9 @@ public class DataBaseUpdate {
             Object value = json.get(k);
             // If the value is a JSON object, recursively call findElement
             if (value instanceof JSONObject) {
+                if (!path.endsWith("\\")) {
+                    path += "\\";
+                }
                 String[] result = findElement((JSONObject) value, key, originalKey, path + k + "\\", replacement);
                 if (result != null) {
                     return result;

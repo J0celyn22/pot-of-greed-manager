@@ -488,7 +488,7 @@ public class OuicheList {
         if (!file.exists()) {
             boolean newFile = file.createNewFile();
             if (!newFile) {
-                throw new IOException("Failed to create file: " + filePath);
+                throw new IOException("File was not created: " + filePath);
             }
         }
         BufferedWriter writer = new BufferedWriter(new FileWriter(filePath));
@@ -552,7 +552,7 @@ public class OuicheList {
         if (!file.exists()) {
             boolean newFile = file.createNewFile();
             if (!newFile) {
-                throw new IOException("Failed to create file: " + filePath);
+                throw new IOException("File was not created: " + filePath);
             }
         }
         BufferedWriter writer = new BufferedWriter(new FileWriter(filePath));
@@ -582,7 +582,7 @@ public class OuicheList {
         if (!file.exists()) {
             boolean newFile = file.createNewFile();
             if (!newFile) {
-                throw new IOException("Failed to create file: " + directoryPath + filePath);
+                throw new IOException("File was not created: " + directoryPath + filePath);
             }
         }
         BufferedWriter writer = new BufferedWriter(new FileWriter(directoryPath + filePath));

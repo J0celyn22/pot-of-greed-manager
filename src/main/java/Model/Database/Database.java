@@ -90,7 +90,7 @@ public class Database {
      */
     public static void populateJsonContentMap() {
         try {
-            String content = new String(Files.readAllBytes(Paths.get("src/main/java/Model/Database/addresses.json")));
+            String content = new String(Files.readAllBytes(Paths.get("./src/main/java/Model/Database/addresses.json")));
             JSONObject json = new JSONObject(content);
             populateMapFromJson(json, "");
         } catch (IOException e) {

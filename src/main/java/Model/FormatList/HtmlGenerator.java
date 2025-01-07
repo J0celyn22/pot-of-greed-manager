@@ -34,14 +34,14 @@ public class HtmlGenerator {
         if (parentDir != null && !parentDir.exists()) {
             boolean mkdirs = parentDir.mkdirs();
             if (!mkdirs) {
-                System.out.println("Failed to create parent directory: " + parentDir.getAbsolutePath());
+                System.out.println("arent directory was not created: " + parentDir.getAbsolutePath());
             }
         }
 
         if (!file.exists()) {
             boolean newFile = file.createNewFile();
             if (!newFile) {
-                throw new IOException("Failed to create file: " + file.getAbsolutePath());
+                throw new IOException("File was not created: " + file.getAbsolutePath());
             }
         }
     }
@@ -67,15 +67,32 @@ public class HtmlGenerator {
         //Create relativeImagePath directory if it doesn't exist
         boolean mkdirs = new File(dirPath + relativeImagePath).mkdirs();
         if (!mkdirs) {
-            System.out.println("Failed to create directory: " + dirPath + relativeImagePath);
+            System.out.println("Directory was not created: " + dirPath + relativeImagePath);
         }
 
         //If relativeImagePath + "Icon.png" does not exist, copy it from resources
         if (!new File(relativeImagePath + "Icon.png").exists()) {
-            Path source = Paths.get("src/main/resources/Icon.png");
+            //Path source = Paths.get("src/main/resources/Icon.png");
+            Path source = Paths.get("./src/main/resources/Icon.png");
             Path target = Paths.get(dirPath + relativeImagePath + "Icon.png");
             Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
         }
+
+        //If relativeImagePath + "Icon.png" does not exist, copy it from resources
+        /*if (!new File(relativeImagePath + "Icon.png").exists()) {
+            InputStream resourceStream = HtmlGenerator.class.getClassLoader().getResourceAsStream("Icon.png");
+            if (resourceStream == null) {
+                throw new FileNotFoundException("Resource not found: Icon.png");
+            }
+            Path target = Paths.get(dirPath + relativeImagePath + "Icon.png");
+
+            // Ensure parent directories exist
+            Files.createDirectories(target.getParent());
+
+            // Copy resource to target location
+            Files.copy(resourceStream, target, StandardCopyOption.REPLACE_EXISTING);
+        }*/
+
 
         writer.write("<html>\n<head>\n<meta charset=\"UTF-8\">\n<title>" + title + "</title>\n<link rel=\"icon\" href=\"" + relativeImagePath + "Icon.png\">\n<style>\n/* Styling for the rectangles */\n" +
                 "ul {\n" +
