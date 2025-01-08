@@ -1,9 +1,7 @@
 package Model.CardsLists;
 
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -491,7 +489,7 @@ public class OuicheList {
                 throw new IOException("File was not created: " + filePath);
             }
         }
-        BufferedWriter writer = new BufferedWriter(new FileWriter(filePath));
+        BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8));
         for (ThemeCollection collection : detailedOuicheList.getCollections()) {
             writer.write("===" + collection.getName() + "========");
             writer.newLine();
@@ -555,7 +553,7 @@ public class OuicheList {
                 throw new IOException("File was not created: " + filePath);
             }
         }
-        BufferedWriter writer = new BufferedWriter(new FileWriter(filePath));
+        BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8));
 
         for (CardElement card : unusedCards) {
             //writer.write(card.getCard().getPasscode());
@@ -585,7 +583,8 @@ public class OuicheList {
                 throw new IOException("File was not created: " + directoryPath + filePath);
             }
         }
-        BufferedWriter writer = new BufferedWriter(new FileWriter(directoryPath + filePath));
+        //BufferedWriter writer = new BufferedWriter(new FileWriter(directoryPath + filePath));
+        BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(directoryPath + filePath), StandardCharsets.UTF_8));
 
         for (CardElement card : thirdPartyCardsINeedList) {
             //writer.write(card.getCard().getPasscode());

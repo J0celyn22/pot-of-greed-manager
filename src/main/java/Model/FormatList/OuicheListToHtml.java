@@ -3,8 +3,10 @@ package Model.FormatList;
 import Model.CardsLists.DecksAndCollectionsList;
 
 import java.io.BufferedWriter;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 
 import static Model.FormatList.HtmlGenerator.*;
 
@@ -25,7 +27,7 @@ public class OuicheListToHtml {
     public static void generateOuicheListAsListHtml(DecksAndCollectionsList ouicheList, String dirPath, String fileName) throws IOException {
         String filePath = dirPath + fileName.replace("\\", "-").replace("/", "-").replace("\"", "") + " - List.html";
         createHtmlFile(filePath);
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             String relativeImagePath = "..\\Images\\";
             addHeader(writer, fileName, relativeImagePath, dirPath);
             addTitle(writer, fileName, ouicheList.getCardCount(), ouicheList.getPrice());
@@ -90,7 +92,7 @@ public class OuicheListToHtml {
     public static void generateOuicheListAsMosaicHtml(DecksAndCollectionsList ouicheList, String dirPath, String fileName) throws IOException {
         String filePath = dirPath + fileName.replace("\\", "-").replace("/", "-").replace("\"", "") + " - Mosaic.html";
         createHtmlFile(filePath);
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             String relativeImagePath = "..\\Images\\";
             addHeader(writer, fileName, relativeImagePath, dirPath);
             addTitle(writer, fileName, ouicheList.getCardCount(), ouicheList.getPrice());

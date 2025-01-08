@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -136,7 +137,14 @@ public class FileFetcher {
     public static void fetchAllFiles() {
         try {
             // Read the JSON file
-            String content = new String(Files.readAllBytes(Paths.get("./src/main/java/Model/Database/addresses.json")));
+            //String content = new String(Files.readAllBytes(Paths.get("./src/main/java/Model/Database/addresses.json")));
+            byte[] encoded;
+            try { //TODO find a better way to do this without having to put the jar version of the path in a catch
+                encoded = Files.readAllBytes(Paths.get(Paths.get("./src/main/java/Model/Database/addresses.json").toUri()));
+            } catch (Exception e) {
+                encoded = Files.readAllBytes(Paths.get(Paths.get("resources/addresses.json").toUri()));
+            }
+            String content = new String(encoded, StandardCharsets.UTF_8);
             JSONObject json = new JSONObject(content);
 
             // Fetch all files except <passcode>.jpg and <printcode>.json

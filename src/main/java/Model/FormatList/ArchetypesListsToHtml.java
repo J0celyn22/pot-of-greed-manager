@@ -3,8 +3,10 @@ package Model.FormatList;
 import Model.CardsLists.Card;
 
 import java.io.BufferedWriter;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,7 +60,7 @@ public class ArchetypesListsToHtml {
         createHtmlFile(filePath);
         String relativeImagePath = "..\\Images\\";
         String imagesDirPath = dirPath + relativeImagePath;
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             addHeader(writer, fileName, relativeImagePath, dirPath);
             addTitle(writer, fileName);
 

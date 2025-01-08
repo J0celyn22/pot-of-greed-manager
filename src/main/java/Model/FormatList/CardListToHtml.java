@@ -4,8 +4,10 @@ import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
 
 import java.io.BufferedWriter;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.List;
@@ -31,7 +33,8 @@ public class CardListToHtml {
         createHtmlFile(filePath);
         String relativeImagePath = "..\\Images\\";
         String imagesDirPath = dirPath + relativeImagePath;
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        //try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             addHeader(writer, outputFileName, relativeImagePath, dirPath);
 
             addTitle(writer, outputFileName, cards.size(), getPriceCardElement(cards));
@@ -67,7 +70,7 @@ public class CardListToHtml {
         String filePath = dirPath + outputFileName + ".html";
         createHtmlFile(filePath);
         String relativeImagePath = "Images\\";
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             addHeader(writer, outputFileName, relativeImagePath, dirPath);
             addTitle(writer, outputFileName);
 
@@ -172,7 +175,7 @@ public class CardListToHtml {
         createHtmlFile(filePath);
         String relativeImagePath = "..\\Images\\";
         String imagesDirPath = dirPath + relativeImagePath;
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             addHeader(writer, outputFileName, relativeImagePath, dirPath);
             addTitle(writer, outputFileName, cards.size(), getPriceCardElement(cards));
             addLinkButtons(writer);

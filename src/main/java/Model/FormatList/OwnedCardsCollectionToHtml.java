@@ -5,8 +5,10 @@ import Model.CardsLists.CardElement;
 import Model.CardsLists.OwnedCardsCollection;
 
 import java.io.BufferedWriter;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -35,7 +37,7 @@ public class OwnedCardsCollectionToHtml {
         createHtmlFile(filePath);
         String relativeImagePath = "..\\Images\\";
         String imagesDirPath = dirPath + relativeImagePath;
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             addHeader(writer, outputFileName, relativeImagePath, dirPath);
             addTitle(writer, outputFileName, collection.getCardCount(), collection.getPrice());
             addLinkButtons(writer);
@@ -66,7 +68,7 @@ public class OwnedCardsCollectionToHtml {
         createHtmlFile(filePath);
         String relativeImagePath = "..\\Images\\";
         String imagesDirPath = dirPath + relativeImagePath;
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             addHeader(writer, outputFileName, relativeImagePath, dirPath);
             addTitle(writer, outputFileName, collection.getCardCount(), collection.getPrice());
             addMosaicButton(writer, outputFileName);
@@ -108,7 +110,7 @@ public class OwnedCardsCollectionToHtml {
         createHtmlFile(filePath);
         String relativeImagePath = "..\\Images\\";
         String imagesDirPath = dirPath + relativeImagePath;
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             addHeader(writer, outputFileName, relativeImagePath, dirPath);
             addTitle(writer, outputFileName, collection.getCardCount(), collection.getPrice());
             addListButton(writer, outputFileName);

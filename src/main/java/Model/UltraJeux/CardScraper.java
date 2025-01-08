@@ -8,8 +8,10 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
 import java.io.BufferedWriter;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -37,7 +39,8 @@ public class CardScraper {
         boolean hasMorePages = true;
 
         // Create or replace the output file
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter("../Output/ListeUltraJeux.txt"))) {
+        //try (BufferedWriter writer = new BufferedWriter(new FileWriter("../Output/ListeUltraJeux.txt"))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream("../Output/ListeUltraJeux.txt"), StandardCharsets.UTF_8))) {
             while (hasMorePages) {
                 Thread.sleep(500); // Add a delay of 500 ms
                 String url = "https://www.ultrajeux.com/search3.php?submit=Ok&jeu=2&prix_min=0&prix_max=1&prix_ref_max=45&dispo=1&tri=prix&order=0&limit=" + (pageNumber - 1) * 50;

@@ -3,8 +3,10 @@ package Model.FormatList;
 import Model.CardsLists.Deck;
 
 import java.io.BufferedWriter;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static Model.FormatList.HtmlGenerator.*;
@@ -22,7 +24,7 @@ public class DeckToHtml {
     public static void generateDeckAsListHtml(Deck deck, String dirPath, List<Deck> decksList) throws IOException {
         String filePath = dirPath + deck.getName().replace("\\", "-").replace("/", "-").replace("\"", "") + " - List.html";
         createHtmlFile(filePath);
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             String relativeImagePath = "..\\Images\\";
             addHeader(writer, deck.getName(), relativeImagePath, dirPath);
             addTitle(writer, deck.getName(), deck.getCardCount(), deck.getPrice());
@@ -50,7 +52,7 @@ public class DeckToHtml {
     public static void generateDeckAsMosaicHtml(Deck deck, String dirPath, List<Deck> decksList) throws IOException {
         String filePath = dirPath + deck.getName().replace("\\", "-").replace("/", "-").replace("\"", "") + " - Mosaic.html";
         createHtmlFile(filePath);
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             String relativeImagePath = "..\\Images\\";
             addHeader(writer, deck.getName(), relativeImagePath, dirPath);
             addTitle(writer, deck.getName(), deck.getCardCount(), deck.getPrice());
@@ -77,7 +79,7 @@ public class DeckToHtml {
     public static void generateDecksMenu(String dirPath, List<Deck> decksList) throws IOException {
         String filePath = dirPath + "Decks Menu.html";
         createHtmlFile(filePath);
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             String relativeImagePath = "..\\Images\\";
             addHeader(writer, "Decks", relativeImagePath, dirPath);
             addTitle(writer, "Decks");

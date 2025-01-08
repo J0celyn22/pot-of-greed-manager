@@ -88,7 +88,7 @@ public class PrintCodeToKonamiId {
      * of Konami IDs to their corresponding print codes has not yet been
      * initialized, it will be created before returning.
      */
-    public static void createKonamiIdPrintCodeMaps() throws URISyntaxException {
+    /*public static void createKonamiIdPrintCodeMaps() throws URISyntaxException {
         List<String> setCodes = Database.openSets("_sets.txt");
         printCodeToKonamiId = new HashMap<>();
         konamiIdToPrintCodes = new HashMap<>();
@@ -135,6 +135,67 @@ public class PrintCodeToKonamiId {
                                 konamiIdToPrintCodes.get(konamiId).add(setCode + key);
                             } else {
                                 //If the Konami ID is not in the map, create a new list with the setCode + key and add it to the map
+                                List<String> printCodes = new ArrayList<>();
+                                printCodes.add(setCode + key);
+                                konamiIdToPrintCodes.put(konamiId, printCodes);
+                            }
+                        }
+                    } else {
+                        throw new RuntimeException("Failed to open JSON file: " + fileName);
+                    }
+                } else if (setCodes == null) {
+                    throw new RuntimeException("Failed to open JSON file: " + fileName);
+                }
+            }
+        }
+    }*/
+    public static void createKonamiIdPrintCodeMaps() throws URISyntaxException {
+        List<String> setCodes = Database.openSets("_sets.txt");
+        printCodeToKonamiId = new HashMap<>();
+        konamiIdToPrintCodes = new HashMap<>();
+
+        // Process files listed in _sets.txt
+        if (setCodes != null) {
+            for (String setCode : setCodes) {
+                JSONObject jsonObject = Database.openJson(setCode + ".json");
+                if (jsonObject != null) {
+                    for (String key : jsonObject.keySet()) {
+                        String konamiId = Integer.toString(jsonObject.getInt(key));
+                        if (!printCodeToKonamiId.containsKey(setCode + key)) {
+                            printCodeToKonamiId.put(setCode + key, konamiId);
+                        }
+                        if (konamiIdToPrintCodes.containsKey(konamiId)) {
+                            konamiIdToPrintCodes.get(konamiId).add(setCode + key);
+                        } else {
+                            List<String> printCodes = new ArrayList<>();
+                            printCodes.add(setCode + key);
+                            konamiIdToPrintCodes.put(konamiId, printCodes);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Process all other JSON files in the directory
+        File directory = new File(databaseDir.resolve(Paths.get("ygoresources", "printcode")).toUri());
+        File[] files = directory.listFiles((dir, name) -> name.endsWith(".json"));
+
+        if (files != null) {
+            for (File file : files) {
+                String fileName = file.getName();
+                String setCode = fileName.substring(0, fileName.length() - 5); // Remove .json extension
+
+                if (setCodes != null && !setCodes.contains(setCode)) {
+                    JSONObject jsonObject = Database.openJson(fileName);
+                    if (jsonObject != null) {
+                        for (String key : jsonObject.keySet()) {
+                            String konamiId = Integer.toString(jsonObject.getInt(key));
+                            if (!printCodeToKonamiId.containsKey(setCode + key)) {
+                                printCodeToKonamiId.put(setCode + key, konamiId);
+                            }
+                            if (konamiIdToPrintCodes.containsKey(konamiId)) {
+                                konamiIdToPrintCodes.get(konamiId).add(setCode + key);
+                            } else {
                                 List<String> printCodes = new ArrayList<>();
                                 printCodes.add(setCode + key);
                                 konamiIdToPrintCodes.put(konamiId, printCodes);

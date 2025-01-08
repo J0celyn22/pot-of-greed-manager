@@ -59,7 +59,9 @@ public class DataBaseUpdate {
             Files.writeString(filePath, "0"); // Initialize with revision 0 if the file is created
         }
 
-        String content = new String(Files.readAllBytes(filePath));
+        //String content = new String(Files.readAllBytes(filePath));
+        byte[] encoded = Files.readAllBytes(Paths.get(filePath.toUri()));
+        String content = new String(encoded, StandardCharsets.UTF_8);
         return Integer.parseInt(content.trim());
     }
 
@@ -184,7 +186,14 @@ public class DataBaseUpdate {
     public static String[] getAddresses(String element) {
         try {
             // Read the JSON file
-            String content = new String(Files.readAllBytes(Paths.get("./src/main/java/Model/Database/addresses.json")));
+            //String content = new String(Files.readAllBytes(Paths.get("./src/main/java/Model/Database/addresses.json")));
+            byte[] encoded;
+            try { //TODO find a better way to do this without having to put the jar version of the path in a catch
+                encoded = Files.readAllBytes(Paths.get(Paths.get("./src/main/java/Model/Database/addresses.json").toUri()));
+            } catch (Exception e) {
+                encoded = Files.readAllBytes(Paths.get(Paths.get("resources/addresses.json").toUri()));
+            }
+            String content = new String(encoded, StandardCharsets.UTF_8);
 
             JSONObject json = new JSONObject(content);
 

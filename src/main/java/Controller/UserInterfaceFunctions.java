@@ -14,6 +14,7 @@ import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -102,10 +103,11 @@ public class UserInterfaceFunctions {
      * @param folderPath The path to the folder containing all the decks.
      * @param thirdPartyListPath The path to the third party list.
      */
-    public static void savePathsToFile(File filePath, File folderPath, File thirdPartyListPath) {
+    /*public static void savePathsToFile(File filePath, File folderPath, File thirdPartyListPath) {
         try {
             File file = new File("default_folders.txt");
-            BufferedWriter writer = new BufferedWriter(new FileWriter(file));
+            //BufferedWriter writer = new BufferedWriter(new FileWriter(file));
+            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8));
             writer.write(filePath != null ? filePath.getAbsolutePath() : "");
             writer.newLine();
             writer.write(folderPath != null ? folderPath.getAbsolutePath() : "");
@@ -115,6 +117,31 @@ public class UserInterfaceFunctions {
         } catch (IOException e) {
             // Handle any exceptions (e.g., write error)
             // You can log an error message or handle it as needed
+        }
+    }*/
+    public static void savePathsToFile(File filePath, File folderPath, File thirdPartyListPath) {
+        try {
+            File file = new File("default_folders.txt");
+            File parentDir = file.getParentFile();
+
+            if (parentDir != null && !parentDir.exists()) {
+                boolean mkdirs = parentDir.mkdirs();
+                if (!mkdirs) {
+                    //System.out.println("Parent directory was not created: " + parentDir.getAbsolutePath());
+                }
+            }
+
+            try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8))) {
+                writer.write(filePath != null ? filePath.getAbsolutePath() : "");
+                writer.newLine();
+                writer.write(folderPath != null ? folderPath.getAbsolutePath() : "");
+                writer.newLine();
+                writer.write(thirdPartyListPath != null ? thirdPartyListPath.getAbsolutePath() : "");
+            }
+        } catch (IOException e) {
+            // Handle any exceptions (e.g., write error)
+            // You can log an error message or handle it as needed
+            e.printStackTrace();
         }
     }
 
@@ -126,9 +153,18 @@ public class UserInterfaceFunctions {
      */
     public static void playLaughSound() {
         // Load the audio file
-        String audioFilePath = ".\\src\\main\\resources\\PotOfGreedLaugh.mp3"; // Adjust the path if needed
-        Media media = new Media(new File(audioFilePath).toURI().toString());
-        MediaPlayer mediaPlayer = new MediaPlayer(media);
+        String audioFilePath;
+        Media media;
+        MediaPlayer mediaPlayer;
+        try { //TODO find a better way to do this without having to put the jar version of the path in a catch
+            audioFilePath = ".\\src\\main\\resources\\PotOfGreedLaugh.mp3";
+            media = new Media(new File(audioFilePath).toURI().toString());
+            mediaPlayer = new MediaPlayer(media);
+        } catch (Exception e) {
+            audioFilePath = "resources\\PotOfGreedLaugh.mp3";
+            media = new Media(new File(audioFilePath).toURI().toString());
+            mediaPlayer = new MediaPlayer(media);
+        }
 
         // Play the audio
         mediaPlayer.play();
@@ -213,9 +249,10 @@ public class UserInterfaceFunctions {
      * @param collectionFileField The text field to display the selected file's path.
      */
     public static void browseCollectionFile(FileChooser fileChooser, Stage primaryStage, TextField collectionFileField) {
-        File filePath = fileChooser.showOpenDialog(primaryStage);
-        if (filePath != null) {
-            collectionFileField.setText(filePath.getAbsolutePath());
+        File tempFilePath = fileChooser.showOpenDialog(primaryStage);
+        if (tempFilePath != null) {
+            collectionFileField.setText(tempFilePath.getAbsolutePath());
+            filePath = tempFilePath;
         }
     }
 
@@ -267,9 +304,10 @@ public class UserInterfaceFunctions {
      * @param decksAndCollectionDirectoryField The text field to display the selected directory's path.
      */
     public static void browseDecksAndCollectionsDirectory(DirectoryChooser folderChooser, Stage primaryStage, TextField decksAndCollectionDirectoryField) {
-        File folderPath = folderChooser.showDialog(primaryStage);
-        if (folderPath != null) {
-            decksAndCollectionDirectoryField.setText(folderPath.getAbsolutePath());
+        File tempFolderPath = folderChooser.showDialog(primaryStage);
+        if (tempFolderPath != null) {
+            decksAndCollectionDirectoryField.setText(tempFolderPath.getAbsolutePath());
+            folderPath = tempFolderPath;
         }
     }
 
@@ -376,7 +414,6 @@ public class UserInterfaceFunctions {
     public static void loadOuicheList() throws Exception {
         String dirPath = ouicheListPath.getAbsolutePath();
         importOuicheList(dirPath);
-        //outputPath + "OuicheList.html"
 
         ouicheListIsLoaded = true;
     }

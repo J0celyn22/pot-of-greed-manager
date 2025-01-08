@@ -60,15 +60,28 @@ public class RealMain extends Application {
     public void start(Stage primaryStage) throws IOException {
         primaryStage.setTitle("Pot of Greed Manager");
 
-        //Commented code : works only with the application run/debug configuration while the current code works with the jar
-        Image iconImage = new Image(new FileInputStream("./src/main/resources/WokOfGreedSpirit.jpg"));
+        Image iconImage;
+        Image image16;
+        Image image32;
+        Image image64;
 
-        //Image iconImage = new Image("/resources/WokOfGreedSpirit.jpg");
+
+        try { //TODO find a better way to do this without having to put the jar version of the path in a catch
+            iconImage = new Image(new FileInputStream("./src/main/resources/WokOfGreedSpirit.jpg"));
+            image16 = new Image(new FileInputStream("./src/main/resources/WokOfGreedSpirit_16.jpg"));
+            image32 = new Image(new FileInputStream("./src/main/resources/WokOfGreedSpirit_32.jpg"));
+            image64 = new Image(new FileInputStream("./src/main/resources/WokOfGreedSpirit_64.jpg"));
+        } catch (FileNotFoundException e) {
+            iconImage = new Image("/resources/WokOfGreedSpirit.jpg");
+            image16 = new Image("/resources/WokOfGreedSpirit_16.jpg");
+            image32 = new Image("/resources/WokOfGreedSpirit_32.jpg");
+            image64 = new Image("/resources/WokOfGreedSpirit_64.jpg");
+        }
 
         primaryStage.getIcons().addAll(
-                new Image(new FileInputStream("./src/main/resources/WokOfGreedSpirit_64.jpg")),
-                new Image(new FileInputStream("./src/main/resources/WokOfGreedSpirit_32.jpg")),
-                new Image(new FileInputStream("./src/main/resources/WokOfGreedSpirit_16.jpg"))
+                image64,
+                image32,
+                image16
         );
 
         UserInterfaceFunctions.readPathsFromFile();

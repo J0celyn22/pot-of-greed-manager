@@ -5,12 +5,10 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -43,7 +41,9 @@ public class Database {
         if (addresses.length > 0) {
             String localPath = addresses[0];
             try {
-                String content = new String(Files.readAllBytes(Paths.get(localPath)));
+                //String content = new String(Files.readAllBytes(Paths.get(localPath)));
+                byte[] encoded = Files.readAllBytes(Paths.get(localPath));
+                String content = new String(encoded, StandardCharsets.UTF_8);
                 if (content.startsWith("[")) {
                     // Wrap the JSON array in a JSON object
                     JSONArray jsonArray = new JSONArray(content);
@@ -68,7 +68,7 @@ public class Database {
      * @param element the element to search for in the addresses.json file, which can be a file name or a key
      * @return the content of the file as a list of strings, or null if an error occurs
      */
-    public static List<String> openSets(String element) {
+    /*public static List<String> openSets(String element) {
         fetchFile(element);
         String[] addresses = DataBaseUpdate.getAddresses(element);
         if (addresses.length > 0) {
@@ -81,7 +81,28 @@ public class Database {
             }
         }
         return null;
+    }*/
+    public static List<String> openSets(String element) {
+        fetchFile(element);
+        String[] addresses = DataBaseUpdate.getAddresses(element);
+        if (addresses.length > 0) {
+            String localPath = addresses[0];
+            try (Stream<String> lines = Files.lines(Paths.get(localPath))) {
+                String content = lines.collect(Collectors.joining());
+                // Remove brackets and quotes, then split by comma
+                String[] setCodesArray = content.replace("[", "").replace("]", "").replace("\"", "").split(",");
+                // Trim whitespace from each set code and remove duplicates
+                Set<String> setCodesSet = Arrays.stream(setCodesArray)
+                        .map(String::trim)
+                        .collect(Collectors.toSet());
+                return new ArrayList<>(setCodesSet);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        return null;
     }
+
 
     /**
      * Populates the jsonContentMap from the JSON object in the addresses.json file.
@@ -90,7 +111,14 @@ public class Database {
      */
     public static void populateJsonContentMap() {
         try {
-            String content = new String(Files.readAllBytes(Paths.get("./src/main/java/Model/Database/addresses.json")));
+            //String content = new String(Files.readAllBytes(Paths.get("./src/main/java/Model/Database/addresses.json")));
+            byte[] encoded;
+            try { //TODO find a better way to do this without having to put the jar version of the path in a catch
+                encoded = Files.readAllBytes(Paths.get(Paths.get("./src/main/java/Model/Database/addresses.json").toUri()));
+            } catch (Exception e) {
+                encoded = Files.readAllBytes(Paths.get(Paths.get("resources/addresses.json").toUri()));
+            }
+            String content = new String(encoded, StandardCharsets.UTF_8);
             JSONObject json = new JSONObject(content);
             populateMapFromJson(json, "");
         } catch (IOException e) {

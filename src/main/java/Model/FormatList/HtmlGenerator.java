@@ -34,7 +34,7 @@ public class HtmlGenerator {
         if (parentDir != null && !parentDir.exists()) {
             boolean mkdirs = parentDir.mkdirs();
             if (!mkdirs) {
-                System.out.println("arent directory was not created: " + parentDir.getAbsolutePath());
+                //System.out.println("Parent directory was not created: " + parentDir.getAbsolutePath());
             }
         }
 
@@ -67,15 +67,24 @@ public class HtmlGenerator {
         //Create relativeImagePath directory if it doesn't exist
         boolean mkdirs = new File(dirPath + relativeImagePath).mkdirs();
         if (!mkdirs) {
-            System.out.println("Directory was not created: " + dirPath + relativeImagePath);
+            //System.out.println("Directory was not created: " + dirPath + relativeImagePath);
         }
 
         //If relativeImagePath + "Icon.png" does not exist, copy it from resources
         if (!new File(relativeImagePath + "Icon.png").exists()) {
             //Path source = Paths.get("src/main/resources/Icon.png");
-            Path source = Paths.get("./src/main/resources/Icon.png");
-            Path target = Paths.get(dirPath + relativeImagePath + "Icon.png");
-            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+            Path source;
+            Path target;
+            byte[] encoded;
+            try { //TODO find a better way to do this without having to put the jar version of the path in a catch
+                source = Paths.get("./src/main/resources/Icon.png");
+                target = Paths.get(dirPath + relativeImagePath + "Icon.png");
+                Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception e) {
+                source = Paths.get("resources/Icon.png");
+                target = Paths.get(dirPath + relativeImagePath + "Icon.png");
+                Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+            }
         }
 
         //If relativeImagePath + "Icon.png" does not exist, copy it from resources

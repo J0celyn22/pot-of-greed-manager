@@ -3,8 +3,10 @@ package Model.FormatList;
 import Model.CardsLists.ThemeCollection;
 
 import java.io.BufferedWriter;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 
 import static Model.FormatList.HtmlGenerator.*;
 
@@ -19,7 +21,7 @@ public class ThemeCollectionToHtml {
     public static void generateThemeCollectionAsListHtml(ThemeCollection themeCollection, String dirPath) throws IOException {
         String filePath = dirPath + themeCollection.getName().replace("\\", "-").replace("/", "-").replace("\"", "") + " - List.html";
         createHtmlFile(filePath);
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             String relativeImagePath = "..\\Images\\";
             addHeader(writer, themeCollection.getName(), relativeImagePath, dirPath);
             addTitle(writer, themeCollection.getName(), themeCollection.getCardCount(), themeCollection.getPrice());
@@ -53,7 +55,7 @@ public class ThemeCollectionToHtml {
     public static void generateThemeCollectionAsMosaicHtml(ThemeCollection themeCollection, String dirPath) throws IOException {
         String filePath = dirPath + themeCollection.getName().replace("\\", "-").replace("/", "-").replace("\"", "") + " - Mosaic.html";
         createHtmlFile(filePath);
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             String relativeImagePath = "..\\Images\\";
             addHeader(writer, themeCollection.getName(), relativeImagePath, dirPath);
             addTitle(writer, themeCollection.getName(), themeCollection.getCardCount(), themeCollection.getPrice());
