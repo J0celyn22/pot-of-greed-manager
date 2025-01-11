@@ -22,6 +22,8 @@ import java.util.List;
 
 import static Model.CardsLists.OuicheList.*;
 import static Model.CardsLists.SubListCreator.*;
+import static Model.FilePaths.outputPath;
+import static Model.FilePaths.outputPathLists;
 import static Model.FormatList.ArchetypesListsToHtml.GenerateAllArchetypesLists;
 import static Model.FormatList.CardListToHtml.generateHtml;
 import static Model.FormatList.CardListToHtml.generateHtmlWithOwned;
@@ -33,8 +35,8 @@ import static Model.FormatList.OuicheListToHtml.generateOuicheListAsMosaicHtml;
  */
 public class UserInterfaceFunctions {
     //private static String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-    private static final String outputPath = "..\\Output\\"/* + dateTime + "\\"*/;
-    private static final String outputPathLists = outputPath + "Lists\\";
+    //private static final String outputPath = ".\\Output\\"/* + dateTime + "\\"*/;
+    //private static final String outputPathLists = outputPath + "Lists\\";
     public static File filePath = null;
     public static File folderPath = null;
     public static File thirdPartyListPath = null;
@@ -450,7 +452,7 @@ public class UserInterfaceFunctions {
 
     /**
      * Saves the list of third-party cards needed to the file "3rdPartyList.txt" in the
-     * directory specified by {@link #outputPath}.
+     * directory specified by outputPath.
      *
      * @throws IOException If the file could not be created.
      */
@@ -478,7 +480,7 @@ public class UserInterfaceFunctions {
 
     /**
      * Saves the OuicheList to the file "OuicheList.txt" in the
-     * directory specified by {@link #outputPath}.
+     * directory specified by outputPath.
      *
      * @throws IOException If the file could not be created.
      */

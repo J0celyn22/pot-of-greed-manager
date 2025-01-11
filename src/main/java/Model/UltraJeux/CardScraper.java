@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 import static Model.Database.PrintCodeToKonamiId.getPrintCodeToKonamiId;
+import static Model.FilePaths.outputPath;
 
 public class CardScraper {
     /**
@@ -40,7 +41,9 @@ public class CardScraper {
 
         // Create or replace the output file
         //try (BufferedWriter writer = new BufferedWriter(new FileWriter("../Output/ListeUltraJeux.txt"))) {
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream("../Output/ListeUltraJeux.txt"), StandardCharsets.UTF_8))) {
+        //try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream("../Output/ListeUltraJeux.txt"), StandardCharsets.UTF_8))) {
+        //try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream("../Output/ListeUltraJeux.txt"), StandardCharsets.UTF_8))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(outputPath + "\\ListeUltraJeux.txt"), StandardCharsets.UTF_8))) {
             while (hasMorePages) {
                 Thread.sleep(500); // Add a delay of 500 ms
                 String url = "https://www.ultrajeux.com/search3.php?submit=Ok&jeu=2&prix_min=0&prix_max=1&prix_ref_max=45&dispo=1&tri=prix&order=0&limit=" + (pageNumber - 1) * 50;
