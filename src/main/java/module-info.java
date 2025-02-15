@@ -16,4 +16,5 @@ module PotOfGreedManager {
     exports View to javafx.graphics, javafx.fxml;
     exports Controller to javafx.graphics, javafx.fxml;
     opens Main to javafx.graphics, javafx.fxml;
+    opens Controller to javafx.fxml;
 }

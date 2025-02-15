@@ -9,10 +9,12 @@ import java.util.List;
 public class Box {
     public List<CardsGroup> content;
     String name;
+    public List<Box> subBoxes;
 
     public Box(String name) {
         this.name = name;
         this.content = new ArrayList<>();
+        this.subBoxes = new ArrayList<>();
     }
 
     /**
@@ -46,6 +48,29 @@ public class Box {
      */
     public void setContent(List<CardsGroup> content) {
         this.content = content;
+    }
+
+
+    /**
+     * Retrieves the list of all sub-boxes within this box.
+     *
+     * @return The list of sub-boxes within this box
+     */
+    public List<Box> getSubBoxes() {
+        return subBoxes;
+    }
+
+    /**
+     * Sets the list of sub-boxes within this box.
+     * <p>
+     * The sub-boxes are stored in the order they are given, and can be retrieved
+     * using {@link #getSubBoxes()}.
+     * </p>
+     *
+     * @param subBoxes The list of sub-boxes to set
+     */
+    public void setSubBoxes(List<Box> subBoxes) {
+        this.subBoxes = subBoxes;
     }
 
     /**

@@ -377,7 +377,7 @@ public class UserInterfaceFunctions {
     public static void browseThirdPartyAvailableCards(FileChooser fileChooser, Stage primaryStage, TextField thirdPartyAvailableCardsField) {
         thirdPartyListPath = fileChooser.showOpenDialog(primaryStage);
         if (thirdPartyListPath != null) {
-            thirdPartyAvailableCardsField.setText(filePath.getAbsolutePath());
+            thirdPartyAvailableCardsField.setText(thirdPartyListPath.getAbsolutePath());
         }
     }
 
@@ -392,7 +392,7 @@ public class UserInterfaceFunctions {
     public static void browseOuicheList(FileChooser fileChooser, Stage primaryStage, TextField ouicheListField) {
         ouicheListPath = fileChooser.showOpenDialog(primaryStage);
         if (ouicheListPath != null) {
-            ouicheListField.setText(filePath.getAbsolutePath());
+            ouicheListField.setText(ouicheListPath.getAbsolutePath());
         }
     }
 

@@ -1,0 +1,28 @@
+/* styles.css */
+
+.tree-view {
+    -fx-background-color: #100317;
+}
+
+.tree-cell {
+    -fx-background-color: #100317;
+}
+
+.tree-cell:filled:selected, .tree-cell:focused:selected {
+    -fx-background-color: #100317;
+}
+
+.label {
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-background-color: transparent;
+}
+
+.flow-pane {
+    -fx-background-color: #100317;
+    -fx-padding: 10;
+}
+
+.image-view {
+    /* Additional styles for cards if needed */
+}

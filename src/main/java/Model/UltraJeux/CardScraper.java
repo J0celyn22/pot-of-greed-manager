@@ -45,7 +45,7 @@ public class CardScraper {
         //try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream("../Output/ListeUltraJeux.txt"), StandardCharsets.UTF_8))) {
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(outputPath + "\\ListeUltraJeux.txt"), StandardCharsets.UTF_8))) {
             while (hasMorePages) {
-                Thread.sleep(500); // Add a delay of 500 ms
+                Thread.sleep(1000); // Add a delay of 1 second between pages to avoid being blocked by the website
                 String url = "https://www.ultrajeux.com/search3.php?submit=Ok&jeu=2&prix_min=0&prix_max=1&prix_ref_max=45&dispo=1&tri=prix&order=0&limit=" + (pageNumber - 1) * 50;
                 Document doc = Jsoup.connect(url).get();
                 Elements rows = doc.select("table tr");
