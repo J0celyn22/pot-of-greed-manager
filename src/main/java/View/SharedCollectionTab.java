@@ -1,6 +1,7 @@
 package View;
 
 import Controller.UserInterfaceFunctions;
+import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
@@ -21,42 +22,44 @@ import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Set;
+
 /*
  * SharedCollectionTab.java
  *
- * This class builds the UI for each tab using a three-column layout.
- * The left pane is used for the navigation menu, the middle for the content (which is further
- * divided into the header and the main display area), and previously the right pane was empty.
- * For our updated design, we remove the blank right pane so that the tab only has the left and middle parts.
+ * Two-column layout: left navigation menu inside a ScrollPane, middle content.
+ * Programmatic scrollbar styling for the navigation menu remains.
  */
 public class SharedCollectionTab extends HBox {
 
     private static final Logger logger = LoggerFactory.getLogger(SharedCollectionTab.class);
-    @FXML
-    private ScrollPane menuScrollPane;
-    @FXML
-    private VBox menuVBox;
-    @FXML
-    private VBox displayVBox;
-    @FXML
-    private AnchorPane headerPane;
-    @FXML
-    private AnchorPane contentPane;
-    // Callback for DECKS tab load button updates.
-    private Runnable onDecksLoad;
-    // The empty right part has been removed
-    private TabType tabType;
+
     public SharedCollectionTab(TabType tabType) {
         this.tabType = tabType;
         this.setSpacing(0);
 
         // Left pane: Navigation menu (fixed width)
         menuVBox = new VBox();
-        menuVBox.setStyle("-fx-background-color: #100317; -fx-text-fill: white;");
+        menuVBox.getStyleClass().add("navigation-menu");
+        menuVBox.setSpacing(5);
+        menuVBox.setPadding(new Insets(10));
+
         menuScrollPane = new ScrollPane(menuVBox);
+        menuScrollPane.getStyleClass().add("navigation-scroll-pane");
+
+        // Make the ScrollPane background transparent so the menu VBox background shows through
+        menuScrollPane.setStyle(
+                "-fx-background-color: transparent; " +
+                        "-fx-background: transparent; " +
+                        "-fx-background-insets: 0; " +
+                        "-fx-padding: 0;"
+        );
+
         menuScrollPane.setFitToWidth(true);
         menuScrollPane.setFitToHeight(true);
         menuScrollPane.setPrefWidth(375);
+        menuScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        menuScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
 
         // Vertical separator between left and middle.
         Separator sepLeft = new Separator();
@@ -67,12 +70,12 @@ public class SharedCollectionTab extends HBox {
         // Middle pane: Display area (header and content).
         displayVBox = new VBox();
         displayVBox.setSpacing(0);
-        displayVBox.setStyle("-fx-background-color: #100317; -fx-text-fill: white;");
+        displayVBox.getStyleClass().add("display-vbox");
 
         // Header pane (top middle part)
         headerPane = new AnchorPane();
         headerPane.setPrefHeight(200);
-        headerPane.setStyle("-fx-background-color: #100317;");
+        headerPane.getStyleClass().add("header-pane");
         Node headerContent = createHeaderContentForTab(tabType);
         setHeaderContent(headerContent);
 
@@ -83,7 +86,7 @@ public class SharedCollectionTab extends HBox {
 
         // Content pane (collection/decks view)
         contentPane = new AnchorPane();
-        contentPane.setStyle("-fx-background-color: #100317; -fx-text-fill: white;");
+        contentPane.getStyleClass().add("content-pane");
         VBox.setVgrow(contentPane, Priority.ALWAYS);
 
         displayVBox.getChildren().addAll(headerPane, sepHoriz, contentPane);
@@ -91,7 +94,24 @@ public class SharedCollectionTab extends HBox {
 
         // Assemble the two columns only (left and middle)
         this.getChildren().addAll(menuScrollPane, sepLeft, displayVBox);
+
+        // Programmatic styling for the navigation menu scrollbars remains (inline styles)
+        styleScrollBarsIn(menuScrollPane);
     }
+
+    @FXML
+    private ScrollPane menuScrollPane;
+    @FXML
+    private VBox menuVBox;
+    @FXML
+    private VBox displayVBox;
+    @FXML
+    private AnchorPane headerPane;
+    @FXML
+    private AnchorPane contentPane;
+
+    private Runnable onDecksLoad;
+    private TabType tabType;
 
     public void setOnDecksLoad(Runnable onDecksLoad) {
         this.onDecksLoad = onDecksLoad;
@@ -112,10 +132,18 @@ public class SharedCollectionTab extends HBox {
                         UserInterfaceFunctions.filePath.getAbsolutePath() : "");
                 collectionFileField.setVisible(false);
                 collectionFileField.setManaged(false);
+                collectionFileField.getStyleClass().add("accent-text-field");
 
                 Button collectionFileButton = new Button("Browse");
                 Button collectionFileLoadButton = new Button("Load");
                 Button collectionFileGenerateHTMLButton = new Button("Generate HTML");
+
+                // small buttons: keep compact size
+                collectionFileButton.getStyleClass().add("small-button");
+                collectionFileLoadButton.getStyleClass().add("small-button");
+                // make Generate HTML small as requested
+                collectionFileGenerateHTMLButton.getStyleClass().add("small-button");
+
                 groupRow.getChildren().addAll(collectionFileButton, collectionFileLoadButton, collectionFileGenerateHTMLButton);
 
                 collectionFileButton.setOnAction(e -> {
@@ -150,10 +178,18 @@ public class SharedCollectionTab extends HBox {
                 decksAndCollectionDirectoryField.setPrefColumnCount(30);
                 decksAndCollectionDirectoryField.setVisible(false);
                 decksAndCollectionDirectoryField.setManaged(false);
+                decksAndCollectionDirectoryField.getStyleClass().add("accent-text-field");
 
                 Button decksAndCollectionsDirectoryButton = new Button("Browse");
                 Button decksAndCollectionsDirectoryLoadButton = new Button("Load");
                 Button decksAndCollectionsDirectoryGenerateHTMLButton = new Button("Generate HTML");
+
+                // small buttons
+                decksAndCollectionsDirectoryButton.getStyleClass().add("small-button");
+                decksAndCollectionsDirectoryLoadButton.getStyleClass().add("small-button");
+                // make Generate HTML small as requested
+                decksAndCollectionsDirectoryGenerateHTMLButton.getStyleClass().add("small-button");
+
                 groupRow.getChildren().addAll(decksAndCollectionsDirectoryButton, decksAndCollectionsDirectoryLoadButton, decksAndCollectionsDirectoryGenerateHTMLButton);
 
                 decksAndCollectionsDirectoryButton.setOnAction(e -> {
@@ -201,6 +237,14 @@ public class SharedCollectionTab extends HBox {
                 groupRow5.getChildren().add(generateAllButton);
                 ouicheGroup.getChildren().add(groupRow5);
 
+                // Mark the long-labeled buttons with a dedicated style class so they can be larger
+                generateOuicheListButton.getStyleClass().add("large-button");
+                generateOuicheListTypeButton.getStyleClass().add("large-button");
+                generateAllButton.getStyleClass().add("large-button");
+
+                // Make the Save button small (requested)
+                generateOuicheListSaveButton.getStyleClass().add("small-button");
+
                 generateOuicheListButton.setOnAction(e -> UserInterfaceFunctions.generateOuicheList());
                 generateOuicheListSaveButton.setOnAction(e -> {
                     try {
@@ -236,8 +280,15 @@ public class SharedCollectionTab extends HBox {
                 TextField thirdPartyAvailableCardsField = new TextField();
                 thirdPartyAvailableCardsField.setPromptText("Enter 3rd party cards file");
                 thirdPartyAvailableCardsField.setPrefColumnCount(30);
+                // fixed-size accent text field so hover/focus won't change layout
+                thirdPartyAvailableCardsField.getStyleClass().addAll("accent-text-field", "fixed-accent-text-field");
+
                 Button thirdPartyAvailableCardsBrowseButton = new Button("Browse");
                 Button thirdPartyAvailableCardsLoadButton = new Button("Load");
+                // small buttons: keep compact size
+                thirdPartyAvailableCardsBrowseButton.getStyleClass().add("small-button");
+                thirdPartyAvailableCardsLoadButton.getStyleClass().add("small-button");
+
                 friendsRow1.getChildren().addAll(thirdPartyAvailableCardsField, thirdPartyAvailableCardsBrowseButton, thirdPartyAvailableCardsLoadButton);
                 friendsGroup.getChildren().add(friendsRow1);
 
@@ -249,14 +300,25 @@ public class SharedCollectionTab extends HBox {
                 TextField ouicheListField = new TextField();
                 ouicheListField.setPromptText("Enter OuicheList file");
                 ouicheListField.setPrefColumnCount(30);
+                // fixed-size accent text field so hover/focus won't change layout
+                ouicheListField.getStyleClass().addAll("accent-text-field", "fixed-accent-text-field");
+
                 Button ouicheListBrowseButton = new Button("Browse");
                 Button loadOuicheListButton = new Button("Load");
+                // small buttons
+                ouicheListBrowseButton.getStyleClass().add("small-button");
+                loadOuicheListButton.getStyleClass().add("small-button");
+
                 friendsRow2.getChildren().addAll(ouicheListField, ouicheListBrowseButton, loadOuicheListButton);
                 friendsGroup.getChildren().add(friendsRow2);
 
                 HBox friendsRow3 = new HBox(5);
                 Button generateThirdPartyListButton = new Button("Generate list");
                 Button generateThirdPartyListSaveButton = new Button("Save");
+                // small buttons for these
+                generateThirdPartyListButton.getStyleClass().add("small-button");
+                generateThirdPartyListSaveButton.getStyleClass().add("small-button");
+
                 friendsRow3.getChildren().addAll(generateThirdPartyListButton, generateThirdPartyListSaveButton);
                 friendsGroup.getChildren().add(friendsRow3);
 
@@ -309,6 +371,8 @@ public class SharedCollectionTab extends HBox {
                 VBox archetypesGroup = new VBox(10);
                 archetypesGroup.setAlignment(Pos.CENTER);
                 Button generateArchetypesListsButton = new Button("Generate Archetype Lists");
+                // Make the archetypes button larger as requested
+                generateArchetypesListsButton.getStyleClass().add("large-button");
                 archetypesGroup.getChildren().add(generateArchetypesListsButton);
                 generateArchetypesListsButton.setOnAction(e -> {
                     try {
@@ -320,45 +384,13 @@ public class SharedCollectionTab extends HBox {
                 headerContent.getChildren().add(archetypesGroup);
                 break;
             }
-            /*case SHOPS: {
-                VBox shopsGroup = new VBox(10);
-                shopsGroup.setAlignment(Pos.CENTER);
-                Button scrapeCardsButton = new Button("Scrape Cards");
-                shopsGroup.getChildren().add(scrapeCardsButton);
-                scrapeCardsButton.setOnAction(e -> {
-                    try {
-                        if (!UserInterfaceFunctions.getOuicheListIsLoaded()) {
-                            if (UserInterfaceFunctions.ouicheListPath == null) {
-                                System.out.println("OuicheList must be selected");
-                            } else {
-                                UserInterfaceFunctions.loadOuicheList();
-                            }
-                        }
-                        if (UserInterfaceFunctions.getOuicheListIsLoaded()) {
-                            java.util.List<Model.CardsLists.CardElement> maOuicheList = Model.CardsLists.OuicheList.getMaOuicheList();
-                            double maxPrice = 100;
-                            java.util.Map<String, java.util.List<String>> cardNamesFromWebsite =
-                                    Model.UltraJeux.CardScraper.getCardNamesFromWebsite(maOuicheList, maxPrice);
-                            for (java.util.Map.Entry<String, java.util.List<String>> entry : cardNamesFromWebsite.entrySet()) {
-                                System.out.println("Page: " + entry.getKey());
-                                for (String cardName : entry.getValue()) {
-                                    System.out.println("Card Name: " + cardName + ", Page: " + entry.getKey());
-                                }
-                            }
-                        }
-                    } catch (Exception ex) {
-                        ex.printStackTrace();
-                    }
-                });
-                headerContent.getChildren().add(shopsGroup);
-                break;
-            }*/
             case SHOPS: {
                 VBox shopsGroup = new VBox(10);
                 shopsGroup.setAlignment(Pos.CENTER);
 
-                // New UltraJeux button
                 Button ultraJeuxButton = new Button("UltraJeux");
+                // make UltraJeux small as requested
+                ultraJeuxButton.getStyleClass().add("small-button");
                 shopsGroup.getChildren().add(ultraJeuxButton);
 
                 ultraJeuxButton.setOnAction(e -> {
@@ -396,6 +428,16 @@ public class SharedCollectionTab extends HBox {
         return headerContent;
     }
 
+    private void styleScrollBarsIn(ScrollPane sp) {
+        if (sp == null) return;
+
+        // Re-apply when skin changes (scrollbars are created by the skin)
+        sp.skinProperty().addListener((obs, oldSkin, newSkin) -> Platform.runLater(() -> applyStylesToScrollBars(sp)));
+
+        // Try immediately (in case skin already exists)
+        Platform.runLater(() -> applyStylesToScrollBars(sp));
+    }
+
     public VBox getMenuVBox() {
         return menuVBox;
     }
@@ -411,6 +453,67 @@ public class SharedCollectionTab extends HBox {
     public void setHeaderContent(Node node) {
         headerPane.getChildren().clear();
         headerPane.getChildren().add(node);
+    }
+
+    // -------------------------
+    // Programmatic scrollbar styling helper (keeps inline styling for nav scrollpane)
+    // -------------------------
+
+    private void applyStylesToScrollBars(ScrollPane sp) {
+        try {
+            Set<Node> bars = sp.lookupAll(".scroll-bar");
+            bars.addAll(sp.lookupAll(".overlay-scroll-bar"));
+
+            for (Node bar : bars) {
+                bar.setStyle(
+                        "-fx-background-color: transparent; " +
+                                "-fx-background-image: null; " +
+                                "-fx-padding: 0;"
+                );
+
+                Node track = bar.lookup(".track");
+                if (track != null) {
+                    track.setStyle(
+                            "-fx-background-color: #100317; " +
+                                    "-fx-background-image: null; " +
+                                    "-fx-background-insets: 0; " +
+                                    "-fx-background-radius: 4;"
+                    );
+                }
+
+                Node thumb = bar.lookup(".thumb");
+                if (thumb != null) {
+                    thumb.setStyle(
+                            "-fx-background-color: #cdfc04; " +
+                                    "-fx-background: #cdfc04; " +
+                                    "-fx-background-image: null; " +
+                                    "-fx-background-insets: 2; " +
+                                    "-fx-background-radius: 6; " +
+                                    "-fx-pref-width: 10; " +
+                                    "-fx-pref-height: 24; " +
+                                    "-fx-opacity: 1; " +
+                                    "-fx-effect: null;"
+                    );
+                }
+
+                Node inc = bar.lookup(".increment-button");
+                Node dec = bar.lookup(".decrement-button");
+                if (inc != null) {
+                    inc.setStyle("-fx-background-color: #100317; -fx-background-image: null; -fx-padding: 2; -fx-background-radius: 4;");
+                    Node incArrow = inc.lookup(".increment-arrow");
+                    if (incArrow == null) incArrow = inc.lookup(".arrow");
+                    if (incArrow != null) incArrow.setStyle("-fx-background-color: #cdfc04;");
+                }
+                if (dec != null) {
+                    dec.setStyle("-fx-background-color: #100317; -fx-background-image: null; -fx-padding: 2; -fx-background-radius: 4;");
+                    Node decArrow = dec.lookup(".decrement-arrow");
+                    if (decArrow == null) decArrow = dec.lookup(".arrow");
+                    if (decArrow != null) decArrow.setStyle("-fx-background-color: #cdfc04;");
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("applyStylesToScrollBars failed", e);
+        }
     }
 
     public enum TabType {

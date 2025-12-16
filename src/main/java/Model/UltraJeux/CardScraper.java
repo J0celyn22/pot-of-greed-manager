@@ -12,10 +12,13 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static Model.Database.PrintCodeToKonamiId.getPrintCodeToKonamiId;
 import static Model.FilePaths.outputPath;
@@ -33,7 +36,7 @@ public class CardScraper {
      * @return A map containing page numbers as keys and lists of card names as values.
      * @throws Exception If an error occurs during HTTP connection or file writing.
      */
-    public static Map<String, List<String>> getCardNamesFromWebsite(List<CardElement> maOuicheList, double maxPrice) throws Exception {
+    /*public static Map<String, List<String>> getCardNamesFromWebsite(List<CardElement> maOuicheList, double maxPrice) throws Exception {
         Map<String, List<String>> result = new HashMap<>();
         Map<String, Integer> cardNameOccurrences = new HashMap<>();
         int pageNumber = 1;
@@ -109,6 +112,150 @@ public class CardScraper {
         }
 
         return result;
+    }*/
+    public static Map<String, List<String>> getCardNamesFromWebsite(List<CardElement> maOuicheList, double maxPrice) throws Exception {
+        final double OVERPRICE_THRESHOLD = 0.30; // prices >= this are treated as overprice and marked " NO MATCH"
+
+        Map<String, List<String>> result = new HashMap<>();
+        Map<String, Integer> cardNameOccurrences = new HashMap<>();
+        int pageNumber = 1;
+        boolean hasMorePages = true;
+
+        Pattern printCodePattern = Pattern.compile("\\b([A-Z0-9]{2,}(?:-?[A-Z0-9]+)?)\\b");
+
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(outputPath + "\\ListeUltraJeux.txt"), StandardCharsets.UTF_8))) {
+            while (hasMorePages) {
+                Thread.sleep(1000);
+                String url = "https://www.ultrajeux.com/search3.php?submit=Ok&jeu=2&prix_min=0&prix_max=1&prix_ref_max=45&dispo=1&tri=prix&order=0&limit=" + (pageNumber - 1) * 50;
+                Document doc = Jsoup.connect(url).get();
+
+                Elements products = doc.select("div.block_produit");
+                if (products.isEmpty()) {
+                    hasMorePages = false;
+                    break;
+                }
+
+                boolean foundAnyOnPage = false;
+
+                for (Element product : products) {
+                    Element nameEl = product.selectFirst("div.contenu p.titre");
+                    if (nameEl == null) nameEl = product.selectFirst("p.titre");
+                    if (nameEl == null) continue;
+                    String name = nameEl.text().trim();
+                    if (name.isEmpty()) continue;
+
+                    String subtitle = "";
+                    Element sousTitreEl = product.selectFirst("div.contenu p.sous_titre");
+                    if (sousTitreEl == null) sousTitreEl = product.selectFirst("p.sous_titre");
+                    if (sousTitreEl != null) subtitle = sousTitreEl.text().trim();
+
+                    String printCode = null;
+                    if (!subtitle.isEmpty()) {
+                        Matcher m = printCodePattern.matcher(subtitle);
+                        if (m.find()) printCode = m.group(1).trim();
+                    }
+
+                    Element unavailableEl = product.selectFirst("span.titre_pourcent");
+                    if (unavailableEl != null && unavailableEl.text().toLowerCase().contains("prix bientôt disponible")) {
+                        continue;
+                    }
+                    Element priceEl = product.selectFirst("span.prix");
+                    if (priceEl == null) continue;
+
+                    String priceText = priceEl.text().replace("\u00A0", " ").replace("€", "").trim();
+                    priceText = priceText.replace(',', '.').replaceAll("[^0-9.]", "");
+                    double price;
+                    try {
+                        price = Double.parseDouble(priceText);
+                    } catch (NumberFormatException e) {
+                        continue;
+                    }
+
+                    foundAnyOnPage = true;
+
+                    // If price is above maxPrice, skip matching but still log normally (no stop)
+                    if (price > maxPrice) {
+                        // log as skipped due to maxPrice (no NO MATCH unless also >= OVERPRICE_THRESHOLD)
+                        writer.write("Card Name: " + name + ", Page: " + pageNumber + ", Price: " + price + "€ (skipped > maxPrice)\n");
+                        continue;
+                    }
+
+                    // If price meets the overprice threshold, mark NO MATCH and skip matching
+                    if (price >= OVERPRICE_THRESHOLD) {
+                        writer.write("Card Name: " + name + ", Page: " + pageNumber + ", Price: " + price + "€ - NO MATCH\n");
+                        System.out.println("Card Name: " + name + ", Page: " + pageNumber + ", Price: " + price + "€ - NO MATCH");
+                        continue;
+                    }
+
+                    // Normal matching flow
+                    String konamiId = null;
+                    if (printCode != null) konamiId = getPrintCodeToKonamiId().get(printCode);
+
+                    Card card = null;
+                    if (konamiId != null) {
+                        card = findCardById(maOuicheList, konamiId);
+                    } else {
+                        String normalized = normalizeForCompare(name);
+                        if (!normalized.isEmpty()) {
+                            card = findCardByNormalizedName(maOuicheList, normalized, name);
+                        } else {
+                            card = findCardByName(maOuicheList, name);
+                        }
+                    }
+
+                    if (card != null) {
+                        result.computeIfAbsent("Page " + pageNumber, k -> new ArrayList<>()).add(name);
+                        int occurrence = cardNameOccurrences.getOrDefault(name, 0) + 1;
+                        cardNameOccurrences.put(name, occurrence);
+                        if (occurrence > 1) {
+                            writer.write("Card Name: " + name + ", Page: " + pageNumber + ", Price: " + price + "€, Occurrence: " + occurrence + "\n");
+                            System.out.println("Card Name: " + name + ", Page: " + pageNumber + ", Price: " + price + "€, Occurrence: " + occurrence);
+                        } else {
+                            writer.write("Card Name: " + name + ", Page: " + pageNumber + ", Price: " + price + "€\n");
+                            System.out.println("Card Name: " + name + ", Page: " + pageNumber + ", Price: " + price + "€");
+                        }
+                    }
+                }
+
+                if (!foundAnyOnPage) {
+                    hasMorePages = false;
+                } else {
+                    pageNumber++;
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return result;
+    }
+
+    // Normalizes a String: lowercase, strip diacritics, remove punctuation and extra spaces
+    private static String normalizeForCompare(String s) {
+        if (s == null) return "";
+        String t = s.toLowerCase().trim();
+        t = Normalizer.normalize(t, Normalizer.Form.NFD).replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
+        t = t.replaceAll("[^\\p{Alnum}\\s]", "");
+        t = t.replaceAll("\\s+", " ").trim();
+        return t;
+    }
+
+    // Find by normalized name first, else fallback to original name comparison
+    private static Card findCardByNormalizedName(List<CardElement> maOuicheList, String normalizedName, String originalName) {
+        for (CardElement element : maOuicheList) {
+            Card c = element.getCard();
+            if (c.getName_EN() != null) {
+                String nEN = normalizeForCompare(c.getName_EN());
+                if (!nEN.isEmpty() && nEN.equals(normalizedName)) return c;
+                if (nEN.isEmpty() && c.getName_EN().equalsIgnoreCase(originalName)) return c;
+            }
+            if (c.getName_FR() != null) {
+                String nFR = normalizeForCompare(c.getName_FR());
+                if (!nFR.isEmpty() && nFR.equals(normalizedName)) return c;
+                if (nFR.isEmpty() && c.getName_FR().equalsIgnoreCase(originalName)) return c;
+            }
+        }
+        return null;
     }
 
 

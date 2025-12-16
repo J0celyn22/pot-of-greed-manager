@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.scene.layout.*?>
+<fx:root xmlns:fx="http://javafx.com/fxml" type="HBox" fx:controller="View.SharedCollectionTab" spacing="10">
+    <!-- Left Pane: Navigation Menu -->
+    <ScrollPane fx:id="menuScrollPane" fitToWidth="true" fitToHeight="true" prefWidth="375">
+        <content>
+            <VBox fx:id="menuVBox" style="-fx-background-color: #100317; -fx-text-fill: white;"/>
+        </content>
+    </ScrollPane>
+    <!-- Middle Pane: Display Area -->
+    <VBox fx:id="displayVBox" spacing="10" style="-fx-background-color: #100317; -fx-text-fill: white;">
+        <!-- Header Pane (for controls that may vary per tab) -->
+        <AnchorPane fx:id="headerPane" prefHeight="200" style="-fx-background-color: #100317;"/>
+        <Separator/>
+        <!-- Content Pane (collection view, etc.) -->
+        <AnchorPane fx:id="contentPane" style="-fx-background-color: #100317; -fx-text-fill: white;"
+                    VBox.vgrow="ALWAYS"/>
+    </VBox>
+</fx:root>

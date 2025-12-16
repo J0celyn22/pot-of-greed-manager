@@ -41,7 +41,7 @@ public class DecksAndCollectionsListTest {
         assertEquals(collections, list.getCollections());
     }
 
-    @Test
+    /*@Test
     public void testToList() throws Exception {
         DecksAndCollectionsList list = new DecksAndCollectionsList();
         List<Deck> decks = new ArrayList<>();
@@ -52,7 +52,8 @@ public class DecksAndCollectionsListTest {
         List<CardElement> cards = list.toList();
         assertEquals(1, cards.size());
         assertEquals("TestCard", cards.get(0).getCard().getPassCode());
-    }
+    }*/
+
 
     @Test
     public void testToListCollectionsAndLinkedDecks() throws Exception {

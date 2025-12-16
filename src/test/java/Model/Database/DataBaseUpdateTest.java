@@ -18,7 +18,7 @@ class DataBaseUpdateTest {
             "_sets.txt, ygoresources\\printcode\\_sets.txt, https://db.ygoresources.com/data/idx/printcode/_sets",
             "15AX-JP.json, ygoresources\\printcode\\15AX-JP.json, https://db.ygoresources.com/data/idx/printcode/15AX-JP",
             "46986414.jpg, ygoprodeck\\images\\46986414.jpg, https://images.ygoprodeck.com/images/cards/46986414.jpg",
-            "cards_Lite.json, mdpro3\\cards_Lite.json, https://code.moenext.com/sherry_chaos/MDPro3/-/raw/master/Data/cards_Lite.json"
+            "cards_Lite.json, mdpro3\\cards_Lite.json, https://code.moenext.com/sherry_chaos/MDPro3/-/blob/master/Data/cards_Lite.json"
     })
     public void testGetAddresses(String input, String expectedPath, String expectedAddress) throws URISyntaxException {
         String[] res = DataBaseUpdate.getAddresses(input);

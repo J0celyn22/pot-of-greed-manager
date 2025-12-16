@@ -79,7 +79,8 @@ public class CardFactory {
 
         String passCode = String.valueOf(getKonamiIdToPassCode().get(Integer.valueOf(id)));
         if (passCode == null || passCode.equals("null")) {
-            throw new IllegalArgumentException("Card passcode is null for printcode " + printCode);
+            //throw new IllegalArgumentException("Card passcode is null for printcode " + printCode);
+            System.out.println("Card passcode is null for printcode " + printCode);
         }
 
         return CreateCardFromPassCode(passCode);

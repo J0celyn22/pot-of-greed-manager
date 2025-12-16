@@ -7,6 +7,8 @@ module PotOfGreedManager {
     requires org.json;
     requires org.jsoup;
     requires java.desktop;
+    requires org.controlsfx.controls;
+    requires org.slf4j;
 
     exports Model.CardsLists to javafx.graphics, javafx.fxml;
     exports Model.FormatList to javafx.graphics, javafx.fxml;

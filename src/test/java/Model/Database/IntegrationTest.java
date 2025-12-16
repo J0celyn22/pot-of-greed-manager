@@ -30,7 +30,7 @@ public class IntegrationTest {
             "_sets.txt, ygoresources\\printcode\\_sets.txt, https://db.ygoresources.com/data/idx/printcode/_sets",
             "15AX-JP.json, ygoresources\\printcode\\15AX-JP.json, https://db.ygoresources.com/data/idx/printcode/15AX-JP",
             "46986414.jpg, ygoprodeck\\images\\46986414.jpg, https://images.ygoprodeck.com/images/cards/46986414.jpg",
-            "cards_Lite.json, mdpro3\\cards_Lite.json, https://code.moenext.com/sherry_chaos/MDPro3/-/raw/master/Data/cards_Lite.json",
+            "cards_Lite.json, mdpro3\\cards_Lite.json, https://code.moenext.com/sherry_chaos/MDPro3/-/blob/master/Data/cards_Lite.json",
             "archetypes.json, ygoprodeck\\archetypes.json, https://db.ygoprodeck.com/api/v7/archetypes.php"
     })
     public void testFetchFile(String input, String expectedPath, String expectedAddress) throws IOException, URISyntaxException {
@@ -81,7 +81,7 @@ public class IntegrationTest {
         integrationTest.testFetchFile("_sets.txt", "ygoresources\\printcode\\_sets.txt", "https://db.ygoresources.com/data/idx/printcode/_sets");
         integrationTest.testFetchFile("15AX-JP.json", "ygoresources\\printcode\\15AX-JP.json", "https://db.ygoresources.com/data/idx/printcode/15AX-JP");
         integrationTest.testFetchFile("46986414.jpg", "ygoprodeck\\images\\46986414.jpg", "https://images.ygoprodeck.com/images/cards/46986414.jpg");
-        integrationTest.testFetchFile("cards_Lite.json", "mdpro3\\cards_Lite.json", "https://code.moenext.com/sherry_chaos/MDPro3/-/raw/master/Data/cards_Lite.json");
+        integrationTest.testFetchFile("cards_Lite.json", "mdpro3\\cards_Lite.json", "https://code.moenext.com/sherry_chaos/MDPro3/-/blob/master/Data/cards_Lite.json");
         integrationTest.testFetchFile("archetypes.json", "ygoprodeck\\archetypes.json", "https://db.ygoprodeck.com/api/v7/archetypes.php");
 
         // Call the second integration test
@@ -95,7 +95,7 @@ public class IntegrationTest {
         integrationTest.testFetchFile("_sets.txt", "ygoresources\\printcode\\_sets.txt", "https://db.ygoresources.com/data/idx/printcode/_sets");
         integrationTest.testFetchFile("15AX-JP.json", "ygoresources\\printcode\\15AX-JP.json", "https://db.ygoresources.com/data/idx/printcode/15AX-JP");
         integrationTest.testFetchFile("46986414.jpg", "ygoprodeck\\images\\46986414.jpg", "https://images.ygoprodeck.com/images/cards/46986414.jpg");
-        integrationTest.testFetchFile("cards_Lite.json", "mdpro3\\cards_Lite.json", "https://code.moenext.com/sherry_chaos/MDPro3/-/raw/master/Data/cards_Lite.json");
+        integrationTest.testFetchFile("cards_Lite.json", "mdpro3\\cards_Lite.json", "https://code.moenext.com/sherry_chaos/MDPro3/-/blob/master/Data/cards_Lite.json");
         integrationTest.testFetchFile("archetypes.json", "ygoprodeck\\archetypes.json", "https://db.ygoprodeck.com/api/v7/archetypes.php");
     }
 

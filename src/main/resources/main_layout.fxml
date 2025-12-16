@@ -1,26 +1,54 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
-<?import javafx.scene.control.Button?>
-<?import javafx.scene.control.ScrollPane?>
-<?import javafx.scene.control.TextField?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
-<HBox xmlns:fx="http://javafx.com/fxml" spacing="10" fx:controller="Controller.RealMainController">
-
-    <VBox fx:id="leftPaneContainer" style="-fx-background-color: #100317;" prefWidth="250">
-        <ScrollPane fx:id="leftPaneScroll" fitToWidth="true">
-            <VBox fx:id="leftPane" style="-fx-background-color: #100317; -fx-text-fill: white;"/>
-        </ScrollPane>
-    </VBox>
-
-    <VBox fx:id="middlePane" style="-fx-background-color: #100317; -fx-text-fill: white;" prefWidth="1385">
-        <!-- The TreeView will be added programmatically -->
-        <!-- Optionally, add a TextField for search -->
-        <!--<TextField fx:id="searchField" promptText="Search..." />-->
-    </VBox>
-
-    <VBox fx:id="rightPane" style="-fx-background-color: #100317;" prefWidth="250">
-        <TextField fx:id="collectionFileField" promptText="Enter Collection file path"/>
-        <Button fx:id="collectionFileLoadButton" text="Load Collection"/>
-    </VBox>
-
+<?import javafx.scene.text.Text?>
+<HBox xmlns:fx="http://javafx.com/fxml" fx:controller="Controller.RealMainController" spacing="0"
+      style="-fx-background-color: #100317;">
+    <children>
+        <!-- Left: TabPane with the six tabs -->
+        <TabPane fx:id="mainTabPane" HBox.hgrow="ALWAYS" style="-fx-background-color: #100317;"
+                 tabClosingPolicy="UNAVAILABLE">
+            <tabs>
+                <Tab text="My Collection"/>
+                <Tab text="Decks and Collections"/>
+                <Tab text="OuicheList"/>
+                <Tab text="Archetypes"/>
+                <Tab text="Friend's Collection"/>
+                <Tab text="Shop's Collection"/>
+            </tabs>
+        </TabPane>
+        <!-- Vertical separator -->
+        <Separator orientation="VERTICAL" style="-fx-background-color: white;" prefWidth="2"/>
+        <!-- Right: All Existing Cards pane (integrated inline) -->
+        <VBox fx:id="allExistingCardsPane" styleClass="all-existing-cards-pane" prefWidth="375"
+              style="-fx-background-color: #100317;" spacing="0">
+            <children>
+                <!-- Top section with search fields and buttons -->
+                <VBox spacing="5" alignment="CENTER_LEFT">
+                    <children>
+                        <Text text="Name :" style="-fx-fill: white; -fx-font-size: 14;"/>
+                        <TextField fx:id="nameTextField" promptText="Enter name..."/>
+                        <Text text="Printcode :" style="-fx-fill: white; -fx-font-size: 14;"/>
+                        <TextField fx:id="printcodeTextField" promptText="Enter printcode..."/>
+                        <!-- Search button: small-button style class to keep fixed small size -->
+                        <Button fx:id="searchButton" text="Search" styleClass="small-button"/>
+                        <!-- Buttons moved immediately below the search button -->
+                        <HBox spacing="10" alignment="CENTER">
+                            <children>
+                                <!-- List/Mosaic and Printed/Unique buttons: small-button style class -->
+                                <Button fx:id="listMosaicButton" text="List/Mosaic" styleClass="small-button"/>
+                                <Button fx:id="printedUniqueButton" text="Printed/Unique" styleClass="small-button"/>
+                            </children>
+                        </HBox>
+                    </children>
+                    <padding>
+                        <Insets top="10" bottom="10" left="10" right="10"/>
+                    </padding>
+                </VBox>
+                <!-- Bottom section: dynamic display container for cards -->
+                <AnchorPane fx:id="cardsDisplayContainer" VBox.vgrow="ALWAYS" style="-fx-background-color: #202020;"/>
+            </children>
+        </VBox>
+    </children>
 </HBox>

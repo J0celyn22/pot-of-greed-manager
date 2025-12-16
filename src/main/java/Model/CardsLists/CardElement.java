@@ -196,7 +196,7 @@ public class CardElement {
      *
      * @return true if this element is in a deck, false otherwise
      */
-    public Boolean getInDeck() {
+    public Boolean getIsInDeck() {
         return isInDeck;
     }
 
@@ -209,7 +209,7 @@ public class CardElement {
      *
      * @param inDeck true if this element is in a deck, false otherwise
      */
-    public void setInDeck(Boolean inDeck) {
+    public void setIsInDeck(Boolean inDeck) {
         isInDeck = inDeck;
     }
 

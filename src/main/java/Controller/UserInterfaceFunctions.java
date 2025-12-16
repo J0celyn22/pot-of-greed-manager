@@ -38,6 +38,7 @@ public class UserInterfaceFunctions {
     //private static final String outputPath = ".\\Output\\"/* + dateTime + "\\"*/;
     //private static final String outputPathLists = outputPath + "Lists\\";
     public static File filePath = null;
+    // Use folderPath for the decks and collections folder.
     public static File folderPath = null;
     public static File thirdPartyListPath = null;
     public static File ouicheListPath = null;
@@ -46,6 +47,18 @@ public class UserInterfaceFunctions {
     private static Boolean thirdPartyCollectionIsLoaded = false;
     private static Boolean ouicheListIsLoaded = false;
     private static Boolean detailedOuicheListIsLoaded = false;
+
+    // Added static variable to hold the decks list.
+    private static DecksAndCollectionsList decksList = null;
+
+    public static DecksAndCollectionsList getDecksList() {
+        return decksList;
+    }
+
+    // Setter and getter for decksList.
+    public static void setDecksList(DecksAndCollectionsList list) {
+        decksList = list;
+    }
 
     /**
      * Returns the status of whether the Ouiche list is loaded.
@@ -75,6 +88,7 @@ public class UserInterfaceFunctions {
                     filePath = new File(line);
                 }
                 if ((line = reader.readLine()) != null) {
+                    // folderPath is used for decks and collections.
                     folderPath = new File(line);
                 }
                 if ((line = reader.readLine()) != null) {
@@ -83,8 +97,8 @@ public class UserInterfaceFunctions {
                 reader.close();
             }
         } catch (IOException e) {
-            // Handle any exceptions (e.g., file not found, read error)
-            // You can log an error message or use default paths here
+            // Handle exception if needed.
+
         }
     }
 
@@ -105,22 +119,6 @@ public class UserInterfaceFunctions {
      * @param folderPath The path to the folder containing all the decks.
      * @param thirdPartyListPath The path to the third party list.
      */
-    /*public static void savePathsToFile(File filePath, File folderPath, File thirdPartyListPath) {
-        try {
-            File file = new File("default_folders.txt");
-            //BufferedWriter writer = new BufferedWriter(new FileWriter(file));
-            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8));
-            writer.write(filePath != null ? filePath.getAbsolutePath() : "");
-            writer.newLine();
-            writer.write(folderPath != null ? folderPath.getAbsolutePath() : "");
-            writer.newLine();
-            writer.write(thirdPartyListPath != null ? thirdPartyListPath.getAbsolutePath() : "");
-            writer.close();
-        } catch (IOException e) {
-            // Handle any exceptions (e.g., write error)
-            // You can log an error message or handle it as needed
-        }
-    }*/
     public static void savePathsToFile(File filePath, File folderPath, File thirdPartyListPath) {
         try {
             File file = new File("default_folders.txt");
@@ -272,10 +270,6 @@ public class UserInterfaceFunctions {
         myCollectionIsLoaded = true;
     }
 
-    /*public static void saveCollectionFile() throws Exception {
-        getMyCardsCollection().SaveCollection(outputPath + "Collection.txt");
-    }*/
-
     /**
      * Exports the collection to a directory specified by the user.
      * The directory is stored in the static variable outputPathLists.
@@ -329,11 +323,6 @@ public class UserInterfaceFunctions {
 
         decksAndCollectionIsLoaded = true;
     }
-
-    /*public static void saveDecksAndCollectionsDirectory() {
-        // Empty function for now
-        getDecksList().Save(outputPath + "Collection.txt");
-    }*/
 
     /**
      * Exports the decks and collections to a directory specified by the user.
@@ -513,23 +502,23 @@ public class UserInterfaceFunctions {
     }
 
     /**
-     * Generates the OuicheList by calling {@link Model.CardsLists.OuicheList#CreateOuicheList(OwnedCardsCollection, DecksAndCollectionsList)} and
-     * generates several sublists of the OuicheList based on the different types of cards.
+     * Generates the OuicheList by calling {@link Model.CardsLists.OuicheList#CreateOuicheList(OwnedCardsCollection, DecksAndCollectionsList)}
+     * and generates several sublists of the OuicheList based on the different types of cards.
      *
-     * @throws RuntimeException If an exception occurs during generation.
+     * @throws RuntimeException if an exception occurs during generation.
      */
     public static void generateOuicheListTypeFunction() {
         try {
             if (!myCollectionIsLoaded) {
                 loadCollectionFile();
             }
-
             if (!decksAndCollectionIsLoaded) {
                 loadDecksAndCollectionsDirectory();
             }
 
             setMaOuicheList(Model.CardsLists.OuicheList.CreateOuicheList(getMyCardsCollection(), getDecksList()));
 
+            // Create the output directory.
             //String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
             Files.createDirectories(Paths.get(outputPathLists));
 

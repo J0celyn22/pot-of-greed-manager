@@ -1,28 +1,514 @@
-/* styles.css */
+/* styles.css (complete file) */
 
-.tree-view {
+/* Base background used across the app */
+.root, .card-tree-cell, .card-group-vbox, .card-group-hbox, .card-grid-view, .card-group-label {
     -fx-background-color: #100317;
 }
 
-.tree-cell {
-    -fx-background-color: #100317;
-}
-
-.tree-cell:filled:selected, .tree-cell:focused:selected {
-    -fx-background-color: #100317;
-}
-
-.label {
+/* Keep existing rules (consolidated and cleaned) */
+.tree-root-label {
     -fx-text-fill: white;
     -fx-font-weight: bold;
+    -fx-font-size: 16;
+}
+
+.tree-item-label {
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-font-size: 13px;
+}
+
+.custom-triangle-label {
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+
+.card-group-label {
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-padding: 5 0 5 0;
+}
+
+.card-grid-view {
+    -fx-background-color: #100317;
+}
+
+/* Card tree cell styling */
+.card-tree-cell {
+    -fx-background-color: transparent;
+    -fx-padding: 2px;
+}
+
+/* Card hover effect */
+.card-tree-cell:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Selected card style */
+.card-tree-cell:selected {
+    -fx-background-color: rgba(0, 120, 215, 0.18);
+}
+
+/* Card name label style */
+.card-name-label {
+    -fx-text-fill: white;
+    -fx-font-size: 12px;
+    -fx-padding: 0 0 0 5px;
+}
+
+/* Root item style (duplicate consolidated) */
+.tree-root-label {
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-font-size: 14px;
+}
+
+/* Deck sections style */
+.deck-section {
+    -fx-text-fill: white;
+    -fx-font-style: italic;
+    -fx-font-size: 12px;
+}
+
+/* ScrollPane viewport background: make the viewport match app background */
+.scroll-pane .viewport {
+    -fx-background-color: #100317;
+}
+
+/* Ensure content inside scroll panes doesn't show a different background */
+.scroll-pane .content {
     -fx-background-color: transparent;
 }
 
-.flow-pane {
-    -fx-background-color: #100317;
-    -fx-padding: 10;
+/* Generic ScrollBar styling to integrate with app design.
+   - Track and background use the app background color.
+   - Thumb and arrow indicators use the accent color #cdfc04.
+*/
+.scroll-bar {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
 }
 
-.image-view {
-    /* Additional styles for cards if needed */
+/* Track is the full length area behind the thumb */
+.scroll-bar .track {
+    -fx-background-color: #100317; /* same as app background */
+    -fx-background-insets: 0;
+    -fx-background-radius: 4;
 }
+
+/* Thumb (the draggable part) */
+.scroll-bar .thumb {
+    -fx-background-color: #cdfc04; /* accent color for thumb */
+    -fx-background-insets: 2;
+    -fx-background-radius: 6;
+    -fx-pref-width: 8;
+    -fx-pref-height: 24;
+    -fx-effect: null;
+}
+
+/* Thumb hover and pressed states for subtle feedback */
+.scroll-bar .thumb:hover {
+    -fx-background-color: derive(#cdfc04, -8%);
+}
+.scroll-bar .thumb:pressed {
+    -fx-background-color: derive(#cdfc04, -16%);
+}
+
+/* Increment and decrement buttons (arrows) */
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-background-color: #100317; /* match app background */
+    -fx-padding: 2;
+    -fx-background-radius: 4;
+    -fx-min-width: 18;
+    -fx-min-height: 18;
+}
+
+/* Arrow shapes inside the buttons (color them with the accent) */
+.scroll-bar .increment-button .arrow,
+.scroll-bar .decrement-button .arrow {
+    -fx-background-color: #cdfc04;
+    -fx-shape: "M0 0 L1 0 0.5 1 Z"; /* simple triangle shape; JavaFX will scale it */
+    -fx-scale-x: 8;
+    -fx-scale-y: 8;
+    -fx-padding: 2;
+}
+
+/* Hide default focus ring on scrollbar controls for a cleaner look */
+.scroll-bar .increment-button:focused,
+.scroll-bar .decrement-button:focused,
+.scroll-bar .thumb:focused {
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
+/* Make horizontal scrollbars consistent too */
+.scroll-bar:horizontal .thumb {
+    -fx-pref-height: 8;
+    -fx-pref-width: 48;
+}
+
+/* ListView and TreeView scrollbars inherit the same look.
+   Ensure the background behind lists matches the app background. */
+.list-view, .tree-view {
+    -fx-background-color: transparent;
+}
+
+/* If you use ControlsFX GridView inside a ScrollPane, ensure its viewport matches */
+.grid-view .viewport {
+    -fx-background-color: transparent;
+}
+
+/* Small accessibility tweak: increase hit area for thumb on narrow scrollbars */
+.scroll-bar .thumb {
+    -fx-padding: 2;
+}
+
+/* ---------------------------
+   Button styling requested
+   --------------------------- */
+
+/* Base button appearance: keep height consistent with text fields but do not force width.
+   Large buttons remain controlled by the .large-button class. */
+.all-existing-cards-pane Button,
+#allExistingCardsPane Button,
+.header-pane Button,
+.display-vbox Button,
+.threepart-left-pane Button,
+.threepart-right-pane Button {
+    -fx-background-color: black;
+    -fx-text-fill: #cdfc04;
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 1.5;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+
+    /* Height rules to match text field height and avoid growth on hover */
+    -fx-font-size: 13px;
+    -fx-font-weight: normal;
+    -fx-padding: 6 10 6 10;    /* vertical padding chosen to match text field height */
+    -fx-min-height: 30px;      /* match text field height */
+    -fx-pref-height: 30px;
+    -fx-alignment: center;
+    -fx-text-alignment: center;
+
+    /* Do not set min-width/pref-width here so other buttons keep their natural width */
+}
+
+/* Hover: bold text and same geometry so no layout shift */
+.all-existing-cards-pane Button:hover,
+#allExistingCardsPane Button:hover,
+.header-pane Button:hover,
+.display-vbox Button:hover,
+.threepart-left-pane Button:hover,
+.threepart-right-pane Button:hover {
+    -fx-font-weight: bold;
+    -fx-text-fill: #cdfc04;
+    -fx-border-color: #cdfc04;
+    -fx-cursor: hand;
+
+    /* keep same height/padding to avoid growth */
+    -fx-padding: 6 10 6 10;
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+}
+
+/* Pressed state keeps the same geometry */
+.all-existing-cards-pane Button:pressed,
+#allExistingCardsPane Button:pressed,
+.header-pane Button:pressed,
+.display-vbox Button:pressed,
+.threepart-left-pane Button:pressed,
+.threepart-right-pane Button:pressed {
+    -fx-background-color: derive(black, -6%);
+    -fx-text-fill: #cdfc04;
+    -fx-font-weight: bold;
+    -fx-padding: 6 10 6 10;
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+}
+
+/* Make sure buttons remain visually consistent when disabled */
+.all-existing-cards-pane Button:disabled,
+#allExistingCardsPane Button:disabled,
+.header-pane Button:disabled,
+.display-vbox Button:disabled,
+.threepart-left-pane Button:disabled,
+.threepart-right-pane Button:disabled {
+    -fx-opacity: 0.5;
+    -fx-text-fill: #cdfc04;
+    -fx-border-color: #cdfc04;
+}
+
+/* ---------------------------
+   Small buttons (preserve the original small size)
+   --------------------------- */
+
+/* Small buttons keep a compact width so labels fit and hover bolding doesn't change layout.
+   These are applied via the "small-button" style class on the specific Button nodes. */
+.small-button {
+    -fx-min-width: 110px;
+    -fx-pref-width: 130px;
+    -fx-max-width: 160px;
+
+    /* keep same height as other buttons */
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+}
+
+/* Ensure hover/pressed keep the same geometry for small buttons */
+.small-button:hover {
+    -fx-min-width: 110px;
+    -fx-pref-width: 130px;
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+}
+.small-button:pressed {
+    -fx-min-width: 110px;
+    -fx-pref-width: 130px;
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+}
+
+/* ---------------------------
+   Large buttons (only for long labels)
+   --------------------------- */
+
+/* Only buttons that have the large-button style class will be wider */
+.large-button {
+    -fx-min-width: 300px;
+    -fx-pref-width: 360px;
+    -fx-max-width: 520px;
+    /* keep same height as other buttons */
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+}
+
+/* Ensure hover/pressed keep the same geometry for large buttons too */
+.large-button:hover {
+    -fx-min-width: 300px;
+    -fx-pref-width: 360px;
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+}
+.large-button:pressed {
+    -fx-min-width: 300px;
+    -fx-pref-width: 360px;
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+}
+
+/* ---------------------------
+   TextField styling requested
+   --------------------------- */
+
+/* Accent textfield class (explicit) */
+.accent-text-field {
+    -fx-background-color: black;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 1.5;
+    -fx-text-fill: #cdfc04;
+    -fx-prompt-text-fill: rgba(205,252,4,0.55); /* slightly transparent prompt */
+    -fx-caret-color: #cdfc04;
+    -fx-padding: 6 8 6 8;
+    -fx-font-size: 13px;
+}
+
+/* Hover/focus: stronger border and bold text */
+.accent-text-field:hover,
+.accent-text-field:focused {
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 2;
+    -fx-font-weight: bold;
+}
+
+/* Fixed-size accent text fields (prevent growth on hover/focus) */
+.fixed-accent-text-field {
+    -fx-background-color: black;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 1.5;
+    -fx-text-fill: #cdfc04;
+    -fx-prompt-text-fill: rgba(205,252,4,0.55);
+    -fx-caret-color: #cdfc04;
+    -fx-padding: 6 8 6 8;
+    -fx-font-size: 13px;
+    -fx-font-weight: normal;
+
+    /* Size constraints to absorb bolding without layout shift (original fixed sizes) */
+    -fx-min-width: 300px;
+    -fx-pref-width: 360px;
+    -fx-max-width: 480px;
+}
+
+/* Keep hover/focus visual feedback but preserve geometry */
+.fixed-accent-text-field:hover,
+.fixed-accent-text-field:focused {
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 1.5; /* keep same border width so no reflow */
+    -fx-font-weight: bold;
+    -fx-caret-color: #cdfc04;
+}
+
+/* Apply to textfields in the right pane and header areas (fallback if style class not set) */
+.all-existing-cards-pane TextField,
+#allExistingCardsPane TextField,
+.header-pane TextField,
+.display-vbox TextField,
+.threepart-left-pane TextField,
+.threepart-right-pane TextField {
+    -fx-background-color: black;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 1.5;
+    -fx-text-fill: #cdfc04;
+    -fx-prompt-text-fill: rgba(205,252,4,0.55);
+    -fx-caret-color: #cdfc04;
+    -fx-padding: 6 8 6 8;
+    -fx-font-size: 13px;
+}
+
+/* Hover/focus for the fallback selectors */
+.all-existing-cards-pane TextField:hover,
+#allExistingCardsPane TextField:hover,
+.header-pane TextField:hover,
+.display-vbox TextField:hover,
+.threepart-left-pane TextField:hover,
+.threepart-right-pane TextField:hover,
+.all-existing-cards-pane TextField:focused,
+#allExistingCardsPane TextField:focused,
+.header-pane TextField:focused,
+.display-vbox TextField:focused,
+.threepart-left-pane TextField:focused,
+.threepart-right-pane TextField:focused {
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 2;
+    -fx-font-weight: bold;
+}
+
+/* TabPane background and header area */
+#mainTabPane {
+    -fx-background-color: black; /* same as panes */
+}
+
+/* Header area (the bar that contains the tabs) */
+#mainTabPane .tab-header-area {
+    -fx-background-color: black; /* same as panes */
+    -fx-padding: 0;
+}
+
+/* Tab header background (behind the tabs) */
+#mainTabPane .tab-header-background {
+    -fx-background-color: black;
+}
+
+/* Individual tab (unselected) */
+#mainTabPane .tab {
+    -fx-background-color: #100317; /* same as panes */
+    -fx-border-color: transparent;  /* default no outer border */
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+/* Tab label text color and border accent */
+#mainTabPane .tab .tab-label {
+    -fx-text-fill: #cdfc04; /* same color as button text */
+    -fx-font-weight: normal; /* not bold by default */
+}
+
+/* Give tabs a subtle accent border (outline) using the accent color */
+#mainTabPane .tab {
+    -fx-border-color: transparent; /* keep invisible by default */
+}
+
+/* Selected tab: top corners rounded, bottom corners square */
+#mainTabPane .tab:selected {
+    -fx-background-color: #100317; /* pane background for selected tab */
+    -fx-border-width: 1.5;
+    -fx-border-style: solid;
+    /* border-radius: top-left top-right bottom-right bottom-left */
+    -fx-border-radius: 4 4 0 0;
+    -fx-background-radius: 4 4 0 0;
+
+    /* border-color: top right bottom left -> bottom set to match background */
+    -fx-border-color: #cdfc04 #cdfc04 #100317 #cdfc04;
+}
+
+
+/* Prevent hover from making the label bold; keep hover visual subtle */
+#mainTabPane .tab:hover .tab-label {
+    -fx-font-weight: normal;      /* explicitly prevent bold on hover */
+    -fx-text-fill: #cdfc04;
+}
+
+/* Keep selected tab bold even when hovered */
+#mainTabPane .tab:selected .tab-label,
+#mainTabPane .tab:selected:hover .tab-label {
+    -fx-font-weight: bold;
+    -fx-text-fill: #cdfc04;
+}
+
+/* Remove default focus ring and keep consistent look when focused */
+#mainTabPane .tab:focused,
+#mainTabPane .tab:focused .tab-label {
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
+/* Optional: make the tab content area match the pane background exactly */
+#mainTabPane .tab-content-area {
+    -fx-background-color: #100317;
+}
+
+/* Unselected tabs: solid black background, accent text */
+#mainTabPane .tab {
+    -fx-background-color: black;         /* unselected tab background */
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-border-color: transparent;       /* no outline by default */
+}
+
+/* Tab label color and default weight */
+#mainTabPane .tab .tab-label {
+    -fx-text-fill: #cdfc04;
+    -fx-font-weight: normal;
+}
+
+/* Selected tab: same pane background, accent border on three sides,
+   but no colored bottom border (bottom matches tab background) */
+#mainTabPane .tab:selected {
+    -fx-background-color: #100317; /* pane background for selected tab */
+    -fx-border-width: 1.5;
+    -fx-border-style: solid;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+
+    /* border-color: top right bottom left -> bottom set to match background */
+    -fx-border-color: #cdfc04 #cdfc04 #100317 #cdfc04;
+}
+
+/* Selected tab label stays bold even when hovered */
+#mainTabPane .tab:selected .tab-label,
+#mainTabPane .tab:selected:hover .tab-label {
+    -fx-font-weight: bold;
+    -fx-text-fill: #cdfc04;
+}
+
+/* Prevent hover from changing unselected tab weight or color */
+#mainTabPane .tab:hover .tab-label {
+    -fx-font-weight: normal;
+    -fx-text-fill: #cdfc04;
+}
+
+/* Ensure header area matches pane background */
+#mainTabPane .tab-header-area,
+#mainTabPane .tab-content-area {
+    -fx-background-color: #100317;
+}
+
+/* End of styles.css */

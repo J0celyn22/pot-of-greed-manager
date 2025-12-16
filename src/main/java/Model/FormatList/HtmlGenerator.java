@@ -103,7 +103,7 @@ public class HtmlGenerator {
         }*/
 
 
-        writer.write("<html>\n<head>\n<meta charset=\"UTF-8\">\n<title>" + title + "</title>\n<link rel=\"icon\" href=\"" + relativeImagePath + "Icon.png\">\n<style>\n/* Styling for the rectangles */\n" +
+        writer.write("<html>\n<head>\n<meta charset=\"UTF-8\">\n<title>" + title + "</title>\n<link rel=\"icon\" href=\"" + relativeImagePath + "Icon.png\">\n<link rel=\"manifest\" href=\".\\manifest.json\">\n<style>\n/* Styling for the rectangles */\n" +
                 "ul {\n" +
                 "    list-style: none;\n" +
                 "    padding: 0;\n" +

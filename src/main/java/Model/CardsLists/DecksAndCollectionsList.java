@@ -23,8 +23,10 @@ public class DecksAndCollectionsList {
         // Then, import the decks, excluding those already in any collection's linkedDecks list
         Set<String> linkedDeckNames = new HashSet<>();
         for (ThemeCollection collection : this.collections) {
-            for (Deck linkedDeck : collection.getLinkedDecks()) {
-                linkedDeckNames.add(linkedDeck.getName());
+            for (int i = 0; i < collection.getLinkedDecks().size(); i++) {
+                for (Deck linkedDeck : collection.getLinkedDecks().get(i)) {
+                    linkedDeckNames.add(linkedDeck.getName());
+                }
             }
         }
 
@@ -92,8 +94,102 @@ public class DecksAndCollectionsList {
      *
      * @return a List of CardElement objects
      */
-    public List<CardElement> toList() {
+    public List<CardElement> toList() throws Exception {
         List<CardElement> returnValue = new ArrayList<>();
+        List<ThemeCollection> looseCollections = new ArrayList<>();
+
+        //NEW ?
+        //First add the cards from the Collections
+        if (this.getCollections() != null) {
+            /*for (int i = 0; i < this.getCollections().size(); i++) {
+                //First add the cards from the decks linked to the collection
+                for (int j = 0; j < this.getCollections().get(i).getLinkedDecks().size(); j++) {
+                    //returnValue.addAll(this.getCollections().get(i).getLinkedDecks().get(j).toList());
+                    for (int k = 0; k < this.getCollections().get(i).getLinkedDecks().get(j).toList().size(); k++) {
+                        if (this.getCollections().get(i).getCardsList().contains(this.getCollections().get(i).getLinkedDecks().get(j).toList().get(k))) {
+                            if (this.getCollections().get(i).getCardsList().get(this.getCollections().get(i).getCardsList().indexOf(this.getCollections().get(i).getLinkedDecks().get(j).toList().get(k))).getSpecificArtwork()) {
+                                returnValue.add(this.getCollections().get(i).getCardsList().get(this.getCollections().get(i).getCardsList().indexOf(this.getCollections().get(i).getLinkedDecks().get(j).toList().get(k))));
+                            }
+                            else {
+                                returnValue.add(this.getCollections().get(i).getLinkedDecks().get(j).toList().get(k));
+                            }
+                            this.getCollections().get(i).getCardsList().get(this.getCollections().get(i).getCardsList().indexOf(this.getCollections().get(i).getLinkedDecks().get(j).toList().get(k))).setIsInDeck(true);
+                        }
+                        //returnValue.add(this.getCollections().get(i).getLinkedDecks().get(j).toList().get(k));
+                    }
+                }
+
+                //Then add the remaining cards that have not already been checked
+                for (int j = 0; j < this.getCollections().get(i).getCardsList().size(); j++) {
+                    if(!this.getCollections().get(i).getCardsList().get(j).getIsInDeck() || this.getCollections().get(i).getCardsList().get(j).getDontRemove()) {
+                        returnValue.add(this.getCollections().get(i).getCardsList().get(j));
+                    }
+                }
+                //returnValue.addAll(this.getCollections().get(i).getCardsList());
+            }*/
+
+            for (ThemeCollection collection : this.getCollections()) {
+                if (!collection.getConnectToWholeCollection()) {
+                    returnValue.addAll(collection.toList());
+                } else {
+                    looseCollections.add(collection);
+                }
+
+            }
+        }
+
+        //Then add the cards from the decks that are not in any collection
+        if (this.getDecks() != null) {
+            for (int i = 0; i < this.getDecks().size(); i++) {
+                //If the deck is not in any collection, add it
+                boolean deckIsInCollections = false;
+                for (int j = 0; j < this.getCollections().size(); j++) {
+                    if (this.getCollections().get(j).getLinkedDecks().contains(this.getDecks().get(i))) {
+                        deckIsInCollections = true;
+                        break;
+                    }
+                }
+                if (deckIsInCollections) {
+                    returnValue.addAll(this.getDecks().get(i).toList());
+                }
+            }
+        }
+
+        for (ThemeCollection collection : looseCollections) {
+            returnValue.addAll(collection.toList());
+        }
+
+
+        //OLD ?
+        // First, import the collections
+        /*for (File file : Objects.requireNonNull(dir.listFiles())) {
+            if (file.getPath().endsWith(".ytc")) {
+                ThemeCollection themeCollection = new ThemeCollection(file.getPath());
+                this.collections.add(themeCollection);
+            }
+        }
+
+        // Then, import the decks, excluding those already in any collection's linkedDecks list
+        Set<String> linkedDeckNames = new HashSet<>();
+        for (ThemeCollection collection : this.collections) {
+            for (Deck linkedDeck : collection.getLinkedDecks()) {
+                linkedDeckNames.add(linkedDeck.getName());
+            }
+        }
+
+        for (File file : Objects.requireNonNull(dir.listFiles())) {
+            if (file.getPath().endsWith(".ydk")) {
+                Deck deck = new Deck(file.getPath());
+                if (!linkedDeckNames.contains(deck.getName())) {
+                    this.decks.add(deck);
+                }
+            } else if (!file.getPath().endsWith(".ytc")) {
+                System.out.println("Unable to load file: " + file.getPath());
+            }
+        }*/
+
+        //OLD CODE, REPLACE IT WITH THE ABOVE
+        /*List<CardElement> returnValue = new ArrayList<>();
 
         if (this.getDecks() != null) {
             for (int i = 0; i < this.getDecks().size(); i++) {
@@ -105,7 +201,7 @@ public class DecksAndCollectionsList {
             for (int i = 0; i < this.getCollections().size(); i++) {
                 returnValue.addAll(this.getCollections().get(i).getCardsList());
             }
-        }
+        }*/
 
         return returnValue;
     }

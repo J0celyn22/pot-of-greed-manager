@@ -185,7 +185,7 @@ public class OuicheList {
      *
      * @return the OuicheList
      */
-    public static List<CardElement> CreateOuicheList(OwnedCardsCollection ownedCardsCollection, DecksAndCollectionsList decksList) {
+    public static List<CardElement> CreateOuicheList(OwnedCardsCollection ownedCardsCollection, DecksAndCollectionsList decksList) throws Exception {
         maOuicheList = new ArrayList<>();
         listsIntersection = new ArrayList<>();
 
@@ -235,17 +235,19 @@ public class OuicheList {
         //Remove all cards that are already owned (present in ownedCardsCollection)
         if (detailedOuicheList.getCollections() != null) {
             for (int i = 0; i < detailedOuicheList.getCollections().size(); i++) {
+                //Decks
                 for (int j = 0; j < detailedOuicheList.getCollections().get(i).getLinkedDecks().size(); j++) {
-                    //Decks
-                    List<List<CardElement>> tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).getMainDeck(), unusedCards, "O");
-                    detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).setMainDeck(tempList.get(0));
-                    unusedCards = new ArrayList<>(tempList.get(1));
-                    tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).getExtraDeck(), unusedCards, "O");
-                    detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).setExtraDeck(tempList.get(0));
-                    unusedCards = new ArrayList<>(tempList.get(1));
-                    tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).getSideDeck(), unusedCards, "O");
-                    detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).setSideDeck(tempList.get(0));
-                    unusedCards = new ArrayList<>(tempList.get(1));
+                    for (int k = 0; k < detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).size(); k++) {
+                        List<List<CardElement>> tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getMainDeck(), unusedCards, "O");
+                        detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).setMainDeck(tempList.get(0));
+                        unusedCards = new ArrayList<>(tempList.get(1));
+                        tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getExtraDeck(), unusedCards, "O");
+                        detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).setExtraDeck(tempList.get(0));
+                        unusedCards = new ArrayList<>(tempList.get(1));
+                        tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getSideDeck(), unusedCards, "O");
+                        detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).setSideDeck(tempList.get(0));
+                        unusedCards = new ArrayList<>(tempList.get(1));
+                    }
                 }
                 //Collection
                 List<List<CardElement>> tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getCollections().get(i).getCardsList(), unusedCards, "O");
@@ -270,17 +272,19 @@ public class OuicheList {
 
         if (detailedOuicheList.getCollections() != null) {
             for (int i = 0; i < detailedOuicheList.getCollections().size(); i++) {
+                //Decks
                 for (int j = 0; j < detailedOuicheList.getCollections().get(i).getLinkedDecks().size(); j++) {
-                    //Decks
-                    List<List<CardElement>> tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).getMainDeck(), unusedCards, "O");
-                    detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).setMainDeck(tempList.get(0));
-                    unusedCards = new ArrayList<>(tempList.get(1));
-                    tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).getExtraDeck(), unusedCards, "O");
-                    detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).setExtraDeck(tempList.get(0));
-                    unusedCards = new ArrayList<>(tempList.get(1));
-                    tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).getSideDeck(), unusedCards, "O");
-                    detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).setSideDeck(tempList.get(0));
-                    unusedCards = new ArrayList<>(tempList.get(1));
+                    for (int k = 0; k < detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).size(); k++) {
+                        List<List<CardElement>> tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getMainDeck(), unusedCards, "O");
+                        detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).setMainDeck(tempList.get(0));
+                        unusedCards = new ArrayList<>(tempList.get(1));
+                        tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getExtraDeck(), unusedCards, "O");
+                        detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).setExtraDeck(tempList.get(0));
+                        unusedCards = new ArrayList<>(tempList.get(1));
+                        tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getSideDeck(), unusedCards, "O");
+                        detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).setSideDeck(tempList.get(0));
+                        unusedCards = new ArrayList<>(tempList.get(1));
+                    }
                 }
                 //Collection
                 List<List<CardElement>> tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getCollections().get(i).getCardsList(), unusedCards, "O");
@@ -493,13 +497,15 @@ public class OuicheList {
         for (ThemeCollection collection : detailedOuicheList.getCollections()) {
             writer.write("===" + collection.getName() + "========");
             writer.newLine();
-            for (Deck deck : collection.getLinkedDecks()) {
-                writer.write("---" + deck.getName() + "------------");
-                writer.newLine();
-                for (CardElement card : deck.toList()) {
-                    //writer.write(card.getCard().getPasscode());
-                    writer.write(card.toString());
+            for (int i = 0; i < collection.getLinkedDecks().size(); i++) {
+                for (Deck deck : collection.getLinkedDecks().get(i)) {
+                    writer.write("---" + deck.getName() + "------------");
                     writer.newLine();
+                    for (CardElement card : deck.toList()) {
+                        //writer.write(card.getCard().getPasscode());
+                        writer.write(card.toString());
+                        writer.newLine();
+                    }
                 }
             }
             if (!collection.getCardsList().isEmpty()) {

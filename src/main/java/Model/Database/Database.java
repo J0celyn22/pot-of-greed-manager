@@ -5,6 +5,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -12,15 +13,18 @@ import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static Model.Database.CardDatabaseManager.getKonamiIdToPassCode;
 import static Model.Database.CardDatabaseManager.getPassCodeToKonamiId;
 import static Model.Database.FileFetcher.fetchFile;
 import static Model.Database.KonamiIdToNames.*;
+import static Model.Database.PrintCodeToKonamiId.getPrintCodeToKonamiId;
 
 //TODO see DAO design pattern ?
 public class Database {
-    public static final Map<String, JSONObject> jsonContentMap = new HashMap<>();
+    private static final Map<String, JSONObject> jsonContentMap = new HashMap<>();
     private static final List<String> setsList = new ArrayList<>();
     private static final Map<Integer, Card> allCardsList = new HashMap<>();
+    private static final Map<String, Card> allPrintedCardsList = new HashMap<>();
 
     // Static block to initialize the Map
     static {
@@ -28,24 +32,23 @@ public class Database {
     }
 
     /**
-     * Fetches a JSON file from the remote location if it does not exist locally, then opens the local copy and returns its content as a JSONObject.
-     * If the content is a JSON array, it is wrapped in a JSONObject with the single key "array".
-     * If an error occurs while reading the file, null is returned.
+     * Opens the specified JSON file from the local cache.
+     * If the file does not exist, it will attempt to fetch it.
+     * If an error occurs, the error is logged and null is returned.
      *
-     * @param element the element to search for in the addresses.json file, which can be a file name or a key
-     * @return the content of the JSON file as a JSONObject, or null if an error occurs
+     * @param element the filename or key for the JSON file
+     * @return the parsed JSONObject, or null if not found or readable
      */
     public static JSONObject openJson(String element) {
-        fetchFile(element);
+        // Attempt to fetch/update the file.
+        FileFetcher.fetchFile(element);
         String[] addresses = DataBaseUpdate.getAddresses(element);
         if (addresses.length > 0) {
             String localPath = addresses[0];
             try {
-                //String content = new String(Files.readAllBytes(Paths.get(localPath)));
                 byte[] encoded = Files.readAllBytes(Paths.get(localPath));
                 String content = new String(encoded, StandardCharsets.UTF_8);
                 if (content.startsWith("[")) {
-                    // Wrap the JSON array in a JSON object
                     JSONArray jsonArray = new JSONArray(content);
                     JSONObject jsonObject = new JSONObject();
                     jsonObject.put("array", jsonArray);
@@ -54,7 +57,8 @@ public class Database {
                     return new JSONObject(content);
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                System.out.println("Error reading file " + localPath + ": " + e.getMessage());
+                return null;
             }
         }
         return null;
@@ -68,20 +72,6 @@ public class Database {
      * @param element the element to search for in the addresses.json file, which can be a file name or a key
      * @return the content of the file as a list of strings, or null if an error occurs
      */
-    /*public static List<String> openSets(String element) {
-        fetchFile(element);
-        String[] addresses = DataBaseUpdate.getAddresses(element);
-        if (addresses.length > 0) {
-            String localPath = addresses[0];
-            try (Stream<String> lines = Files.lines(Paths.get(localPath))) {
-                String content = lines.collect(Collectors.joining());
-                return new ArrayList<>(List.of(content.replace("[", "").replace("]", "").replace("\"", "").split(",")));
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-        return null;
-    }*/
     public static List<String> openSets(String element) {
         fetchFile(element);
         String[] addresses = DataBaseUpdate.getAddresses(element);
@@ -293,6 +283,35 @@ public class Database {
         }
     }
 
+    private static void createAllPrintedCardsList() throws URISyntaxException {
+        allPrintedCardsList.clear();
+        HashMap<String, String> printCodeToKonamiId = getPrintCodeToKonamiId();
+        Map<Integer, Card> allCards = getAllCardsList();
+
+        // Iterate through the print codes
+        for (String printCode : printCodeToKonamiId.keySet()) {
+            Integer konamiId = Integer.valueOf(printCodeToKonamiId.get(printCode));
+            Integer passCode = null;
+            try {
+                passCode = getKonamiIdToPassCode().get(konamiId);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            Card originalCard = allCards.get(passCode);
+
+            if (originalCard != null) {
+                try {
+                    // Create a deep copy of the card
+                    Card cardCopy = new Card(originalCard.getPassCode());
+                    cardCopy.setPrintCode(printCode);
+                    allPrintedCardsList.put(printCode, cardCopy);
+                } catch (Exception e) {
+                    System.err.println("Error creating card copy for print code " + printCode + ": " + e.getMessage());
+                }
+            }
+        }
+    }
+
     /**
      * Retrieves the list of all cards in the database.
      * <p>
@@ -306,5 +325,16 @@ public class Database {
             createAllCardsList();
         }
         return allCardsList;
+    }
+
+    public static Map<String, Card> getAllPrintedCardsList() throws URISyntaxException {
+        if (allPrintedCardsList.isEmpty()) {
+            createAllPrintedCardsList();
+        }
+        return allPrintedCardsList;
+    }
+
+    public static Map<String, JSONObject> getJsonContentMap() {
+        return jsonContentMap;
     }
 }
