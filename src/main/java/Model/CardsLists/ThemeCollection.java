@@ -31,15 +31,34 @@ public class ThemeCollection {
         Path path = Paths.get(filePath);
         this.name = path.getFileName().toString().replaceFirst("[.][^.]+$", "");
 
-        List<String> lines = Files.readAllLines(path);
+        // Read raw lines and strip any leading BOM / invisible characters from each line
+        List<String> rawLines = Files.readAllLines(path);
+        List<String> lines = new ArrayList<>(rawLines.size());
+        for (String raw : rawLines) {
+            if (raw == null) {
+                lines.add(null);
+                continue;
+            }
+            // Remove BOM and other stray ZERO WIDTH NO-BREAK SPACE if present at start
+            String cleaned = raw;
+            if (!cleaned.isEmpty() && cleaned.charAt(0) == '\uFEFF') {
+                cleaned = cleaned.substring(1);
+            }
+            // Also defensively remove any leading ZERO WIDTH NO-BREAK SPACE (U+FEFF) occurrences
+            cleaned = cleaned.replace("\uFEFF", "");
+            lines.add(cleaned);
+        }
 
         this.cardsList = new ArrayList<>();
         this.exceptionsToNotAdd = new ArrayList<>();
         this.linkedDecks = new ArrayList<>();
         this.archetypes = new ArrayList<>();
 
+        // Build cards list until a section marker is found
         for (String line : lines) {
-            if (line.equals("#Not to add") || line.equals("#Link to whole collection") || line.equals("#Linked decks") || line.equals("#Archetypes"))
+            if (line == null) continue;
+            if (line.equals("#Not to add") || line.equals("#Link to whole collection")
+                    || line.equals("#Linked decks") || line.equals("#Archetypes"))
                 break;
             if (line.contains(",")) {
                 String[] cardInfo = line.split(",");
@@ -55,9 +74,11 @@ public class ThemeCollection {
         if (index != -1) {
             exceptionsToNotAdd = new ArrayList<>();
             for (int i = index + 1; i < lines.size(); i++) {
-                if (lines.get(i).equals("#Link to whole collection") || lines.get(i).equals("#Linked decks") || lines.get(i).equals("#Archetypes"))
+                String l = lines.get(i);
+                if (l == null) continue;
+                if (l.equals("#Link to whole collection") || l.equals("#Linked decks") || l.equals("#Archetypes"))
                     break;
-                exceptionsToNotAdd.add(new CardElement(lines.get(i)));
+                exceptionsToNotAdd.add(new CardElement(l));
             }
         }
 
@@ -69,11 +90,13 @@ public class ThemeCollection {
             index = lines.indexOf("#Linked decks");
             if (index != -1) {
                 for (int i = index + 1; i < lines.size(); i++) {
-                    if (lines.get(i).equals("#Archetypes")) break;
-                    if (lines.get(i).equals("##")) {
+                    String l = lines.get(i);
+                    if (l == null) continue;
+                    if (l.equals("#Archetypes")) break;
+                    if (l.equals("##")) {
                         this.linkedDecks.add(new ArrayList<>());
                     } else {
-                        String deckPath = "%s\\%s.ydk".formatted(path.getParent().toString(), lines.get(i));
+                        String deckPath = "%s\\%s.ydk".formatted(path.getParent().toString(), l);
                         this.AddDeck(new Deck(deckPath));
                     }
                 }
@@ -83,10 +106,13 @@ public class ThemeCollection {
         index = lines.indexOf("#Archetypes");
         if (index != -1) {
             for (int i = index + 1; i < lines.size(); i++) {
-                archetypes.add(lines.get(i));
+                String l = lines.get(i);
+                if (l == null) continue;
+                archetypes.add(l);
             }
         }
     }
+
 
     public ThemeCollection() {
         this.cardsList = new ArrayList<>();
@@ -218,6 +244,14 @@ public class ThemeCollection {
      */
     public void setConnectToWholeCollection(Boolean connectToWholeCollection) {
         this.connectToWholeCollection = connectToWholeCollection;
+    }
+
+    public List<String> getArchetypes() {
+        return archetypes;
+    }
+
+    public void setArchetypes(List<String> archetypes) {
+        this.archetypes = archetypes;
     }
 
     /**

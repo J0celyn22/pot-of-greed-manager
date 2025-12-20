@@ -17,14 +17,6 @@ public class LruImageCache {
 
     // Dynamically determine the maximum number of cached images based on available JVM memory.
     private static final int MAX_ENTRIES;
-    // The cache stores images using SoftReferences, keyed by their file path.
-    private static final Map<String, SoftReference<Image>> imageCache =
-            new LinkedHashMap<String, SoftReference<Image>>(MAX_ENTRIES, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<String, SoftReference<Image>> eldest) {
-                    return size() > MAX_ENTRIES;
-                }
-            };
 
     static {
         long maxMemory = Runtime.getRuntime().maxMemory();
@@ -49,6 +41,15 @@ public class LruImageCache {
         }
         System.out.println("LruImageCache: Max cache entries: " + MAX_ENTRIES);
     }
+
+    // The cache stores images using SoftReferences, keyed by their file path.
+    private static final Map<String, SoftReference<Image>> imageCache =
+            new LinkedHashMap<String, SoftReference<Image>>(MAX_ENTRIES, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, SoftReference<Image>> eldest) {
+                    return size() > MAX_ENTRIES;
+                }
+            };
 
     /**
      * Retrieves an image from the cache by its file path.

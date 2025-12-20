@@ -9,8 +9,6 @@ import Model.Database.DataBaseUpdate;
 import Utils.LruImageCache;
 import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
-import javafx.beans.property.ObjectProperty;
-import javafx.beans.property.SimpleObjectProperty;
 import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -18,6 +16,7 @@ import javafx.scene.SnapshotParameters;
 import javafx.scene.control.Label;
 import javafx.scene.control.TreeCell;
 import javafx.scene.control.TreeItem;
+import javafx.scene.effect.DropShadow;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.image.WritableImage;
@@ -34,7 +33,7 @@ import org.controlsfx.control.GridView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -42,6 +41,17 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
+/**
+ * CardTreeCell - updated to accept DataTreeItem data that may be:
+ * - a CardsGroup (normal groups), or
+ * - a Map<String,Object> with keys "group" (CardsGroup) and "missing" (Set<String>) for archetype groups.
+ * <p>
+ * The GridView userData is set to:
+ * - Boolean.FALSE or null for non-archetype groups
+ * - the Set<String> of missing IDs for archetype groups
+ * <p>
+ * The renderer checks only that per-group missing set when deciding to glow.
+ */
 public class CardTreeCell extends TreeCell<String> {
 
     private static final Logger logger = LoggerFactory.getLogger(CardTreeCell.class);
@@ -49,36 +59,40 @@ public class CardTreeCell extends TreeCell<String> {
     private final DoubleProperty cardWidthProperty;
     private final DoubleProperty cardHeightProperty;
 
-    // Used for selection visuals.
-    private final ObjectProperty<CardElement> selectedCardElement = new SimpleObjectProperty<>();
-
-    // Executor for asynchronous image loading (decoding)
     private static final ExecutorService imageLoadingExecutor = Executors.newFixedThreadPool(4);
-
-    // Executor for resolving image paths (off-FX thread)
     private static final ExecutorService pathResolverExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "image-path-resolver");
         t.setDaemon(true);
         return t;
     });
 
-    // Cache for resolved image paths: imageKey -> "file:/full/path.jpg"
     private static final ConcurrentHashMap<String, String> imagePathCache = new ConcurrentHashMap<>();
-
-    // Keep track of outstanding load tasks per ImageView
     private final ConcurrentHashMap<ImageView, Future<?>> outstandingLoads = new ConcurrentHashMap<>();
-
-    // Maximum resolution constants (kept from original)
-    private static final double MAX_CARD_WIDTH = 300;
-    private static final double MAX_CARD_HEIGHT = MAX_CARD_WIDTH * (146.0 / 100.0); // ≈438
 
     private Label customTriangleLabel;
     private GridView<CardElement> cardGridView;
+
+    private static final String ARCHETYPE_MARKER = "[ARCHETYPE]";
 
     public CardTreeCell(DoubleProperty cardWidthProperty, DoubleProperty cardHeightProperty) {
         this.cardWidthProperty = cardWidthProperty;
         this.cardHeightProperty = cardHeightProperty;
         getStyleClass().add("card-tree-cell");
+    }
+
+    /**
+     * Legacy global set kept for compatibility; preferred flow is per-group missing sets.
+     */
+    private static final Set<String> legacyGlobalMissingSet = ConcurrentHashMap.newKeySet();
+
+    public static void markArchetypeMissing(String id, boolean missing) {
+        if (id == null) return;
+        if (missing) legacyGlobalMissingSet.add(id);
+        else legacyGlobalMissingSet.remove(id);
+    }
+
+    public static void clearArchetypeMissingSet() {
+        legacyGlobalMissingSet.clear();
     }
 
     @Override
@@ -94,10 +108,39 @@ public class CardTreeCell extends TreeCell<String> {
             TreeItem<String> treeItem = getTreeItem();
             if (treeItem instanceof DataTreeItem) {
                 Object dataObject = ((DataTreeItem<?>) treeItem).getData();
+
+                // Two possible data shapes:
+                // 1) CardsGroup (normal)
+                // 2) Map<String,Object> with "group" and "missing" keys (archetype group)
+                CardsGroup group = null;
+                Set<String> missingForThisGroup = null;
+
                 if (dataObject instanceof CardsGroup) {
-                    createCardsGroupCell(itemName, (CardsGroup) dataObject);
+                    group = (CardsGroup) dataObject;
+                } else if (dataObject instanceof Map) {
+                    try {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> map = (Map<String, Object>) dataObject;
+                        Object g = map.get("group");
+                        Object m = map.get("missing");
+                        if (g instanceof CardsGroup) group = (CardsGroup) g;
+                        if (m instanceof Set) {
+                            @SuppressWarnings("unchecked")
+                            Set<String> s = (Set<String>) m;
+                            missingForThisGroup = s;
+                        } else if (m instanceof Collection) {
+                            Set<String> s = new HashSet<>();
+                            for (Object o : (Collection<?>) m) if (o != null) s.add(o.toString());
+                            missingForThisGroup = s;
+                        }
+                    } catch (Exception e) {
+                        logger.debug("Failed to extract archetype map data", e);
+                    }
+                }
+
+                if (group != null) {
+                    createCardsGroupCell(itemName, group, missingForThisGroup);
                 } else if (dataObject instanceof CardElement) {
-                    // Single card row (rare in your UI). Keep this lightweight.
                     CardElement cardElement = (CardElement) dataObject;
                     HBox cardBox = new HBox(5);
                     cardBox.setAlignment(Pos.CENTER_LEFT);
@@ -107,7 +150,6 @@ public class CardTreeCell extends TreeCell<String> {
                     imageView.setFitHeight(cardHeightProperty.get());
                     imageView.setPreserveRatio(true);
 
-                    // Immediately set cached image if available (fast)
                     String imageKey = safeImageKey(cardElement);
                     String cachedFullPath = imageKey == null ? null : imagePathCache.get(imageKey);
                     if (cachedFullPath != null) {
@@ -116,23 +158,16 @@ public class CardTreeCell extends TreeCell<String> {
                             imageView.setImage(cached);
                         } else {
                             imageView.setImage(getPlaceholderImage());
-                            // start background load using resolved path
                             Future<?> f = loadImageWithResolvedPathAsync(cardElement, imageView, cachedFullPath);
                             if (f != null) outstandingLoads.put(imageView, f);
                         }
                     } else {
-                        // No cached path: set placeholder and resolve path asynchronously
                         imageView.setImage(getPlaceholderImage());
                         resolveImagePathAsync(imageKey, resolvedPath -> {
-                            if (resolvedPath == null) {
-                                // no path found -> keep placeholder
-                                return;
-                            }
-                            // If image already cached in LRU, set it quickly on FX thread
+                            if (resolvedPath == null) return;
                             Image cached = LruImageCache.getImage(resolvedPath);
                             if (cached != null) {
                                 Platform.runLater(() -> {
-                                    // ensure imageView still expects this path
                                     Object expected = imageView.getProperties().get("expectedImagePath");
                                     if (Objects.equals(expected, resolvedPath) || expected == null) {
                                         imageView.setImage(cached);
@@ -140,8 +175,6 @@ public class CardTreeCell extends TreeCell<String> {
                                     }
                                 });
                             } else {
-                                // start background load using resolved path
-                                // mark the imageView as expecting this resolved path
                                 imageView.getProperties().put("expectedImagePath", resolvedPath);
                                 Future<?> f = loadImageWithResolvedPathAsync(cardElement, imageView, resolvedPath);
                                 if (f != null) outstandingLoads.put(imageView, f);
@@ -171,24 +204,17 @@ public class CardTreeCell extends TreeCell<String> {
         }
     }
 
-    /**
-     * Resolve an imageKey to a full file:... path off the FX thread and cache it.
-     * The callback is invoked on the pathResolverExecutor thread; it may call
-     * background loaders which will themselves use Platform.runLater when needed.
-     */
     private void resolveImagePathAsync(String imageKey, Consumer<String> callback) {
         if (imageKey == null) {
             callback.accept(null);
             return;
         }
-        // If cached, return immediately (fast)
         String cached = imagePathCache.get(imageKey);
         if (cached != null) {
             callback.accept(cached);
             return;
         }
 
-        // Otherwise submit a resolver task (non-FX)
         pathResolverExecutor.submit(() -> {
             try {
                 String[] addresses = DataBaseUpdate.getAddresses(imageKey + ".jpg");
@@ -210,80 +236,12 @@ public class CardTreeCell extends TreeCell<String> {
         pathResolverExecutor.shutdownNow();
     }
 
-    private String getImagePath(Card card) {
-        if (card == null || card.getImagePath() == null) return null;
-        String imageKey = card.getImagePath();
-        String[] addresses = DataBaseUpdate.getAddresses(imageKey + ".jpg");
-        if (addresses != null && addresses.length > 0) {
-            return "file:" + addresses[0];
-        }
-        return null;
-    }
-
-    private void createCardsGroupCell(String itemName, CardsGroup group) {
-        HBox hbox = new HBox();
-        hbox.getStyleClass().add("card-group-hbox");
-        hbox.setSpacing(5);
-
-        customTriangleLabel = new Label();
-        customTriangleLabel.getStyleClass().add("custom-triangle-label");
-        customTriangleLabel.setMinWidth(15);
-        customTriangleLabel.setAlignment(Pos.CENTER);
-
-        Label label = new Label(itemName);
-        label.getStyleClass().add("card-group-label");
-
-        hbox.getChildren().addAll(customTriangleLabel, label);
-
-        VBox vBox = new VBox();
-        vBox.getStyleClass().add("card-group-vbox");
-        vBox.getChildren().add(hbox);
-
-        // Reuse a single observable list instance to avoid allocations on each update
-        cardGridView = new GridView<>();
-        cardGridView.getStyleClass().add("card-grid-view");
-        cardGridView.setCellFactory(gridView -> new CardGridCell());
-        cardGridView.setItems(FXCollections.observableArrayList(group.getCardList()));
-        cardGridView.cellWidthProperty().bind(cardWidthProperty);
-        cardGridView.cellHeightProperty().bind(cardHeightProperty);
-        cardGridView.setHorizontalCellSpacing(5);
-        cardGridView.setVerticalCellSpacing(5);
-        cardGridView.setPadding(new Insets(5));
-        cardGridView.prefWidthProperty().bind(getTreeView().widthProperty().subtract(50));
-
-        adjustGridViewHeight(group);
-        cardWidthProperty.addListener((obs, oldVal, newVal) -> adjustGridViewHeight(group));
-        getTreeView().widthProperty().addListener((obs, oldVal, newVal) -> adjustGridViewHeight(group));
-
-        customTriangleLabel.setOnMouseClicked(event -> {
-            boolean isExpanded = !cardGridView.isVisible();
-            cardGridView.setVisible(isExpanded);
-            cardGridView.setManaged(isExpanded);
-            updateCustomTriangle(isExpanded);
-            event.consume();
-        });
-        cardGridView.setVisible(true);
-        cardGridView.setManaged(true);
-        updateCustomTriangle(true);
-
-        vBox.getChildren().add(cardGridView);
-        VBox.setVgrow(cardGridView, Priority.ALWAYS);
-        setGraphic(vBox);
-    }
-
-    /**
-     * Load an image given a resolved path (file:...) on the imageLoadingExecutor and set it on the ImageView.
-     * Returns the Future so callers can cancel if the cell is reused.
-     *
-     * IMPORTANT: this method sets and checks the ImageView property "expectedImagePath" to avoid races.
-     */
     private Future<?> loadImageWithResolvedPathAsync(CardElement cardElement, ImageView imageView, String resolvedPath) {
         if (resolvedPath == null) {
             Platform.runLater(() -> imageView.setImage(getPlaceholderImage()));
             return null;
         }
 
-        // If already cached in LRU, set immediately
         Image cached = LruImageCache.getImage(resolvedPath);
         if (cached != null) {
             Platform.runLater(() -> {
@@ -296,17 +254,13 @@ public class CardTreeCell extends TreeCell<String> {
             return null;
         }
 
-        // Mark the imageView as expecting this resolved path (helps avoid races)
         imageView.getProperties().put("expectedImagePath", resolvedPath);
 
-        // Submit background task to create Image (decoding) off FX thread
         AtomicReference<Future<?>> futureRef = new AtomicReference<>();
         Future<?> future = imageLoadingExecutor.submit(() -> {
             try {
-                // Create Image with backgroundLoading = true to avoid heavy decoding on FX thread.
                 Image img = new Image(resolvedPath, cardWidthProperty.get(), cardHeightProperty.get(), true, true, true);
 
-                // If already fully loaded, cache and set
                 if (img.getProgress() >= 1.0) {
                     LruImageCache.addImage(resolvedPath, img);
                     Platform.runLater(() -> {
@@ -317,7 +271,6 @@ public class CardTreeCell extends TreeCell<String> {
                         }
                     });
                 } else {
-                    // Attach listener on FX thread to set when loading completes
                     Platform.runLater(() -> {
                         img.progressProperty().addListener((obs, oldV, newV) -> {
                             if (newV.doubleValue() >= 1.0) {
@@ -335,7 +288,6 @@ public class CardTreeCell extends TreeCell<String> {
                 logger.error("Error loading image for card " + (cardElement != null && cardElement.getCard() != null ? cardElement.getCard().getName_EN() : "unknown"), e);
                 Platform.runLater(() -> {
                     Object expected = imageView.getProperties().get("expectedImagePath");
-                    // only set placeholder if the imageView still expects this path (or no expectation)
                     if (expected == null || Objects.equals(expected, resolvedPath)) {
                         imageView.setImage(getPlaceholderImage());
                         imageView.getProperties().remove("expectedImagePath");
@@ -352,17 +304,11 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     private void updateCustomTriangle(boolean isExpanded) {
-        String triangle = isExpanded ? "\u25BC" : "\u25B6"; // ▼ or ▶
-        customTriangleLabel.setText(triangle);
-    }
-
-    private void selectCard(CardElement cardElement) {
-        selectedCardElement.set(cardElement);
-        logger.info("Selected card: {}", cardElement.getCard().getName_EN());
+        String triangle = isExpanded ? "\u25BC" : "\u25B6";
+        if (customTriangleLabel != null) customTriangleLabel.setText(triangle);
     }
 
     private Image getPlaceholderImage() {
-        // Keep a single placeholder instance to avoid repeated file reads
         return PlaceholderHolder.PLACEHOLDER;
     }
 
@@ -371,7 +317,8 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     private void adjustGridViewHeight(CardsGroup group) {
-        int numItems = group.getCardList().size();
+        if (cardGridView == null) return;
+        int numItems = group.getCardList() == null ? 0 : group.getCardList().size();
         if (numItems <= 0) {
             cardGridView.setPrefHeight(0);
             cardGridView.setMinHeight(0);
@@ -381,7 +328,7 @@ public class CardTreeCell extends TreeCell<String> {
         double availableWidth = getTreeView().getWidth() - 70;
         double effectiveCellWidth = cardWidthProperty.get();
         double horizontalSpacing = cardGridView.getHorizontalCellSpacing();
-        int numColumns = (int) Math.floor(availableWidth / (effectiveCellWidth + horizontalSpacing)) - 1;
+        int numColumns = (int) Math.floor(availableWidth / (effectiveCellWidth + horizontalSpacing));
         if (numColumns < 1) {
             numColumns = 1;
         }
@@ -399,12 +346,94 @@ public class CardTreeCell extends TreeCell<String> {
         logger.debug("Adjusted grid view height to {} for {} items", prefHeight, numItems);
     }
 
-    // Inner class: Custom GridCell for displaying individual cards.
+    private String safeImageKey(CardElement item) {
+        if (item == null) return null;
+        try {
+            Card c = item.getCard();
+            if (c != null) return c.getImagePath();
+        } catch (Exception ignored) {
+        }
+        try {
+            String s = item.toString();
+            if (s != null && !s.trim().isEmpty()) return s.trim();
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private void createCardsGroupCell(String itemName, CardsGroup group, Set<String> missingForThisGroup) {
+        HBox hbox = new HBox();
+        hbox.getStyleClass().add("card-group-hbox");
+        hbox.setSpacing(5);
+
+        customTriangleLabel = new Label();
+        customTriangleLabel.getStyleClass().add("custom-triangle-label");
+        customTriangleLabel.setMinWidth(15);
+        customTriangleLabel.setAlignment(Pos.CENTER);
+
+        String rawGroupName = group.getName() == null ? "" : group.getName();
+        boolean isArchetype = false;
+        String displayName = rawGroupName;
+        if (rawGroupName.startsWith(ARCHETYPE_MARKER)) {
+            isArchetype = true;
+            displayName = rawGroupName.substring(ARCHETYPE_MARKER.length());
+        }
+        displayName = displayName.replaceAll("[=\\-]", "");
+
+        Label label = new Label(displayName);
+        label.getStyleClass().add("card-group-label");
+
+        hbox.getChildren().addAll(customTriangleLabel, label);
+
+        VBox vBox = new VBox();
+        vBox.getStyleClass().add("card-group-vbox");
+        vBox.getChildren().add(hbox);
+
+        GridView<CardElement> grid = new GridView<>();
+        grid.getStyleClass().add("card-grid-view");
+        grid.setCellFactory(gridView -> new CardGridCell());
+        grid.setItems(FXCollections.observableArrayList(group.getCardList() == null ? Collections.emptyList() : group.getCardList()));
+        grid.cellWidthProperty().bind(cardWidthProperty);
+        grid.cellHeightProperty().bind(cardHeightProperty);
+        grid.setHorizontalCellSpacing(5);
+        grid.setVerticalCellSpacing(5);
+        grid.setPadding(new Insets(5));
+        grid.prefWidthProperty().bind(getTreeView().widthProperty().subtract(50));
+
+        // userData: if archetype, set the missing set; otherwise set Boolean.FALSE
+        if (isArchetype) {
+            grid.setUserData(missingForThisGroup == null ? Collections.emptySet() : missingForThisGroup);
+        } else {
+            grid.setUserData(Boolean.FALSE);
+        }
+
+        this.cardGridView = grid;
+
+        adjustGridViewHeight(group);
+        cardWidthProperty.addListener((obs, oldVal, newVal) -> adjustGridViewHeight(group));
+        getTreeView().widthProperty().addListener((obs, oldVal, newVal) -> adjustGridViewHeight(group));
+
+        customTriangleLabel.setOnMouseClicked(event -> {
+            boolean isExpanded = !grid.isVisible();
+            grid.setVisible(isExpanded);
+            grid.setManaged(isExpanded);
+            updateCustomTriangle(isExpanded);
+            event.consume();
+        });
+        grid.setVisible(true);
+        grid.setManaged(true);
+        updateCustomTriangle(true);
+
+        vBox.getChildren().add(grid);
+        VBox.setVgrow(grid, Priority.ALWAYS);
+        setGraphic(vBox);
+    }
+
     private class CardGridCell extends GridCell<CardElement> {
         private final ImageView cardImageView;
         private final StackPane wrapper;
         private Future<?> imageLoadFuture;
-        private String currentImageKey; // track which key this cell currently represents
+        private String currentImageKey;
 
         public CardGridCell() {
             cardImageView = new ImageView();
@@ -419,7 +448,6 @@ public class CardTreeCell extends TreeCell<String> {
             wrapper.setFocusTraversable(true);
             setGraphic(wrapper);
 
-            // Selection handler for the middle part using "MIDDLE"
             wrapper.setOnMouseClicked(event -> {
                 if (getItem() == null) return;
                 Card card = getItem().getCard();
@@ -434,7 +462,6 @@ public class CardTreeCell extends TreeCell<String> {
                 event.consume();
             });
 
-            // Drag handling
             cardImageView.setOnDragDetected(event -> {
                 if (getItem() == null) return;
                 Dragboard db = cardImageView.startDragAndDrop(TransferMode.MOVE);
@@ -460,14 +487,15 @@ public class CardTreeCell extends TreeCell<String> {
         protected void updateItem(CardElement item, boolean empty) {
             super.updateItem(item, empty);
 
-            // Cancel any previous outstanding load for this cell and clear expected path
             if (imageLoadFuture != null && !imageLoadFuture.isDone()) {
                 imageLoadFuture.cancel(true);
                 imageLoadFuture = null;
             }
-            // Clear the expectedImagePath property so any late runnables won't set the old image
             cardImageView.getProperties().remove("expectedImagePath");
             currentImageKey = null;
+
+            wrapper.setEffect(null);
+            cardImageView.setEffect(null);
 
             if (empty || item == null) {
                 cardImageView.setImage(null);
@@ -475,39 +503,30 @@ public class CardTreeCell extends TreeCell<String> {
                 return;
             }
 
-            // Lightweight: compute imageKey only (no DB calls on FX thread)
             String imageKey = safeImageKey(item);
             currentImageKey = imageKey;
 
-            // Try to set cached image quickly (no blocking)
             String resolvedCached = imageKey == null ? null : imagePathCache.get(imageKey);
             if (resolvedCached != null) {
                 Image cached = LruImageCache.getImage(resolvedCached);
                 if (cached != null) {
                     cardImageView.setImage(cached);
-                    // ensure no stale expected path remains
                     cardImageView.getProperties().remove("expectedImagePath");
                 } else {
-                    // placeholder while background load runs
                     cardImageView.setImage(getPlaceholderImage());
-                    // mark expected path and start load
                     cardImageView.getProperties().put("expectedImagePath", resolvedCached);
                     imageLoadFuture = loadImageWithResolvedPathAsync(item, cardImageView, resolvedCached);
                     if (imageLoadFuture != null) outstandingLoads.put(cardImageView, imageLoadFuture);
                 }
             } else {
-                // No resolved path cached: set placeholder and resolve path asynchronously
                 cardImageView.setImage(getPlaceholderImage());
                 resolveImagePathAsync(imageKey, resolvedPath -> {
-                    // If cell was reused for another item, skip
                     if (!Objects.equals(currentImageKey, imageKey)) {
                         return;
                     }
                     if (resolvedPath == null) {
-                        // keep placeholder
                         return;
                     }
-                    // If image already cached in LRU, set it quickly on FX thread
                     Image cached = LruImageCache.getImage(resolvedPath);
                     if (cached != null) {
                         Platform.runLater(() -> {
@@ -517,7 +536,6 @@ public class CardTreeCell extends TreeCell<String> {
                             }
                         });
                     } else {
-                        // start background load using resolved path
                         cardImageView.getProperties().put("expectedImagePath", resolvedPath);
                         Future<?> f = loadImageWithResolvedPathAsync(item, cardImageView, resolvedPath);
                         imageLoadFuture = f;
@@ -526,24 +544,78 @@ public class CardTreeCell extends TreeCell<String> {
                 });
             }
 
-            // Apply selection style only if the active part is "MIDDLE".
+            // Selection visual
             if ("MIDDLE".equals(SelectionManager.getActivePart()) &&
                     SelectionManager.getSelectedCards().contains(item.getCard())) {
                 wrapper.setStyle("-fx-border-color: #cdfc04; -fx-border-width: 3; -fx-border-radius: 8; -fx-background-radius: 8;");
             } else {
                 wrapper.setStyle("-fx-background-color: transparent;");
             }
+
+            // Apply archetype glow if this grid is an archetype grid
+            try {
+                Object ud = null;
+                if (getGridView() != null) ud = getGridView().getUserData();
+
+                Set<String> missingSet = null;
+                boolean gridIsArchetype = false;
+
+                if (ud instanceof Set) {
+                    @SuppressWarnings("unchecked")
+                    Set<String> s = (Set<String>) ud;
+                    missingSet = s;
+                    gridIsArchetype = true;
+                } else if (ud instanceof Boolean) {
+                    gridIsArchetype = Boolean.TRUE.equals(ud);
+                }
+
+                if (gridIsArchetype) {
+                    String konamiId = item.getCard() == null ? null : item.getCard().getKonamiId();
+                    String passCode = item.getCard() == null ? null : item.getCard().getPassCode();
+                    boolean missing = false;
+                    if (missingSet != null && !missingSet.isEmpty()) {
+                        if (konamiId != null && missingSet.contains(konamiId)) missing = true;
+                        if (!missing && passCode != null && missingSet.contains(passCode)) missing = true;
+                    } else {
+                        // fallback to legacy global set if present
+                        missing = legacyGlobalMissingSet.contains(konamiId) || legacyGlobalMissingSet.contains(passCode);
+                    }
+
+                    logger.debug("Rendering card: name='{}' konami='{}' pass='{}' gridArchetype={} missing={}",
+                            item.getCard() == null ? "null" : item.getCard().getName_EN(),
+                            konamiId, passCode, gridIsArchetype, missing);
+
+                    if (missing) {
+                        // create a tight, bright inner glow and a softer outer glow that fades quickly
+                        DropShadow innerGlow = new DropShadow();
+                        innerGlow.setColor(Color.web("#ffffff", 1.0)); // pure white center
+                        innerGlow.setOffsetX(0);
+                        innerGlow.setOffsetY(0);
+                        innerGlow.setRadius(4);    // tight radius close to the card
+                        innerGlow.setSpread(0.9);  // concentrated near the edge
+
+                        DropShadow outerGlow = new DropShadow();
+                        outerGlow.setColor(Color.web("#ffffff", 0.22)); // faint outer halo
+                        outerGlow.setOffsetX(0);
+                        outerGlow.setOffsetY(0);
+                        outerGlow.setRadius(14);   // larger radius but low intensity
+                        outerGlow.setSpread(0.12); // quick fade
+
+                        // chain inner into outer so the center stays bright and the halo fades quickly
+                        outerGlow.setInput(innerGlow);
+
+                        wrapper.setEffect(outerGlow);
+                    } else {
+                        wrapper.setEffect(null);
+                    }
+                } else {
+                    wrapper.setEffect(null);
+                }
+            } catch (Exception e) {
+                logger.debug("Failed to apply archetype glow", e);
+                wrapper.setEffect(null);
+            }
         }
     }
 
-    // Helper methods to safely extract image keys
-    private String safeImageKey(CardElement item) {
-        if (item == null || item.getCard() == null) return null;
-        return item.getCard().getImagePath();
-    }
-
-    private String safeImageKey(Card card) {
-        if (card == null) return null;
-        return card.getImagePath();
-    }
 }

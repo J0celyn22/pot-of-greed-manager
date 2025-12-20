@@ -184,10 +184,8 @@ public class SharedCollectionTab extends HBox {
                 Button decksAndCollectionsDirectoryLoadButton = new Button("Load");
                 Button decksAndCollectionsDirectoryGenerateHTMLButton = new Button("Generate HTML");
 
-                // small buttons
                 decksAndCollectionsDirectoryButton.getStyleClass().add("small-button");
                 decksAndCollectionsDirectoryLoadButton.getStyleClass().add("small-button");
-                // make Generate HTML small as requested
                 decksAndCollectionsDirectoryGenerateHTMLButton.getStyleClass().add("small-button");
 
                 groupRow.getChildren().addAll(decksAndCollectionsDirectoryButton, decksAndCollectionsDirectoryLoadButton, decksAndCollectionsDirectoryGenerateHTMLButton);
@@ -237,12 +235,9 @@ public class SharedCollectionTab extends HBox {
                 groupRow5.getChildren().add(generateAllButton);
                 ouicheGroup.getChildren().add(groupRow5);
 
-                // Mark the long-labeled buttons with a dedicated style class so they can be larger
                 generateOuicheListButton.getStyleClass().add("large-button");
                 generateOuicheListTypeButton.getStyleClass().add("large-button");
                 generateAllButton.getStyleClass().add("large-button");
-
-                // Make the Save button small (requested)
                 generateOuicheListSaveButton.getStyleClass().add("small-button");
 
                 generateOuicheListButton.setOnAction(e -> UserInterfaceFunctions.generateOuicheList());
@@ -280,12 +275,12 @@ public class SharedCollectionTab extends HBox {
                 TextField thirdPartyAvailableCardsField = new TextField();
                 thirdPartyAvailableCardsField.setPromptText("Enter 3rd party cards file");
                 thirdPartyAvailableCardsField.setPrefColumnCount(30);
-                // fixed-size accent text field so hover/focus won't change layout
+
                 thirdPartyAvailableCardsField.getStyleClass().addAll("accent-text-field", "fixed-accent-text-field");
 
                 Button thirdPartyAvailableCardsBrowseButton = new Button("Browse");
                 Button thirdPartyAvailableCardsLoadButton = new Button("Load");
-                // small buttons: keep compact size
+
                 thirdPartyAvailableCardsBrowseButton.getStyleClass().add("small-button");
                 thirdPartyAvailableCardsLoadButton.getStyleClass().add("small-button");
 

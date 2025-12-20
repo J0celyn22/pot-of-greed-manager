@@ -15,7 +15,7 @@ public class NavigationItem extends VBox {
     private final List<NavigationItem> subItems = new ArrayList<>();
     private final int depth;
     private String name;
-    private boolean isExpanded = true; // Start as expanded
+    private boolean isExpanded = true; // Start as expanded by default for most items
     private Label label;
     private Label triangleLabel; // For the triangle indicator
     private javafx.event.EventHandler<? super MouseEvent> onLabelClicked;
@@ -65,7 +65,7 @@ public class NavigationItem extends VBox {
         hbox.getChildren().addAll(triangleLabel, label);
         this.getChildren().add(hbox);
 
-        // Initially show sub-items
+        // Initially show sub-items according to isExpanded
         updateSubItemsVisibility();
     }
 
@@ -87,6 +87,9 @@ public class NavigationItem extends VBox {
         subItems.add(subItem);
         this.getChildren().add(subItem);
         updateTriangle();
+        // Ensure the newly added subItem visibility matches current expanded state
+        subItem.setVisible(isExpanded);
+        subItem.setManaged(isExpanded);
     }
 
     public List<NavigationItem> getSubItems() {
@@ -103,5 +106,22 @@ public class NavigationItem extends VBox {
     // Set the click handler for the label.
     public void setOnLabelClicked(javafx.event.EventHandler<? super MouseEvent> handler) {
         this.onLabelClicked = handler;
+    }
+
+    /**
+     * Public API to query the expanded state.
+     */
+    public boolean isExpanded() {
+        return isExpanded;
+    }
+
+    /**
+     * Public API to set the expanded state programmatically.
+     * When changed, the triangle and sub-items visibility are updated.
+     */
+    public void setExpanded(boolean expanded) {
+        this.isExpanded = expanded;
+        updateTriangle();
+        updateSubItemsVisibility();
     }
 }
