@@ -524,19 +524,19 @@ public class ThemeCollection {
 
         for (CardElement ce : this.cardsList) {
             if (ce == null || ce.getCard() == null) continue;
-            String print = ce.getCard().getPrintCode();
-            String pass = ce.getCard().getPassCode();
+            String printCode = ce.getCard().getPrintCode();
+            String passCode = ce.getCard().getPassCode();
 
-            if (print != null) {
-                CardElement existing = collectionByPrint.get(print);
+            if (printCode != null) {
+                CardElement existing = collectionByPrint.get(printCode);
                 if (existing == null || (!existing.getSpecificArtwork() && ce.getSpecificArtwork())) {
-                    collectionByPrint.put(print, ce);
+                    collectionByPrint.put(printCode, ce);
                 }
             }
-            if (pass != null) {
-                CardElement existing = collectionByPass.get(pass);
+            if (passCode != null) {
+                CardElement existing = collectionByPass.get(passCode);
                 if (existing == null || (!existing.getSpecificArtwork() && ce.getSpecificArtwork())) {
-                    collectionByPass.put(pass, ce);
+                    collectionByPass.put(passCode, ce);
                 }
             }
         }
@@ -592,16 +592,16 @@ public class ThemeCollection {
 
         for (CardElement ce : this.cardsList) {
             if (ce == null || ce.getCard() == null) continue;
-            String print = ce.getCard().getPrintCode();
-            String pass = ce.getCard().getPassCode();
+            String printCode = ce.getCard().getPrintCode();
+            String passCode = ce.getCard().getPassCode();
 
-            boolean alreadyPresent = (print != null && presentPrint.contains(print))
-                    || (pass != null && presentPass.contains(pass));
+            boolean alreadyPresent = (printCode != null && presentPrint.contains(printCode))
+                    || (passCode != null && presentPass.contains(passCode));
 
             if (!alreadyPresent) {
                 result.add(ce);
-                if (print != null) presentPrint.add(print);
-                if (pass != null) presentPass.add(pass);
+                if (printCode != null) presentPrint.add(printCode);
+                if (passCode != null) presentPass.add(passCode);
             } else if (ce.getDontRemove() && !alreadyPresent) {
                 // Redundant due to check above; kept for clarity (dontRemove must be present at least once).
                 result.add(ce);
@@ -613,8 +613,8 @@ public class ThemeCollection {
                 for (int i = 0; i < result.size(); i++) {
                     CardElement r = result.get(i);
                     if (r == null || r.getCard() == null) continue;
-                    boolean matchByPrint = (print != null && print.equals(r.getCard().getPrintCode()));
-                    boolean matchByPass = (pass != null && pass.equals(r.getCard().getPassCode()));
+                    boolean matchByPrint = (printCode != null && printCode.equals(r.getCard().getPrintCode()));
+                    boolean matchByPass = (passCode != null && passCode.equals(r.getCard().getPassCode()));
                     if (matchByPrint || matchByPass) {
                         // If it's already the same collection element, nothing to do.
                         if (r == ce) break;

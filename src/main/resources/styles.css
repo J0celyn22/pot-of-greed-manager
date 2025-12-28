@@ -511,4 +511,20 @@
     -fx-background-color: #100317;
 }
 
+.context-menu {
+  -fx-background-color: black;
+  -fx-border-color: #cdfc04;
+  -fx-border-width: 1;
+}
+.context-menu .menu-item .label {
+  -fx-text-fill: #cdfc04;
+}
+.context-menu .menu-item:armed {
+  -fx-background-color: rgba(205,252,4,0.08);
+}
+.context-menu .separator {
+  -fx-border-color: transparent transparent #cdfc04 transparent;
+  -fx-border-width: 0 0 1 0;
+}
+
 /* End of styles.css */

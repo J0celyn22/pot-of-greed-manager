@@ -4,27 +4,40 @@ import Model.CardsLists.CardElement;
 import Model.CardsLists.DecksAndCollectionsList;
 import Model.CardsLists.OwnedCardsCollection;
 import Model.CardsLists.SubListCreator;
+import Model.FormatList.ArchetypesListsToHtml;
 import Model.FormatList.DeckToHtml;
 import Model.FormatList.OwnedCardsCollectionToHtml;
+import javafx.application.Platform;
+import javafx.collections.ObservableList;
+import javafx.scene.Node;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
+import javafx.scene.control.ListView;
 import javafx.scene.control.TextField;
+import javafx.scene.control.TreeView;
 import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import javafx.stage.Window;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static Model.CardsLists.OuicheList.*;
 import static Model.CardsLists.SubListCreator.*;
 import static Model.FilePaths.outputPath;
 import static Model.FilePaths.outputPathLists;
-import static Model.FormatList.ArchetypesListsToHtml.GenerateAllArchetypesLists;
 import static Model.FormatList.CardListToHtml.generateHtml;
 import static Model.FormatList.CardListToHtml.generateHtmlWithOwned;
 import static Model.FormatList.OuicheListToHtml.generateOuicheListAsListHtml;
@@ -54,6 +67,10 @@ public class UserInterfaceFunctions {
     public static DecksAndCollectionsList getDecksList() {
         return decksList;
     }
+
+    private static final Logger logger = LoggerFactory.getLogger(UserInterfaceFunctions.class);
+
+    private static final CopyOnWriteArrayList<Runnable> explicitRefreshers = new CopyOnWriteArrayList<>();
 
     // Setter and getter for decksList.
     public static void setDecksList(DecksAndCollectionsList list) {
@@ -232,12 +249,16 @@ public class UserInterfaceFunctions {
 
         //Generate HTML from these lists
         System.out.println("Generate HTML from these lists");
-        String outputPathArchetypes = outputPath + "Archetypes\\"/* + dateTime + "\\"*/;
+        String outputPathArchetypes = outputPath + "Archetypes\\";
         Files.createDirectories(Paths.get(outputPathArchetypes));
-        GenerateAllArchetypesLists(outputPathArchetypes, archetypesList, archetypesCardsLists);
+
+        // Create the Archetypes menu and then the individual archetype pages
+        ArchetypesListsToHtml.generateArchetypesMenu(outputPathArchetypes, archetypesList);
+        ArchetypesListsToHtml.GenerateAllArchetypesLists(outputPathArchetypes, archetypesList, archetypesCardsLists);
 
         System.out.println("Generation complete!");
     }
+
 
 
     /**
@@ -264,10 +285,12 @@ public class UserInterfaceFunctions {
      * @throws Exception
      */
     public static void loadCollectionFile() throws Exception {
-        String filePathStr = filePath.getAbsolutePath();
-        setMyCardsCollection(new OwnedCardsCollection(filePathStr));
+        if (!myCollectionIsLoaded) {
+            String filePathStr = filePath.getAbsolutePath();
+            setMyCardsCollection(new OwnedCardsCollection(filePathStr));
 
-        myCollectionIsLoaded = true;
+            myCollectionIsLoaded = true;
+        }
     }
 
     /**
@@ -590,6 +613,109 @@ public class UserInterfaceFunctions {
             e.printStackTrace();
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Register an explicit refresher to be called when the owned-collection view should refresh.
+     * Example: OwnedCollectionController can register a lambda that calls its refresh method.
+     */
+    public static void registerOwnedCollectionRefresher(Runnable refresher) {
+        if (refresher != null) explicitRefreshers.addIfAbsent(refresher);
+    }
+
+    /**
+     * Unregister a previously registered refresher.
+     */
+    public static void unregisterOwnedCollectionRefresher(Runnable refresher) {
+        if (refresher != null) explicitRefreshers.remove(refresher);
+    }
+
+    /**
+     * Refresh the Owned Cards Collection view without persisting changes.
+     * This method does not save the model; it only forces visible UI controls to refresh.
+     */
+    public static void refreshOwnedCollectionView() {
+        if (Platform.isFxApplicationThread()) {
+            doRefreshOwnedCollectionView();
+        } else {
+            Platform.runLater(UserInterfaceFunctions::doRefreshOwnedCollectionView);
+        }
+    }
+
+    // Core implementation: tries explicit refreshers first, then falls back to scanning all windows.
+    private static void doRefreshOwnedCollectionView() {
+        try {
+            // 1) Call any explicit registered refreshers first (preferred)
+            if (!explicitRefreshers.isEmpty()) {
+                for (Runnable r : explicitRefreshers) {
+                    try {
+                        r.run();
+                        logger.debug("refreshOwnedCollectionView: called explicit refresher {}", r);
+                    } catch (Throwable t) {
+                        logger.debug("refreshOwnedCollectionView: explicit refresher threw", t);
+                    }
+                }
+                // We still continue to scan and refresh controls to be safe.
+            }
+
+            // 2) Walk all open windows and refresh TreeView/ListView controls found
+            boolean refreshedAny = false;
+            for (Window w : Window.getWindows()) {
+                try {
+                    Scene s = w.getScene();
+                    if (s == null) continue;
+                    Parent root = s.getRoot();
+                    if (root == null) continue;
+                    // BFS traversal to find controls
+                    Deque<Node> dq = new ArrayDeque<>();
+                    dq.add(root);
+                    while (!dq.isEmpty()) {
+                        Node n = dq.poll();
+                        if (n == null) continue;
+
+                        // Refresh TreeView
+                        if (n instanceof TreeView) {
+                            try {
+                                ((TreeView<?>) n).refresh();
+                                refreshedAny = true;
+                            } catch (Throwable t) {
+                                logger.debug("refreshOwnedCollectionView: TreeView.refresh() failed", t);
+                            }
+                        }
+
+                        // Refresh ListView
+                        if (n instanceof ListView) {
+                            try {
+                                ((ListView<?>) n).refresh();
+                                refreshedAny = true;
+                            } catch (Throwable t) {
+                                logger.debug("refreshOwnedCollectionView: ListView.refresh() failed", t);
+                            }
+                        }
+
+                        // If node is a Parent, enqueue children
+                        if (n instanceof Parent) {
+                            ObservableList<Node> children = ((Parent) n).getChildrenUnmodifiable();
+                            if (children != null && !children.isEmpty()) {
+                                for (Node child : children) dq.add(child);
+                            }
+                        }
+                    }
+                } catch (Throwable t) {
+                    logger.debug("refreshOwnedCollectionView: scanning window failed", t);
+                }
+            }
+
+            // 3) If nothing was refreshed, log a hint for integration
+            if (!refreshedAny) {
+                logger.info("refreshOwnedCollectionView: no TreeView/ListView refreshed. " +
+                        "If your owned-collection UI uses custom controls, register an explicit refresher via registerOwnedCollectionRefresher(...).");
+            } else {
+                logger.debug("refreshOwnedCollectionView: refreshed visible controls");
+            }
+        } catch (Throwable ex) {
+            logger.debug("refreshOwnedCollectionView failed", ex);
         }
     }
 }

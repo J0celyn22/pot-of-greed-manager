@@ -33,6 +33,10 @@ public class RealMain extends Application {
 
         FXMLLoader loader = new FXMLLoader(new File("src/main/resources/main_layout.fxml").toURI().toURL());
         Parent root = loader.load();
+
+        // Get the controller instance from the loader
+        final Controller.RealMainController controller = loader.getController();
+
         Scene scene = new Scene(root);
 
         // Attach stylesheet (keep this)
@@ -45,6 +49,15 @@ public class RealMain extends Application {
         }
 
         primaryStage.setScene(scene);
+
+        // Ensure controller.dispose() runs when the window is closed (call instance method)
+        primaryStage.setOnCloseRequest(event -> {
+            try {
+                if (controller != null) controller.dispose();
+            } catch (Throwable t) {
+                // log if you have a logger available
+            }
+        });
 
         Rectangle2D screenBounds = Screen.getPrimary().getVisualBounds();
         primaryStage.setX(screenBounds.getMinX());

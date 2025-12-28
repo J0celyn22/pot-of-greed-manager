@@ -20,6 +20,9 @@ public class NavigationItem extends VBox {
     private Label triangleLabel; // For the triangle indicator
     private javafx.event.EventHandler<? super MouseEvent> onLabelClicked;
 
+    // Highlight state (true => accent color)
+    private boolean highlighted = false;
+
     public NavigationItem(String name, int depth) {
         this.name = name;
         this.depth = depth;
@@ -123,5 +126,28 @@ public class NavigationItem extends VBox {
         this.isExpanded = expanded;
         updateTriangle();
         updateSubItemsVisibility();
+    }
+
+    /**
+     * Set or clear the highlight state for this item.
+     * When highlighted, the label color becomes the accent color (#cdfc04).
+     * When not highlighted, label color returns to white.
+     * <p>
+     * This method does not automatically propagate to parents; callers should
+     * explicitly set parent highlights when they want propagation.
+     */
+    public void setHighlight(boolean highlight) {
+        if (highlight) {
+            label.setStyle("-fx-text-fill: #cdfc04; -fx-font-weight: bold;");
+        } else {
+            label.setStyle("-fx-text-fill: white; -fx-font-weight: bold;");
+        }
+    }
+
+    /**
+     * Query whether this item is currently highlighted.
+     */
+    public boolean isHighlighted() {
+        return highlighted;
     }
 }

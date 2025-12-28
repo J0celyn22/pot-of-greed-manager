@@ -504,6 +504,29 @@ public class HtmlGenerator {
     }
 
     /**
+     * Writes HTML link buttons for a list of archetypes to the given writer.
+     *
+     * @param writer         The BufferedWriter to which the HTML content will be written.
+     * @param archetypesList A list of archetype names for which link buttons will be created.
+     * @throws IOException If an I/O error occurs while writing to the writer.
+     */
+    public static void addArchetypeLinkButtons(BufferedWriter writer, List<String> archetypesList) throws IOException {
+        // Link back to the Archetypes List page (if you have one)
+        writer.write(
+                "<ul>\n" +
+                        "    <li><a class=\"menu-link\" href=\"..\\Archetypes\\Archetypes Menu.html\">Archetypes Menu</a></li>\n" +
+                        "</ul>\n"
+        );
+
+        writer.write("<ul>\n");
+        for (String archetypeName : archetypesList) {
+            String safeName = archetypeName.replace("\\", "-").replace("/", "-").replace("\"", "");
+            writer.write("<li><a class=\"menu-link\" href=\"" + safeName + ".html\">" + archetypeName + "</a></li>\n");
+        }
+        writer.write("</ul>\n");
+    }
+
+    /**
      * Writes the HTML closing tags to the given writer.
      *
      * <p>This method generates the closing tags for the HTML document, which are
@@ -801,7 +824,7 @@ public class HtmlGenerator {
         writer.write("<div class=\"card-value\">\n");
         writer.write("<p><b>" + entryValue + "</b></p>\n");
         if (entryKey.getPrice() != null) {
-            writer.write("<b>" + entryValue * Float.parseFloat(entryKey.getPrice()) + "€</b>\n"); //TODO TEST
+            writer.write("<b>" + Float.parseFloat(entryKey.getPrice()) + "€ / " + entryValue * Float.parseFloat(entryKey.getPrice()) + "€" + "</b>\n");
         }
         writer.write("</div>\n");
         writer.write("</div>\n");
