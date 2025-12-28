@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/PotOfGreedManager.iml" filepath="$PROJECT_DIR$/.idea/PotOfGreedManager.iml" />
+      <module fileurl="file://$PROJECT_DIR$/PotOfGreedManager.iml" filepath="$PROJECT_DIR$/PotOfGreedManager.iml" />
     </modules>
   </component>
 </project>
