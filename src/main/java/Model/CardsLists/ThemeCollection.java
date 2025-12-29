@@ -323,10 +323,6 @@ public class ThemeCollection {
         writer.close();
     }
 
-    /*public void AddCard(Card cardToAdd) {
-        this.cardsList.add(cardToAdd);
-    }*/
-
     /**
      * Adds a deck to the list of linked decks in a new unit.
      *
@@ -345,11 +341,6 @@ public class ThemeCollection {
      */
     public void AddDeckToExistingUnit(Deck deckToAdd, int unitIndex) {
         this.linkedDecks.get(unitIndex).add(deckToAdd);
-    }
-
-    public void AddArchetypeCards(String archetype) {
-        //TODO parcourir cartes archétype, ajouter celles qui n'y sont pas, si elles ne sont pas présentes dans la liste des cartes à ne pas ajouter
-        // ajouter archétype à liste des archétypes
     }
 
     /**
@@ -509,7 +500,9 @@ public class ThemeCollection {
 
         return returnValue;
     }*/
-    public List<CardElement> toList() {
+
+    //SECOND VERSION
+    /*public List<CardElement> toList() {
         List<CardElement> result = new ArrayList<>();
 
         // Defensive guards in case fields are null
@@ -626,6 +619,162 @@ public class ThemeCollection {
         }
 
         return result;
-    }
+    }*/
+    public List<CardElement> toList() {
+        List<CardElement> result = new ArrayList<>();
 
+        // Defensive guards in case fields are null
+        if (this.linkedDecks == null) this.linkedDecks = new ArrayList<>();
+        if (this.cardsList == null) this.cardsList = new ArrayList<>();
+
+        // Build quick lookup maps for collection cards.
+        // For each printCode / passCode prefer a collection CardElement that has specificArtwork = true.
+        // If none with specificArtwork, use any.
+        java.util.Map<String, CardElement> collectionByPrint = new java.util.HashMap<>();
+        java.util.Map<String, CardElement> collectionByPass = new java.util.HashMap<>();
+
+        for (CardElement ce : this.cardsList) {
+            if (ce == null || ce.getCard() == null) continue;
+            String printCode = ce.getCard().getPrintCode();
+            String passCode = ce.getCard().getPassCode();
+
+            if (printCode != null) {
+                CardElement existing = collectionByPrint.get(printCode);
+                if (existing == null || (!existing.getSpecificArtwork() && ce.getSpecificArtwork())) {
+                    collectionByPrint.put(printCode, ce);
+                }
+            }
+            if (passCode != null) {
+                CardElement existing = collectionByPass.get(passCode);
+                if (existing == null || (!existing.getSpecificArtwork() && ce.getSpecificArtwork())) {
+                    collectionByPass.put(passCode, ce);
+                }
+            }
+        }
+
+        // Process linkedDecks by unit. Within a unit a card is added up to the maximum
+        // number of copies any single deck in that unit contains (not summed across decks).
+        for (List<Deck> unit : this.linkedDecks) {
+            if (unit == null) continue;
+
+            // Map key uses printCode if present, otherwise passCode. Prefix to avoid collisions.
+            java.util.Map<String, Integer> maxCountByKey = new java.util.HashMap<>();
+            java.util.Map<String, CardElement> representativeDeckByKey = new java.util.HashMap<>();
+
+            // For each deck in the unit compute counts of each card in that deck
+            for (Deck deck : unit) {
+                if (deck == null) continue;
+                List<CardElement> deckList = deck.toList();
+                if (deckList == null) continue;
+
+                // Count occurrences in this deck
+                java.util.Map<String, Integer> countThisDeck = new java.util.HashMap<>();
+                for (CardElement deckCe : deckList) {
+                    if (deckCe == null || deckCe.getCard() == null) continue;
+                    String dPrint = deckCe.getCard().getPrintCode();
+                    String dPass = deckCe.getCard().getPassCode();
+                    String key = (dPrint != null && !dPrint.isEmpty()) ? "P:" + dPrint : (dPass != null ? "S:" + dPass : null);
+                    if (key == null) continue;
+
+                    countThisDeck.put(key, countThisDeck.getOrDefault(key, 0) + 1);
+
+                    // Keep a representative deck CardElement for this key (first encountered)
+                    representativeDeckByKey.putIfAbsent(key, deckCe);
+                }
+
+                // Update maxCountByKey using counts from this deck
+                for (java.util.Map.Entry<String, Integer> e : countThisDeck.entrySet()) {
+                    String key = e.getKey();
+                    int cnt = e.getValue();
+                    int prev = maxCountByKey.getOrDefault(key, 0);
+                    if (cnt > prev) maxCountByKey.put(key, cnt);
+                }
+            }
+
+            // Now add to result according to max counts, preferring collection elements with specific artwork
+            for (java.util.Map.Entry<String, Integer> e : maxCountByKey.entrySet()) {
+                String key = e.getKey();
+                int copies = e.getValue();
+                CardElement collectionCe = null;
+
+                // Try to find a collection element by print or pass
+                if (key.startsWith("P:")) {
+                    String print = key.substring(2);
+                    collectionCe = collectionByPrint.get(print);
+                } else if (key.startsWith("S:")) {
+                    String pass = key.substring(2);
+                    collectionCe = collectionByPass.get(pass);
+                }
+
+                CardElement deckRep = representativeDeckByKey.get(key);
+
+                if (collectionCe != null) {
+                    // Add the collection element once (prefer specificArtwork)
+                    result.add(collectionCe);
+                    // Add remaining copies using the deck representative (or duplicates of collectionCe if deckRep is null)
+                    for (int i = 1; i < copies; i++) {
+                        if (deckRep != null) {
+                            result.add(deckRep);
+                        } else {
+                            result.add(collectionCe);
+                        }
+                    }
+                } else {
+                    // No collection element: add deck representative copies
+                    for (int i = 0; i < copies; i++) {
+                        if (deckRep != null) {
+                            result.add(deckRep);
+                        }
+                    }
+                }
+            }
+        }
+
+        // After decks, add remaining collection cards that were not already added.
+        // Always include cards with dontRemove if they were not already included.
+        // Use sets of print/pass codes already present in result for quick checks.
+        java.util.Set<String> presentPrint = new java.util.HashSet<>();
+        java.util.Set<String> presentPass = new java.util.HashSet<>();
+        for (CardElement ce : result) {
+            if (ce == null || ce.getCard() == null) continue;
+            if (ce.getCard().getPrintCode() != null) presentPrint.add(ce.getCard().getPrintCode());
+            if (ce.getCard().getPassCode() != null) presentPass.add(ce.getCard().getPassCode());
+        }
+
+        for (CardElement ce : this.cardsList) {
+            if (ce == null || ce.getCard() == null) continue;
+            String printCode = ce.getCard().getPrintCode();
+            String passCode = ce.getCard().getPassCode();
+
+            boolean alreadyPresent = (printCode != null && presentPrint.contains(printCode))
+                    || (passCode != null && presentPass.contains(passCode));
+
+            if (!alreadyPresent) {
+                result.add(ce);
+                if (printCode != null) presentPrint.add(printCode);
+                if (passCode != null) presentPass.add(passCode);
+            } else if (ce.getDontRemove() && !alreadyPresent) {
+                // Redundant due to check above; kept for clarity (dontRemove must be present at least once).
+                result.add(ce);
+            } else if (ce.getDontRemove() && alreadyPresent) {
+                // If dontRemove should guarantee presence even if card was represented by a deck entry,
+                // ensure at least one entry is the collection element rather than the deck element.
+                // If a deck element was used before, replace the first matching entry with this collection element.
+                for (int i = 0; i < result.size(); i++) {
+                    CardElement r = result.get(i);
+                    if (r == null || r.getCard() == null) continue;
+                    boolean matchByPrint = (printCode != null && printCode.equals(r.getCard().getPrintCode()));
+                    boolean matchByPass = (passCode != null && passCode.equals(r.getCard().getPassCode()));
+                    if (matchByPrint || matchByPass) {
+                        // If it's already the same collection element, nothing to do.
+                        if (r == ce) break;
+                        result.set(i, ce);
+                        break;
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
 }

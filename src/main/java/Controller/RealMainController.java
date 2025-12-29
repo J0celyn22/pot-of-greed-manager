@@ -87,7 +87,6 @@ public class RealMainController {
      * <p>
      * Returns true when the card still needs sorting (should glow), false when it is considered sorted.
      */
-    //TODO the Cards that are in Boxes and not in categories are not marked
     public static boolean computeCardNeedsSorting(Model.CardsLists.Card card, String elementName) {
         if (card == null || elementName == null) return false;
 
@@ -110,14 +109,19 @@ public class RealMainController {
                 }
             }
 
-            // Helper: compare a CardElement to the Card (match by printCode, passCode, konamiId)
+            // Helper: compare a CardElement to the Card (match by printCode if exists, otherwise by passCode)
             java.util.function.BiPredicate<Model.CardsLists.CardElement, Model.CardsLists.Card> matches =
                     (ce, c) -> {
                         if (ce == null || ce.getCard() == null || c == null) return false;
                         Model.CardsLists.Card other = ce.getCard();
-                        if (other.getPrintCode() != null && other.getPrintCode().equals(c.getPrintCode())) return true;
+                        if (c.getPrintCode() != null) {
+                            if (other.getPrintCode() != null) {
+                                if (other.getPrintCode().equals(c.getPrintCode())) {
+                                    return true;
+                                } else return false;
+                            } else return false;
+                        }
                         if (other.getPassCode() != null && other.getPassCode().equals(c.getPassCode())) return true;
-                        if (other.getKonamiId() != null && other.getKonamiId().equals(c.getKonamiId())) return true;
                         return false;
                     };
 
@@ -1215,10 +1219,8 @@ public class RealMainController {
 
         if (ouicheDetailed.getDecks() != null) {
             for (Deck deck : ouicheDetailed.getDecks()) {
-                if (!isDeckLinked(deck, ouicheDetailed.getCollections())) {
-                    DataTreeItem<Object> deckItem = createDeckTreeItem(deck);
-                    rootItem.getChildren().add(deckItem);
-                }
+                DataTreeItem<Object> deckItem = createDeckTreeItem(deck);
+                rootItem.getChildren().add(deckItem);
             }
         }
 
@@ -1282,11 +1284,9 @@ public class RealMainController {
 
         if (ouicheDetailed.getDecks() != null) {
             for (Deck deck : ouicheDetailed.getDecks()) {
-                if (!isDeckLinked(deck, ouicheDetailed.getCollections())) {
-                    NavigationItem navItem = createNavigationItem(deck.getName(), 0);
-                    navItem.setOnLabelClicked(evt -> navigateToTree(ouicheTreeView, deck.getName()));
-                    navigationMenu.addItem(navItem);
-                }
+                NavigationItem navItem = createNavigationItem(deck.getName(), 0);
+                navItem.setOnLabelClicked(evt -> navigateToTree(ouicheTreeView, deck.getName()));
+                navigationMenu.addItem(navItem);
             }
         }
 
@@ -1708,10 +1708,8 @@ public class RealMainController {
 
         if (decksCollection.getDecks() != null) {
             for (Deck deck : decksCollection.getDecks()) {
-                if (!isDeckLinked(deck, decksCollection.getCollections())) {
-                    DataTreeItem<Object> deckItem = createDeckTreeItem(deck);
-                    rootItem.getChildren().add(deckItem);
-                }
+                DataTreeItem<Object> deckItem = createDeckTreeItem(deck);
+                rootItem.getChildren().add(deckItem);
             }
         }
 
@@ -1803,11 +1801,9 @@ public class RealMainController {
 
             if (decksCollection.getDecks() != null) {
                 for (Deck deck : decksCollection.getDecks()) {
-                    if (!isDeckLinked(deck, decksCollection.getCollections())) {
-                        NavigationItem navItem = createNavigationItem(deck.getName(), 0);
-                        navItem.setOnLabelClicked(evt -> navigateToTree(decksAndCollectionsTreeView, deck.getName()));
-                        navigationMenu.addItem(navItem);
-                    }
+                    NavigationItem navItem = createNavigationItem(deck.getName(), 0);
+                    navItem.setOnLabelClicked(evt -> navigateToTree(decksAndCollectionsTreeView, deck.getName()));
+                    navigationMenu.addItem(navItem);
                 }
             }
         } else {
@@ -2144,23 +2140,6 @@ public class RealMainController {
             if (res != null) return res;
         }
         return null;
-    }
-
-    private boolean isDeckLinked(Deck deck, List<ThemeCollection> collections) {
-        if (collections == null || deck == null) return false;
-        String deckNorm = normalizeName(deck.getName());
-        for (ThemeCollection c : collections) {
-            if (c == null || c.getLinkedDecks() == null) continue;
-            for (List<Deck> unit : c.getLinkedDecks()) {
-                if (unit == null) continue;
-                for (Deck d : unit) {
-                    if (d == null) continue;
-                    String otherNorm = normalizeName(d.getName());
-                    if (deckNorm.equals(otherNorm)) return true;
-                }
-            }
-        }
-        return false;
     }
 
     private String normalizeName(String s) {

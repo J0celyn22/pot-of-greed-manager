@@ -245,10 +245,12 @@ public class CardElement {
             this.dontRemove = false;
         }
 
+        //TODO retirer "*" et utiliser "," ?
         if (string.contains("*")) {
             this.specificArtwork = true;
             string = string.replace("*", "");
-            this.artwork = Integer.parseInt(string);
+            String[] splitString = string.split(",");
+            this.artwork = Integer.parseInt(splitString[1]);
         } else {
             this.specificArtwork = false;
             this.artwork = 0;
