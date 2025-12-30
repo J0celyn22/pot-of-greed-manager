@@ -1212,7 +1212,7 @@ public class RealMainController {
 
         if (ouicheDetailed.getCollections() != null) {
             for (ThemeCollection collection : ouicheDetailed.getCollections()) {
-                DataTreeItem<Object> collItem = createThemeCollectionTreeItem(collection);
+                DataTreeItem<Object> collItem = createThemeCollectionTreeItem(collection, TabType.OUICHE_LIST);
                 rootItem.getChildren().add(collItem);
             }
         }
@@ -1425,7 +1425,8 @@ public class RealMainController {
         return deckItem;
     }
 
-    private DataTreeItem<Object> createThemeCollectionTreeItem(ThemeCollection collection) {
+    //TODO WTF, there is logic from deck import ! The deck should already be imported, just use the decks that are in the Collection !
+    private DataTreeItem<Object> createThemeCollectionTreeItem(ThemeCollection collection, TabType tabType) {
         String cleanName = collection.getName() == null ? "" : collection.getName().replaceAll("[=\\-]", "");
         DataTreeItem<Object> collectionItem = new DataTreeItem<>(cleanName, collection);
         collectionItem.setExpanded(true);
@@ -1536,149 +1537,151 @@ public class RealMainController {
             collectionItem.getChildren().add(decksParent);
         }
 
-        // --- Archetypes parent (expanded by default) ---
-        DataTreeItem<Object> archetypesParent = new DataTreeItem<>("Archetypes", "ARCHETYPES_SECTION");
-        archetypesParent.setExpanded(true);
-        boolean archetypesAdded = false;
-        boolean hasArchetypesMethod = false;
+        if (tabType != TabType.OUICHE_LIST) {
+            // --- Archetypes parent (expanded by default) ---
+            DataTreeItem<Object> archetypesParent = new DataTreeItem<>("Archetypes", "ARCHETYPES_SECTION");
+            archetypesParent.setExpanded(true);
+            boolean archetypesAdded = false;
+            boolean hasArchetypesMethod = false;
 
-        try {
-            Method m = collection.getClass().getMethod("getArchetypes");
-            hasArchetypesMethod = true;
-            Object res = m.invoke(collection);
-            if (res instanceof List) {
-                List<?> archetypes = (List<?>) res;
-                logger.debug("Collection '{}' getArchetypes() returned list size={}", collection.getName(), archetypes.size());
+            try {
+                Method m = collection.getClass().getMethod("getArchetypes");
+                hasArchetypesMethod = true;
+                Object res = m.invoke(collection);
+                if (res instanceof List) {
+                    List<?> archetypes = (List<?>) res;
+                    logger.debug("Collection '{}' getArchetypes() returned list size={}", collection.getName(), archetypes.size());
 
-                for (Object archetypeObj : archetypes) {
-                    if (archetypeObj == null) continue;
-                    if (archetypeObj instanceof String) {
-                        String archetypeName = ((String) archetypeObj).trim();
-                        if (archetypeName.isEmpty()) continue;
-                        List<CardElement> elements = buildElementsFromGlobalArchetype(archetypeName);
-                        Set<String> missing = computeMissingIdsForElements(collection, elements);
-                        CardsGroup archetypeGroup = new CardsGroup(ARCHETYPE_MARKER + archetypeName, elements);
-                        Map<String, Object> data = new HashMap<>();
-                        data.put("group", archetypeGroup);
-                        data.put("missing", missing);
-                        DataTreeItem<Object> archetypeNode = new DataTreeItem<>(archetypeName, data);
-                        archetypeNode.setExpanded(false);
-                        archetypesParent.getChildren().add(archetypeNode);
-                        archetypesAdded = true;
-                    } else {
-                        String name = null;
-                        List<CardElement> elements = new ArrayList<>();
-                        try {
-                            Method nameMethod = archetypeObj.getClass().getMethod("getName");
-                            Object nameVal = nameMethod.invoke(archetypeObj);
-                            if (nameVal != null) name = nameVal.toString();
-                        } catch (Exception ignored) {
-                        }
-                        try {
-                            Method cardsMethod = archetypeObj.getClass().getMethod("getCards");
-                            Object cardsVal = cardsMethod.invoke(archetypeObj);
-                            if (cardsVal instanceof List) {
-                                for (Object o : (List<?>) cardsVal) {
-                                    if (o instanceof CardElement) elements.add((CardElement) o);
-                                    else if (o instanceof Card) elements.add(new CardElement((Card) o));
-                                    else if (o instanceof String) {
-                                        try {
-                                            elements.add(new CardElement((String) o));
-                                        } catch (Exception ignored) {
+                    for (Object archetypeObj : archetypes) {
+                        if (archetypeObj == null) continue;
+                        if (archetypeObj instanceof String) {
+                            String archetypeName = ((String) archetypeObj).trim();
+                            if (archetypeName.isEmpty()) continue;
+                            List<CardElement> elements = buildElementsFromGlobalArchetype(archetypeName);
+                            Set<String> missing = computeMissingIdsForElements(collection, elements);
+                            CardsGroup archetypeGroup = new CardsGroup(ARCHETYPE_MARKER + archetypeName, elements);
+                            Map<String, Object> data = new HashMap<>();
+                            data.put("group", archetypeGroup);
+                            data.put("missing", missing);
+                            DataTreeItem<Object> archetypeNode = new DataTreeItem<>(archetypeName, data);
+                            archetypeNode.setExpanded(false);
+                            archetypesParent.getChildren().add(archetypeNode);
+                            archetypesAdded = true;
+                        } else {
+                            String name = null;
+                            List<CardElement> elements = new ArrayList<>();
+                            try {
+                                Method nameMethod = archetypeObj.getClass().getMethod("getName");
+                                Object nameVal = nameMethod.invoke(archetypeObj);
+                                if (nameVal != null) name = nameVal.toString();
+                            } catch (Exception ignored) {
+                            }
+                            try {
+                                Method cardsMethod = archetypeObj.getClass().getMethod("getCards");
+                                Object cardsVal = cardsMethod.invoke(archetypeObj);
+                                if (cardsVal instanceof List) {
+                                    for (Object o : (List<?>) cardsVal) {
+                                        if (o instanceof CardElement) elements.add((CardElement) o);
+                                        else if (o instanceof Card) elements.add(new CardElement((Card) o));
+                                        else if (o instanceof String) {
+                                            try {
+                                                elements.add(new CardElement((String) o));
+                                            } catch (Exception ignored) {
+                                            }
                                         }
                                     }
                                 }
+                            } catch (Exception ignored) {
                             }
-                        } catch (Exception ignored) {
-                        }
 
-                        if ((elements == null || elements.isEmpty()) && name != null) {
-                            elements = buildElementsFromGlobalArchetype(name);
-                        }
+                            if ((elements == null || elements.isEmpty()) && name != null) {
+                                elements = buildElementsFromGlobalArchetype(name);
+                            }
 
-                        if (name == null) name = "Archetype";
-                        Set<String> missing = computeMissingIdsForElements(collection, elements);
-                        CardsGroup archetypeGroup = new CardsGroup(ARCHETYPE_MARKER + name, elements);
-                        Map<String, Object> data = new HashMap<>();
-                        data.put("group", archetypeGroup);
-                        data.put("missing", missing);
-                        DataTreeItem<Object> archetypeNode = new DataTreeItem<>(name, data);
-                        archetypeNode.setExpanded(false);
-                        archetypesParent.getChildren().add(archetypeNode);
-                        archetypesAdded = true;
+                            if (name == null) name = "Archetype";
+                            Set<String> missing = computeMissingIdsForElements(collection, elements);
+                            CardsGroup archetypeGroup = new CardsGroup(ARCHETYPE_MARKER + name, elements);
+                            Map<String, Object> data = new HashMap<>();
+                            data.put("group", archetypeGroup);
+                            data.put("missing", missing);
+                            DataTreeItem<Object> archetypeNode = new DataTreeItem<>(name, data);
+                            archetypeNode.setExpanded(false);
+                            archetypesParent.getChildren().add(archetypeNode);
+                            archetypesAdded = true;
+                        }
                     }
                 }
-            }
-        } catch (NoSuchMethodException ignored) {
-            hasArchetypesMethod = false;
-        } catch (Exception e) {
-            logger.debug("Archetypes reflection failed for collection " + collection.getName(), e);
-        }
-
-        // Only fallback to global SubListCreator archetypes when the collection does NOT provide getArchetypes()
-        if (!hasArchetypesMethod && !archetypesAdded) {
-            try {
-                List<String> globalNames = SubListCreator.archetypesList;
-                List<List<Card>> globalLists = SubListCreator.archetypesCardsLists;
-                if (globalNames != null && globalLists != null && globalNames.size() == globalLists.size()) {
-                    for (int i = 0; i < globalNames.size(); i++) {
-                        String archetypeName = globalNames.get(i);
-                        if (archetypeName == null) continue;
-                        List<Card> cardsForArchetype = globalLists.get(i);
-                        List<CardElement> elements = new ArrayList<>();
-                        if (cardsForArchetype != null) {
-                            for (Card c : cardsForArchetype) {
-                                if (c != null) elements.add(new CardElement(c));
-                            }
-                        }
-                        Set<String> missing = computeMissingIdsForElements(collection, elements);
-                        CardsGroup archetypeGroup = new CardsGroup(ARCHETYPE_MARKER + archetypeName, elements);
-                        Map<String, Object> data = new HashMap<>();
-                        data.put("group", archetypeGroup);
-                        data.put("missing", missing);
-                        DataTreeItem<Object> archetypeNode = new DataTreeItem<>(archetypeName, data);
-                        archetypeNode.setExpanded(false);
-                        archetypesParent.getChildren().add(archetypeNode);
-                        archetypesAdded = true;
-                    }
-                }
+            } catch (NoSuchMethodException ignored) {
+                hasArchetypesMethod = false;
             } catch (Exception e) {
-                logger.debug("Fallback archetypes population failed", e);
+                logger.debug("Archetypes reflection failed for collection " + collection.getName(), e);
             }
-        }
 
-        if (archetypesAdded) {
-            logger.info("Collection '{}' -> added {} archetype group(s)", collection.getName(), archetypesParent.getChildren().size());
-            collectionItem.getChildren().add(archetypesParent);
-        }
-
-        // 4) Exceptions / Cards not to add
-        try {
-            Method exceptionsMethod = collection.getClass().getMethod("getExceptionsToNotAdd");
-            Object exceptionsVal = exceptionsMethod.invoke(collection);
-            if (exceptionsVal instanceof List) {
-                List<?> exceptionsList = (List<?>) exceptionsVal;
-                List<CardElement> exceptionElements = new ArrayList<>();
-                for (Object o : exceptionsList) {
-                    if (o instanceof CardElement) exceptionElements.add((CardElement) o);
-                    else if (o instanceof Card) exceptionElements.add(new CardElement((Card) o));
-                    else if (o instanceof String) {
-                        try {
-                            exceptionElements.add(new CardElement((String) o));
-                        } catch (Exception ignored) {
+            // Only fallback to global SubListCreator archetypes when the collection does NOT provide getArchetypes()
+            if (!hasArchetypesMethod && !archetypesAdded) {
+                try {
+                    List<String> globalNames = SubListCreator.archetypesList;
+                    List<List<Card>> globalLists = SubListCreator.archetypesCardsLists;
+                    if (globalNames != null && globalLists != null && globalNames.size() == globalLists.size()) {
+                        for (int i = 0; i < globalNames.size(); i++) {
+                            String archetypeName = globalNames.get(i);
+                            if (archetypeName == null) continue;
+                            List<Card> cardsForArchetype = globalLists.get(i);
+                            List<CardElement> elements = new ArrayList<>();
+                            if (cardsForArchetype != null) {
+                                for (Card c : cardsForArchetype) {
+                                    if (c != null) elements.add(new CardElement(c));
+                                }
+                            }
+                            Set<String> missing = computeMissingIdsForElements(collection, elements);
+                            CardsGroup archetypeGroup = new CardsGroup(ARCHETYPE_MARKER + archetypeName, elements);
+                            Map<String, Object> data = new HashMap<>();
+                            data.put("group", archetypeGroup);
+                            data.put("missing", missing);
+                            DataTreeItem<Object> archetypeNode = new DataTreeItem<>(archetypeName, data);
+                            archetypeNode.setExpanded(false);
+                            archetypesParent.getChildren().add(archetypeNode);
+                            archetypesAdded = true;
                         }
                     }
-                }
-                if (!exceptionElements.isEmpty()) {
-                    CardsGroup exceptionsGroup = new CardsGroup("Cards not to add", exceptionElements);
-                    DataTreeItem<Object> exceptionsNode = new DataTreeItem<>("Cards not to add", exceptionsGroup);
-                    exceptionsNode.setExpanded(true);
-                    collectionItem.getChildren().add(exceptionsNode);
+                } catch (Exception e) {
+                    logger.debug("Fallback archetypes population failed", e);
                 }
             }
-        } catch (NoSuchMethodException ignored) {
-        } catch (Exception e) {
-            logger.debug("Failed to read exceptionsToNotAdd for collection " + collection.getName(), e);
+
+            if (archetypesAdded) {
+                logger.info("Collection '{}' -> added {} archetype group(s)", collection.getName(), archetypesParent.getChildren().size());
+                collectionItem.getChildren().add(archetypesParent);
+            }
+
+            // 4) Exceptions / Cards not to add
+            try {
+                Method exceptionsMethod = collection.getClass().getMethod("getExceptionsToNotAdd");
+                Object exceptionsVal = exceptionsMethod.invoke(collection);
+                if (exceptionsVal instanceof List) {
+                    List<?> exceptionsList = (List<?>) exceptionsVal;
+                    List<CardElement> exceptionElements = new ArrayList<>();
+                    for (Object o : exceptionsList) {
+                        if (o instanceof CardElement) exceptionElements.add((CardElement) o);
+                        else if (o instanceof Card) exceptionElements.add(new CardElement((Card) o));
+                        else if (o instanceof String) {
+                            try {
+                                exceptionElements.add(new CardElement((String) o));
+                            } catch (Exception ignored) {
+                            }
+                        }
+                    }
+                    if (!exceptionElements.isEmpty()) {
+                        CardsGroup exceptionsGroup = new CardsGroup("Cards not to add", exceptionElements);
+                        DataTreeItem<Object> exceptionsNode = new DataTreeItem<>("Cards not to add", exceptionsGroup);
+                        exceptionsNode.setExpanded(true);
+                        collectionItem.getChildren().add(exceptionsNode);
+                    }
+                }
+            } catch (NoSuchMethodException ignored) {
+            } catch (Exception e) {
+                logger.debug("Failed to read exceptionsToNotAdd for collection " + collection.getName(), e);
+            }
         }
 
         return collectionItem;
@@ -1701,7 +1704,7 @@ public class RealMainController {
 
         if (decksCollection.getCollections() != null) {
             for (ThemeCollection collection : decksCollection.getCollections()) {
-                DataTreeItem<Object> collItem = createThemeCollectionTreeItem(collection);
+                DataTreeItem<Object> collItem = createThemeCollectionTreeItem(collection, TabType.DECKS);
                 rootItem.getChildren().add(collItem);
             }
         }
