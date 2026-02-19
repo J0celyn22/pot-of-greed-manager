@@ -670,6 +670,33 @@ public class RealMainController {
         updateCardsDisplay();
 
         UserInterfaceFunctions.registerOwnedCollectionRefresher(this::refreshFromModel);
+
+        // Put this in RealMainController.initialize() or equivalent setup method
+        final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(Controller.RealMainController.class);
+
+        /*if (mainTabPane != null) {
+            mainTabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
+                String tabName = newTab == null ? "<null>" : newTab.getText();
+                logger.debug("mainTabPane selection changed -> {}", tabName);
+
+                // When OuicheList is selected, run the marking/refresh logic that previously ran for Decks and Collections.
+                if (tabName != null && tabName.trim().equalsIgnoreCase("OuicheList")) {
+                    logger.debug("OuicheList selected: running marking/refresh for OuicheList");
+                    try {
+                        // --- Replace the next line with your existing marking/refresh method(s) ---
+                        // Example: recompute archetypes / mark missing for the OuicheList collection(s)
+                        // markMissingForAllCollections(); // <-- your real method here
+                        // Or call the same method you call when Decks and Collections is selected,
+                        // but pass the OuicheList context/collection name if needed.
+                    } catch (Throwable t) {
+                        logger.warn("Error while running OuicheList marking/refresh", t);
+                    }
+                } else {
+                    // Optional: if you need to clear or refresh visuals when leaving OuicheList
+                    logger.debug("Non-OuicheList tab selected: {}", tabName);
+                }
+            });
+        }*/
     }
 
     public void refreshFromModel() {

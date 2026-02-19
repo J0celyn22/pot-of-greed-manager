@@ -113,6 +113,26 @@ public class SharedCollectionTab extends HBox {
     private Runnable onDecksLoad;
     private TabType tabType;
 
+    // OuicheList view-mode toggle buttons (accessible by the controller)
+    private Button compactDetailedButton;
+    private Button mosaicListButton;
+
+    /**
+     * Returns the Compact/Detailed toggle button for the OuicheList tab.
+     * Returns null if this tab is not OUICHE_LIST.
+     */
+    public Button getCompactDetailedButton() {
+        return compactDetailedButton;
+    }
+
+    /**
+     * Returns the Mosaic/List toggle button for the OuicheList tab.
+     * Returns null if this tab is not OUICHE_LIST.
+     */
+    public Button getMosaicListButton() {
+        return mosaicListButton;
+    }
+
     public void setOnDecksLoad(Runnable onDecksLoad) {
         this.onDecksLoad = onDecksLoad;
     }
@@ -219,6 +239,7 @@ public class SharedCollectionTab extends HBox {
             case OUICHE_LIST: {
                 VBox ouicheGroup = new VBox(10);
                 ouicheGroup.setAlignment(Pos.CENTER_LEFT);
+
                 HBox groupRow3 = new HBox(5);
                 Button generateOuicheListButton = new Button("Generate OuicheList – Decks and Collections");
                 Button generateOuicheListSaveButton = new Button("Save");
@@ -261,6 +282,43 @@ public class SharedCollectionTab extends HBox {
                         logger.error("Error during generate-all operation", ex);
                     }
                 });
+
+                // --- View-mode toggle row (bottom of the header) ---
+                HBox groupRow6 = new HBox(5);
+                groupRow6.setAlignment(Pos.CENTER_LEFT);
+
+                compactDetailedButton = new Button("Compact OuicheList");
+                compactDetailedButton.getStyleClass().add("small-button");
+
+                mosaicListButton = new Button("Mosaic");
+                mosaicListButton.getStyleClass().add("small-button");
+                // Only visible when Detailed mode is active
+                mosaicListButton.setVisible(false);
+                mosaicListButton.setManaged(false);
+
+                compactDetailedButton.setOnAction(e -> {
+                    if ("Compact OuicheList".equals(compactDetailedButton.getText())) {
+                        compactDetailedButton.setText("Detailed OuicheList");
+                        mosaicListButton.setVisible(true);
+                        mosaicListButton.setManaged(true);
+                    } else {
+                        compactDetailedButton.setText("Compact OuicheList");
+                        mosaicListButton.setVisible(false);
+                        mosaicListButton.setManaged(false);
+                    }
+                });
+
+                mosaicListButton.setOnAction(e -> {
+                    if ("Mosaic".equals(mosaicListButton.getText())) {
+                        mosaicListButton.setText("List");
+                    } else {
+                        mosaicListButton.setText("Mosaic");
+                    }
+                });
+
+                groupRow6.getChildren().addAll(compactDetailedButton, mosaicListButton);
+                ouicheGroup.getChildren().add(groupRow6);
+
                 headerContent.getChildren().add(ouicheGroup);
                 break;
             }

@@ -339,6 +339,30 @@ public class CardTreeCell extends TreeCell<String> {
         return false;
     }
 
+    /**
+     * Helper: determine whether the currently selected Tab is the OuicheList tab.
+     * Uses the TreeView ancestor to find a TabPane and checks the selected Tab text.
+     * Returns true only when the selected tab's text equals "OuicheList" (case-insensitive).
+     */
+    private boolean isOuicheListTabSelected() {
+        try {
+            Node node = getTreeView();
+            while (node != null && !(node instanceof TabPane)) {
+                node = node.getParent();
+            }
+            if (node instanceof TabPane) {
+                TabPane tp = (TabPane) node;
+                Tab sel = tp.getSelectionModel().getSelectedItem();
+                if (sel != null) {
+                    String t = sel.getText();
+                    return t != null && t.trim().equalsIgnoreCase("OuicheList");
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
     private void resolveImagePathAsync(String imageKey, Consumer<String> callback) {
         if (imageKey == null) {
             callback.accept(null);
@@ -1770,6 +1794,7 @@ public class CardTreeCell extends TreeCell<String> {
             // Clear previous state for empty cells
             if (empty || cardElement == null) {
                 cardImageView.setImage(null);
+                cardImageView.setEffect(null);
                 wrapper.setEffect(null);
                 wrapper.setStyle("-fx-background-color: transparent;");
                 setGraphic(wrapper);
@@ -1876,7 +1901,7 @@ public class CardTreeCell extends TreeCell<String> {
                 needsSorting = false;
             }
 
-            // --- Apply glow if needed ---
+            // --- Apply glow if needed (on the wrapper StackPane) ---
             if (needsSorting) {
                 DropShadow innerGlow = new DropShadow();
                 innerGlow.setColor(javafx.scene.paint.Color.web("#ffffff", 1.0));
@@ -1898,6 +1923,19 @@ public class CardTreeCell extends TreeCell<String> {
                 wrapper.setEffect(null);
             }
 
+            // --- Apply grayscale for owned cards in OuicheList tab (on the imageView only) ---
+            // This is intentionally applied to cardImageView, not wrapper, so it is independent
+            // of the glow effect above and does not affect other tabs.
+            boolean ouicheSelected = isOuicheListTabSelected();
+            boolean owned = cardElement.getOwned() != null && cardElement.getOwned();
+            if (ouicheSelected && owned) {
+                javafx.scene.effect.ColorAdjust grayscale = new javafx.scene.effect.ColorAdjust();
+                grayscale.setSaturation(-1.0);
+                cardImageView.setEffect(grayscale);
+            } else {
+                cardImageView.setEffect(null);
+            }
+
             // --- Selection visual: accent border when selected ---
             boolean selected = isSelected();
             if (selected) {
@@ -1906,10 +1944,6 @@ public class CardTreeCell extends TreeCell<String> {
                 wrapper.setStyle("-fx-background-color: transparent;");
             }
 
-            // Ensure selection changes update the wrapper style (avoid adding duplicate listeners)
-            // Remove previous listener by not storing one; simply set a fresh listener once per cell creation would be ideal,
-            // but to keep this replacement minimal we update style here and also attach a lightweight listener if none exists.
-            // (If you prefer, move the listener setup to the CardGridCell constructor.)
             selectedProperty().addListener((obs, oldV, newV) -> {
                 if (newV != null && newV) {
                     wrapper.setStyle("-fx-background-color: transparent; -fx-border-color: #cdfc04; -fx-border-width: 2; -fx-border-radius: 6; -fx-padding: 3;");
