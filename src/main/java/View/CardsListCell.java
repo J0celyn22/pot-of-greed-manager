@@ -6,9 +6,12 @@ import Model.CardsLists.Card;
 import Model.Database.DataBaseUpdate;
 import Utils.LruImageCache;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.SnapshotParameters;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
+import javafx.scene.control.MenuItem;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.image.WritableImage;
@@ -29,6 +32,10 @@ public class CardsListCell extends ListCell<Card> {
     private double imageWidth;
     private double imageHeight;
 
+    // Context menu built once and reused across cell recycling.
+    // getItem() is called at show-time so it always reflects the current card.
+    private final ContextMenu addToContextMenu;
+
     public CardsListCell(boolean printedMode, double imageWidth, double imageHeight) {
         this.printedMode = printedMode;
         this.imageWidth = imageWidth;
@@ -36,7 +43,59 @@ public class CardsListCell extends ListCell<Card> {
         setFocusTraversable(true);
         setupDragAndDrop();
         setupSelectionHandler();
+
+        // Build the "Add to..." context menu ─────────────────────────────────
+        // The menu is attached to the *cell* so right-clicking anywhere on the
+        // row (image, text, or blank space) triggers it, which is the correct
+        // behaviour for list mode.
+        addToContextMenu = buildAddToContextMenu();
+        this.setOnContextMenuRequested(event -> {
+            Card card = getItem();
+            if (card == null) {
+                event.consume();
+                return;
+            }
+            addToContextMenu.show(this, event.getScreenX(), event.getScreenY());
+            event.consume();
+        });
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Context menu builder
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Creates the "Add to..." context menu used by the AllExistingCards list.
+     * Only one item is needed for now; the action is a stub to be wired later.
+     */
+    private static ContextMenu buildAddToContextMenu() {
+        ContextMenu cm = new ContextMenu();
+        cm.setStyle(
+                "-fx-background-color: #100317; " +
+                        "-fx-background-radius: 6; " +
+                        "-fx-border-color: #3a3a3a; " +
+                        "-fx-border-radius: 6; " +
+                        "-fx-border-width: 1;"
+        );
+
+        MenuItem addToItem = new MenuItem();
+        Label addToLabel = new Label("Add to...");
+        addToLabel.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        HBox graphic = new HBox(addToLabel);
+        graphic.setAlignment(Pos.CENTER_LEFT);
+        graphic.setPadding(new Insets(2, 6, 2, 6));
+        addToItem.setGraphic(graphic);
+        addToItem.setText("");
+        // TODO: implement Add to... action (populate submenu / dialog)
+        addToItem.setOnAction(e -> { /* TODO */ });
+
+        cm.getItems().add(addToItem);
+        return cm;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Existing methods — UNCHANGED below this line
+    // ─────────────────────────────────────────────────────────────────────────
 
     private void setupDragAndDrop() {
         this.setOnDragDetected(event -> {
@@ -78,16 +137,17 @@ public class CardsListCell extends ListCell<Card> {
 
     private void setupSelectionHandler() {
         this.setOnMouseClicked(event -> {
+            if (event.getButton() == javafx.scene.input.MouseButton.SECONDARY) {
+                event.consume();
+                return;
+            }
             Card card = getItem();
             if (card == null) return;
             String currentPart = "RIGHT";
-            // If the active part isn’t "RIGHT", clear the previous selection first.
             if (SelectionManager.getActivePart() == null || !SelectionManager.getActivePart().equals(currentPart)) {
                 SelectionManager.clearSelection();
             }
-            // For now, we use a normal click (without modifiers) to select exclusively.
             SelectionManager.selectCard(card, currentPart);
-            // Refresh the view so that all cells update their appearance.
             if (getListView() != null) {
                 getListView().refresh();
             }

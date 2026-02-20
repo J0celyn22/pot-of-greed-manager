@@ -8,11 +8,14 @@ import javafx.beans.property.DoubleProperty;
 import javafx.beans.property.SimpleDoubleProperty;
 import javafx.collections.FXCollections;
 import javafx.fxml.FXML;
+import javafx.geometry.Insets;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.*;
 import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.AnchorPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -643,6 +646,9 @@ public class RealMainController {
             });
         }
 
+        // Wire OuicheList compact/detailed toggle buttons
+        setupOuicheListButtons();
+
         decksTab.setOnDecksLoad(() -> {
             try {
                 displayDecksAndCollections();
@@ -903,7 +909,7 @@ public class RealMainController {
         VBox menuVBox = myCollectionTab.getMenuVBox();
         menuVBox.getChildren().clear();
         NavigationMenu navigationMenu = new NavigationMenu();
-        //OwnedCardsCollection collection = new OwnedCardsCollection(UserInterfaceFunctions.filePath.getAbsolutePath());
+
         OwnedCardsCollection collection = null;
         try {
             collection = Model.CardsLists.OuicheList.getMyCardsCollection();
@@ -923,20 +929,27 @@ public class RealMainController {
             logger.warn("OwnedCardsCollection is not available.");
         }
 
-        if (collection.getOwnedCollection() != null) {
+        if (collection != null && collection.getOwnedCollection() != null) {
             for (Box box : collection.getOwnedCollection()) {
                 String rawBoxName = box.getName() == null ? "" : box.getName();
                 String boxName = rawBoxName.replaceAll("[=\\-]", "");
                 NavigationItem boxItem = createNavigationItem(boxName, 0);
 
-                // navigation wiring: click navigates to the box node in myCollectionTreeView
+                // --- navigation wiring (unchanged) ---
                 boxItem.setOnLabelClicked(evt -> navigateToTree(myCollectionTreeView, boxName));
 
-                // Determine if this box (or any of its groups/subboxes) contains unsorted cards
+                // --- highlight logic (unchanged) ---
                 boolean boxHasUnsorted = boxHasUnsortedCards(box, boxName);
-
-                // Apply highlight to the box title if needed
                 applyNavigationItemHighlight(boxItem, boxHasUnsorted);
+
+                // --- NEW: context menu for Box items ---
+                {
+                    ContextMenu boxCm = NavigationContextMenuBuilder.forMyCollectionBox(boxName);
+                    boxItem.setOnContextMenuRequested(e -> {
+                        boxCm.show(boxItem, e.getScreenX(), e.getScreenY());
+                        e.consume(); // prevent event from reaching the menuVBox background handler
+                    });
+                }
 
                 // Add groups (Cards groups) under the box
                 if (box.getContent() != null) {
@@ -945,41 +958,53 @@ public class RealMainController {
                         String groupName = rawGroupName.replaceAll("[=\\-]", "");
                         NavigationItem groupItem = createNavigationItem(groupName, 1);
 
-                        // navigation wiring: click navigates to box -> group
+                        // navigation wiring: click navigates to box -> group (unchanged)
                         groupItem.setOnLabelClicked(evt -> navigateToTree(myCollectionTreeView, boxName, groupName));
 
-                        // Determine if this group contains unsorted cards
+                        // highlight (unchanged)
                         boolean groupHasUnsorted = groupHasUnsortedCards(group, groupName);
-
-                        // If group has unsorted cards, highlight the group and ensure the parent box is highlighted
                         applyNavigationItemHighlight(groupItem, groupHasUnsorted);
                         if (groupHasUnsorted && !boxHasUnsorted) {
-                            // ensure box is highlighted visually as well
                             applyNavigationItemHighlight(boxItem, true);
                             boxHasUnsorted = true;
+                        }
+
+                        // --- NEW: context menu for Category items ---
+                        {
+                            ContextMenu groupCm = NavigationContextMenuBuilder.forMyCollectionCategory(groupName);
+                            groupItem.setOnContextMenuRequested(e -> {
+                                groupCm.show(groupItem, e.getScreenX(), e.getScreenY());
+                                e.consume();
+                            });
                         }
 
                         boxItem.addSubItem(groupItem);
                     }
                 }
 
-                // Add sub-boxes and their groups
+                // Add sub-boxes and their groups (unchanged logic; add context menus to sub-items too)
                 if (box.getSubBoxes() != null) {
                     for (Box subBox : box.getSubBoxes()) {
                         String rawSubBoxName = subBox.getName() == null ? "" : subBox.getName();
                         String subBoxName = rawSubBoxName.replaceAll("[=\\-]", "");
                         NavigationItem subBoxItem = createNavigationItem(subBoxName, 1);
 
-                        // navigation wiring: click navigates to box -> subBox
                         subBoxItem.setOnLabelClicked(evt -> navigateToTree(myCollectionTreeView, subBoxName));
 
-                        // Determine if this sub-box contains unsorted cards
                         boolean subBoxHasUnsorted = boxHasUnsortedCards(subBox, subBoxName);
-
                         applyNavigationItemHighlight(subBoxItem, subBoxHasUnsorted);
                         if (subBoxHasUnsorted && !boxHasUnsorted) {
                             applyNavigationItemHighlight(boxItem, true);
                             boxHasUnsorted = true;
+                        }
+
+                        // Sub-boxes are treated like Boxes for the context menu
+                        {
+                            ContextMenu subBoxCm = NavigationContextMenuBuilder.forMyCollectionBox(subBoxName);
+                            subBoxItem.setOnContextMenuRequested(e -> {
+                                subBoxCm.show(subBoxItem, e.getScreenX(), e.getScreenY());
+                                e.consume();
+                            });
                         }
 
                         if (subBox.getContent() != null) {
@@ -988,7 +1013,6 @@ public class RealMainController {
                                 String gName = rawGName.replaceAll("[=\\-]", "");
                                 NavigationItem gItem = createNavigationItem(gName, 2);
 
-                                // navigate to subBox -> group
                                 gItem.setOnLabelClicked(evt -> navigateToTree(myCollectionTreeView, subBoxName, gName));
 
                                 boolean gHasUnsorted = groupHasUnsortedCards(g, gName);
@@ -1000,6 +1024,15 @@ public class RealMainController {
                                         applyNavigationItemHighlight(boxItem, true);
                                         boxHasUnsorted = true;
                                     }
+                                }
+
+                                // Sub-groups are treated like Categories for the context menu
+                                {
+                                    ContextMenu gCm = NavigationContextMenuBuilder.forMyCollectionCategory(gName);
+                                    gItem.setOnContextMenuRequested(e -> {
+                                        gCm.show(gItem, e.getScreenX(), e.getScreenY());
+                                        e.consume();
+                                    });
                                 }
 
                                 subBoxItem.addSubItem(gItem);
@@ -1017,6 +1050,16 @@ public class RealMainController {
         }
 
         menuVBox.getChildren().add(navigationMenu);
+
+        // --- NEW: empty-area context menu ---
+        // NavigationItems consume their own events (e.consume() above), so this
+        // handler only fires when the user right-clicks the blank background.
+        ContextMenu emptyCm = NavigationContextMenuBuilder.forMyCollectionEmpty();
+        menuVBox.setOnContextMenuRequested(e -> {
+            emptyCm.show(menuVBox, e.getScreenX(), e.getScreenY());
+            // Do NOT consume – let the event propagate normally in case the
+            // scroll-pane also needs to react (e.g., for scroll handling).
+        });
     }
 
     /**
@@ -1802,16 +1845,24 @@ public class RealMainController {
                 for (ThemeCollection collection : decksCollection.getCollections()) {
                     NavigationItem collectionNavItem = createNavigationItem(collection.getName(), 0);
 
-                    // Determine if this collection has missing cards in its archetypes only
+                    // highlight (unchanged)
                     boolean hasMissing = collectionHasMissing(collection);
-
-                    // Apply highlight only to the collection title (bold + #cdfc04) if missing
                     applyNavigationItemHighlight(collectionNavItem, hasMissing);
 
-                    // navigation wiring: click navigates to the collection node in decksTreeView
+                    // navigation wiring (unchanged)
                     collectionNavItem.setOnLabelClicked(evt -> navigateToTree(decksAndCollectionsTreeView, collection.getName()));
 
                     collectionNavItem.setExpanded(false);
+
+                    // --- NEW: context menu for Collection items ---
+                    {
+                        ContextMenu collCm = NavigationContextMenuBuilder.forDecksCollection(collection.getName());
+                        collectionNavItem.setOnContextMenuRequested(e -> {
+                            collCm.show(collectionNavItem, e.getScreenX(), e.getScreenY());
+                            e.consume();
+                        });
+                    }
+
                     navigationMenu.addItem(collectionNavItem);
 
                     if (collection.getLinkedDecks() != null) {
@@ -1820,8 +1871,19 @@ public class RealMainController {
                             for (Deck linkedDeck : unit) {
                                 if (linkedDeck == null) continue;
                                 NavigationItem deckSubItem = createNavigationItem(linkedDeck.getName(), 1);
-                                // deckSubItem remains default style (white, not bold)
+
+                                // navigation wiring (unchanged)
                                 deckSubItem.setOnLabelClicked(evt -> navigateToTree(decksAndCollectionsTreeView, collection.getName(), "Decks", linkedDeck.getName()));
+
+                                // --- NEW: context menu for Deck items (inside a Collection) ---
+                                {
+                                    ContextMenu deckCm = NavigationContextMenuBuilder.forDecksDeck(linkedDeck.getName());
+                                    deckSubItem.setOnContextMenuRequested(e -> {
+                                        deckCm.show(deckSubItem, e.getScreenX(), e.getScreenY());
+                                        e.consume();
+                                    });
+                                }
+
                                 collectionNavItem.addSubItem(deckSubItem);
                             }
                         }
@@ -1832,7 +1894,19 @@ public class RealMainController {
             if (decksCollection.getDecks() != null) {
                 for (Deck deck : decksCollection.getDecks()) {
                     NavigationItem navItem = createNavigationItem(deck.getName(), 0);
+
+                    // navigation wiring (unchanged)
                     navItem.setOnLabelClicked(evt -> navigateToTree(decksAndCollectionsTreeView, deck.getName()));
+
+                    // --- NEW: context menu for standalone Deck items ---
+                    {
+                        ContextMenu deckCm = NavigationContextMenuBuilder.forDecksDeck(deck.getName());
+                        navItem.setOnContextMenuRequested(e -> {
+                            deckCm.show(navItem, e.getScreenX(), e.getScreenY());
+                            e.consume();
+                        });
+                    }
+
                     navigationMenu.addItem(navItem);
                 }
             }
@@ -1843,6 +1917,12 @@ public class RealMainController {
         }
 
         menuVBox.getChildren().add(navigationMenu);
+
+        // --- NEW: empty-area context menu ---
+        ContextMenu emptyCm = NavigationContextMenuBuilder.forDecksEmpty();
+        menuVBox.setOnContextMenuRequested(e -> {
+            emptyCm.show(menuVBox, e.getScreenX(), e.getScreenY());
+        });
     }
 
     private Set<String> computeMissingIdsForElements(ThemeCollection collection, List<CardElement> elements) {
@@ -2348,5 +2428,261 @@ public class RealMainController {
         } catch (Throwable ignored) {
         }
         // Add other cleanup here if needed (stop background tasks, remove listeners, etc.)
+    }
+
+    private void setupOuicheListButtons() {
+        Button compactBtn = ouicheListTab.getCompactDetailedButton();
+        Button mosaicBtn = ouicheListTab.getMosaicListButton();
+        if (compactBtn == null || mosaicBtn == null) return;
+
+        compactBtn.setOnAction(e -> {
+            if ("Compact mode".equals(compactBtn.getText())) {
+                // ---- Switch to Compact mode ----
+                compactBtn.setText("Detailed mode");
+                mosaicBtn.setVisible(true);
+                mosaicBtn.setManaged(true);
+                mosaicBtn.setText("Mosaic"); // always reset sub-toggle when entering compact
+                try {
+                    displayCompactOuicheList(false);
+                } catch (Exception ex) {
+                    logger.error("Error displaying compact OuicheList", ex);
+                }
+            } else {
+                // ---- Switch back to Detailed mode ----
+                compactBtn.setText("Compact mode");
+                mosaicBtn.setVisible(false);
+                mosaicBtn.setManaged(false);
+                mosaicBtn.setText("Mosaic");
+                try {
+                    displayOuicheListUnified();
+                } catch (Exception ex) {
+                    logger.error("Error displaying detailed OuicheList", ex);
+                }
+            }
+        });
+
+        mosaicBtn.setOnAction(e -> {
+            if ("Mosaic".equals(mosaicBtn.getText())) {
+                mosaicBtn.setText("List");
+                try {
+                    displayCompactOuicheList(true);
+                } catch (Exception ex) {
+                    logger.error("Error switching compact OuicheList to mosaic", ex);
+                }
+            } else {
+                mosaicBtn.setText("Mosaic");
+                try {
+                    displayCompactOuicheList(false);
+                } catch (Exception ex) {
+                    logger.error("Error switching compact OuicheList to list", ex);
+                }
+            }
+        });
+    }
+
+    private void displayCompactOuicheList(boolean mosaicMode) throws Exception {
+        AnchorPane contentPane = ouicheListTab.getContentPane();
+        contentPane.getChildren().clear();
+
+        // Ensure data is loaded
+        if (Model.CardsLists.OuicheList.getMaOuicheList() == null) {
+            UserInterfaceFunctions.generateOuicheListType();
+        }
+        java.util.List<CardElement> ouicheList = Model.CardsLists.OuicheList.getMaOuicheList();
+        if (ouicheList == null || ouicheList.isEmpty()) {
+            javafx.scene.control.Label empty = new javafx.scene.control.Label("OuicheList is empty.");
+            empty.setStyle("-fx-text-fill: white;");
+            contentPane.getChildren().add(empty);
+            return;
+        }
+
+        // Deduplicate: preserve insertion order, count occurrences by passCode (fallback: imagePath)
+        java.util.Map<String, CardElement> uniqueCards = new java.util.LinkedHashMap<>();
+        java.util.Map<String, Integer> cardCounts = new java.util.LinkedHashMap<>();
+        for (CardElement ce : ouicheList) {
+            if (ce == null || ce.getCard() == null) continue;
+            Card card = ce.getCard();
+            String key = card.getPassCode() != null ? card.getPassCode() : card.getImagePath();
+            if (key == null) continue;
+            if (!uniqueCards.containsKey(key)) {
+                uniqueCards.put(key, ce);
+                cardCounts.put(key, 1);
+            } else {
+                cardCounts.merge(key, 1, Integer::sum);
+            }
+        }
+
+        javafx.scene.Node content = mosaicMode
+                ? buildCompactMosaicView(uniqueCards)
+                : buildCompactListView(uniqueCards, cardCounts);
+
+        javafx.scene.control.ScrollPane scrollPane = new javafx.scene.control.ScrollPane(content);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setStyle("-fx-background-color: #100317; -fx-background: #100317;");
+        scrollPane.setVbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scrollPane.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.NEVER);
+
+        contentPane.getChildren().add(scrollPane);
+        AnchorPane.setTopAnchor(scrollPane, 0.0);
+        AnchorPane.setBottomAnchor(scrollPane, 0.0);
+        AnchorPane.setLeftAnchor(scrollPane, 0.0);
+        AnchorPane.setRightAnchor(scrollPane, 0.0);
+    }
+
+    /**
+     * Builds the compact list view: one row per unique card, showing image + FR/EN/JA names
+     * + exemplary count (top-right) + unit/total price (bottom-right), mirroring the HTML export format.
+     */
+    private javafx.scene.Node buildCompactListView(
+            java.util.Map<String, CardElement> uniqueCards,
+            java.util.Map<String, Integer> cardCounts) {
+
+        VBox listBox = new VBox(6);
+        listBox.setPadding(new Insets(10));
+        listBox.setStyle("-fx-background-color: #100317;");
+
+        final double IMG_W = 80.0;
+        final double IMG_H = 116.0;
+
+        for (java.util.Map.Entry<String, CardElement> entry : uniqueCards.entrySet()) {
+            CardElement ce = entry.getValue();
+            Card card = ce.getCard();
+            int count = cardCounts.get(entry.getKey());
+
+            // ---- Outer row ----
+            HBox row = new HBox(10);
+            row.setPadding(new Insets(8));
+            row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+            row.setStyle(
+                    "-fx-border-color: white; -fx-border-width: 1; " +
+                            "-fx-border-radius: 5; -fx-background-radius: 5; " +
+                            "-fx-background-color: black;");
+
+            // ---- Card image (left) ----
+            javafx.scene.image.ImageView iv = new javafx.scene.image.ImageView();
+            iv.setFitWidth(IMG_W);
+            iv.setFitHeight(IMG_H);
+            iv.setPreserveRatio(true);
+            loadCardImageInto(card, iv, IMG_W, IMG_H);
+
+            // ---- Names (centre, takes remaining space) ----
+            VBox namesBox = new VBox(4);
+            HBox.setHgrow(namesBox, Priority.ALWAYS);
+            namesBox.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
+            javafx.scene.control.Label frLabel = new javafx.scene.control.Label(
+                    card.getName_FR() != null ? card.getName_FR() : "");
+            javafx.scene.control.Label enLabel = new javafx.scene.control.Label(
+                    card.getName_EN() != null ? card.getName_EN() : "");
+            javafx.scene.control.Label jaLabel = new javafx.scene.control.Label(
+                    card.getName_JA() != null ? card.getName_JA() : "");
+
+            frLabel.setStyle("-fx-text-fill: white;       -fx-font-size: 13;");
+            enLabel.setStyle("-fx-text-fill: white;     -fx-font-size: 13;");
+            jaLabel.setStyle("-fx-text-fill: white;     -fx-font-size: 13;");
+            frLabel.setWrapText(true);
+            enLabel.setWrapText(true);
+            jaLabel.setWrapText(true);
+
+            namesBox.getChildren().addAll(frLabel, enLabel, jaLabel);
+
+            // ---- Count + price (right, top-aligned) ----
+            VBox valueBox = new VBox(4);
+            valueBox.setAlignment(javafx.geometry.Pos.TOP_RIGHT);
+
+            javafx.scene.control.Label countLabel = new javafx.scene.control.Label(
+                    "\u00d7" + count); // × symbol
+            countLabel.setStyle("-fx-text-fill: white; -fx-font-size: 14; -fx-font-weight: bold;");
+            valueBox.getChildren().add(countLabel);
+
+            if (card.getPrice() != null && !card.getPrice().trim().isEmpty()) {
+                try {
+                    float unitPrice = Float.parseFloat(card.getPrice());
+                    float totalPrice = unitPrice * count;
+                    javafx.scene.control.Label unitPriceLabel = new javafx.scene.control.Label(
+                            String.format("%.2f\u20ac", unitPrice));
+                    javafx.scene.control.Label totalPriceLabel = new javafx.scene.control.Label(
+                            String.format("= %.2f\u20ac", totalPrice));
+                    unitPriceLabel.setStyle("-fx-text-fill: white; -fx-font-size: 11; -fx-font-weight: bold;");
+                    totalPriceLabel.setStyle("-fx-text-fill: white; -fx-font-size: 11; -fx-font-weight: bold;");
+                    valueBox.getChildren().addAll(unitPriceLabel, totalPriceLabel);
+                } catch (NumberFormatException ignored) {
+                }
+            }
+
+            row.getChildren().addAll(iv, namesBox, valueBox);
+            listBox.getChildren().add(row);
+        }
+
+        return listBox;
+    }
+
+    /**
+     * Builds the compact mosaic view: one image per unique card, wrapped in a FlowPane.
+     * No titles, no categories — pure image grid.
+     */
+    private javafx.scene.Node buildCompactMosaicView(
+            java.util.Map<String, CardElement> uniqueCards) {
+
+        javafx.scene.layout.FlowPane flow = new javafx.scene.layout.FlowPane();
+        flow.setHgap(5);
+        flow.setVgap(5);
+        flow.setPadding(new Insets(10));
+        flow.setStyle("-fx-background-color: #100317;");
+
+        double cellW = cardWidthProperty.get();
+        double cellH = cardHeightProperty.get();
+
+        for (java.util.Map.Entry<String, CardElement> entry : uniqueCards.entrySet()) {
+            Card card = entry.getValue().getCard();
+
+            javafx.scene.image.ImageView iv = new javafx.scene.image.ImageView();
+            iv.setFitWidth(cellW);
+            iv.setFitHeight(cellH);
+            iv.setPreserveRatio(true);
+            loadCardImageInto(card, iv, cellW, cellH);
+
+            javafx.scene.layout.StackPane wrapper = new javafx.scene.layout.StackPane(iv);
+            wrapper.setPadding(new Insets(2));
+            flow.getChildren().add(wrapper);
+        }
+
+        return flow;
+    }
+
+    /**
+     * Loads a card image asynchronously into the given ImageView, using LruImageCache
+     * and DataBaseUpdate exactly like the other cell renderers in the application.
+     */
+    private void loadCardImageInto(Card card, javafx.scene.image.ImageView iv,
+                                   double fitW, double fitH) {
+        if (card == null || card.getImagePath() == null) return;
+
+        String imageKey = card.getImagePath();
+        String[] addresses = Model.Database.DataBaseUpdate.getAddresses(imageKey + ".jpg");
+        if (addresses == null || addresses.length == 0) return;
+
+        final String resolvedPath = "file:" + addresses[0];
+
+        // Try the LRU cache first (fast path, runs on FX thread)
+        javafx.scene.image.Image cached = Utils.LruImageCache.getImage(resolvedPath);
+        if (cached != null) {
+            iv.setImage(cached);
+            return;
+        }
+
+        // Background load so we never block the FX thread
+        Thread loader = new Thread(() -> {
+            try {
+                javafx.scene.image.Image img =
+                        new javafx.scene.image.Image(resolvedPath, fitW, fitH, true, true);
+                Utils.LruImageCache.addImage(resolvedPath, img);
+                javafx.application.Platform.runLater(() -> iv.setImage(img));
+            } catch (Exception e) {
+                logger.debug("loadCardImageInto: failed to load image for {}", resolvedPath, e);
+            }
+        }, "compact-ouiche-img-loader");
+        loader.setDaemon(true);
+        loader.start();
     }
 }

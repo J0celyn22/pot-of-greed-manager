@@ -277,7 +277,47 @@ public class CardTreeCell extends TreeCell<String> {
                     Label label = new Label(itemName);
                     label.getStyleClass().add("tree-root-label");
                     setGraphic(label);
+
+                } else if (dataObject instanceof Model.CardsLists.ThemeCollection) {
+                    // ── Collection header row ──────────────────────────────────
+                    // Shown in the Decks & Collections and OuicheList tree.
+                    // Right-click: "Add Deck" + "Add Archetype"
+                    Label label = new Label(itemName);
+                    label.getStyleClass().add("tree-item-label");
+                    setGraphic(label);
+
+                    if (isDecksAndCollectionsTabSelected()) {
+                        ContextMenu collectionCm = NavigationContextMenuBuilder.styledContextMenu();
+                        collectionCm.getItems().addAll(
+                                NavigationContextMenuBuilder.makeItem("Add Deck"),
+                                NavigationContextMenuBuilder.makeItem("Add archetype")
+                        );
+                        label.setOnContextMenuRequested(e -> {
+                            collectionCm.show(label, e.getScreenX(), e.getScreenY());
+                            e.consume();
+                        });
+                    }
+
+                } else if ("ARCHETYPES_SECTION".equals(dataObject)) {
+                    // ── "Archetypes" section header ────────────────────────────
+                    // Right-click: "Add" (add a new archetype to this collection)
+                    Label label = new Label(itemName);
+                    label.getStyleClass().add("tree-item-label");
+                    setGraphic(label);
+
+                    if (isDecksAndCollectionsTabSelected()) {
+                        ContextMenu archetypesSectionCm = NavigationContextMenuBuilder.styledContextMenu();
+                        archetypesSectionCm.getItems().add(
+                                NavigationContextMenuBuilder.makeItem("Add")
+                        );
+                        label.setOnContextMenuRequested(e -> {
+                            archetypesSectionCm.show(label, e.getScreenX(), e.getScreenY());
+                            e.consume();
+                        });
+                    }
+
                 } else {
+                    // Default: plain label (section headers like "Decks", deck names, etc.)
                     Label label = new Label(itemName);
                     label.getStyleClass().add("tree-item-label");
                     setGraphic(label);
@@ -357,6 +397,54 @@ public class CardTreeCell extends TreeCell<String> {
                     String t = sel.getText();
                     return t != null && t.trim().equalsIgnoreCase("OuicheList");
                 }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    /**
+     * Helper: determine whether the currently selected Tab is the
+     * Decks and Collections tab.
+     */
+    private boolean isDecksAndCollectionsTabSelected() {
+        try {
+            Node node = getTreeView();
+            while (node != null && !(node instanceof TabPane)) {
+                node = node.getParent();
+            }
+            if (node instanceof TabPane) {
+                TabPane tp = (TabPane) node;
+                Tab sel = tp.getSelectionModel().getSelectedItem();
+                if (sel != null) {
+                    String t = sel.getText();
+                    // Match the tab text used in the FXML / initialize() — index 1
+                    return t != null && (
+                            t.trim().equalsIgnoreCase("Decks and Collections") ||
+                                    t.trim().equalsIgnoreCase("Decks & Collections")
+                    );
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    /**
+     * Inner-class helper: returns true when the grid view this cell belongs
+     * to renders cards from an archetype group.
+     * Reads the "isArchetype" flag stored in the GridView's userData map by
+     * createCardsGroupCell().
+     */
+    private boolean isInArchetypeGroup() {
+        try {
+            // CardGridCell (inner class) calls this through the outer CardTreeCell instance.
+            // We access cardGridView which is a field of the outer CardTreeCell.
+            if (cardGridView == null) return false;
+            Object ud = cardGridView.getUserData();
+            if (ud instanceof java.util.Map) {
+                Object ia = ((java.util.Map<?, ?>) ud).get("isArchetype");
+                return ia instanceof Boolean && (Boolean) ia;
             }
         } catch (Exception ignored) {
         }
@@ -538,11 +626,13 @@ public class CardTreeCell extends TreeCell<String> {
         customTriangleLabel.setAlignment(Pos.CENTER);
 
         String rawGroupName = group.getName() == null ? "" : group.getName();
-        boolean isArchetype = false;
+        boolean isArchetype;
         String displayName = rawGroupName;
         if (rawGroupName.startsWith(ARCHETYPE_MARKER)) {
             isArchetype = true;
             displayName = rawGroupName.substring(ARCHETYPE_MARKER.length());
+        } else {
+            isArchetype = false;
         }
         displayName = displayName.replaceAll("[=\\-]", "");
 
@@ -577,6 +667,7 @@ public class CardTreeCell extends TreeCell<String> {
         Map<String, Object> ud = new HashMap<>();
         ud.put("missingSet", missingForThisGroup == null ? Collections.emptySet() : missingForThisGroup);
         ud.put("elementName", displayName);
+        ud.put("isArchetype", isArchetype);
         grid.setUserData(ud);
 
         this.cardGridView = grid;
@@ -599,6 +690,29 @@ public class CardTreeCell extends TreeCell<String> {
         vBox.getChildren().add(grid);
         VBox.setVgrow(grid, Priority.ALWAYS);
         setGraphic(vBox);
+
+        // For Decks & Collections tab only; different menu per group type.
+        hbox.setOnContextMenuRequested(event -> {
+            if (!isDecksAndCollectionsTabSelected()) {
+                event.consume();
+                return;
+            }
+
+            ContextMenu headerCm;
+
+            if (isArchetype) {
+                // Archetype group header  →  "Remove" (red + trash icon)
+                headerCm = NavigationContextMenuBuilder.styledContextMenu();
+                headerCm.getItems().add(NavigationContextMenuBuilder.makeRemoveItem());
+            } else {
+                // Regular group header (Cards, Main Deck, etc.) — no menu for now
+                event.consume();
+                return;
+            }
+
+            headerCm.show(hbox, event.getScreenX(), event.getScreenY());
+            event.consume();
+        });
     }
 
     /**
@@ -1627,9 +1741,15 @@ public class CardTreeCell extends TreeCell<String> {
 
             // Root-level Remove item (red text) — left-aligned graphic version
             MenuItem removeRootItem = new MenuItem();
+            Label removeTrashIcon = new Label("\uD83D\uDDD1");
+            removeTrashIcon.setStyle("-fx-text-fill: #ff4d4d; -fx-font-size: 13;");
             Label removeLabel = new Label("Remove");
             removeLabel.setStyle("-fx-text-fill: #ff4d4d; -fx-font-weight: bold;");
-            HBox removeGraphic = new HBox(removeLabel);
+            HBox removeGraphic = new HBox(6, removeTrashIcon, removeLabel);  // ← 6px gap + icon
+            removeGraphic.setAlignment(Pos.CENTER_LEFT);
+            removeGraphic.setPadding(new Insets(2, 6, 2, 6));
+            removeRootItem.setGraphic(removeGraphic);
+            removeRootItem.setText("");
             removeGraphic.setAlignment(Pos.CENTER_LEFT);
             removeGraphic.setPadding(new Insets(2, 6, 2, 6));
             removeRootItem.setGraphic(removeGraphic);
@@ -1655,11 +1775,84 @@ public class CardTreeCell extends TreeCell<String> {
                 removeRootItem.setDisable(ce == null);
             });
 
+            // ── Context menu for Decks & Collections tab — NON-archetype cards ──
+            ContextMenu decksContextMenu = new ContextMenu();
+            decksContextMenu.setStyle(
+                    "-fx-background-color: #100317; -fx-background-radius: 6; " +
+                            "-fx-border-color: #3a3a3a; -fx-border-radius: 6; -fx-border-width: 1;"
+            );
+            {
+                // "Move to..." submenu (lazy-populated placeholder — actions implemented later)
+                Menu decksMoveMenu = new Menu();
+                {
+                    Label ml = new Label("Move to...");
+                    ml.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+                    HBox mg = new HBox(ml);
+                    mg.setAlignment(Pos.CENTER_LEFT);
+                    mg.setPadding(new Insets(2, 6, 2, 6));
+                    decksMoveMenu.setGraphic(mg);
+                    decksMoveMenu.setText("");
+                    MenuItem placeholder = new MenuItem("(coming soon)");
+                    placeholder.setDisable(true);
+                    decksMoveMenu.getItems().add(placeholder);
+                }
+                decksContextMenu.getItems().add(decksMoveMenu);
+                decksContextMenu.getItems().add(new SeparatorMenuItem());
+
+                // "Remove" (red + trash icon)
+                MenuItem decksRemoveItem = new MenuItem();
+                Label decksTrash = new Label("\uD83D\uDDD1");
+                decksTrash.setStyle("-fx-text-fill: #ff4d4d; -fx-font-size: 13;");
+                Label decksRemoveLabel = new Label("Remove");
+                decksRemoveLabel.setStyle("-fx-text-fill: #ff4d4d; -fx-font-weight: bold;");
+                HBox decksRemoveGraphic = new HBox(6, decksTrash, decksRemoveLabel);
+                decksRemoveGraphic.setAlignment(Pos.CENTER_LEFT);
+                decksRemoveGraphic.setPadding(new Insets(2, 6, 2, 6));
+                decksRemoveItem.setGraphic(decksRemoveGraphic);
+                decksRemoveItem.setText("");
+                decksRemoveItem.setOnAction(ae -> {
+                    // TODO: implement remove card from Decks & Collections
+                });
+                decksContextMenu.getItems().add(decksRemoveItem);
+            }
+
+            // ── Context menu for Decks & Collections tab — ARCHETYPE cards ────
+            ContextMenu archetypeCardContextMenu = new ContextMenu();
+            archetypeCardContextMenu.setStyle(
+                    "-fx-background-color: #100317; -fx-background-radius: 6; " +
+                            "-fx-border-color: #3a3a3a; -fx-border-radius: 6; -fx-border-width: 1;"
+            );
+            {
+                // "Add to..." submenu (lazy-populated placeholder — actions implemented later)
+                Menu archetypeAddMenu = new Menu();
+                {
+                    Label al = new Label("Add to...");
+                    al.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+                    HBox ag = new HBox(al);
+                    ag.setAlignment(Pos.CENTER_LEFT);
+                    ag.setPadding(new Insets(2, 6, 2, 6));
+                    archetypeAddMenu.setGraphic(ag);
+                    archetypeAddMenu.setText("");
+                    MenuItem aPlaceholder = new MenuItem("(coming soon)");
+                    aPlaceholder.setDisable(true);
+                    archetypeAddMenu.getItems().add(aPlaceholder);
+                }
+                archetypeCardContextMenu.getItems().add(archetypeAddMenu);
+            }
+
             // Attach the context menu to the wrapper so right-click shows it
             wrapper.setOnContextMenuRequested(e -> {
-                // Only show in My Collection tab (existing behavior)
                 if (isMyCollectionTabSelected()) {
+                    // Existing My Collection menu (Sort card + Move to + Remove with trash)
                     contextMenu.show(wrapper, e.getScreenX(), e.getScreenY());
+
+                } else if (isDecksAndCollectionsTabSelected()) {
+                    // Determine whether this card lives in an archetype group
+                    if (isInArchetypeGroup()) {
+                        archetypeCardContextMenu.show(wrapper, e.getScreenX(), e.getScreenY());
+                    } else {
+                        decksContextMenu.show(wrapper, e.getScreenX(), e.getScreenY());
+                    }
                 }
                 e.consume();
             });

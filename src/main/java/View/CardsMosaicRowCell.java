@@ -5,9 +5,9 @@ import Controller.SelectionManager;
 import Model.CardsLists.Card;
 import Utils.LruImageCache;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.SnapshotParameters;
-import javafx.scene.control.ListCell;
-import javafx.scene.control.ListView;
+import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.image.WritableImage;
@@ -55,6 +55,76 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
         // Overridden to prevent the default ListCell selection visuals.
     }
 
+    /**
+     * Attaches an "Add to..." right-click context menu to the given ImageView.
+     * The menu is tied to {@code card} so each image in the row gets its own
+     * independent menu instance pointing to the correct card.
+     *
+     * @param wrapper
+     * @param card    the Card that this image represents
+     */
+    private static void attachAddToContextMenu(StackPane wrapper, Model.CardsLists.Card card) {
+        if (wrapper == null || card == null) return;
+
+        ContextMenu cm = new ContextMenu();
+        cm.setStyle(
+                "-fx-background-color: #100317; " +
+                        "-fx-background-radius: 6; " +
+                        "-fx-border-color: #3a3a3a; " +
+                        "-fx-border-radius: 6; " +
+                        "-fx-border-width: 1;"
+        );
+
+        MenuItem addToItem = new MenuItem();
+        Label addToLabel = new Label("Add to...");
+        addToLabel.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        HBox graphic = new HBox(addToLabel);
+        graphic.setAlignment(Pos.CENTER_LEFT);
+        graphic.setPadding(new Insets(2, 6, 2, 6));
+        addToItem.setGraphic(graphic);
+        addToItem.setText("");
+        // TODO: implement Add to... action
+        addToItem.setOnAction(e -> { /* TODO */ });
+
+        cm.getItems().add(addToItem);
+        cm.show(wrapper, javafx.geometry.Side.BOTTOM, 0, 0);
+    }
+
+    private String getImagePath(Card card) {
+        if (card == null || card.getImagePath() == null)
+            return "file:./src/main/resources/placeholder.jpg";
+        String imageKey = card.getImagePath();
+        String[] addresses = Model.Database.DataBaseUpdate.getAddresses(imageKey + ".jpg");
+        if (addresses != null && addresses.length > 0) {
+            return "file:" + addresses[0];
+        }
+        return "file:./src/main/resources/placeholder.jpg";
+    }
+
+    private static ContextMenu buildAddToContextMenu(Model.CardsLists.Card card) {
+        ContextMenu cm = new ContextMenu();
+        cm.setStyle(
+                "-fx-background-color: #100317; " +
+                        "-fx-background-radius: 6; " +
+                        "-fx-border-color: #3a3a3a; " +
+                        "-fx-border-radius: 6; " +
+                        "-fx-border-width: 1;"
+        );
+
+        MenuItem addToItem = new MenuItem();
+        Label addToLabel = new Label("Add to...");
+        addToLabel.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        HBox graphic = new HBox(addToLabel);
+        graphic.setAlignment(Pos.CENTER_LEFT);
+        graphic.setPadding(new Insets(2, 6, 2, 6));
+        addToItem.setGraphic(graphic);
+        addToItem.setText("");
+        addToItem.setOnAction(e -> { /* TODO: implement Add to... for: card */ });
+
+        cm.getItems().add(addToItem);
+        return cm;
+    }
+
     @Override
     protected void updateItem(List<Card> row, boolean empty) {
         super.updateItem(row, empty);
@@ -90,9 +160,16 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
                     wrapper.setStyle("");
                 }
 
+                // Build the menu once for this card/wrapper — outside setOnMousePressed
+                ContextMenu cardContextMenu = buildAddToContextMenu(card);
+
                 // Click handler for selection. Always passes "RIGHT".
                 wrapper.setOnMouseClicked(event -> {
-                    event.consume();  // prevent propagation to ListView
+                    if (event.getButton() == javafx.scene.input.MouseButton.SECONDARY) {
+                        event.consume();
+                        return;
+                    }
+                    event.consume();
                     if (card == null) return;
                     String currentPart = "RIGHT";
                     if (event.isControlDown()) {
@@ -145,20 +222,28 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
                     event.consume();
                 });
 
+                wrapper.setOnMousePressed(event -> {
+                    if (event.isSecondaryButtonDown()) {
+                        cardContextMenu.show(wrapper, event.getScreenX(), event.getScreenY());
+                        event.consume();
+                        return;
+                    }
+                });
+
+                wrapper.setOnMouseReleased(event -> {
+                    if (event.getButton() == javafx.scene.input.MouseButton.SECONDARY) {
+                        event.consume();
+                    }
+                });
+
+                wrapper.setOnContextMenuRequested(event -> {
+                    cardContextMenu.show(wrapper, event.getScreenX(), event.getScreenY());
+                    event.consume();
+                });
+
                 hbox.getChildren().add(wrapper);
             }
             setGraphic(hbox);
         }
-    }
-
-    private String getImagePath(Card card) {
-        if (card == null || card.getImagePath() == null)
-            return "file:./src/main/resources/placeholder.jpg";
-        String imageKey = card.getImagePath();
-        String[] addresses = Model.Database.DataBaseUpdate.getAddresses(imageKey + ".jpg");
-        if (addresses != null && addresses.length > 0) {
-            return "file:" + addresses[0];
-        }
-        return "file:./src/main/resources/placeholder.jpg";
     }
 }

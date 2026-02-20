@@ -287,7 +287,7 @@ public class SharedCollectionTab extends HBox {
                 HBox groupRow6 = new HBox(5);
                 groupRow6.setAlignment(Pos.CENTER_LEFT);
 
-                compactDetailedButton = new Button("Compact OuicheList");
+                compactDetailedButton = new Button("Compact mode");
                 compactDetailedButton.getStyleClass().add("small-button");
 
                 mosaicListButton = new Button("Mosaic");
@@ -297,12 +297,12 @@ public class SharedCollectionTab extends HBox {
                 mosaicListButton.setManaged(false);
 
                 compactDetailedButton.setOnAction(e -> {
-                    if ("Compact OuicheList".equals(compactDetailedButton.getText())) {
-                        compactDetailedButton.setText("Detailed OuicheList");
+                    if ("Compact mode".equals(compactDetailedButton.getText())) {
+                        compactDetailedButton.setText("Detailed mode");
                         mosaicListButton.setVisible(true);
                         mosaicListButton.setManaged(true);
                     } else {
-                        compactDetailedButton.setText("Compact OuicheList");
+                        compactDetailedButton.setText("Compact mode");
                         mosaicListButton.setVisible(false);
                         mosaicListButton.setManaged(false);
                     }

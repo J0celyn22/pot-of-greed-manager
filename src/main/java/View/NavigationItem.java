@@ -59,6 +59,10 @@ public class NavigationItem extends VBox {
 
         // Label click navigates to the element
         label.setOnMouseClicked(event -> {
+            if (event.getButton() == javafx.scene.input.MouseButton.SECONDARY) {
+                event.consume();
+                return;
+            }
             if (onLabelClicked != null) {
                 onLabelClicked.handle(event);
             }
