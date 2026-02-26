@@ -2,16 +2,15 @@ package View;
 
 import Controller.DragDropManager;
 import Controller.SelectionManager;
+import Controller.UserInterfaceFunctions;
 import Model.CardsLists.Card;
+import Model.CardsLists.DecksAndCollectionsList;
 import Model.Database.DataBaseUpdate;
 import Utils.LruImageCache;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.SnapshotParameters;
-import javafx.scene.control.ContextMenu;
-import javafx.scene.control.Label;
-import javafx.scene.control.ListCell;
-import javafx.scene.control.MenuItem;
+import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.image.WritableImage;
@@ -25,6 +24,8 @@ import javafx.scene.paint.Color;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
+
 public class CardsListCell extends ListCell<Card> {
 
     private static final Logger logger = LoggerFactory.getLogger(CardsListCell.class);
@@ -32,9 +33,9 @@ public class CardsListCell extends ListCell<Card> {
     private double imageWidth;
     private double imageHeight;
 
-    // Context menu built once and reused across cell recycling.
-    // getItem() is called at show-time so it always reflects the current card.
-    private final ContextMenu addToContextMenu;
+    // One menu per tab type, built once per cell instance.
+    private final ContextMenu myCollectionContextMenu;
+    private final ContextMenu decksContextMenu;
 
     public CardsListCell(boolean printedMode, double imageWidth, double imageHeight) {
         this.printedMode = printedMode;
@@ -44,57 +45,284 @@ public class CardsListCell extends ListCell<Card> {
         setupDragAndDrop();
         setupSelectionHandler();
 
-        // Build the "Add to..." context menu ─────────────────────────────────
-        // The menu is attached to the *cell* so right-clicking anywhere on the
-        // row (image, text, or blank space) triggers it, which is the correct
-        // behaviour for list mode.
-        addToContextMenu = buildAddToContextMenu();
+        myCollectionContextMenu = buildMyCollectionContextMenu();
+        decksContextMenu = buildDecksContextMenu();
+
         this.setOnContextMenuRequested(event -> {
             Card card = getItem();
             if (card == null) {
                 event.consume();
                 return;
             }
-            addToContextMenu.show(this, event.getScreenX(), event.getScreenY());
+            String tab = getCurrentTabName();
+            if (tab.equalsIgnoreCase("My Collection")) {
+                myCollectionContextMenu.show(this, event.getScreenX(), event.getScreenY());
+            } else if (tab.equalsIgnoreCase("Decks and Collections")
+                    || tab.equalsIgnoreCase("Decks & Collections")) {
+                decksContextMenu.show(this, event.getScreenX(), event.getScreenY());
+            }
+            // Any other tab: consume without showing
             event.consume();
         });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Context menu builder
+    // Context menu — "Add to..." with lazy-populated submenu
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Creates the "Add to..." context menu used by the AllExistingCards list.
-     * Only one item is needed for now; the action is a stub to be wired later.
-     */
-    private static ContextMenu buildAddToContextMenu() {
-        ContextMenu cm = new ContextMenu();
-        cm.setStyle(
-                "-fx-background-color: #100317; " +
-                        "-fx-background-radius: 6; " +
-                        "-fx-border-color: #3a3a3a; " +
-                        "-fx-border-radius: 6; " +
-                        "-fx-border-width: 1;"
-        );
-
-        MenuItem addToItem = new MenuItem();
-        Label addToLabel = new Label("Add to...");
-        addToLabel.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
-        HBox graphic = new HBox(addToLabel);
-        graphic.setAlignment(Pos.CENTER_LEFT);
-        graphic.setPadding(new Insets(2, 6, 2, 6));
-        addToItem.setGraphic(graphic);
-        addToItem.setText("");
-        // TODO: implement Add to... action (populate submenu / dialog)
-        addToItem.setOnAction(e -> { /* TODO */ });
-
-        cm.getItems().add(addToItem);
+    // ── My Collection tab: "Add to..." → Boxes and Categories ────────────────
+    private static ContextMenu buildMyCollectionContextMenu() {
+        ContextMenu cm = styledContextMenu();
+        Menu addToMenu = makeMenuHeader("Add to...");
+        addToMenu.getItems().add(loadingPlaceholder());
+        addToMenu.setOnShowing(evt -> {
+            addToMenu.getItems().clear();
+            List<MenuItem> items = buildMyCollectionDestinationItems();
+            if (items.isEmpty()) {
+                MenuItem none = new MenuItem("No destinations available");
+                none.setDisable(true);
+                addToMenu.getItems().add(none);
+            } else {
+                addToMenu.getItems().addAll(items);
+            }
+        });
+        cm.getItems().add(addToMenu);
         return cm;
     }
 
+    // ── Decks & Collections tab: "Add to..." → Collections / Decks ───────────
+    private static ContextMenu buildDecksContextMenu() {
+        ContextMenu cm = styledContextMenu();
+        Menu addToMenu = makeMenuHeader("Add to...");
+        addToMenu.getItems().add(loadingPlaceholder());
+        addToMenu.setOnShowing(evt -> {
+            addToMenu.getItems().clear();
+            List<MenuItem> items = buildAllDestinationItems();
+            if (items.isEmpty()) {
+                MenuItem none = new MenuItem("No destinations available");
+                none.setDisable(true);
+                addToMenu.getItems().add(none);
+            } else {
+                addToMenu.getItems().addAll(items);
+            }
+        });
+        cm.getItems().add(addToMenu);
+        return cm;
+    }
+
+    // ── Destination lists ─────────────────────────────────────────────────────
+
+    /**
+     * Lists every Box and Category in the owned collection (no exclusions).
+     */
+    private static List<MenuItem> buildMyCollectionDestinationItems() {
+        java.util.List<MenuItem> items = new java.util.ArrayList<>();
+        try {
+            Model.CardsLists.OwnedCardsCollection owned =
+                    Model.CardsLists.OuicheList.getMyCardsCollection();
+            if (owned == null) {
+                try {
+                    UserInterfaceFunctions.loadCollectionFile();
+                } catch (Exception ignored) {
+                }
+                owned = Model.CardsLists.OuicheList.getMyCardsCollection();
+            }
+            if (owned == null || owned.getOwnedCollection() == null) return items;
+
+            for (Model.CardsLists.Box box : owned.getOwnedCollection()) {
+                if (box == null) continue;
+                String boxName = sanitize(box.getName());
+                if (boxName.isEmpty()) boxName = "(Unnamed box)";
+                items.add(makeDestItem(boxName));
+
+                if (box.getContent() != null) {
+                    for (Model.CardsLists.CardsGroup g : box.getContent()) {
+                        if (g == null) continue;
+                        String groupName = sanitize(g.getName());
+                        if (groupName.isEmpty()) continue;
+                        items.add(makeDestItem(boxName + " / " + groupName));
+                    }
+                }
+                if (box.getSubBoxes() != null) {
+                    for (Model.CardsLists.Box sb : box.getSubBoxes()) {
+                        if (sb == null) continue;
+                        String subName = sanitize(sb.getName());
+                        if (subName.isEmpty()) subName = "(Unnamed sub-box)";
+                        items.add(makeDestItem(subName));
+                        if (sb.getContent() != null) {
+                            for (Model.CardsLists.CardsGroup g : sb.getContent()) {
+                                if (g == null) continue;
+                                String groupName = sanitize(g.getName());
+                                if (groupName.isEmpty()) continue;
+                                items.add(makeDestItem(subName + " / " + groupName));
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            logger.error("buildMyCollectionDestinationItems failed", ex);
+        }
+        return items;
+    }
+
+    // ── Small factories ───────────────────────────────────────────────────────
+
+    private static ContextMenu styledContextMenu() {
+        ContextMenu cm = new ContextMenu();
+        cm.setStyle("-fx-background-color: #100317; -fx-background-radius: 6; " +
+                "-fx-border-color: #3a3a3a; -fx-border-radius: 6; -fx-border-width: 1;");
+        return cm;
+    }
+
+    private static Menu makeMenuHeader(String text) {
+        Menu m = new Menu();
+        Label lbl = new Label(text);
+        lbl.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        HBox g = new HBox(lbl);
+        g.setAlignment(Pos.CENTER_LEFT);
+        g.setPadding(new Insets(2, 6, 2, 6));
+        m.setGraphic(g);
+        m.setText("");
+        return m;
+    }
+
+    private static MenuItem loadingPlaceholder() {
+        MenuItem ph = new MenuItem("Loading...");
+        ph.setDisable(true);
+        return ph;
+    }
+
+    /**
+     * Builds the flat list of all possible destinations in the current
+     * DecksAndCollectionsList (no exclusion — AllExistingCards cards have no
+     * "current location" in the editable structure).
+     * <p>
+     * Format:
+     * CollectionName
+     * CollectionName / DeckName / Main Deck
+     * CollectionName / DeckName / Extra Deck
+     * CollectionName / DeckName / Side Deck
+     * CollectionName / Exclusion List
+     * StandaloneDeckName / Main Deck
+     * StandaloneDeckName / Extra Deck
+     * StandaloneDeckName / Side Deck
+     */
+    private static List<MenuItem> buildAllDestinationItems() {
+        java.util.List<MenuItem> items = new java.util.ArrayList<>();
+        try {
+            DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
+            if (dac == null) {
+                try {
+                    UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+                } catch (Exception ignored) {
+                }
+                dac = UserInterfaceFunctions.getDecksList();
+            }
+            if (dac == null) return items;
+
+            if (dac.getCollections() != null) {
+                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                    if (tc == null) continue;
+                    String coll = sanitize(tc.getName());
+
+                    // Collection cards slot
+                    items.add(makeDestItem(coll));
+
+                    // Linked decks
+                    if (tc.getLinkedDecks() != null) {
+                        for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                            if (unit == null) continue;
+                            for (Model.CardsLists.Deck deck : unit) {
+                                if (deck == null) continue;
+                                String base = coll + " / " + sanitize(deck.getName());
+                                items.add(makeDestItem(base + " / Main Deck"));
+                                items.add(makeDestItem(base + " / Extra Deck"));
+                                items.add(makeDestItem(base + " / Side Deck"));
+                            }
+                        }
+                    }
+
+                    // Exclusion list
+                    items.add(makeDestItem(coll + " / Exclusion List"));
+                }
+            }
+
+            if (dac.getDecks() != null) {
+                for (Model.CardsLists.Deck deck : dac.getDecks()) {
+                    if (deck == null) continue;
+                    String d = sanitize(deck.getName());
+                    items.add(makeDestItem(d + " / Main Deck"));
+                    items.add(makeDestItem(d + " / Extra Deck"));
+                    items.add(makeDestItem(d + " / Side Deck"));
+                }
+            }
+        } catch (Exception ex) {
+            logger.error("buildAllDestinationItems failed", ex);
+        }
+        return items;
+    }
+
+    private static MenuItem makeDestItem(String path) {
+        MenuItem mi = new MenuItem();
+        Label lbl = new Label(path);
+        lbl.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        HBox g = new HBox(lbl);
+        g.setAlignment(Pos.CENTER_LEFT);
+        g.setPadding(new Insets(2, 6, 2, 6));
+        mi.setGraphic(g);
+        mi.setText("");
+        mi.setOnAction(e -> { /* TODO: implement Add to: path */ });
+        return mi;
+    }
+
+    private static String sanitize(String raw) {
+        if (raw == null) return "";
+        return raw.replaceAll("[=\\-]", "").trim();
+    }
+
+    private static javafx.scene.control.TabPane findTabPane(javafx.scene.Parent parent) {
+        if (parent == null) return null;
+        if (parent instanceof javafx.scene.control.TabPane)
+            return (javafx.scene.control.TabPane) parent;
+        for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
+            if (child instanceof javafx.scene.control.TabPane)
+                return (javafx.scene.control.TabPane) child;
+            if (child instanceof javafx.scene.Parent) {
+                javafx.scene.control.TabPane found = findTabPane((javafx.scene.Parent) child);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private String getCurrentTabName() {
+        try {
+            // First: walk up the ancestor chain (works when the list is inside the TabPane)
+            javafx.scene.Node node = getListView();
+            while (node != null && !(node instanceof javafx.scene.control.TabPane)) {
+                node = node.getParent();
+            }
+            if (node instanceof javafx.scene.control.TabPane) {
+                javafx.scene.control.Tab sel =
+                        ((javafx.scene.control.TabPane) node).getSelectionModel().getSelectedItem();
+                if (sel != null && sel.getText() != null) return sel.getText().trim();
+            }
+            // Fallback: search the whole scene graph (works when the list is a sibling of the TabPane)
+            if (getListView() != null && getListView().getScene() != null) {
+                javafx.scene.control.TabPane tp = findTabPane(getListView().getScene().getRoot());
+                if (tp != null) {
+                    javafx.scene.control.Tab sel = tp.getSelectionModel().getSelectedItem();
+                    if (sel != null && sel.getText() != null) return sel.getText().trim();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
-    // Existing methods — UNCHANGED below this line
+    // Existing methods — unchanged
     // ─────────────────────────────────────────────────────────────────────────
 
     private void setupDragAndDrop() {
@@ -137,6 +365,7 @@ public class CardsListCell extends ListCell<Card> {
 
     private void setupSelectionHandler() {
         this.setOnMouseClicked(event -> {
+            // Only handle left-clicks
             if (event.getButton() == javafx.scene.input.MouseButton.SECONDARY) {
                 event.consume();
                 return;

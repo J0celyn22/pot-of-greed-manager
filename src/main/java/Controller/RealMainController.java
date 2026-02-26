@@ -944,7 +944,7 @@ public class RealMainController {
 
                 // --- NEW: context menu for Box items ---
                 {
-                    ContextMenu boxCm = NavigationContextMenuBuilder.forMyCollectionBox(boxName);
+                    ContextMenu boxCm = NavigationContextMenuBuilder.forMyCollectionBox(box, collection);
                     boxItem.setOnContextMenuRequested(e -> {
                         boxCm.show(boxItem, e.getScreenX(), e.getScreenY());
                         e.consume(); // prevent event from reaching the menuVBox background handler
@@ -971,7 +971,7 @@ public class RealMainController {
 
                         // --- NEW: context menu for Category items ---
                         {
-                            ContextMenu groupCm = NavigationContextMenuBuilder.forMyCollectionCategory(groupName);
+                            ContextMenu groupCm = NavigationContextMenuBuilder.forMyCollectionCategory(group, box, collection);
                             groupItem.setOnContextMenuRequested(e -> {
                                 groupCm.show(groupItem, e.getScreenX(), e.getScreenY());
                                 e.consume();
@@ -1000,7 +1000,7 @@ public class RealMainController {
 
                         // Sub-boxes are treated like Boxes for the context menu
                         {
-                            ContextMenu subBoxCm = NavigationContextMenuBuilder.forMyCollectionBox(subBoxName);
+                            ContextMenu subBoxCm = NavigationContextMenuBuilder.forMyCollectionBox(subBox, collection);
                             subBoxItem.setOnContextMenuRequested(e -> {
                                 subBoxCm.show(subBoxItem, e.getScreenX(), e.getScreenY());
                                 e.consume();
@@ -1028,7 +1028,7 @@ public class RealMainController {
 
                                 // Sub-groups are treated like Categories for the context menu
                                 {
-                                    ContextMenu gCm = NavigationContextMenuBuilder.forMyCollectionCategory(gName);
+                                    ContextMenu gCm = NavigationContextMenuBuilder.forMyCollectionCategory(g, subBox, collection);
                                     gItem.setOnContextMenuRequested(e -> {
                                         gCm.show(gItem, e.getScreenX(), e.getScreenY());
                                         e.consume();
@@ -1877,7 +1877,7 @@ public class RealMainController {
 
                                 // --- NEW: context menu for Deck items (inside a Collection) ---
                                 {
-                                    ContextMenu deckCm = NavigationContextMenuBuilder.forDecksDeck(linkedDeck.getName());
+                                    ContextMenu deckCm = NavigationContextMenuBuilder.forDecksDeck(linkedDeck, decksCollection);
                                     deckSubItem.setOnContextMenuRequested(e -> {
                                         deckCm.show(deckSubItem, e.getScreenX(), e.getScreenY());
                                         e.consume();
@@ -1900,7 +1900,7 @@ public class RealMainController {
 
                     // --- NEW: context menu for standalone Deck items ---
                     {
-                        ContextMenu deckCm = NavigationContextMenuBuilder.forDecksDeck(deck.getName());
+                        ContextMenu deckCm = NavigationContextMenuBuilder.forDecksDeck(deck, decksCollection);
                         navItem.setOnContextMenuRequested(e -> {
                             deckCm.show(navItem, e.getScreenX(), e.getScreenY());
                             e.consume();

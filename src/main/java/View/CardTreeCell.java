@@ -418,7 +418,6 @@ public class CardTreeCell extends TreeCell<String> {
                 Tab sel = tp.getSelectionModel().getSelectedItem();
                 if (sel != null) {
                     String t = sel.getText();
-                    // Match the tab text used in the FXML / initialize() — index 1
                     return t != null && (
                             t.trim().equalsIgnoreCase("Decks and Collections") ||
                                     t.trim().equalsIgnoreCase("Decks & Collections")
@@ -442,8 +441,8 @@ public class CardTreeCell extends TreeCell<String> {
             // We access cardGridView which is a field of the outer CardTreeCell.
             if (cardGridView == null) return false;
             Object ud = cardGridView.getUserData();
-            if (ud instanceof java.util.Map) {
-                Object ia = ((java.util.Map<?, ?>) ud).get("isArchetype");
+            if (ud instanceof Map) {
+                Object ia = ((Map<?, ?>) ud).get("isArchetype");
                 return ia instanceof Boolean && (Boolean) ia;
             }
         } catch (Exception ignored) {
@@ -1792,9 +1791,21 @@ public class CardTreeCell extends TreeCell<String> {
                     mg.setPadding(new Insets(2, 6, 2, 6));
                     decksMoveMenu.setGraphic(mg);
                     decksMoveMenu.setText("");
-                    MenuItem placeholder = new MenuItem("(coming soon)");
+                    MenuItem placeholder = new MenuItem("Loading...");
                     placeholder.setDisable(true);
                     decksMoveMenu.getItems().add(placeholder);
+                    decksMoveMenu.setOnShowing(evt -> {
+                        decksMoveMenu.getItems().clear();
+                        String currentPath = findCurrentLocationPath();
+                        List<MenuItem> items = buildDestinationMenuItems(currentPath);
+                        if (items.isEmpty()) {
+                            MenuItem none = new MenuItem("No destinations available");
+                            none.setDisable(true);
+                            decksMoveMenu.getItems().add(none);
+                        } else {
+                            decksMoveMenu.getItems().addAll(items);
+                        }
+                    });
                 }
                 decksContextMenu.getItems().add(decksMoveMenu);
                 decksContextMenu.getItems().add(new SeparatorMenuItem());
@@ -1833,9 +1844,21 @@ public class CardTreeCell extends TreeCell<String> {
                     ag.setPadding(new Insets(2, 6, 2, 6));
                     archetypeAddMenu.setGraphic(ag);
                     archetypeAddMenu.setText("");
-                    MenuItem aPlaceholder = new MenuItem("(coming soon)");
+                    MenuItem aPlaceholder = new MenuItem("Loading...");
                     aPlaceholder.setDisable(true);
                     archetypeAddMenu.getItems().add(aPlaceholder);
+                    archetypeAddMenu.setOnShowing(evt -> {
+                        archetypeAddMenu.getItems().clear();
+                        // null = no exclusion: archetype cards have no editable location
+                        List<MenuItem> items = buildDestinationMenuItems(null);
+                        if (items.isEmpty()) {
+                            MenuItem none = new MenuItem("No destinations available");
+                            none.setDisable(true);
+                            archetypeAddMenu.getItems().add(none);
+                        } else {
+                            archetypeAddMenu.getItems().addAll(items);
+                        }
+                    });
                 }
                 archetypeCardContextMenu.getItems().add(archetypeAddMenu);
             }
@@ -1856,6 +1879,7 @@ public class CardTreeCell extends TreeCell<String> {
                 }
                 e.consume();
             });
+
         }
 
         // Helper: remove the given CardElement from the owned collection and refresh UI.
@@ -2147,6 +2171,107 @@ public class CardTreeCell extends TreeCell<String> {
 
             // Finalize graphic
             setGraphic(wrapper);
+        }
+
+        private String findCurrentLocationPath() {
+            try {
+                TreeItem<String> item = CardTreeCell.this.getTreeItem();
+                if (item == null) return null;
+                String groupName = item.getValue();
+                TreeItem<String> parent = item.getParent();
+                if (parent == null) return groupName;
+                Object parentData = (parent instanceof DataTreeItem)
+                        ? ((DataTreeItem<?>) parent).getData() : null;
+
+                // Direct child of a ThemeCollection (e.g. "Cards" or "Cards not to add")
+                if (parentData instanceof ThemeCollection) {
+                    String collName = sanitizeDisplayName(((ThemeCollection) parentData).getName());
+                    if ("Cards not to add".equals(groupName)) return collName + " / Exclusion List";
+                    return collName;
+                }
+
+                // Child of a Deck (Main/Extra/Side Deck group)
+                if (parentData instanceof Deck) {
+                    String deckName = sanitizeDisplayName(((Deck) parentData).getName());
+                    TreeItem<String> sectionItem = parent.getParent(); // DECKS_SECTION
+                    if (sectionItem != null) {
+                        TreeItem<String> collOrRoot = sectionItem.getParent();
+                        if (collOrRoot != null) {
+                            Object collData = (collOrRoot instanceof DataTreeItem)
+                                    ? ((DataTreeItem<?>) collOrRoot).getData() : null;
+                            if (collData instanceof ThemeCollection) {
+                                String collName = sanitizeDisplayName(((ThemeCollection) collData).getName());
+                                return collName + " / " + deckName + " / " + groupName;
+                            }
+                        }
+                    }
+                    return deckName + " / " + groupName;
+                }
+            } catch (Exception ignored) {
+            }
+            return null;
+        }
+
+        private List<MenuItem> buildDestinationMenuItems(String excludePath) {
+            List<MenuItem> items = new ArrayList<>();
+            try {
+                DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
+                if (dac == null) {
+                    try {
+                        UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+                    } catch (Exception ignored) {
+                    }
+                    dac = UserInterfaceFunctions.getDecksList();
+                }
+                if (dac == null) return items;
+
+                if (dac.getCollections() != null) {
+                    for (ThemeCollection tc : dac.getCollections()) {
+                        if (tc == null) continue;
+                        String coll = sanitizeDisplayName(tc.getName());
+                        addDestItem(items, coll, excludePath);
+                        if (tc.getLinkedDecks() != null) {
+                            for (List<Deck> unit : tc.getLinkedDecks()) {
+                                if (unit == null) continue;
+                                for (Deck deck : unit) {
+                                    if (deck == null) continue;
+                                    String base = coll + " / " + sanitizeDisplayName(deck.getName());
+                                    addDestItem(items, base + " / Main Deck", excludePath);
+                                    addDestItem(items, base + " / Extra Deck", excludePath);
+                                    addDestItem(items, base + " / Side Deck", excludePath);
+                                }
+                            }
+                        }
+                        addDestItem(items, coll + " / Exclusion List", excludePath);
+                    }
+                }
+                if (dac.getDecks() != null) {
+                    for (Deck deck : dac.getDecks()) {
+                        if (deck == null) continue;
+                        String d = sanitizeDisplayName(deck.getName());
+                        addDestItem(items, d + " / Main Deck", excludePath);
+                        addDestItem(items, d + " / Extra Deck", excludePath);
+                        addDestItem(items, d + " / Side Deck", excludePath);
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("buildDestinationMenuItems failed", ex);
+            }
+            return items;
+        }
+
+        private void addDestItem(List<MenuItem> items, String path, String excludePath) {
+            if (path == null || path.equals(excludePath)) return;
+            MenuItem mi = new MenuItem();
+            Label lbl = new Label(path);
+            lbl.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+            HBox g = new HBox(lbl);
+            g.setAlignment(Pos.CENTER_LEFT);
+            g.setPadding(new Insets(2, 6, 2, 6));
+            mi.setGraphic(g);
+            mi.setText("");
+            mi.setOnAction(e -> { /* TODO: implement move/add to: path */ });
+            items.add(mi);
         }
     }
 
