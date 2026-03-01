@@ -647,7 +647,7 @@ public class CardTreeCell extends TreeCell<String> {
         GridView<CardElement> grid = new GridView<>();
         grid.getStyleClass().add("card-grid-view");
         grid.setCellFactory(gridView -> new CardGridCell());
-        grid.setItems(FXCollections.observableArrayList(group.getCardList() == null ? Collections.emptyList() : group.getCardList()));
+        grid.setItems(FXCollections.observableList(group.getCardList() == null ? FXCollections.observableArrayList() : group.getCardList()));
         grid.cellWidthProperty().bind(cardWidthProperty);
         grid.cellHeightProperty().bind(cardHeightProperty);
         grid.setHorizontalCellSpacing(5);
@@ -1822,7 +1822,9 @@ public class CardTreeCell extends TreeCell<String> {
                 decksRemoveItem.setGraphic(decksRemoveGraphic);
                 decksRemoveItem.setText("");
                 decksRemoveItem.setOnAction(ae -> {
-                    // TODO: implement remove card from Decks & Collections
+                    CardElement ce = getItem();
+                    if (ce == null) return;
+                    removeCardElementFromDecksList(ce);
                 });
                 decksContextMenu.getItems().add(decksRemoveItem);
             }
@@ -2273,6 +2275,21 @@ public class CardTreeCell extends TreeCell<String> {
             mi.setOnAction(e -> { /* TODO: implement move/add to: path */ });
             items.add(mi);
         }
-    }
 
+        private void removeCardElementFromDecksList(CardElement ce) {
+            if (ce == null) return;
+            try {
+                if (getGridView() == null || getGridView().getItems() == null) return;
+                Iterator<CardElement> it = getGridView().getItems().iterator();
+                while (it.hasNext()) {
+                    if (it.next() == ce) {
+                        it.remove(); // fires ObservableList change event → GridView updates immediately
+                        return;
+                    }
+                }
+            } catch (Throwable t) {
+                logger.debug("removeCardElementFromDecksList failed", t);
+            }
+        }
+    }
 }

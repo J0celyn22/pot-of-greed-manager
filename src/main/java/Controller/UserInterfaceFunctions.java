@@ -624,6 +624,31 @@ public class UserInterfaceFunctions {
         if (refresher != null) explicitRefreshers.addIfAbsent(refresher);
     }
 
+    // ── Decks and Collections refreshers (mirrors the owned-collection pattern) ──
+    private static final CopyOnWriteArrayList<Runnable> explicitDecksRefreshers = new CopyOnWriteArrayList<>();
+
+    public static void registerDecksCollectionsRefresher(Runnable refresher) {
+        if (refresher != null) explicitDecksRefreshers.addIfAbsent(refresher);
+    }
+
+    public static void refreshDecksAndCollectionsView() {
+        if (Platform.isFxApplicationThread()) {
+            doRefreshDecksAndCollectionsView();
+        } else {
+            Platform.runLater(UserInterfaceFunctions::doRefreshDecksAndCollectionsView);
+        }
+    }
+
+    private static void doRefreshDecksAndCollectionsView() {
+        for (Runnable r : explicitDecksRefreshers) {
+            try {
+                r.run();
+            } catch (Throwable t) {
+                logger.debug("refreshDecksAndCollectionsView: refresher threw", t);
+            }
+        }
+    }
+
     /**
      * Unregister a previously registered refresher.
      */

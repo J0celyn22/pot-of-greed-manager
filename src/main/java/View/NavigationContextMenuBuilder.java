@@ -6,6 +6,7 @@ import javafx.scene.control.*;
 import javafx.scene.layout.HBox;
 
 import java.util.List;
+import java.util.Optional;
 
 public final class NavigationContextMenuBuilder {
 
@@ -15,32 +16,21 @@ public final class NavigationContextMenuBuilder {
     // My Collection tab
     // =========================================================================
 
-    /**
-     * Context menu for a Box in My Collection.
-     * "Move to..." lists all other boxes (by instance); if the box is currently
-     * a sub-box of another box, "No Box" is appended to allow promoting it.
-     *
-     * Signature changed: now takes the actual Box instance and the full collection
-     * so identity comparisons and sub-box detection work correctly.
-     */
     public static ContextMenu forMyCollectionBox(
             Model.CardsLists.Box box,
             Model.CardsLists.OwnedCardsCollection owned) {
 
         ContextMenu cm = styledContextMenu();
 
-        // ── "Move to..." submenu ──────────────────────────────────────────────
         Menu moveMenu = makeLazyMenu("Move to...");
         moveMenu.setOnShowing(evt -> {
             moveMenu.getItems().clear();
 
             if (owned == null || owned.getOwnedCollection() == null) {
-                MenuItem none = disabledItem("No destinations available");
-                moveMenu.getItems().add(none);
+                moveMenu.getItems().add(disabledItem("No destinations available"));
                 return;
             }
 
-            // Detect whether this box is currently a sub-box of another
             boolean isSubBox = false;
             for (Model.CardsLists.Box parent : owned.getOwnedCollection()) {
                 if (parent == null || parent.getSubBoxes() == null) continue;
@@ -53,7 +43,6 @@ public final class NavigationContextMenuBuilder {
                 if (isSubBox) break;
             }
 
-            // One entry per other top-level box
             for (Model.CardsLists.Box other : owned.getOwnedCollection()) {
                 if (other == null || other == box) continue;
                 String name = sanitize(other.getName());
@@ -61,7 +50,6 @@ public final class NavigationContextMenuBuilder {
                 moveMenu.getItems().add(makeItem(name));
             }
 
-            // "No Box" — only shown when the clicked box is currently nested
             if (isSubBox) {
                 moveMenu.getItems().add(new SeparatorMenuItem());
                 moveMenu.getItems().add(makeItem("No Box"));
@@ -72,25 +60,35 @@ public final class NavigationContextMenuBuilder {
             }
         });
 
+        Runnable removeAction = () -> {
+            if (!isBoxEmpty(box) && !confirmRemoval("Box")) return;
+            if (owned != null && owned.getOwnedCollection() != null) {
+                if (owned.getOwnedCollection().remove(box)) {
+                    refreshOwnedCollectionView();
+                    return;
+                }
+                // Box might be a sub-box
+                for (Model.CardsLists.Box parent : owned.getOwnedCollection()) {
+                    if (parent == null || parent.getSubBoxes() == null) continue;
+                    if (parent.getSubBoxes().remove(box)) {
+                        refreshOwnedCollectionView();
+                        return;
+                    }
+                }
+            }
+        };
+
         cm.getItems().addAll(
                 moveMenu,
                 makeItem("Add Box"),
                 makeItem("Add Category"),
                 makeItem("Rename"),
                 new SeparatorMenuItem(),
-                makeRemoveItem()
+                makeRemoveItem(removeAction)
         );
         return cm;
     }
 
-    /**
-     * Context menu for a Category (CardsGroup) in My Collection.
-     * "Move to..." lists every Box and every Category in the collection,
-     * excluding the current category and the box it belongs to.
-     *
-     * Signature changed: takes the actual CardsGroup, its direct parent Box,
-     * and the full collection.
-     */
     public static ContextMenu forMyCollectionCategory(
             Model.CardsLists.CardsGroup category,
             Model.CardsLists.Box parentBox,
@@ -98,7 +96,6 @@ public final class NavigationContextMenuBuilder {
 
         ContextMenu cm = styledContextMenu();
 
-        // ── "Move to..." submenu ──────────────────────────────────────────────
         Menu moveMenu = makeLazyMenu("Move to...");
         moveMenu.setOnShowing(evt -> {
             moveMenu.getItems().clear();
@@ -113,13 +110,10 @@ public final class NavigationContextMenuBuilder {
                 String boxName = sanitize(box.getName());
                 if (boxName.isEmpty()) boxName = "(Unnamed box)";
 
-                // Skip the direct parent box (can't move category into the same box)
                 if (box == parentBox) continue;
 
-                // Add the box itself as a destination
                 moveMenu.getItems().add(makeItem(boxName));
 
-                // Add each category inside this box (skip the category being moved)
                 if (box.getContent() != null) {
                     for (Model.CardsLists.CardsGroup g : box.getContent()) {
                         if (g == null || g == category) continue;
@@ -129,7 +123,6 @@ public final class NavigationContextMenuBuilder {
                     }
                 }
 
-                // Sub-boxes and their categories
                 if (box.getSubBoxes() != null) {
                     for (Model.CardsLists.Box sb : box.getSubBoxes()) {
                         if (sb == null) continue;
@@ -153,19 +146,24 @@ public final class NavigationContextMenuBuilder {
             }
         });
 
+        Runnable removeAction = () -> {
+            if (!isCategoryEmpty(category) && !confirmRemoval("Category")) return;
+            if (parentBox != null && parentBox.getContent() != null) {
+                parentBox.getContent().remove(category);
+                refreshOwnedCollectionView();
+            }
+        };
+
         cm.getItems().addAll(
                 moveMenu,
                 makeItem("Add Category"),
                 makeItem("Rename"),
                 new SeparatorMenuItem(),
-                makeRemoveItem()
+                makeRemoveItem(removeAction)
         );
         return cm;
     }
 
-    /**
-     * Context menu shown when right-clicking an empty area in My Collection.
-     */
     public static ContextMenu forMyCollectionEmpty() {
         ContextMenu cm = styledContextMenu();
         cm.getItems().add(makeItem("Add Box"));
@@ -177,37 +175,41 @@ public final class NavigationContextMenuBuilder {
     // =========================================================================
 
     /**
-     * Context menu for a Collection in Decks and Collections.
      * Collections cannot be moved, so there is no "Move to..." entry.
+     * Signature updated: now takes the actual ThemeCollection and DAC
+     * so the Remove button can work.
      */
-    public static ContextMenu forDecksCollection(String collectionName) {
+    public static ContextMenu forDecksCollection(
+            Model.CardsLists.ThemeCollection collection,
+            Model.CardsLists.DecksAndCollectionsList dac) {
+
         ContextMenu cm = styledContextMenu();
+
+        Runnable removeAction = () -> {
+            if (!isCollectionEmpty(collection) && !confirmRemoval("Collection")) return;
+            if (dac != null && dac.getCollections() != null) {
+                dac.getCollections().remove(collection);
+                refreshDecksAndCollectionsView();
+            }
+        };
+
         cm.getItems().addAll(
                 makeItem("Add Collection"),
                 makeItem("Add Deck"),
                 makeItem("Add archetype"),
                 makeItem("Rename"),
                 new SeparatorMenuItem(),
-                makeRemoveItem()
+                makeRemoveItem(removeAction)
         );
         return cm;
     }
 
-    /**
-     * Context menu for a Deck in Decks and Collections.
-     * "Move to..." lists every collection with numbered deck groups plus
-     * a "New Deck group" entry for each collection.
-     *
-     * Signature changed: takes the actual Deck instance and the full
-     * DecksAndCollectionsList so the submenu can be built accurately.
-     */
     public static ContextMenu forDecksDeck(
             Model.CardsLists.Deck deck,
             Model.CardsLists.DecksAndCollectionsList dac) {
 
         ContextMenu cm = styledContextMenu();
 
-        // ── "Move to..." submenu ──────────────────────────────────────────────
         Menu moveMenu = makeLazyMenu("Move to...");
         moveMenu.setOnShowing(evt -> {
             moveMenu.getItems().clear();
@@ -217,19 +219,16 @@ public final class NavigationContextMenuBuilder {
                 return;
             }
 
-            // Detect whether this deck currently belongs to a collection
             boolean isInCollection = false;
-            if (dac.getCollections() != null) {
-                outer:
-                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
-                    if (tc == null || tc.getLinkedDecks() == null) continue;
-                    for (List<Model.CardsLists.Deck> group : tc.getLinkedDecks()) {
-                        if (group == null) continue;
-                        for (Model.CardsLists.Deck d : group) {
-                            if (d == deck) {
-                                isInCollection = true;
-                                break outer;
-                            }
+            outer:
+            for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                if (tc == null || tc.getLinkedDecks() == null) continue;
+                for (List<Model.CardsLists.Deck> group : tc.getLinkedDecks()) {
+                    if (group == null) continue;
+                    for (Model.CardsLists.Deck d : group) {
+                        if (d == deck) {
+                            isInCollection = true;
+                            break outer;
                         }
                     }
                 }
@@ -243,16 +242,12 @@ public final class NavigationContextMenuBuilder {
                 List<List<Model.CardsLists.Deck>> groups = tc.getLinkedDecks();
                 int groupCount = (groups == null) ? 0 : groups.size();
 
-                // One entry per existing deck group
                 for (int i = 1; i <= groupCount; i++) {
                     moveMenu.getItems().add(makeItem(collName + " / Deck group " + i));
                 }
-
-                // Always offer a "New Deck group" entry
                 moveMenu.getItems().add(makeItem(collName + " / New Deck group"));
             }
 
-            // "No Collection" — only shown when the deck is currently inside a collection
             if (isInCollection) {
                 moveMenu.getItems().add(new SeparatorMenuItem());
                 moveMenu.getItems().add(makeItem("No Collection"));
@@ -263,20 +258,40 @@ public final class NavigationContextMenuBuilder {
             }
         });
 
+        Runnable removeAction = () -> {
+            if (!isDeckEmpty(deck) && !confirmRemoval("Deck")) return;
+            // Remove from standalone decks list
+            if (dac.getDecks() != null && dac.getDecks().remove(deck)) {
+                refreshDecksAndCollectionsView();
+                return;
+            }
+            // Remove from a collection's deck group
+            if (dac.getCollections() != null) {
+                outer:
+                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                    if (tc == null || tc.getLinkedDecks() == null) continue;
+                    for (List<Model.CardsLists.Deck> group : tc.getLinkedDecks()) {
+                        if (group == null) continue;
+                        if (group.remove(deck)) {
+                            refreshDecksAndCollectionsView();
+                            break outer;
+                        }
+                    }
+                }
+            }
+        };
+
         cm.getItems().addAll(
                 moveMenu,
                 makeItem("Add Collection"),
                 makeItem("Add Deck"),
                 makeItem("Rename"),
                 new SeparatorMenuItem(),
-                makeRemoveItem()
+                makeRemoveItem(removeAction)
         );
         return cm;
     }
 
-    /**
-     * Context menu shown when right-clicking an empty area in Decks and Collections.
-     */
     public static ContextMenu forDecksEmpty() {
         ContextMenu cm = styledContextMenu();
         cm.getItems().addAll(
@@ -287,7 +302,7 @@ public final class NavigationContextMenuBuilder {
     }
 
     // =========================================================================
-    // Helpers
+    // Public helpers (used by CardTreeCell)
     // =========================================================================
 
     public static MenuItem makeItem(String text) {
@@ -303,7 +318,17 @@ public final class NavigationContextMenuBuilder {
         return mi;
     }
 
+    /**
+     * Remove item with no action (stub).
+     */
     public static MenuItem makeRemoveItem() {
+        return makeRemoveItem(null);
+    }
+
+    /**
+     * Remove item wired to the given action.
+     */
+    public static MenuItem makeRemoveItem(Runnable action) {
         MenuItem mi = new MenuItem();
         Label trashIcon = new Label("\uD83D\uDDD1");
         trashIcon.setStyle("-fx-text-fill: #ff4d4d; -fx-font-size: 13;");
@@ -314,7 +339,8 @@ public final class NavigationContextMenuBuilder {
         graphic.setPadding(new Insets(2, 6, 2, 6));
         mi.setGraphic(graphic);
         mi.setText("");
-        mi.setOnAction(e -> { /* TODO: implement remove action */ });
+        mi.setOnAction(e -> {
+            if (action != null) action.run(); });
         return mi;
     }
 
@@ -324,15 +350,16 @@ public final class NavigationContextMenuBuilder {
                 "-fx-background-color: #100317; " +
                         "-fx-background-radius: 6; " +
                         "-fx-border-color: #3a3a3a; " +
-                        "-fx-border-radius: 6; " +
+                        "-fx-border-radius: 6; "            +
                         "-fx-border-width: 1;"
         );
         return cm;
     }
 
-    /**
-     * A Menu whose header label is white, styled like the other menus.
-     */
+    // =========================================================================
+    // Private helpers
+    // =========================================================================
+
     private static Menu makeLazyMenu(String text) {
         Menu m = new Menu();
         Label lbl = new Label(text);
@@ -342,7 +369,6 @@ public final class NavigationContextMenuBuilder {
         g.setPadding(new Insets(2, 6, 2, 6));
         m.setGraphic(g);
         m.setText("");
-        // Placeholder so JavaFX renders the arrow before first hover
         MenuItem ph = new MenuItem("Loading...");
         ph.setDisable(true);
         m.getItems().add(ph);
@@ -358,5 +384,154 @@ public final class NavigationContextMenuBuilder {
     private static String sanitize(String raw) {
         if (raw == null) return "";
         return raw.replaceAll("[=\\-]", "").trim();
+    }
+
+    // ── Emptiness checks ─────────────────────────────────────────────────────
+
+    private static boolean isBoxEmpty(Model.CardsLists.Box box) {
+        if (box == null) return true;
+        if (box.getSubBoxes() != null && !box.getSubBoxes().isEmpty()) return false;
+        if (box.getContent() != null) {
+            for (Model.CardsLists.CardsGroup g : box.getContent()) {
+                if (g == null) continue;
+                if (g.getCardList() != null && !g.getCardList().isEmpty()) return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isCategoryEmpty(Model.CardsLists.CardsGroup category) {
+        if (category == null) return true;
+        return category.getCardList() == null || category.getCardList().isEmpty();
+    }
+
+    private static boolean isCollectionEmpty(Model.CardsLists.ThemeCollection tc) {
+        if (tc == null) return true;
+        // Check the collection's own card list
+        try {
+            java.util.List<?> list = tc.toList();
+            if (list != null && !list.isEmpty()) return false;
+        } catch (Exception ignored) {
+        }
+        // Check linked decks
+        if (tc.getLinkedDecks() != null) {
+            for (List<Model.CardsLists.Deck> group : tc.getLinkedDecks()) {
+                if (group != null && !group.isEmpty()) return false;
+            }
+        }
+        // Check archetypes via reflection (method name may vary)
+        try {
+            java.lang.reflect.Method m = tc.getClass().getMethod("getArchetypes");
+            Object result = m.invoke(tc);
+            if (result instanceof java.util.Collection && !((java.util.Collection<?>) result).isEmpty())
+                return false;
+        } catch (Exception ignored) {
+        }
+        return true;
+    }
+
+    private static boolean isDeckEmpty(Model.CardsLists.Deck deck) {
+        if (deck == null) return true;
+        if (deck.getMainDeck() != null && !deck.getMainDeck().isEmpty()) return false;
+        if (deck.getExtraDeck() != null && !deck.getExtraDeck().isEmpty()) return false;
+        if (deck.getSideDeck() != null && !deck.getSideDeck().isEmpty()) return false;
+        return true;
+    }
+
+    // ── Confirmation dialog ───────────────────────────────────────────────────
+
+    private static boolean confirmRemoval(String elementType) {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Confirm Removal");
+        alert.setHeaderText(null);
+        alert.setContentText("Do you really want to remove this " + elementType + "?");
+
+        ButtonType yes = new ButtonType("Yes");
+        ButtonType no = new ButtonType("No", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(yes, no);
+
+        javafx.scene.control.DialogPane dp = alert.getDialogPane();
+
+        // ── Dialog pane background and border ───────────────────────────────
+        dp.setStyle(
+                "-fx-background-color: #100317;" +
+                        "-fx-border-color: #cdfc04;" +
+                        "-fx-border-width: 1.5;" +
+                        "-fx-border-radius: 8;" +
+                        "-fx-background-radius: 8;"
+        );
+
+        // ── Content text ─────────────────────────────────────────────────────
+        dp.setContentText("Do you really want to remove this " + elementType + "?");
+        javafx.scene.Node contentLabel = dp.lookup(".content.label");
+        if (contentLabel instanceof javafx.scene.control.Label lbl) {
+            lbl.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 13px;");
+        }
+
+        // ── Button bar: center the buttons ───────────────────────────────────
+        javafx.scene.Node barNode = dp.lookup(".button-bar");
+        if (barNode instanceof javafx.scene.control.ButtonBar bar) {
+            bar.setStyle("-fx-background-color: #100317; -fx-padding: 10 20 14 20;");
+            bar.setButtonMinWidth(80);
+            // CENTER_LAST puts both buttons as a centered group
+            bar.setButtonOrder(javafx.scene.control.ButtonBar.BUTTON_ORDER_NONE);
+            bar.setStyle(bar.getStyle() + "-fx-alignment: center;");
+        }
+
+        // ── Style buttons — must use show() listener so nodes exist ──────────
+        alert.getDialogPane().getScene().windowProperty().addListener((obs, oldW, newW) -> {
+            if (newW != null) stylePopupButtons(dp, yes, no);
+        });
+        // Also try immediately in case scene/window already set
+        if (dp.getScene() != null && dp.getScene().getWindow() != null) {
+            stylePopupButtons(dp, yes, no);
+        }
+
+        // Remove the title bar entirely
+        javafx.stage.Stage stage = (javafx.stage.Stage) dp.getScene().getWindow();
+        stage.initStyle(javafx.stage.StageStyle.UNDECORATED);
+
+        Optional<ButtonType> result = alert.showAndWait();
+        return result.isPresent() && result.get() == yes;
+    }
+
+    private static void stylePopupButtons(javafx.scene.control.DialogPane dp,
+                                          ButtonType yes, ButtonType no) {
+        String base =
+                "-fx-background-radius: 4;" +
+                        "-fx-border-radius: 4;" +
+                        "-fx-border-width: 1.5;" +
+                        "-fx-font-size: 13px;" +
+                        "-fx-padding: 6 18 6 18;" +
+                        "-fx-cursor: hand;";
+
+        String yesNormal = base + "-fx-background-color: black; -fx-text-fill: #ff4d4d; -fx-border-color: #ff4d4d;";
+        String yesHover = base + "-fx-background-color: #c92c2c; -fx-text-fill: black; -fx-font-weight: bold; -fx-border-color: #ff4d4d;";
+        String noNormal = base + "-fx-background-color: black; -fx-text-fill: #cdfc04; -fx-border-color: #cdfc04;";
+        String noHover = base + "-fx-background-color: #a4c904; -fx-text-fill: black; -fx-font-weight: bold; -fx-border-color: #cdfc04;";
+
+        javafx.scene.Node yesNode = dp.lookupButton(yes);
+        javafx.scene.Node noNode = dp.lookupButton(no);
+
+        if (yesNode instanceof javafx.scene.control.Button btn) {
+            btn.setStyle(yesNormal);
+            btn.setOnMouseEntered(e -> btn.setStyle(yesHover));
+            btn.setOnMouseExited(e -> btn.setStyle(yesNormal));
+        }
+        if (noNode instanceof javafx.scene.control.Button btn) {
+            btn.setStyle(noNormal);
+            btn.setOnMouseEntered(e -> btn.setStyle(noHover));
+            btn.setOnMouseExited(e -> btn.setStyle(noNormal));
+        }
+    }
+
+    // ── UI refresh helpers ────────────────────────────────────────────────────
+
+    private static void refreshOwnedCollectionView() {
+        Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
+    }
+
+    private static void refreshDecksAndCollectionsView() {
+        Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
     }
 }

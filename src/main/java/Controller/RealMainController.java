@@ -612,6 +612,14 @@ public class RealMainController {
         try {
             displayMyCollection();
             populateMyCollectionMenu();
+            UserInterfaceFunctions.registerOwnedCollectionRefresher(() -> {
+                try {
+                    populateMyCollectionMenu();
+                    displayMyCollection();
+                } catch (Exception e) {
+                    logger.debug("My Collection refresher failed", e);
+                }
+            });
         } catch (Exception ex) {
             logger.error("Error displaying My Collection", ex);
         }
@@ -622,6 +630,14 @@ public class RealMainController {
                 if (selectedIndex == 1) {
                     try {
                         populateDecksAndCollectionsMenu();
+                        UserInterfaceFunctions.registerDecksCollectionsRefresher(() -> {
+                            try {
+                                populateDecksAndCollectionsMenu();
+                                displayDecksAndCollections();
+                            } catch (Exception e) {
+                                logger.debug("Decks refresher failed", e);
+                            }
+                        });
                         displayDecksAndCollections();
                     } catch (Exception e) {
                         logger.error("Error displaying decks and collections", e);
@@ -1501,62 +1517,13 @@ public class RealMainController {
         DataTreeItem<Object> collectionItem = new DataTreeItem<>(cleanName, collection);
         collectionItem.setExpanded(true);
 
-        // --- Cards parsing with marker handling and linked-deck name capture ---
-        List<CardElement> cleaned = new ArrayList<>();
-        List<String> linkedDeckNames = new ArrayList<>();
-        boolean inLinkedDecksMarker = false;
-
         if (collection.getCardsList() != null && !collection.getCardsList().isEmpty()) {
-            for (CardElement ce : collection.getCardsList()) {
-                if (ce == null) continue;
-
-                String text = null;
-                try {
-                    text = ce.toString();
-                    if (text != null) text = text.trim();
-                } catch (Exception ignored) {
-                }
-
-                // Detect marker lines that start a linked-decks block
-                if (text != null && (text.startsWith("#") || text.equalsIgnoreCase("Linked decks") || text.equalsIgnoreCase("#Linked decks"))) {
-                    inLinkedDecksMarker = true;
-                    continue;
-                }
-
-                if (inLinkedDecksMarker) {
-                    if (text != null && !text.isEmpty()) {
-                        boolean looksLikeRealCard = false;
-                        try {
-                            Card maybeCard = ce.getCard();
-                            if (maybeCard != null) {
-                                if ((maybeCard.getKonamiId() != null && !maybeCard.getKonamiId().trim().isEmpty())
-                                        || (maybeCard.getPassCode() != null && !maybeCard.getPassCode().trim().isEmpty())
-                                        || (maybeCard.getName_EN() != null && !maybeCard.getName_EN().trim().isEmpty())) {
-                                    looksLikeRealCard = true;
-                                }
-                            }
-                        } catch (Exception ignored) {
-                        }
-
-                        if (!looksLikeRealCard) {
-                            linkedDeckNames.add(text);
-                            continue;
-                        }
-                    }
-                    // if it looks like a real card, fall through and treat as card
-                }
-
-                if (!isMarkerElement(ce)) {
-                    cleaned.add(ce);
-                }
-            }
-
-            if (!cleaned.isEmpty()) {
-                CardsGroup group = new CardsGroup("Cards", cleaned);
-                DataTreeItem<Object> groupItem = new DataTreeItem<>("Cards", group);
-                groupItem.setExpanded(true);
-                collectionItem.getChildren().add(groupItem);
-            }
+            // Use the model list directly — no copy — so the GridView observes the real list
+            // and any removal from tc.cardsList is immediately reflected in the view.
+            CardsGroup group = new CardsGroup("Cards", collection.getCardsList());
+            DataTreeItem<Object> groupItem = new DataTreeItem<>("Cards", group);
+            groupItem.setExpanded(true);
+            collectionItem.getChildren().add(groupItem);
         }
 
         // --- Decks section: prefer explicit linkedDecks; otherwise use captured linkedDeckNames ---
@@ -1589,16 +1556,6 @@ public class RealMainController {
                     decksParent.getChildren().add(deckItem);
                 }
                 unitIndex++;
-            }
-            decksParentHasChildren = !decksParent.getChildren().isEmpty();
-        }
-
-        if ((collection.getLinkedDecks() == null || collection.getLinkedDecks().isEmpty()) && !linkedDeckNames.isEmpty()) {
-            for (String deckName : linkedDeckNames) {
-                if (deckName == null || deckName.trim().isEmpty()) continue;
-                DataTreeItem<Object> deckItem = new DataTreeItem<>(deckName, deckName);
-                deckItem.setExpanded(true);
-                decksParent.getChildren().add(deckItem);
             }
             decksParentHasChildren = !decksParent.getChildren().isEmpty();
         }
@@ -1725,32 +1682,12 @@ public class RealMainController {
             }
 
             // 4) Exceptions / Cards not to add
-            try {
-                Method exceptionsMethod = collection.getClass().getMethod("getExceptionsToNotAdd");
-                Object exceptionsVal = exceptionsMethod.invoke(collection);
-                if (exceptionsVal instanceof List) {
-                    List<?> exceptionsList = (List<?>) exceptionsVal;
-                    List<CardElement> exceptionElements = new ArrayList<>();
-                    for (Object o : exceptionsList) {
-                        if (o instanceof CardElement) exceptionElements.add((CardElement) o);
-                        else if (o instanceof Card) exceptionElements.add(new CardElement((Card) o));
-                        else if (o instanceof String) {
-                            try {
-                                exceptionElements.add(new CardElement((String) o));
-                            } catch (Exception ignored) {
-                            }
-                        }
-                    }
-                    if (!exceptionElements.isEmpty()) {
-                        CardsGroup exceptionsGroup = new CardsGroup("Cards not to add", exceptionElements);
-                        DataTreeItem<Object> exceptionsNode = new DataTreeItem<>("Cards not to add", exceptionsGroup);
-                        exceptionsNode.setExpanded(true);
-                        collectionItem.getChildren().add(exceptionsNode);
-                    }
-                }
-            } catch (NoSuchMethodException ignored) {
-            } catch (Exception e) {
-                logger.debug("Failed to read exceptionsToNotAdd for collection " + collection.getName(), e);
+            List<CardElement> exceptions = collection.getExceptionsToNotAdd();
+            if (exceptions != null && !exceptions.isEmpty()) {
+                CardsGroup exceptionsGroup = new CardsGroup("Cards not to add", exceptions);
+                DataTreeItem<Object> exceptionsNode = new DataTreeItem<>("Cards not to add", exceptionsGroup);
+                exceptionsNode.setExpanded(true);
+                collectionItem.getChildren().add(exceptionsNode);
             }
         }
 
@@ -1856,7 +1793,7 @@ public class RealMainController {
 
                     // --- NEW: context menu for Collection items ---
                     {
-                        ContextMenu collCm = NavigationContextMenuBuilder.forDecksCollection(collection.getName());
+                        ContextMenu collCm = NavigationContextMenuBuilder.forDecksCollection(collection, decksCollection);
                         collectionNavItem.setOnContextMenuRequested(e -> {
                             collCm.show(collectionNavItem, e.getScreenX(), e.getScreenY());
                             e.consume();

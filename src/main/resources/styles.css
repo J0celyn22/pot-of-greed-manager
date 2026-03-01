@@ -195,34 +195,34 @@
     /* Do not set min-width/pref-width here so other buttons keep their natural width */
 }
 
-/* Hover: bold text and same geometry so no layout shift */
+/* Hover: invert colors — background becomes accent, text becomes black */
 .all-existing-cards-pane Button:hover,
 #allExistingCardsPane Button:hover,
 .header-pane Button:hover,
 .display-vbox Button:hover,
 .threepart-left-pane Button:hover,
 .threepart-right-pane Button:hover {
-    -fx-font-weight: bold;
-    -fx-text-fill: #cdfc04;
+    -fx-background-color: #a4c904;
+    -fx-text-fill: black;
     -fx-border-color: #cdfc04;
+    -fx-font-weight: bold;
     -fx-cursor: hand;
-
-    /* keep same height/padding to avoid growth */
     -fx-padding: 6 10 6 10;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
 }
 
-/* Pressed state keeps the same geometry */
+/* Pressed: slightly darker accent */
 .all-existing-cards-pane Button:pressed,
 #allExistingCardsPane Button:pressed,
 .header-pane Button:pressed,
 .display-vbox Button:pressed,
 .threepart-left-pane Button:pressed,
 .threepart-right-pane Button:pressed {
-    -fx-background-color: derive(black, -6%);
-    -fx-text-fill: #cdfc04;
-    -fx-font-weight: bold;
+    -fx-background-color: derive(#cdfc04, -12%);
+    -fx-text-fill: black;
+    -fx-border-color: #cdfc04;
+    -fx-font-weight: normal;
     -fx-padding: 6 10 6 10;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
@@ -256,14 +256,20 @@
     -fx-pref-height: 30px;
 }
 
-/* Ensure hover/pressed keep the same geometry for small buttons */
 .small-button:hover {
+    -fx-background-color: #a4c904;
+    -fx-text-fill: black;
+    -fx-border-color: #cdfc04;
     -fx-min-width: 110px;
     -fx-pref-width: 130px;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
+    -fx-font-weight: bold;
 }
 .small-button:pressed {
+    -fx-background-color: derive(#cdfc04, -12%);
+    -fx-text-fill: black;
+    -fx-border-color: #cdfc04;
     -fx-min-width: 110px;
     -fx-pref-width: 130px;
     -fx-min-height: 30px;
@@ -284,14 +290,20 @@
     -fx-pref-height: 30px;
 }
 
-/* Ensure hover/pressed keep the same geometry for large buttons too */
 .large-button:hover {
+    -fx-background-color: #a4c904;
+    -fx-text-fill: black;
+    -fx-border-color: #cdfc04;
     -fx-min-width: 300px;
     -fx-pref-width: 360px;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
+    -fx-font-weight: bold;
 }
 .large-button:pressed {
+    -fx-background-color: derive(#cdfc04, -12%);
+    -fx-text-fill: black;
+    -fx-border-color: #cdfc04;
     -fx-min-width: 300px;
     -fx-pref-width: 360px;
     -fx-min-height: 30px;
