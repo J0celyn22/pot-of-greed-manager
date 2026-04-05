@@ -8,6 +8,7 @@ import javafx.beans.property.DoubleProperty;
 import javafx.beans.property.SimpleDoubleProperty;
 import javafx.collections.FXCollections;
 import javafx.fxml.FXML;
+import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
 import javafx.scene.Parent;
@@ -614,8 +615,17 @@ public class RealMainController {
             populateMyCollectionMenu();
             UserInterfaceFunctions.registerOwnedCollectionRefresher(() -> {
                 try {
+                    String target = MenuActionHandler.getAndClearLastAddedTarget();
                     populateMyCollectionMenu();
-                    displayMyCollection();
+                    // Refresh cells in-place: preserves scroll position and does NOT rebuild the tree.
+                    // "Move to..." goes through here with target == null → no scroll ever triggered.
+                    if (myCollectionTreeView != null) {
+                        myCollectionTreeView.refresh();
+                    }
+                    // Scroll to the newly added card only for "Add to..." actions.
+                    if (target != null) {
+                        scrollToNewCardInGroup(target);
+                    }
                 } catch (Exception e) {
                     logger.debug("My Collection refresher failed", e);
                 }
@@ -719,6 +729,74 @@ public class RealMainController {
                 }
             });
         }*/
+    }
+
+    /**
+     * After an "Add to..." action, scrolls the tree so the newly added card
+     * (always the last item in its group's GridView) is visible.
+     * If the target cell's bottom is already within the viewport, nothing happens.
+     */
+    private void scrollToNewCardInGroup(String handlerTarget) {
+        if (myCollectionTreeView == null || handlerTarget == null) return;
+
+        String[] parts = handlerTarget.split("\\s*/\\s*");
+
+        Platform.runLater(() -> {
+            if (myCollectionTreeView == null) return;
+            TreeItem<String> root = myCollectionTreeView.getRoot();
+            if (root == null) return;
+
+            // --- Locate the target TreeItem ---
+            TreeItem<String> target = findTreeItemByPath(root, parts, 0);
+            if (target == null && parts.length > 1)
+                target = findTreeItemByPath(root, new String[]{parts[parts.length - 1]}, 0);
+            if (target == null)
+                target = findTreeItemByPath(root, new String[]{parts[0]}, 0);
+            if (target == null) return;
+
+            // If a Box was found instead of a CardsGroup, descend to its first CardsGroup child
+            // (happens when handlerTarget has only a box name, e.g. "BoxName").
+            if (target instanceof DataTreeItem) {
+                Object data = ((DataTreeItem<?>) target).getData();
+                if (!(data instanceof CardsGroup)) {
+                    for (TreeItem<String> child : target.getChildren()) {
+                        if (child instanceof DataTreeItem
+                                && ((DataTreeItem<?>) child).getData() instanceof CardsGroup) {
+                            target = child;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Expand all ancestors so the row has a valid index.
+            for (TreeItem<String> a = target.getParent(); a != null; a = a.getParent())
+                a.setExpanded(true);
+
+            final int targetRow = myCollectionTreeView.getRow(target);
+            if (targetRow < 0) return;
+
+            // --- Check visibility via VirtualFlow ---
+            javafx.scene.control.skin.VirtualFlow<?> vf = getVirtualFlow();
+            boolean rowInView = false;
+            if (vf != null) {
+                int first = vf.getFirstVisibleCell() != null
+                        ? vf.getFirstVisibleCell().getIndex() : -1;
+                int last = vf.getLastVisibleCell() != null
+                        ? vf.getLastVisibleCell().getIndex() : -1;
+                rowInView = first >= 0 && targetRow >= first && targetRow <= last;
+            }
+
+            // If the row is completely outside the viewport, scroll its top into view first
+            // so the cell gets rendered and can be measured in the next pass.
+            if (!rowInView) {
+                myCollectionTreeView.scrollTo(targetRow);
+            }
+
+            // Deferred second pass: now that the cell is rendered (or was already visible),
+            // scroll further if needed so the BOTTOM of the cell (= last/new card) is visible.
+            Platform.runLater(() -> adjustScrollToShowCellBottom(targetRow));
+        });
     }
 
     public void refreshFromModel() {
@@ -2621,5 +2699,101 @@ public class RealMainController {
         }, "compact-ouiche-img-loader");
         loader.setDaemon(true);
         loader.start();
+    }
+
+    /**
+     * Scrolls just enough so the bottom of the target group's cell (= the newly added card)
+     * is visible. Does nothing if it is already visible or if the group is above the viewport.
+     */
+    private void scrollToLastCardInGroup(String handlerTarget) {
+        if (myCollectionTreeView == null || handlerTarget == null) return;
+
+        String[] parts = handlerTarget.split("\\s*/\\s*");
+        TreeItem<String> root = myCollectionTreeView.getRoot();
+        if (root == null) return;
+
+        // Locate the group TreeItem
+        TreeItem<String> target = findTreeItemByPath(root, parts, 0);
+        if (target == null && parts.length > 1)
+            target = findTreeItemByPath(root, new String[]{parts[parts.length - 1]}, 0);
+        if (target == null)
+            target = findTreeItemByPath(root, new String[]{parts[0]}, 0);
+        if (target == null) return;
+
+        // If we landed on a Box, descend to its first CardsGroup child
+        if (target instanceof DataTreeItem
+                && !(((DataTreeItem<?>) target).getData() instanceof CardsGroup)) {
+            for (TreeItem<String> child : target.getChildren()) {
+                if (child instanceof DataTreeItem
+                        && ((DataTreeItem<?>) child).getData() instanceof CardsGroup) {
+                    target = child;
+                    break;
+                }
+            }
+        }
+
+        for (TreeItem<String> a = target.getParent(); a != null; a = a.getParent())
+            a.setExpanded(true);
+
+        final int targetRow = myCollectionTreeView.getRow(target);
+        if (targetRow < 0) return;
+
+        javafx.scene.control.skin.VirtualFlow<?> vf = getVirtualFlow();
+        int firstVisible = vf != null && vf.getFirstVisibleCell() != null
+                ? vf.getFirstVisibleCell().getIndex() : -1;
+        int lastVisible = vf != null && vf.getLastVisibleCell() != null
+                ? vf.getLastVisibleCell().getIndex() : -1;
+
+        if (firstVisible >= 0 && targetRow >= firstVisible && targetRow <= lastVisible) {
+            // Row is in viewport — check whether the cell bottom (last card) is visible
+            adjustScrollToShowCellBottom(targetRow);
+        } else if (lastVisible >= 0 && targetRow > lastVisible) {
+            // Row is below the viewport — bring it in, then fine-tune to cell bottom
+            myCollectionTreeView.scrollTo(targetRow);
+            Platform.runLater(() -> adjustScrollToShowCellBottom(targetRow));
+        }
+        // Row above viewport → user scrolled away; don't disturb.
+    }
+
+    /**
+     * Scrolls down by exactly the amount needed to reveal the bottom edge of the rendered
+     * cell at {@code row}. No-ops if the bottom is already within the viewport.
+     */
+    private void adjustScrollToShowCellBottom(int row) {
+        if (myCollectionTreeView == null) return;
+
+        Bounds treeBounds = myCollectionTreeView.localToScene(myCollectionTreeView.getBoundsInLocal());
+        if (treeBounds == null) return;
+        double treeBottom = treeBounds.getMaxY();
+
+        for (Node node : myCollectionTreeView.lookupAll(".card-tree-cell")) {
+            if (!(node instanceof TreeCell)) continue;
+            @SuppressWarnings("unchecked")
+            TreeCell<String> cell = (TreeCell<String>) node;
+            if (cell.isEmpty() || cell.getTreeItem() == null) continue;
+            if (myCollectionTreeView.getRow(cell.getTreeItem()) != row) continue;
+
+            Bounds cellBounds = cell.localToScene(cell.getBoundsInLocal());
+            if (cellBounds == null) break;
+
+            double cellBottom = cellBounds.getMaxY();
+            if (cellBottom > treeBottom) {
+                javafx.scene.control.skin.VirtualFlow<?> vf = getVirtualFlow();
+                if (vf != null) vf.scrollPixels(cellBottom - treeBottom);
+            }
+            break;
+        }
+    }
+
+    private javafx.scene.control.skin.VirtualFlow<?> getVirtualFlow() {
+        if (myCollectionTreeView == null) return null;
+        try {
+            for (Node n : myCollectionTreeView.lookupAll(".virtual-flow")) {
+                if (n instanceof javafx.scene.control.skin.VirtualFlow)
+                    return (javafx.scene.control.skin.VirtualFlow<?>) n;
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 }

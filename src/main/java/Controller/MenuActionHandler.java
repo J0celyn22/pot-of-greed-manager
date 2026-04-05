@@ -1,6 +1,7 @@
 package Controller; // adapt to your package
 
 import Model.CardsLists.*;
+import View.CardTreeCell;
 import javafx.application.Platform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +17,15 @@ import java.util.List;
  */
 public final class MenuActionHandler {
     private static final Logger logger = LoggerFactory.getLogger(MenuActionHandler.class);
+
+    // Stores the last target path used by handleAddCopy so the UI can scroll to it after refresh
+    private static volatile String lastAddedTarget = null;
+
+    public static String getAndClearLastAddedTarget() {
+        String t = lastAddedTarget;
+        lastAddedTarget = null;
+        return t;
+    }
 
     private MenuActionHandler() { /* static utility */ }
 
@@ -40,9 +50,150 @@ public final class MenuActionHandler {
         }
     }
 
+    /**
+     * Creates a fresh CardElement from the given Card and inserts it into
+     * the matching Box/Category of the OwnedCardsCollection.
+     * The existing Card instance is reused directly so its printCode is preserved.
+     *
+     * @param card          the Card from AllExistingCards (not null)
+     * @param handlerTarget canonical target string, e.g. "BoxName", "BoxName / CategoryName",
+     *                      "BoxName / SubBoxName", "BoxName / SubBoxName / CategoryName"
+     */
+    public static void handleAddCopy(Card card, String handlerTarget) {
+        if (card == null || handlerTarget == null || handlerTarget.trim().isEmpty()) return;
+        try {
+            if (Platform.isFxApplicationThread()) {
+                doAddCopy(card, handlerTarget);
+            } else {
+                Platform.runLater(() -> doAddCopy(card, handlerTarget));
+            }
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+        } catch (Throwable t) {
+            logger.debug("handleAddCopy failed for target {}", handlerTarget, t);
+        }
+    }
+
+    private static void doAddCopy(Card card, String handlerTarget) {
+        OwnedCardsCollection owned = safeGetOwnedCollection();
+        if (owned == null || owned.getOwnedCollection() == null) {
+            logger.warn("OwnedCardsCollection not available; cannot add card to {}", handlerTarget);
+            return;
+        }
+
+        CardsGroup dest = findMyCollectionDestination(handlerTarget, owned);
+        if (dest == null) {
+            logger.info("My Collection destination not found for '{}'; skipping add", handlerTarget);
+            return;
+        }
+
+        CardElement newElement = new CardElement(card);
+
+        // Add through the ObservableList: updates the model backing list AND notifies the GridView.
+        CardTreeCell.observableListFor(dest).add(newElement);
+        CardTreeCell.triggerHeightAdjustment(dest);
+        logger.debug("handleAddCopy: added '{}' to '{}'", card.getName_EN(), handlerTarget);
+
+        lastAddedTarget = handlerTarget;
+    }
+
+    /**
+     * Finds the CardsGroup inside OwnedCardsCollection that matches the given path.
+     * <p>
+     * Path formats (slash-separated, trimmed, accent- and case-insensitive):
+     * "BoxName"                         → default group of that Box
+     * "BoxName / CategoryName"          → named category inside Box
+     * "BoxName / SubBoxName"            → default group of SubBox inside Box
+     * "BoxName / SubBoxName / CatName"  → named category inside SubBox
+     */
+    private static CardsGroup findMyCollectionDestination(String handlerTarget,
+                                                          OwnedCardsCollection owned) {
+        java.util.function.Function<String, String> norm = s -> {
+            if (s == null) return "";
+            String t = s.trim().replaceAll("[=\\-]", "").replaceAll("\\s+", " "); // ← add this
+            t = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD)
+                    .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
+            return t.toLowerCase().trim();
+        };
+
+        String[] parts = handlerTarget.split("/");
+        for (int i = 0; i < parts.length; i++) parts[i] = parts[i].trim();
+
+        String boxNorm = norm.apply(parts[0]);
+
+        for (Box box : owned.getOwnedCollection()) {
+            if (box == null || !norm.apply(box.getName()).equals(boxNorm)) continue;
+
+            if (parts.length == 1) {
+                // "BoxName" → default (empty-named) group, or first group, or create one
+                return getOrCreateDefaultGroup(box);
+            }
+
+            String secondNorm = norm.apply(parts[1]);
+
+            // Could be a Category directly inside the Box
+            if (parts.length == 2 && box.getContent() != null) {
+                for (CardsGroup g : box.getContent()) {
+                    if (g != null && norm.apply(g.getName()).equals(secondNorm))
+                        return g;
+                }
+            }
+
+            // Could be a SubBox
+            if (box.getSubBoxes() != null) {
+                for (Box sub : box.getSubBoxes()) {
+                    if (sub == null || !norm.apply(sub.getName()).equals(secondNorm)) continue;
+
+                    if (parts.length == 2) {
+                        // "BoxName / SubBoxName" → default group of SubBox
+                        return getOrCreateDefaultGroup(sub);
+                    }
+
+                    // "BoxName / SubBoxName / CategoryName"
+                    String catNorm = norm.apply(parts[2]);
+                    if (sub.getContent() != null) {
+                        for (CardsGroup g : sub.getContent()) {
+                            if (g != null && norm.apply(g.getName()).equals(catNorm))
+                                return g;
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns the default (empty-named) CardsGroup for a Box, or the first one,
+     * or creates and registers a new one if the box has no groups at all.
+     */
+    private static CardsGroup getOrCreateDefaultGroup(Box box) {
+        if (box.getContent() != null) {
+            for (CardsGroup g : box.getContent()) {
+                if (g != null) {
+                    String n = g.getName();
+                    if (n == null || n.trim().isEmpty()) return g;
+                }
+            }
+            if (!box.getContent().isEmpty()) return box.getContent().get(0);
+        }
+        // Create a new default group
+        try {
+            CardsGroup newGroup = new CardsGroup("", new ArrayList<>());
+            if (box.getContent() == null) {
+                box.getClass().getMethod("setContent", List.class)
+                        .invoke(box, new ArrayList<CardsGroup>());
+            }
+            box.getContent().add(newGroup);
+            return newGroup;
+        } catch (Throwable t) {
+            logger.debug("getOrCreateDefaultGroup: could not create group", t);
+        }
+        return null;
+    }
+
     // --- Core move implementation (private) ---
     private static void doMove(Model.CardsLists.CardElement clickedElement, String handlerTarget) {
-        // 1) obtain shared owned collection (load if necessary)
+        // 1) obtain shared owned collection
         Model.CardsLists.OwnedCardsCollection owned = safeGetOwnedCollection();
         if (owned == null || owned.getOwnedCollection() == null) {
             logger.warn("OwnedCardsCollection not available; cannot move card to {}", handlerTarget);
@@ -59,17 +210,17 @@ public final class MenuActionHandler {
             return;
         }
 
-        // 4) remove from source if found
+        // 4) remove from source via ObservableList (updates model + GridView automatically)
         if (src != null && src.group != null && src.index >= 0) {
             try {
-                List<Model.CardsLists.CardElement> srcList = src.group.getCardList();
-                if (srcList != null) {
-                    if (src.index < srcList.size() && srcList.get(src.index) == src.element) {
-                        srcList.remove(src.index);
-                    } else {
-                        srcList.remove(src.element);
-                    }
+                javafx.collections.ObservableList<Model.CardsLists.CardElement> srcObs =
+                        CardTreeCell.observableListFor(src.group);
+                if (src.index < srcObs.size() && srcObs.get(src.index) == src.element) {
+                    srcObs.remove(src.index);
+                } else {
+                    srcObs.remove(src.element);
                 }
+                CardTreeCell.triggerHeightAdjustment(src.group);
             } catch (Throwable ex) {
                 logger.debug("Failed to remove element from source; continuing", ex);
             }
@@ -85,26 +236,12 @@ public final class MenuActionHandler {
             return;
         }
 
-        // 6) add to destination
+        // 6) add to destination via ObservableList (updates model + GridView automatically)
         try {
-            List<Model.CardsLists.CardElement> destList = dest.group.getCardList();
-            if (destList == null) {
-                // try to initialize via setter if available
-                try {
-                    List<Model.CardsLists.CardElement> newList = new ArrayList<>();
-                    newList.add(toAdd);
-                    Method setList = dest.group.getClass().getMethod("setCardList", List.class);
-                    setList.invoke(dest.group, newList);
-                } catch (Throwable ex) {
-                    logger.debug("Could not initialize destination list via reflection", ex);
-                    return;
-                }
-            } else {
-                destList.add(toAdd);
-            }
+            CardTreeCell.observableListFor(dest.group).add(toAdd);
+            CardTreeCell.triggerHeightAdjustment(dest.group);
         } catch (Throwable ex) {
             logger.debug("Failed to add element to destination", ex);
-            return;
         }
     }
 

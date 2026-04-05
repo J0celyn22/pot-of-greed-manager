@@ -161,7 +161,7 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
 
         addToMenu.setOnShowing(evt -> {
             addToMenu.getItems().clear();
-            List<MenuItem> items = buildMyCollectionDestinationItems();
+            List<MenuItem> items = buildMyCollectionDestinationItems(card); // pass card here
             if (items.isEmpty()) {
                 MenuItem none = new MenuItem("No destinations available");
                 none.setDisable(true);
@@ -175,7 +175,7 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
         return cm;
     }
 
-    private static List<MenuItem> buildMyCollectionDestinationItems() {
+    private static List<MenuItem> buildMyCollectionDestinationItems(Card card) {
         List<MenuItem> items = new ArrayList<>();
         try {
             Model.CardsLists.OwnedCardsCollection owned =
@@ -193,14 +193,14 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
                 if (box == null) continue;
                 String boxName = sanitize(box.getName());
                 if (boxName.isEmpty()) boxName = "(Unnamed box)";
-                items.add(makeDestItem(boxName));
+                items.add(makeDestItem(boxName, card));
 
                 if (box.getContent() != null) {
                     for (Model.CardsLists.CardsGroup g : box.getContent()) {
                         if (g == null) continue;
                         String groupName = sanitize(g.getName());
                         if (groupName.isEmpty()) continue;
-                        items.add(makeDestItem(boxName + " / " + groupName));
+                        items.add(makeDestItem(boxName + " / " + groupName, card));
                     }
                 }
                 if (box.getSubBoxes() != null) {
@@ -208,13 +208,13 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
                         if (sb == null) continue;
                         String subName = sanitize(sb.getName());
                         if (subName.isEmpty()) subName = "(Unnamed sub-box)";
-                        items.add(makeDestItem(subName));
+                        items.add(makeDestItem(subName, card));
                         if (sb.getContent() != null) {
                             for (Model.CardsLists.CardsGroup g : sb.getContent()) {
                                 if (g == null) continue;
                                 String groupName = sanitize(g.getName());
                                 if (groupName.isEmpty()) continue;
-                                items.add(makeDestItem(subName + " / " + groupName));
+                                items.add(makeDestItem(subName + " / " + groupName, card));
                             }
                         }
                     }
@@ -243,20 +243,20 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
                 for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
                     if (tc == null) continue;
                     String coll = sanitize(tc.getName());
-                    items.add(makeDestItem(coll));
+                    items.add(makeDestItem(coll, null));
                     if (tc.getLinkedDecks() != null) {
                         for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
                             if (unit == null) continue;
                             for (Model.CardsLists.Deck deck : unit) {
                                 if (deck == null) continue;
                                 String base = coll + " / " + sanitize(deck.getName());
-                                items.add(makeDestItem(base + " / Main Deck"));
-                                items.add(makeDestItem(base + " / Extra Deck"));
-                                items.add(makeDestItem(base + " / Side Deck"));
+                                items.add(makeDestItem(base + " / Main Deck", null));
+                                items.add(makeDestItem(base + " / Extra Deck", null));
+                                items.add(makeDestItem(base + " / Side Deck", null));
                             }
                         }
                     }
-                    items.add(makeDestItem(coll + " / Exclusion List"));
+                    items.add(makeDestItem(coll + " / Exclusion List", null));
                 }
             }
 
@@ -264,9 +264,9 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
                 for (Model.CardsLists.Deck deck : dac.getDecks()) {
                     if (deck == null) continue;
                     String d = sanitize(deck.getName());
-                    items.add(makeDestItem(d + " / Main Deck"));
-                    items.add(makeDestItem(d + " / Extra Deck"));
-                    items.add(makeDestItem(d + " / Side Deck"));
+                    items.add(makeDestItem(d + " / Main Deck", null));
+                    items.add(makeDestItem(d + " / Extra Deck", null));
+                    items.add(makeDestItem(d + " / Side Deck", null));
                 }
             }
         } catch (Exception ex) {
@@ -275,7 +275,7 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
         return items;
     }
 
-    private static MenuItem makeDestItem(String path) {
+    private static MenuItem makeDestItem(String path, Card card) {
         MenuItem mi = new MenuItem();
         Label label = new Label(path);
         label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
@@ -284,7 +284,11 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
         g.setPadding(new Insets(2, 6, 2, 6));
         mi.setGraphic(g);
         mi.setText("");
-        mi.setOnAction(e -> { /* TODO: implement Add to: path */ });
+        if (card != null) {
+            mi.setOnAction(e -> Controller.MenuActionHandler.handleAddCopy(card, path));
+        } else {
+            mi.setOnAction(e -> { /* TODO: implement Add to deck: path */ });
+        }
         return mi;
     }
 
