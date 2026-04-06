@@ -72,6 +72,13 @@ public class UserInterfaceFunctions {
 
     private static final CopyOnWriteArrayList<Runnable> explicitRefreshers = new CopyOnWriteArrayList<>();
 
+    private static final CopyOnWriteArrayList<Runnable> explicitStructureRefreshers = new CopyOnWriteArrayList<>();
+    private static Object pendingRenameTarget = null;
+
+    public static void setPendingRenameTarget(Object target) {
+        pendingRenameTarget = target;
+    }
+
     // Setter and getter for decksList.
     public static void setDecksList(DecksAndCollectionsList list) {
         decksList = list;
@@ -741,6 +748,41 @@ public class UserInterfaceFunctions {
             }
         } catch (Throwable ex) {
             logger.debug("refreshOwnedCollectionView failed", ex);
+        }
+    }
+
+    public static Object getAndClearPendingRenameTarget() {
+        Object t = pendingRenameTarget;
+        pendingRenameTarget = null;
+        return t;
+    }
+
+    public static void registerOwnedCollectionStructureRefresher(Runnable refresher) {
+        if (refresher != null) explicitStructureRefreshers.addIfAbsent(refresher);
+    }
+
+    /**
+     * Triggers a full structural rebuild of the owned-collection view
+     * (tree structure changed — boxes or categories were moved/added/removed).
+     * Also triggers the normal view refresh so the nav menu stays in sync.
+     */
+    public static void refreshOwnedCollectionStructure() {
+        if (Platform.isFxApplicationThread()) {
+            doRefreshOwnedCollectionStructure();
+        } else {
+            Platform.runLater(UserInterfaceFunctions::doRefreshOwnedCollectionStructure);
+        }
+        // Always update the nav menu too
+        refreshOwnedCollectionView();
+    }
+
+    private static void doRefreshOwnedCollectionStructure() {
+        for (Runnable r : explicitStructureRefreshers) {
+            try {
+                r.run();
+            } catch (Throwable t) {
+                logger.debug("refreshOwnedCollectionStructure: refresher threw", t);
+            }
         }
     }
 }

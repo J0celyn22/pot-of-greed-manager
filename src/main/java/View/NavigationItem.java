@@ -23,6 +23,18 @@ public class NavigationItem extends VBox {
     // Highlight state (true => accent color)
     private boolean highlighted = false;
 
+    // Add field:
+    private Object userData;
+
+    public Object getUserData() {
+        return this.userData;
+    }
+
+    // Add getter/setter:
+    public void setUserData(Object data) {
+        this.userData = data;
+    }
+
     public NavigationItem(String name, int depth) {
         this.name = name;
         this.depth = depth;
@@ -153,5 +165,116 @@ public class NavigationItem extends VBox {
      */
     public boolean isHighlighted() {
         return highlighted;
+    }
+
+    /**
+     * Replaces the label with an inline text field + confirm/cancel buttons.
+     *
+     * @param onConfirm called with the new (trimmed) name when the user accepts.
+     *                  The name is guaranteed to be non-empty.
+     * @param onCancel  called when the user presses Esc or the cancel button.
+     */
+    public void startInlineRename(java.util.function.Consumer<String> onConfirm, Runnable onCancel) {
+        // Find the HBox that contains the triangle + label (first child of this VBox)
+        if (getChildren().isEmpty()) return;
+        javafx.scene.Node firstChild = getChildren().get(0);
+        if (!(firstChild instanceof HBox)) return;
+        HBox hbox = (HBox) firstChild;
+
+        // Build the text field pre-filled with the current name
+        javafx.scene.control.TextField tf = new javafx.scene.control.TextField(label.getText());
+        tf.setStyle(
+                "-fx-background-color: black;" +
+                        "-fx-text-fill: #cdfc04;" +
+                        "-fx-border-color: #cdfc04;" +
+                        "-fx-border-width: 1.5;" +
+                        "-fx-border-radius: 4;" +
+                        "-fx-background-radius: 4;" +
+                        "-fx-font-size: 13px;" +
+                        "-fx-padding: 3 6 3 6;"
+        );
+        tf.setPrefWidth(180);
+        HBox.setHgrow(tf, javafx.scene.layout.Priority.ALWAYS);
+
+        // Confirm button — green tick
+        javafx.scene.control.Button confirmBtn = new javafx.scene.control.Button("✓");
+        confirmBtn.setStyle(
+                "-fx-background-color: black;" +
+                        "-fx-text-fill: #00cc44;" +
+                        "-fx-border-color: #00cc44;" +
+                        "-fx-border-width: 1.5;" +
+                        "-fx-border-radius: 4;" +
+                        "-fx-background-radius: 4;" +
+                        "-fx-font-size: 13px;" +
+                        "-fx-padding: 3 7 3 7;" +
+                        "-fx-cursor: hand;"
+        );
+
+        // Cancel button — red cross
+        javafx.scene.control.Button cancelBtn = new javafx.scene.control.Button("✗");
+        cancelBtn.setStyle(
+                "-fx-background-color: black;" +
+                        "-fx-text-fill: #ff4040;" +
+                        "-fx-border-color: #ff4040;" +
+                        "-fx-border-width: 1.5;" +
+                        "-fx-border-radius: 4;" +
+                        "-fx-background-radius: 4;" +
+                        "-fx-font-size: 13px;" +
+                        "-fx-padding: 3 7 3 7;" +
+                        "-fx-cursor: hand;"
+        );
+
+        // Shared helpers
+        Runnable doConfirm = () -> {
+            String newName = tf.getText() == null ? "" : tf.getText().trim();
+            if (!newName.isEmpty()) {
+                restoreLabel(hbox, tf, confirmBtn, cancelBtn);
+                onConfirm.accept(newName);
+            }
+        };
+
+        Runnable doCancel = () -> {
+            restoreLabel(hbox, tf, confirmBtn, cancelBtn);
+            if (onCancel != null) onCancel.run();
+        };
+
+        // Key handlers
+        tf.setOnKeyPressed(e -> {
+            if (e.getCode() == javafx.scene.input.KeyCode.ENTER) {
+                e.consume();
+                doConfirm.run();
+            }
+            if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) {
+                e.consume();
+                doCancel.run();
+            }
+        });
+
+        confirmBtn.setOnAction(e -> doConfirm.run());
+        cancelBtn.setOnAction(e -> doCancel.run());
+
+        // Swap label → tf + buttons
+        hbox.getChildren().remove(label);
+        hbox.getChildren().addAll(tf, confirmBtn, cancelBtn);
+
+        // Select all text and focus
+        javafx.application.Platform.runLater(() -> {
+            tf.requestFocus();
+            tf.selectAll();
+        });
+    }
+
+    /**
+     * Restores the original label, removing the editing widgets.
+     */
+    private void restoreLabel(HBox hbox,
+                              javafx.scene.control.TextField tf,
+                              javafx.scene.control.Button confirmBtn,
+                              javafx.scene.control.Button cancelBtn) {
+        hbox.getChildren().removeAll(tf, confirmBtn, cancelBtn);
+        if (!hbox.getChildren().contains(label)) {
+            // Re-insert after the triangle
+            hbox.getChildren().add(label);
+        }
     }
 }

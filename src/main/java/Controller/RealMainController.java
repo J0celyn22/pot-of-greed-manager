@@ -630,6 +630,35 @@ public class RealMainController {
                     logger.debug("My Collection refresher failed", e);
                 }
             });
+            UserInterfaceFunctions.registerOwnedCollectionStructureRefresher(() -> {
+                try {
+                    displayMyCollection();
+                    populateMyCollectionMenu();
+                    // Capture the pending rename target NOW (before the normal refresher
+                    // fires its own populateMyCollectionMenu which would rebuild the nav again).
+                    Object renameTarget = UserInterfaceFunctions.getAndClearPendingRenameTarget();
+                    if (renameTarget != null) {
+                        final Object finalTarget = renameTarget;
+                        // Platform.runLater defers until after the normal refresher's
+                        // populateMyCollectionMenu() has also completed, so the NavigationItem
+                        // we find is the live, final one.
+                        Platform.runLater(() -> {
+                            logger.debug("Pending rename: searching nav for target={}", finalTarget);
+                            NavigationItem toRename = findNavItemInMenuVBox(
+                                    myCollectionTab.getMenuVBox(), finalTarget);
+                            if (toRename != null) {
+                                logger.debug("Pending rename: found NavigationItem '{}', starting inline rename",
+                                        toRename.getLabel().getText());
+                                startAddRename(toRename, finalTarget);
+                            } else {
+                                logger.warn("Pending rename: NavigationItem not found for target={}", finalTarget);
+                            }
+                        });
+                    }
+                } catch (Exception e) {
+                    logger.debug("My Collection structure refresher failed", e);
+                }
+            });
         } catch (Exception ex) {
             logger.error("Error displaying My Collection", ex);
         }
@@ -1028,6 +1057,7 @@ public class RealMainController {
                 String rawBoxName = box.getName() == null ? "" : box.getName();
                 String boxName = rawBoxName.replaceAll("[=\\-]", "");
                 NavigationItem boxItem = createNavigationItem(boxName, 0);
+                boxItem.setUserData(box);
 
                 // --- navigation wiring (unchanged) ---
                 boxItem.setOnLabelClicked(evt -> navigateToTree(myCollectionTreeView, boxName));
@@ -1051,6 +1081,7 @@ public class RealMainController {
                         String rawGroupName = group.getName() == null ? "" : group.getName();
                         String groupName = rawGroupName.replaceAll("[=\\-]", "");
                         NavigationItem groupItem = createNavigationItem(groupName, 1);
+                        groupItem.setUserData(group);
 
                         // navigation wiring: click navigates to box -> group (unchanged)
                         groupItem.setOnLabelClicked(evt -> navigateToTree(myCollectionTreeView, boxName, groupName));
@@ -1082,6 +1113,7 @@ public class RealMainController {
                         String rawSubBoxName = subBox.getName() == null ? "" : subBox.getName();
                         String subBoxName = rawSubBoxName.replaceAll("[=\\-]", "");
                         NavigationItem subBoxItem = createNavigationItem(subBoxName, 1);
+                        subBoxItem.setUserData(subBox);
 
                         subBoxItem.setOnLabelClicked(evt -> navigateToTree(myCollectionTreeView, subBoxName));
 
@@ -1102,14 +1134,15 @@ public class RealMainController {
                         }
 
                         if (subBox.getContent() != null) {
-                            for (CardsGroup g : subBox.getContent()) {
-                                String rawGName = g.getName() == null ? "" : g.getName();
+                            for (CardsGroup group : subBox.getContent()) {
+                                String rawGName = group.getName() == null ? "" : group.getName();
                                 String gName = rawGName.replaceAll("[=\\-]", "");
                                 NavigationItem gItem = createNavigationItem(gName, 2);
+                                gItem.setUserData(group);
 
                                 gItem.setOnLabelClicked(evt -> navigateToTree(myCollectionTreeView, subBoxName, gName));
 
-                                boolean gHasUnsorted = groupHasUnsortedCards(g, gName);
+                                boolean gHasUnsorted = groupHasUnsortedCards(group, gName);
                                 applyNavigationItemHighlight(gItem, gHasUnsorted);
                                 if (gHasUnsorted && !subBoxHasUnsorted) {
                                     applyNavigationItemHighlight(subBoxItem, true);
@@ -1122,7 +1155,7 @@ public class RealMainController {
 
                                 // Sub-groups are treated like Categories for the context menu
                                 {
-                                    ContextMenu gCm = NavigationContextMenuBuilder.forMyCollectionCategory(g, subBox, collection);
+                                    ContextMenu gCm = NavigationContextMenuBuilder.forMyCollectionCategory(group, subBox, collection);
                                     gItem.setOnContextMenuRequested(e -> {
                                         gCm.show(gItem, e.getScreenX(), e.getScreenY());
                                         e.consume();
@@ -1154,6 +1187,90 @@ public class RealMainController {
             // Do NOT consume – let the event propagate normally in case the
             // scroll-pane also needs to react (e.g., for scroll handling).
         });
+    }
+
+    /**
+     * Searches the live menuVBox for the NavigationItem whose userData == target.
+     * This must be called AFTER all nav rebuilds have completed.
+     */
+    private NavigationItem findNavItemInMenuVBox(VBox menuVBox, Object target) {
+        if (menuVBox == null || target == null) return null;
+        for (javafx.scene.Node node : menuVBox.getChildren()) {
+            NavigationItem found = findNavItemInNode(node, target);
+            if (found != null) return found;
+        }
+        logger.debug("findNavItemInMenuVBox: no item found for target={}", target);
+        return null;
+    }
+
+    private NavigationItem findNavItemInNode(javafx.scene.Node node, Object target) {
+        if (node instanceof NavigationMenu) {
+            for (NavigationItem item : ((NavigationMenu) node).getItems()) {
+                NavigationItem found = findNavItemByUserDataInItem(item, target);
+                if (found != null) return found;
+            }
+        } else if (node instanceof NavigationItem) {
+            return findNavItemByUserDataInItem((NavigationItem) node, target);
+        }
+        return null;
+    }
+
+    private NavigationItem findNavItemByUserDataInItem(NavigationItem item, Object target) {
+        if (item == null) return null;
+        logger.debug("findNavItemByUserDataInItem: checking '{}' userData={}",
+                item.getLabel() != null ? item.getLabel().getText() : "?",
+                item.getUserData());
+        if (item.getUserData() == target) return item;
+        for (NavigationItem sub : item.getSubItems()) {
+            NavigationItem found = findNavItemByUserDataInItem(sub, target);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /**
+     * Starts an inline rename on a freshly created Box or CardsGroup.
+     * Confirm → updates the model name and does a full structure refresh.
+     * Cancel → removes the element from the model and does a full structure refresh.
+     */
+    private void startAddRename(NavigationItem navItem, Object modelObj) {
+        navItem.startInlineRename(
+                newName -> {
+                    // Apply name to model (no decoration — SaveCollection adds it)
+                    if (modelObj instanceof Box) ((Box) modelObj).setName(newName);
+                    else if (modelObj instanceof CardsGroup) ((CardsGroup) modelObj).setName(newName);
+                    UserInterfaceFunctions.refreshOwnedCollectionStructure();
+                },
+                () -> {
+                    // Cancel: remove the freshly created element so it disappears
+                    try {
+                        OwnedCardsCollection owned = OuicheList.getMyCardsCollection();
+                        if (owned != null) {
+                            if (modelObj instanceof Box) {
+                                Box b = (Box) modelObj;
+                                if (!owned.getOwnedCollection().remove(b)) {
+                                    for (Box top : owned.getOwnedCollection()) {
+                                        if (top.getSubBoxes() != null && top.getSubBoxes().remove(b)) break;
+                                    }
+                                }
+                            } else if (modelObj instanceof CardsGroup) {
+                                CardsGroup cat = (CardsGroup) modelObj;
+                                outer:
+                                for (Box top : owned.getOwnedCollection()) {
+                                    if (top.getContent() != null && top.getContent().remove(cat)) break;
+                                    if (top.getSubBoxes() != null) {
+                                        for (Box sub : top.getSubBoxes()) {
+                                            if (sub.getContent() != null && sub.getContent().remove(cat)) break outer;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    UserInterfaceFunctions.refreshOwnedCollectionStructure();
+                }
+        );
     }
 
     /**

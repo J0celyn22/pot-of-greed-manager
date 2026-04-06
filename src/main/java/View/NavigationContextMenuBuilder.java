@@ -1,5 +1,6 @@
 package View;
 
+import Model.CardsLists.Box;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
@@ -31,28 +32,52 @@ public final class NavigationContextMenuBuilder {
                 return;
             }
 
-            boolean isSubBox = false;
-            for (Model.CardsLists.Box parent : owned.getOwnedCollection()) {
-                if (parent == null || parent.getSubBoxes() == null) continue;
-                for (Model.CardsLists.Box sb : parent.getSubBoxes()) {
-                    if (sb == box) {
-                        isSubBox = true;
-                        break;
+            // Determine whether this box is a sub-box (and if so, who is its parent)
+            Box parentOfBox = findParentOfBox(box, owned);
+            boolean isSubBox = parentOfBox != null;
+
+            // Offer every top-level box (and their sub-boxes) except the box itself
+            // and boxes that are descendants of it (to avoid cycles).
+            java.util.Set<Box> descendants = collectDescendants(box);
+
+            for (Box topBox : owned.getOwnedCollection()) {
+                if (topBox == null || topBox == box) continue;
+                if (descendants.contains(topBox)) continue;
+
+                String name = sanitize(topBox.getName());
+                if (name.isEmpty()) name = "(Unnamed box)";
+                final Box target = topBox;
+                MenuItem mi = makeActionItem(name, () -> {
+                    doMoveBoxToSubBox(box, target, owned);
+                    refreshOwnedCollectionView();
+                });
+                moveMenu.getItems().add(mi);
+
+                // Also offer sub-boxes of this top-level box as targets
+                if (topBox.getSubBoxes() != null) {
+                    for (Box sub : topBox.getSubBoxes()) {
+                        if (sub == null || sub == box) continue;
+                        if (descendants.contains(sub)) continue;
+                        String subName = sanitize(sub.getName());
+                        if (subName.isEmpty()) subName = "(Unnamed sub-box)";
+                        final Box subTarget = sub;
+                        MenuItem subMi = makeActionItem(name + " / " + subName, () -> {
+                            doMoveBoxToSubBox(box, subTarget, owned);
+                            refreshOwnedCollectionView();
+                        });
+                        moveMenu.getItems().add(subMi);
                     }
                 }
-                if (isSubBox) break;
             }
 
-            for (Model.CardsLists.Box other : owned.getOwnedCollection()) {
-                if (other == null || other == box) continue;
-                String name = sanitize(other.getName());
-                if (name.isEmpty()) name = "(Unnamed box)";
-                moveMenu.getItems().add(makeItem(name));
-            }
-
+            // If it is already a sub-box, offer "No Box" to promote it to top level
             if (isSubBox) {
-                moveMenu.getItems().add(new SeparatorMenuItem());
-                moveMenu.getItems().add(makeItem("No Box"));
+                if (!moveMenu.getItems().isEmpty()) moveMenu.getItems().add(new SeparatorMenuItem());
+                MenuItem noBox = makeActionItem("No Box (top level)", () -> {
+                    doMoveBoxToTopLevel(box, owned);
+                    refreshOwnedCollectionView();
+                });
+                moveMenu.getItems().add(noBox);
             }
 
             if (moveMenu.getItems().isEmpty()) {
@@ -67,7 +92,6 @@ public final class NavigationContextMenuBuilder {
                     refreshOwnedCollectionView();
                     return;
                 }
-                // Box might be a sub-box
                 for (Model.CardsLists.Box parent : owned.getOwnedCollection()) {
                     if (parent == null || parent.getSubBoxes() == null) continue;
                     if (parent.getSubBoxes().remove(box)) {
@@ -80,9 +104,10 @@ public final class NavigationContextMenuBuilder {
 
         cm.getItems().addAll(
                 moveMenu,
-                makeItem("Add Box"),
-                makeItem("Add Category"),
-                makeItem("Rename"),
+                makeAddBoxInItem(box, owned),
+                makeAddBoxAfterItem(box, owned),
+                makeAddCategoryItem(box, null, owned),
+                makeRenameItem(box, null, owned),
                 new SeparatorMenuItem(),
                 makeRemoveItem(removeAction)
         );
@@ -110,31 +135,55 @@ public final class NavigationContextMenuBuilder {
                 String boxName = sanitize(box.getName());
                 if (boxName.isEmpty()) boxName = "(Unnamed box)";
 
-                if (box == parentBox) continue;
+                // Box-level destination (append category to box.content)
+                final Model.CardsLists.Box destBox = box;
+                final String destBoxName = boxName;
+                MenuItem miBox = makeActionItem(destBoxName, () -> {
+                    doMoveCategory(category, parentBox, destBox, null, owned);
+                    refreshOwnedCollectionView();
+                });
+                moveMenu.getItems().add(miBox);
 
-                moveMenu.getItems().add(makeItem(boxName));
-
+                // Group-level destinations: insert category after the named group
                 if (box.getContent() != null) {
                     for (Model.CardsLists.CardsGroup g : box.getContent()) {
                         if (g == null || g == category) continue;
                         String groupName = sanitize(g.getName());
                         if (groupName.isEmpty()) continue;
-                        moveMenu.getItems().add(makeItem(boxName + " / " + groupName));
+                        final Model.CardsLists.CardsGroup afterGroup = g;
+                        MenuItem miGroup = makeActionItem(destBoxName + " / " + groupName, () -> {
+                            doMoveCategory(category, parentBox, destBox, afterGroup, owned);
+                            refreshOwnedCollectionView();
+                        });
+                        moveMenu.getItems().add(miGroup);
                     }
                 }
 
+                // Sub-boxes
                 if (box.getSubBoxes() != null) {
                     for (Model.CardsLists.Box sb : box.getSubBoxes()) {
                         if (sb == null) continue;
                         String subName = sanitize(sb.getName());
                         if (subName.isEmpty()) subName = "(Unnamed sub-box)";
-                        moveMenu.getItems().add(makeItem(subName));
+                        final Model.CardsLists.Box destSub = sb;
+                        final String destSubName = subName;
+                        MenuItem miSub = makeActionItem(destSubName, () -> {
+                            doMoveCategory(category, parentBox, destSub, null, owned);
+                            refreshOwnedCollectionView();
+                        });
+                        moveMenu.getItems().add(miSub);
+
                         if (sb.getContent() != null) {
                             for (Model.CardsLists.CardsGroup g : sb.getContent()) {
                                 if (g == null || g == category) continue;
                                 String groupName = sanitize(g.getName());
                                 if (groupName.isEmpty()) continue;
-                                moveMenu.getItems().add(makeItem(subName + " / " + groupName));
+                                final Model.CardsLists.CardsGroup afterGroup = g;
+                                MenuItem miSubGroup = makeActionItem(destSubName + " / " + groupName, () -> {
+                                    doMoveCategory(category, parentBox, destSub, afterGroup, owned);
+                                    refreshOwnedCollectionView();
+                                });
+                                moveMenu.getItems().add(miSubGroup);
                             }
                         }
                     }
@@ -156,8 +205,8 @@ public final class NavigationContextMenuBuilder {
 
         cm.getItems().addAll(
                 moveMenu,
-                makeItem("Add Category"),
-                makeItem("Rename"),
+                makeAddCategoryItem(parentBox, category, owned),
+                makeRenameItem(null, category, owned),
                 new SeparatorMenuItem(),
                 makeRemoveItem(removeAction)
         );
@@ -166,8 +215,100 @@ public final class NavigationContextMenuBuilder {
 
     public static ContextMenu forMyCollectionEmpty() {
         ContextMenu cm = styledContextMenu();
-        cm.getItems().add(makeItem("Add Box"));
+        cm.getItems().add(makeAddBoxAtTopLevelItem());
         return cm;
+    }
+
+    /**
+     * "Add Box in" — creates a sub-box inside the clicked box.
+     */
+    private static MenuItem makeAddBoxInItem(Model.CardsLists.Box parentBox,
+                                             Model.CardsLists.OwnedCardsCollection owned) {
+        return makeActionItem("Add Box in", () -> {
+            Model.CardsLists.Box newBox = new Model.CardsLists.Box("New Box");
+            if (parentBox.getSubBoxes() == null) parentBox.setSubBoxes(new java.util.ArrayList<>());
+            parentBox.getSubBoxes().add(newBox);
+            Controller.UserInterfaceFunctions.setPendingRenameTarget(newBox);
+            Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
+        });
+    }
+
+    /**
+     * "Add Box after" — creates a sibling box immediately after the clicked box.
+     */
+    private static MenuItem makeAddBoxAfterItem(Model.CardsLists.Box referenceBox,
+                                                Model.CardsLists.OwnedCardsCollection owned) {
+        return makeActionItem("Add Box after", () -> {
+            Model.CardsLists.Box newBox = new Model.CardsLists.Box("New Box");
+            // Find where referenceBox lives and insert after it
+            java.util.List<Model.CardsLists.Box> topLevel = owned.getOwnedCollection();
+            int idx = topLevel.indexOf(referenceBox);
+            if (idx >= 0) {
+                topLevel.add(idx + 1, newBox);
+            } else {
+                // Try sub-box lists
+                boolean inserted = false;
+                outer:
+                for (Model.CardsLists.Box top : topLevel) {
+                    if (top.getSubBoxes() == null) continue;
+                    idx = top.getSubBoxes().indexOf(referenceBox);
+                    if (idx >= 0) {
+                        top.getSubBoxes().add(idx + 1, newBox);
+                        inserted = true;
+                        break;
+                    }
+                }
+                if (!inserted) topLevel.add(newBox); // fallback
+            }
+            Controller.UserInterfaceFunctions.setPendingRenameTarget(newBox);
+            Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
+        });
+    }
+
+    /**
+     * "Add Category" — creates a new category.
+     * If {@code afterCategory} is non-null it is inserted after that category;
+     * otherwise it is appended to {@code targetBox}.
+     */
+    private static MenuItem makeAddCategoryItem(
+            Model.CardsLists.Box targetBox,
+            Model.CardsLists.CardsGroup afterCategory,
+            Model.CardsLists.OwnedCardsCollection owned) {
+
+        return makeActionItem("Add Category", () -> {
+            Model.CardsLists.CardsGroup newCat = new Model.CardsLists.CardsGroup("New Category");
+            if (targetBox.getContent() == null) targetBox.setContent(new java.util.ArrayList<>());
+            if (afterCategory != null) {
+                int idx = targetBox.getContent().indexOf(afterCategory);
+                if (idx >= 0) {
+                    targetBox.getContent().add(idx + 1, newCat);
+                } else {
+                    targetBox.getContent().add(newCat);
+                }
+            } else {
+                targetBox.getContent().add(newCat);
+            }
+            Controller.UserInterfaceFunctions.setPendingRenameTarget(newCat);
+            Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
+        });
+    }
+
+    /**
+     * "Add Box" from the empty nav-menu background — appends at the top level.
+     */
+    private static MenuItem makeAddBoxAtTopLevelItem() {
+        return makeActionItem("Add Box", () -> {
+            Model.CardsLists.OwnedCardsCollection owned = null;
+            try {
+                owned = Model.CardsLists.OuicheList.getMyCardsCollection();
+            } catch (Throwable ignored) {
+            }
+            if (owned == null) return;
+            Model.CardsLists.Box newBox = new Model.CardsLists.Box("New Box");
+            owned.getOwnedCollection().add(newBox);
+            Controller.UserInterfaceFunctions.setPendingRenameTarget(newBox);
+            Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
+        });
     }
 
     // =========================================================================
@@ -526,12 +667,251 @@ public final class NavigationContextMenuBuilder {
     }
 
     // ── UI refresh helpers ────────────────────────────────────────────────────
-
     private static void refreshOwnedCollectionView() {
-        Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
+        Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
     }
 
     private static void refreshDecksAndCollectionsView() {
         Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        //Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
+    }
+
+    // ── Move helpers ─────────────────────────────────────────────────────────────
+
+    /**
+     * Creates a MenuItem with a white-styled label wired to the given action.
+     */
+    private static MenuItem makeActionItem(String text, Runnable action) {
+        MenuItem mi = new MenuItem();
+        Label label = new Label(text);
+        label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        HBox graphic = new HBox(label);
+        graphic.setAlignment(Pos.CENTER_LEFT);
+        graphic.setPadding(new Insets(2, 6, 2, 6));
+        mi.setGraphic(graphic);
+        mi.setText("");
+        mi.setOnAction(e -> {
+            if (action != null) action.run();
+        });
+        return mi;
+    }
+
+    /**
+     * Moves {@code box} to become a sub-box of {@code targetBox}.
+     * The box is first removed from its current location in the collection.
+     */
+    private static void doMoveBoxToSubBox(
+            Model.CardsLists.Box box,
+            Model.CardsLists.Box targetBox,
+            Model.CardsLists.OwnedCardsCollection owned) {
+
+        if (box == null || targetBox == null || owned == null) return;
+        removeBoxFromAnywhere(box, owned);
+        if (targetBox.getSubBoxes() == null) targetBox.setSubBoxes(new java.util.ArrayList<>());
+        targetBox.getSubBoxes().add(box);
+    }
+
+    /**
+     * Promotes {@code box} from its current sub-box position to the top level
+     * of the collection.
+     */
+    private static void doMoveBoxToTopLevel(
+            Model.CardsLists.Box box,
+            Model.CardsLists.OwnedCardsCollection owned) {
+
+        if (box == null || owned == null) return;
+        removeBoxFromAnywhere(box, owned);
+        owned.getOwnedCollection().add(box);
+    }
+
+    /**
+     * Removes {@code box} from wherever it currently lives (top-level or sub-box).
+     */
+    private static void removeBoxFromAnywhere(
+            Model.CardsLists.Box box,
+            Model.CardsLists.OwnedCardsCollection owned) {
+
+        if (box == null || owned == null || owned.getOwnedCollection() == null) return;
+        if (owned.getOwnedCollection().remove(box)) return;
+        for (Model.CardsLists.Box top : owned.getOwnedCollection()) {
+            if (top == null || top.getSubBoxes() == null) continue;
+            if (top.getSubBoxes().remove(box)) return;
+        }
+    }
+
+    /**
+     * Finds the Box that contains {@code box} as a sub-box, or {@code null}
+     * if {@code box} is at the top level.
+     */
+    private static Model.CardsLists.Box findParentOfBox(
+            Model.CardsLists.Box box,
+            Model.CardsLists.OwnedCardsCollection owned) {
+
+        if (owned == null || owned.getOwnedCollection() == null) return null;
+        for (Model.CardsLists.Box top : owned.getOwnedCollection()) {
+            if (top == null || top.getSubBoxes() == null) continue;
+            for (Model.CardsLists.Box sub : top.getSubBoxes()) {
+                if (sub == box) return top;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns all boxes that are descendants of {@code root} (to prevent
+     * moving a box into one of its own descendants, which would create a cycle).
+     */
+    private static java.util.Set<Model.CardsLists.Box> collectDescendants(
+            Model.CardsLists.Box root) {
+
+        java.util.Set<Model.CardsLists.Box> result = new java.util.HashSet<>();
+        if (root == null || root.getSubBoxes() == null) return result;
+        java.util.Deque<Model.CardsLists.Box> stack = new java.util.ArrayDeque<>(root.getSubBoxes());
+        while (!stack.isEmpty()) {
+            Model.CardsLists.Box cur = stack.pop();
+            if (cur == null || !result.add(cur)) continue;
+            if (cur.getSubBoxes() != null) stack.addAll(cur.getSubBoxes());
+        }
+        return result;
+    }
+
+    /**
+     * Moves {@code category} from {@code fromBox} to {@code toBox}.
+     * <p>
+     * If {@code insertAfter} is non-null, the category is inserted immediately
+     * after that group in {@code toBox}'s content list; otherwise it is appended.
+     */
+    private static void doMoveCategory(
+            Model.CardsLists.CardsGroup category,
+            Model.CardsLists.Box fromBox,
+            Model.CardsLists.Box toBox,
+            Model.CardsLists.CardsGroup insertAfter,
+            Model.CardsLists.OwnedCardsCollection owned) {
+
+        if (category == null || toBox == null) return;
+
+        // Remove from source
+        if (fromBox != null && fromBox.getContent() != null) {
+            fromBox.getContent().remove(category);
+        } else {
+            // Fallback: search the whole collection
+            if (owned != null && owned.getOwnedCollection() != null) {
+                outer:
+                for (Model.CardsLists.Box b : owned.getOwnedCollection()) {
+                    if (b == null) continue;
+                    for (Model.CardsLists.Box candidate : new java.util.ArrayList<>(
+                            b.getSubBoxes() == null ? java.util.Collections.emptyList() : b.getSubBoxes())) {
+                        if (candidate != null && candidate.getContent() != null
+                                && candidate.getContent().remove(category)) break outer;
+                    }
+                    if (b.getContent() != null && b.getContent().remove(category)) break;
+                }
+            }
+        }
+
+        // Ensure target has a content list
+        if (toBox.getContent() == null) toBox.setContent(new java.util.ArrayList<>());
+
+        // Insert after the reference group, or append
+        if (insertAfter != null) {
+            int idx = toBox.getContent().indexOf(insertAfter);
+            if (idx >= 0 && idx + 1 <= toBox.getContent().size()) {
+                toBox.getContent().add(idx + 1, category);
+                return;
+            }
+        }
+        toBox.getContent().add(category);
+    }
+
+    /**
+     * Builds a "Rename" MenuItem that stores the target model object.
+     * The actual inline-editor is launched on the NavigationItem that owns the
+     * context menu, found by walking the scene from the menu's anchor.
+     * <p>
+     * Pass non-null {@code box} for a Box rename, non-null {@code category} for a Category rename.
+     */
+    private static MenuItem makeRenameItem(
+            Model.CardsLists.Box box,
+            Model.CardsLists.CardsGroup category,
+            Model.CardsLists.OwnedCardsCollection owned) {
+
+        MenuItem mi = new MenuItem();
+        Label lbl = new Label("Rename");
+        lbl.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        HBox g = new HBox(lbl);
+        g.setAlignment(Pos.CENTER_LEFT);
+        g.setPadding(new Insets(2, 6, 2, 6));
+        mi.setGraphic(g);
+        mi.setText("");
+
+        mi.setOnAction(e -> {
+            // Find the NavigationItem whose label was right-clicked.
+            // The ContextMenu remembers the node it was shown on via getOwnerNode().
+            javafx.scene.Node owner = null;
+            try {
+                owner = mi.getParentPopup().getOwnerNode();
+            } catch (Throwable ignored) {
+            }
+
+            // Walk up from the owner node to find the NavigationItem ancestor.
+            View.NavigationItem navItem = findNavigationItemAncestor(owner);
+            if (navItem == null) return;
+
+            navItem.startInlineRename(
+                    newName -> {
+                        // Update the model
+                        if (box != null) {
+                            // Preserve decoration characters (=) so the file format stays intact.
+                            // Simply replace the visible part between the leading/trailing = signs.
+                            String raw = box.getName() == null ? "" : box.getName();
+                            String updated = rebuildDecoratedName(raw, newName, '=');
+                            box.setName(updated);
+                            navItem.getLabel().setText(newName);
+                        } else if (category != null) {
+                            String raw = category.getName() == null ? "" : category.getName();
+                            String updated = rebuildDecoratedName(raw, newName, '-');
+                            category.setName(updated);
+                            navItem.getLabel().setText(newName);
+                        }
+                        // Refresh both views
+                        Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
+                    },
+                    null  // cancel: nothing to do
+            );
+        });
+
+        return mi;
+    }
+
+    /**
+     * Rebuilds a decorated name like "===OldName======" or "---OldName----"
+     * by replacing the non-decoration portion with {@code newDisplayName}.
+     * If the raw name contains no decoration characters the new display name
+     * is returned as-is.
+     */
+    private static String rebuildDecoratedName(String raw, String newDisplayName, char decorator) {
+        if (raw == null || raw.isEmpty()) return newDisplayName;
+        // Count leading decoration characters
+        int leading = 0;
+        while (leading < raw.length() && raw.charAt(leading) == decorator) leading++;
+        int trailing = 0;
+        while (trailing < raw.length() && raw.charAt(raw.length() - 1 - trailing) == decorator) trailing++;
+        if (leading == 0 && trailing == 0) return newDisplayName;
+        String prefix = raw.substring(0, leading);
+        String suffix = raw.substring(raw.length() - trailing);
+        return prefix + newDisplayName + suffix;
+    }
+
+    /**
+     * Walks up the scene-graph from {@code node} and returns the first
+     * {@link View.NavigationItem} ancestor, or {@code null} if none is found.
+     */
+    private static View.NavigationItem findNavigationItemAncestor(javafx.scene.Node node) {
+        javafx.scene.Node cur = node;
+        while (cur != null) {
+            if (cur instanceof View.NavigationItem) return (View.NavigationItem) cur;
+            cur = cur.getParent();
+        }
+        return null;
     }
 }
