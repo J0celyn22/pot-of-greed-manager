@@ -896,9 +896,12 @@ public class CardTreeCell extends TreeCell<String> {
 
                 // create MenuItem and wire the move handler (only for direct-move items; Add/Swap left for later)
                 MenuItem mi = new MenuItem(label);
-                // If this is an "Add ..." or "Swap" label you plan to implement later, you can branch here.
-                // For now we wire all non-Swap/Add items to the move handler; Add/Swap will be implemented later.
-                if (!label.startsWith("Add ") && !label.startsWith("Swap")) {
+                if (label.startsWith("Add ")) {
+                    // Strip "Add " to get the category name to create
+                    final String catName = label.substring(4).trim();
+                    mi.setOnAction(ev ->
+                            MenuActionHandler.handleAddCategoryAndMove(clickedElement, catName));
+                } else if (!label.startsWith("Swap")) {
                     mi.setOnAction(ev -> MenuActionHandler.handleMove(clickedElement, handlerTarget));
                 }
                 items.add(mi);

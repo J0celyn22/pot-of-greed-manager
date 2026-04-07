@@ -643,4 +643,67 @@ public final class MenuActionHandler {
             this.group = group;
         }
     }
+
+    /**
+     * Creates a new CardsGroup named {@code categoryName} in the last Box of the
+     * owned collection, then moves {@code clickedElement} into it.
+     * Both the navigation menu and the middle tree are refreshed.
+     */
+    public static void handleAddCategoryAndMove(CardElement clickedElement, String categoryName) {
+        if (clickedElement == null || categoryName == null || categoryName.trim().isEmpty()) return;
+        try {
+            if (Platform.isFxApplicationThread()) {
+                doAddCategoryAndMove(clickedElement, categoryName.trim());
+            } else {
+                Platform.runLater(() -> doAddCategoryAndMove(clickedElement, categoryName.trim()));
+            }
+            // Structural refresh: rebuilds both the middle TreeView and the nav menu
+            UserInterfaceFunctions.refreshOwnedCollectionStructure();
+        } catch (Throwable t) {
+            logger.debug("handleAddCategoryAndMove failed for category '{}'", categoryName, t);
+        }
+    }
+
+    private static void doAddCategoryAndMove(CardElement clickedElement, String categoryName) {
+        OwnedCardsCollection owned = safeGetOwnedCollection();
+        if (owned == null
+                || owned.getOwnedCollection() == null
+                || owned.getOwnedCollection().isEmpty()) {
+            logger.warn("doAddCategoryAndMove: OwnedCardsCollection not available or empty");
+            return;
+        }
+
+        // 1) Find the last top-level Box
+        Box lastBox = owned.getOwnedCollection()
+                .get(owned.getOwnedCollection().size() - 1);
+
+        // 2) Create the new category and append it to that box
+        CardsGroup newGroup = new CardsGroup(categoryName);
+        if (lastBox.getContent() == null) lastBox.setContent(new java.util.ArrayList<>());
+        lastBox.getContent().add(newGroup);
+        logger.debug("doAddCategoryAndMove: created category '{}' in box '{}'",
+                categoryName, lastBox.getName());
+
+        // 3) Remove the card element from its current location (if found)
+        SourceLocation src = findSource(clickedElement, owned);
+        CardElement toAdd = src != null ? src.element : clickedElement;
+
+        if (src != null && src.group != null) {
+            // Use the ObservableList so the source GridView shrinks immediately
+            View.CardTreeCell.observableListFor(src.group).remove(src.element);
+            logger.debug("doAddCategoryAndMove: removed card '{}' from group '{}'",
+                    toAdd.getCard() != null ? toAdd.getCard().getName_EN() : "?",
+                    src.group.getName());
+        } else {
+            logger.debug("doAddCategoryAndMove: source location not found for card '{}'; "
+                            + "card will be added to new category without removal",
+                    clickedElement.getCard() != null ? clickedElement.getCard().getName_EN() : "?");
+        }
+
+        // 4) Add the element to the new category via its ObservableList
+        View.CardTreeCell.observableListFor(newGroup).add(toAdd);
+        logger.debug("doAddCategoryAndMove: card '{}' added to new category '{}'",
+                toAdd.getCard() != null ? toAdd.getCard().getName_EN() : "?",
+                categoryName);
+    }
 }
