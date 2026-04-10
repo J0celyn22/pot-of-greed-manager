@@ -21,6 +21,18 @@ public final class MenuActionHandler {
     // Stores the last target path used by handleAddCopy so the UI can scroll to it after refresh
     private static volatile String lastAddedTarget = null;
 
+    private static volatile String lastDecksAddedTarget = null;
+
+    public static void setLastDecksAddedTarget(String target) {
+        lastDecksAddedTarget = target;
+    }
+
+    public static String getAndClearLastDecksAddedTarget() {
+        String t = lastDecksAddedTarget;
+        lastDecksAddedTarget = null;
+        return t;
+    }
+
     public static String getAndClearLastAddedTarget() {
         String t = lastAddedTarget;
         lastAddedTarget = null;
@@ -705,5 +717,204 @@ public final class MenuActionHandler {
         logger.debug("doAddCategoryAndMove: card '{}' added to new category '{}'",
                 toAdd.getCard() != null ? toAdd.getCard().getName_EN() : "?",
                 categoryName);
+    }
+
+    /**
+     * Adds a copy of the given Card to the correct deck list
+     * (Main Deck / Extra Deck / Side Deck) identified by handlerTarget.
+     *
+     * @param card          the Card from AllExistingCards (not null)
+     * @param handlerTarget e.g. "DeckName / Main Deck" or "CollectionName / DeckName / Extra Deck"
+     */
+    public static void handleAddToDeck(Card card, String handlerTarget) {
+        if (card == null || handlerTarget == null || handlerTarget.trim().isEmpty()) return;
+        try {
+            if (Platform.isFxApplicationThread()) {
+                doAddToDeck(card, handlerTarget);
+            } else {
+                Platform.runLater(() -> doAddToDeck(card, handlerTarget));
+            }
+            lastDecksAddedTarget = handlerTarget;   // ← ADD THIS LINE
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        } catch (Throwable t) {
+            logger.debug("handleAddToDeck failed for target {}", handlerTarget, t);
+        }
+    }
+
+    public static void handleAddToCollectionCards(Card card, String collectionName) {
+        if (card == null || collectionName == null || collectionName.trim().isEmpty()) return;
+        try {
+            if (Platform.isFxApplicationThread()) {
+                doAddToCollectionCards(card, collectionName);
+            } else {
+                Platform.runLater(() -> doAddToCollectionCards(card, collectionName));
+            }
+            lastDecksAddedTarget = collectionName + " / Cards";
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        } catch (Throwable t) {
+            logger.debug("handleAddToCollectionCards failed for collection {}", collectionName, t);
+        }
+    }
+
+    private static void doAddToCollectionCards(Card card, String collectionName) {
+        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
+        if (dac == null) {
+            try {
+                UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+            } catch (Throwable ignored) {
+            }
+            dac = UserInterfaceFunctions.getDecksList();
+        }
+        if (dac == null || dac.getCollections() == null) return;
+
+        java.util.function.Function<String, String> norm = s -> {
+            if (s == null) return "";
+            String t = s.trim().replaceAll("[=\\-]", "").replaceAll("\\s+", " ");
+            t = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD)
+                    .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
+            return t.toLowerCase().trim();
+        };
+        String targetNorm = norm.apply(collectionName);
+        for (ThemeCollection tc : dac.getCollections()) {
+            if (tc == null) continue;
+            if (norm.apply(tc.getName()).equals(targetNorm)) {
+                if (tc.getCardsList() == null) tc.setCardsList(new ArrayList<>());
+                tc.getCardsList().add(new CardElement(card));
+                logger.debug("handleAddToCollectionCards: added '{}' to collection '{}'",
+                        card.getName_EN(), collectionName);
+                return;
+            }
+        }
+        logger.info("handleAddToCollectionCards: collection '{}' not found", collectionName);
+    }
+
+    public static void handleAddToExclusionList(Card card, String collectionName) {
+        if (card == null || collectionName == null || collectionName.trim().isEmpty()) return;
+        try {
+            if (Platform.isFxApplicationThread()) {
+                doAddToExclusionList(card, collectionName);
+            } else {
+                Platform.runLater(() -> doAddToExclusionList(card, collectionName));
+            }
+            lastDecksAddedTarget = collectionName + " / Cards not to add";
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        } catch (Throwable t) {
+            logger.debug("handleAddToExclusionList failed for collection {}", collectionName, t);
+        }
+    }
+
+    private static void doAddToExclusionList(Card card, String collectionName) {
+        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
+        if (dac == null) {
+            try {
+                UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+            } catch (Throwable ignored) {
+            }
+            dac = UserInterfaceFunctions.getDecksList();
+        }
+        if (dac == null || dac.getCollections() == null) return;
+
+        java.util.function.Function<String, String> norm = s -> {
+            if (s == null) return "";
+            String t = s.trim().replaceAll("[=\\-]", "").replaceAll("\\s+", " ");
+            t = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD)
+                    .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
+            return t.toLowerCase().trim();
+        };
+        String targetNorm = norm.apply(collectionName);
+        for (ThemeCollection tc : dac.getCollections()) {
+            if (tc == null) continue;
+            if (norm.apply(tc.getName()).equals(targetNorm)) {
+                if (tc.getExceptionsToNotAdd() == null) tc.setExceptionsToNotAdd(new ArrayList<>());
+                tc.getExceptionsToNotAdd().add(new CardElement(card));
+                logger.debug("handleAddToExclusionList: added '{}' to exclusion list of '{}'",
+                        card.getName_EN(), collectionName);
+                return;
+            }
+        }
+        logger.info("handleAddToExclusionList: collection '{}' not found", collectionName);
+    }
+
+    private static void doAddToDeck(Card card, String handlerTarget) {
+        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
+        if (dac == null) {
+            try {
+                UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+            } catch (Throwable ignored) {
+            }
+            dac = UserInterfaceFunctions.getDecksList();
+        }
+        if (dac == null) {
+            logger.warn("doAddToDeck: DecksAndCollectionsList not available");
+            return;
+        }
+
+        java.util.function.Function<String, String> norm = s -> {
+            if (s == null) return "";
+            String t2 = s.trim().replaceAll("[=\\-]", "").replaceAll("\\s+", " ");
+            t2 = java.text.Normalizer.normalize(t2, java.text.Normalizer.Form.NFD)
+                    .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
+            return t2.toLowerCase().trim();
+        };
+
+        String[] parts = handlerTarget.split("/");
+        for (int i = 0; i < parts.length; i++) parts[i] = parts[i].trim();
+
+        if (parts.length < 2) {
+            logger.debug("doAddToDeck: handlerTarget '{}' has fewer than 2 parts", handlerTarget);
+            return;
+        }
+
+        String lastNorm = norm.apply(parts[parts.length - 1]);
+        boolean isMain = lastNorm.equals("main deck") || lastNorm.equals("main");
+        boolean isExtra = lastNorm.equals("extra deck") || lastNorm.equals("extra");
+        boolean isSide = lastNorm.equals("side deck") || lastNorm.equals("side");
+
+        if (!isMain && !isExtra && !isSide) {
+            logger.debug("doAddToDeck: last part '{}' is not a recognised deck list", lastNorm);
+            return;
+        }
+
+        String deckNameNorm = norm.apply(parts[parts.length - 2]);
+        Deck targetDeck = findDeckInDac(deckNameNorm, norm, dac);
+
+        if (targetDeck == null) {
+            logger.info("doAddToDeck: deck '{}' not found in DecksAndCollectionsList", deckNameNorm);
+            return;
+        }
+
+        CardElement newElement = new CardElement(card);
+        if (isMain) {
+            targetDeck.getMainDeck().add(newElement);
+        } else if (isExtra) {
+            targetDeck.getExtraDeck().add(newElement);
+        } else {
+            targetDeck.getSideDeck().add(newElement);
+        }
+        logger.debug("doAddToDeck: added '{}' to '{}'", card.getName_EN(), handlerTarget);
+    }
+
+    private static Deck findDeckInDac(String deckNameNorm,
+                                      java.util.function.Function<String, String> norm,
+                                      DecksAndCollectionsList dac) {
+        // Search standalone decks first
+        if (dac.getDecks() != null) {
+            for (Deck d : dac.getDecks()) {
+                if (d != null && norm.apply(d.getName()).equals(deckNameNorm)) return d;
+            }
+        }
+        // Search inside collections
+        if (dac.getCollections() != null) {
+            for (ThemeCollection tc : dac.getCollections()) {
+                if (tc == null || tc.getLinkedDecks() == null) continue;
+                for (List<Deck> unit : tc.getLinkedDecks()) {
+                    if (unit == null) continue;
+                    for (Deck d : unit) {
+                        if (d != null && norm.apply(d.getName()).equals(deckNameNorm)) return d;
+                    }
+                }
+            }
+        }
+        return null;
     }
 }

@@ -1754,7 +1754,7 @@ public class CardTreeCell extends TreeCell<String> {
                     decksMoveMenu.setOnShowing(evt -> {
                         decksMoveMenu.getItems().clear();
                         String currentPath = findCurrentLocationPath();
-                        List<MenuItem> items = buildDestinationMenuItems(currentPath);
+                        List<MenuItem> items = buildMoveDestinationMenuItems(currentPath);
                         if (items.isEmpty()) {
                             MenuItem none = new MenuItem("No destinations available");
                             none.setDisable(true);
@@ -1809,7 +1809,7 @@ public class CardTreeCell extends TreeCell<String> {
                     archetypeAddMenu.setOnShowing(evt -> {
                         archetypeAddMenu.getItems().clear();
                         // null = no exclusion: archetype cards have no editable location
-                        List<MenuItem> items = buildDestinationMenuItems(null);
+                        List<MenuItem> items = buildAddDestinationMenuItems();
                         if (items.isEmpty()) {
                             MenuItem none = new MenuItem("No destinations available");
                             none.setDisable(true);
@@ -2171,68 +2171,6 @@ public class CardTreeCell extends TreeCell<String> {
             return null;
         }
 
-        private List<MenuItem> buildDestinationMenuItems(String excludePath) {
-            List<MenuItem> items = new ArrayList<>();
-            try {
-                DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
-                if (dac == null) {
-                    try {
-                        UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
-                    } catch (Exception ignored) {
-                    }
-                    dac = UserInterfaceFunctions.getDecksList();
-                }
-                if (dac == null) return items;
-
-                if (dac.getCollections() != null) {
-                    for (ThemeCollection tc : dac.getCollections()) {
-                        if (tc == null) continue;
-                        String coll = sanitizeDisplayName(tc.getName());
-                        addDestItem(items, coll, excludePath);
-                        if (tc.getLinkedDecks() != null) {
-                            for (List<Deck> unit : tc.getLinkedDecks()) {
-                                if (unit == null) continue;
-                                for (Deck deck : unit) {
-                                    if (deck == null) continue;
-                                    String base = coll + " / " + sanitizeDisplayName(deck.getName());
-                                    addDestItem(items, base + " / Main Deck", excludePath);
-                                    addDestItem(items, base + " / Extra Deck", excludePath);
-                                    addDestItem(items, base + " / Side Deck", excludePath);
-                                }
-                            }
-                        }
-                        addDestItem(items, coll + " / Exclusion List", excludePath);
-                    }
-                }
-                if (dac.getDecks() != null) {
-                    for (Deck deck : dac.getDecks()) {
-                        if (deck == null) continue;
-                        String d = sanitizeDisplayName(deck.getName());
-                        addDestItem(items, d + " / Main Deck", excludePath);
-                        addDestItem(items, d + " / Extra Deck", excludePath);
-                        addDestItem(items, d + " / Side Deck", excludePath);
-                    }
-                }
-            } catch (Exception ex) {
-                logger.debug("buildDestinationMenuItems failed", ex);
-            }
-            return items;
-        }
-
-        private void addDestItem(List<MenuItem> items, String path, String excludePath) {
-            if (path == null || path.equals(excludePath)) return;
-            MenuItem mi = new MenuItem();
-            Label lbl = new Label(path);
-            lbl.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
-            HBox g = new HBox(lbl);
-            g.setAlignment(Pos.CENTER_LEFT);
-            g.setPadding(new Insets(2, 6, 2, 6));
-            mi.setGraphic(g);
-            mi.setText("");
-            mi.setOnAction(e -> { /* TODO: implement move/add to: path */ });
-            items.add(mi);
-        }
-
         private void removeCardElementFromDecksList(CardElement ce) {
             if (ce == null) return;
             try {
@@ -2247,6 +2185,309 @@ public class CardTreeCell extends TreeCell<String> {
             } catch (Throwable t) {
                 logger.debug("removeCardElementFromDecksList failed", t);
             }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────────────
+// Target-list resolution helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+        /**
+         * Resolves a display-path (built by buildXxxDestinationMenuItems) to the
+         * actual backing List<CardElement> inside the DecksAndCollectionsList.
+         * <p>
+         * Path patterns (names are already sanitized — no = or -):
+         * "CollName"                              → tc.getCardsList()
+         * "CollName / Exclusion List"             → tc.getExceptionsToNotAdd()
+         * "DeckName / Main|Extra|Side Deck"       → standalone deck list
+         * "CollName / DeckName / Main|Extra|Side" → linked deck list
+         */
+        private List<Model.CardsLists.CardElement> resolveDecksTargetList(String path) {
+            if (path == null || path.trim().isEmpty()) return null;
+            Model.CardsLists.DecksAndCollectionsList dac =
+                    Controller.UserInterfaceFunctions.getDecksList();
+            if (dac == null) return null;
+
+            String[] parts = path.split("\\s*/\\s*");
+            for (int i = 0; i < parts.length; i++) parts[i] = parts[i].trim();
+            if (parts.length == 0) return null;
+
+            String lastLower = parts[parts.length - 1].toLowerCase(java.util.Locale.ROOT);
+            boolean isMain = lastLower.equals("main deck");
+            boolean isExtra = lastLower.equals("extra deck");
+            boolean isSide = lastLower.equals("side deck");
+            boolean isExcl = lastLower.equals("exclusion list")
+                    || lastLower.equals("cards not to add");
+
+            // "CollName" → collection cards list
+            if (parts.length == 1 && !isMain && !isExtra && !isSide && !isExcl) {
+                Model.CardsLists.ThemeCollection tc = findCollByDisplayName(parts[0], dac);
+                if (tc != null) {
+                    if (tc.getCardsList() == null) tc.setCardsList(new ArrayList<>());
+                    return tc.getCardsList();
+                }
+                return null;
+            }
+
+            // "CollName / Exclusion List"
+            if (parts.length == 2 && isExcl) {
+                Model.CardsLists.ThemeCollection tc = findCollByDisplayName(parts[0], dac);
+                if (tc != null) {
+                    if (tc.getExceptionsToNotAdd() == null)
+                        tc.setExceptionsToNotAdd(new ArrayList<>());
+                    return tc.getExceptionsToNotAdd();
+                }
+                return null;
+            }
+
+            // "DeckName / Main|Extra|Side Deck"  (standalone deck)
+            if (parts.length == 2 && (isMain || isExtra || isSide)) {
+                Model.CardsLists.Deck d = findStandaloneDeckByDisplayName(parts[0], dac);
+                if (d != null) {
+                    if (isMain) return d.getMainDeck();
+                    if (isExtra) return d.getExtraDeck();
+                    return d.getSideDeck();
+                }
+                return null;
+            }
+
+            // "CollName / DeckName / Main|Extra|Side Deck"  (linked deck)
+            if (parts.length == 3 && (isMain || isExtra || isSide)) {
+                Model.CardsLists.ThemeCollection tc = findCollByDisplayName(parts[0], dac);
+                if (tc != null) {
+                    Model.CardsLists.Deck d = findLinkedDeckByDisplayName(parts[1], tc);
+                    if (d != null) {
+                        if (isMain) return d.getMainDeck();
+                        if (isExtra) return d.getExtraDeck();
+                        return d.getSideDeck();
+                    }
+                }
+                return null;
+            }
+            return null;
+        }
+
+        private Model.CardsLists.ThemeCollection findCollByDisplayName(
+                String displayName, Model.CardsLists.DecksAndCollectionsList dac) {
+            if (dac == null || dac.getCollections() == null) return null;
+            for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                if (tc == null) continue;
+                if (sanitizeDisplayName(tc.getName()).equals(displayName)) return tc;
+            }
+            return null;
+        }
+
+        private Model.CardsLists.Deck findStandaloneDeckByDisplayName(
+                String displayName, Model.CardsLists.DecksAndCollectionsList dac) {
+            if (dac == null || dac.getDecks() == null) return null;
+            for (Model.CardsLists.Deck d : dac.getDecks()) {
+                if (d == null) continue;
+                if (sanitizeDisplayName(d.getName()).equals(displayName)) return d;
+            }
+            return null;
+        }
+
+        private Model.CardsLists.Deck findLinkedDeckByDisplayName(
+                String displayName, Model.CardsLists.ThemeCollection tc) {
+            if (tc == null || tc.getLinkedDecks() == null) return null;
+            for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                if (unit == null) continue;
+                for (Model.CardsLists.Deck d : unit) {
+                    if (d == null) continue;
+                    if (sanitizeDisplayName(d.getName()).equals(displayName)) return d;
+                }
+            }
+            return null;
+        }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Menu item factories
+// ─────────────────────────────────────────────────────────────────────────────
+
+        /**
+         * MOVE: removes the current card element from its source GridView,
+         * then adds it to the resolved target list.
+         */
+        private void addMoveDestItem(List<MenuItem> items, String path, String excludePath) {
+            if (path == null || path.equals(excludePath)) return;
+            MenuItem mi = new MenuItem();
+            Label lbl = new Label(path);
+            lbl.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+            HBox g = new HBox(lbl);
+            g.setAlignment(Pos.CENTER_LEFT);
+            g.setPadding(new Insets(2, 6, 2, 6));
+            mi.setGraphic(g);
+            mi.setText("");
+            mi.setOnAction(e -> {
+                Model.CardsLists.CardElement ce = getItem();
+                if (ce == null) return;
+                // Remove from source observable list
+                if (getGridView() != null && getGridView().getItems() != null)
+                    getGridView().getItems().remove(ce);
+                // Add to target backing list
+                List<Model.CardsLists.CardElement> target = resolveDecksTargetList(path);
+                if (target != null) {
+                    target.add(ce);
+                    Controller.MenuActionHandler.setLastDecksAddedTarget(path);
+                } else {
+                    logger.warn("addMoveDestItem: could not resolve '{}'", path);
+                }
+                Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
+            });
+            items.add(mi);
+        }
+
+        /**
+         * ADD: creates a new CardElement from the current item's card and adds it
+         * to the resolved target list.  Routing through the existing MenuActionHandler
+         * methods ensures lastDecksAddedTarget is set and the view scrolls correctly.
+         */
+        private void addAddDestItem(List<MenuItem> items, String path) {
+            if (path == null) return;
+            MenuItem mi = new MenuItem();
+            Label lbl = new Label(path);
+            lbl.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+            HBox g = new HBox(lbl);
+            g.setAlignment(Pos.CENTER_LEFT);
+            g.setPadding(new Insets(2, 6, 2, 6));
+            mi.setGraphic(g);
+            mi.setText("");
+            mi.setOnAction(e -> {
+                Model.CardsLists.CardElement ce = getItem();
+                if (ce == null || ce.getCard() == null) return;
+                Model.CardsLists.Card card = ce.getCard();
+
+                // Route to the appropriate handler so lastDecksAddedTarget is set
+                // and the view refresh scrolls to the right place.
+                String[] parts = path.split("\\s*/\\s*");
+                String lastLower = parts[parts.length - 1].trim()
+                        .toLowerCase(java.util.Locale.ROOT);
+
+                if (lastLower.equals("exclusion list")
+                        || lastLower.equals("cards not to add")) {
+                    // "CollName / Exclusion List"
+                    Controller.MenuActionHandler.handleAddToExclusionList(
+                            card, parts[0].trim());
+                } else if (parts.length == 1) {
+                    // "CollName" — collection card list
+                    Controller.MenuActionHandler.handleAddToCollectionCards(
+                            card, parts[0].trim());
+                } else {
+                    // "DeckName / Main Deck", "CollName / DeckName / Extra Deck", …
+                    Controller.MenuActionHandler.handleAddToDeck(card, path);
+                }
+                // refreshDecksAndCollectionsView() is called inside the handlers above
+            });
+            items.add(mi);
+        }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Menu builders
+// ─────────────────────────────────────────────────────────────────────────────
+
+        /**
+         * For the MOVE context (non-archetype cards already in D&C).
+         * Excludes the card's current location so it cannot be "moved" to itself.
+         */
+        private List<MenuItem> buildMoveDestinationMenuItems(String excludePath) {
+            List<MenuItem> items = new ArrayList<>();
+            try {
+                Model.CardsLists.DecksAndCollectionsList dac =
+                        Controller.UserInterfaceFunctions.getDecksList();
+                if (dac == null) {
+                    try {
+                        Controller.UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+                    } catch (Exception ignored) {
+                    }
+                    dac = Controller.UserInterfaceFunctions.getDecksList();
+                }
+                if (dac == null) return items;
+
+                if (dac.getCollections() != null) {
+                    for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                        if (tc == null) continue;
+                        String coll = sanitizeDisplayName(tc.getName());
+                        addMoveDestItem(items, coll, excludePath);
+                        if (tc.getLinkedDecks() != null) {
+                            for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                                if (unit == null) continue;
+                                for (Model.CardsLists.Deck deck : unit) {
+                                    if (deck == null) continue;
+                                    String base = coll + " / " + sanitizeDisplayName(deck.getName());
+                                    addMoveDestItem(items, base + " / Main Deck", excludePath);
+                                    addMoveDestItem(items, base + " / Extra Deck", excludePath);
+                                    addMoveDestItem(items, base + " / Side Deck", excludePath);
+                                }
+                            }
+                        }
+                        addMoveDestItem(items, coll + " / Exclusion List", excludePath);
+                    }
+                }
+                if (dac.getDecks() != null) {
+                    for (Model.CardsLists.Deck deck : dac.getDecks()) {
+                        if (deck == null) continue;
+                        String d = sanitizeDisplayName(deck.getName());
+                        addMoveDestItem(items, d + " / Main Deck", excludePath);
+                        addMoveDestItem(items, d + " / Extra Deck", excludePath);
+                        addMoveDestItem(items, d + " / Side Deck", excludePath);
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("buildMoveDestinationMenuItems failed", ex);
+            }
+            return items;
+        }
+
+        /**
+         * For the ADD context (archetype cards — read-only source, just insert a copy).
+         * No exclusion path needed.
+         */
+        private List<MenuItem> buildAddDestinationMenuItems() {
+            List<MenuItem> items = new ArrayList<>();
+            try {
+                Model.CardsLists.DecksAndCollectionsList dac =
+                        Controller.UserInterfaceFunctions.getDecksList();
+                if (dac == null) {
+                    try {
+                        Controller.UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+                    } catch (Exception ignored) {
+                    }
+                    dac = Controller.UserInterfaceFunctions.getDecksList();
+                }
+                if (dac == null) return items;
+
+                if (dac.getCollections() != null) {
+                    for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                        if (tc == null) continue;
+                        String coll = sanitizeDisplayName(tc.getName());
+                        addAddDestItem(items, coll);
+                        if (tc.getLinkedDecks() != null) {
+                            for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                                if (unit == null) continue;
+                                for (Model.CardsLists.Deck deck : unit) {
+                                    if (deck == null) continue;
+                                    String base = coll + " / " + sanitizeDisplayName(deck.getName());
+                                    addAddDestItem(items, base + " / Main Deck");
+                                    addAddDestItem(items, base + " / Extra Deck");
+                                    addAddDestItem(items, base + " / Side Deck");
+                                }
+                            }
+                        }
+                        addAddDestItem(items, coll + " / Exclusion List");
+                    }
+                }
+                if (dac.getDecks() != null) {
+                    for (Model.CardsLists.Deck deck : dac.getDecks()) {
+                        if (deck == null) continue;
+                        String d = sanitizeDisplayName(deck.getName());
+                        addAddDestItem(items, d + " / Main Deck");
+                        addAddDestItem(items, d + " / Extra Deck");
+                        addAddDestItem(items, d + " / Side Deck");
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("buildAddDestinationMenuItems failed", ex);
+            }
+            return items;
         }
     }
 

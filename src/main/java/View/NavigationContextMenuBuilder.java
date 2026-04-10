@@ -5,11 +5,15 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.HBox;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Optional;
 
 public final class NavigationContextMenuBuilder {
+
+    private static final Logger logger = LoggerFactory.getLogger(NavigationContextMenuBuilder.class);
 
     private NavigationContextMenuBuilder() { /* static factory */ }
 
@@ -335,14 +339,212 @@ public final class NavigationContextMenuBuilder {
         };
 
         cm.getItems().addAll(
-                makeItem("Add Collection"),
-                makeItem("Add Deck"),
-                makeItem("Add archetype"),
-                makeItem("Rename"),
+                makeDecksAddCollectionAfterItem(collection, dac),
+                makeDecksAddLinkedDeckToCollectionItem(collection),
+                makeDecksAddArchetypeMenu(collection),          // ← real submenu
+                makeDecksRenameItem(collection),
                 new SeparatorMenuItem(),
                 makeRemoveItem(removeAction)
         );
         return cm;
+    }
+
+    /**
+     * Builds the lazy "Add archetype" submenu for a ThemeCollection.
+     * <p>
+     * Ordering rules:
+     * 1. Archetypes whose name is contained in the collection name (accent-
+     * and case-insensitive) always appear first, highlighted in accent colour.
+     * 2. Among the rest, sort by the number of collection cards that belong to
+     * that archetype (highest first).
+     * 3. Within each tier, preserve the original SubListCreator order.
+     * <p>
+     * Archetypes already present in collection.getArchetypes() are excluded.
+     * <p>
+     * Action: stub — will be wired in a later task.
+     */
+    private static Menu makeDecksAddArchetypeMenu(
+            Model.CardsLists.ThemeCollection collection) {
+
+        Menu menu = makeLazyMenu("Add archetype");
+        menu.setOnShowing(evt -> {
+            menu.getItems().clear();
+
+            List<String> allNames =
+                    Model.CardsLists.SubListCreator.archetypesList;
+            List<List<Model.CardsLists.Card>> allCards =
+                    Model.CardsLists.SubListCreator.archetypesCardsLists;
+
+            if (allNames == null || allNames.isEmpty()) {
+                menu.getItems().add(disabledItem("No archetypes available"));
+                return;
+            }
+
+            // ── Archetypes already attached to this collection ────────────────
+            java.util.Set<String> alreadyAdded = new java.util.HashSet<>();
+            try {
+                List<String> existing = collection.getArchetypes();
+                if (existing != null) {
+                    for (String s : existing)
+                        if (s != null) alreadyAdded.add(normalizeForSort(s));
+                }
+            } catch (Throwable ignored) {
+            }
+
+            // ── Gather all card identifiers that belong to the collection ─────
+            java.util.Set<String> collPassCodes = new java.util.HashSet<>();
+            java.util.Set<String> collKonamiIds = new java.util.HashSet<>();
+
+            if (collection.getCardsList() != null) {
+                for (Model.CardsLists.CardElement ce : collection.getCardsList()) {
+                    if (ce == null || ce.getCard() == null) continue;
+                    if (ce.getCard().getPassCode() != null)
+                        collPassCodes.add(ce.getCard().getPassCode());
+                    if (ce.getCard().getKonamiId() != null)
+                        collKonamiIds.add(ce.getCard().getKonamiId());
+                }
+            }
+            if (collection.getLinkedDecks() != null) {
+                for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
+                    if (unit == null) continue;
+                    for (Model.CardsLists.Deck d : unit) {
+                        if (d == null) continue;
+                        for (Model.CardsLists.CardElement ce : d.toList()) {
+                            if (ce == null || ce.getCard() == null) continue;
+                            if (ce.getCard().getPassCode() != null)
+                                collPassCodes.add(ce.getCard().getPassCode());
+                            if (ce.getCard().getKonamiId() != null)
+                                collKonamiIds.add(ce.getCard().getKonamiId());
+                        }
+                    }
+                }
+            }
+
+            // ── Normalised collection name for "name contains archetype" check ─
+            String collNorm = normalizeForSort(
+                    collection.getName() == null ? "" : collection.getName());
+
+            // ── For each archetype: compute inName flag + card count ──────────
+            // Entry: [originalIndex, cardCount, inNameFlag(1/0)]
+            List<int[]> entries = new java.util.ArrayList<>();
+
+            for (int i = 0; i < allNames.size(); i++) {
+                String archName = allNames.get(i);
+                if (archName == null) continue;
+
+                // Skip archetypes already attached to this collection
+                if (alreadyAdded.contains(normalizeForSort(archName))) continue;
+
+                boolean inName = collNorm.contains(normalizeForSort(archName));
+
+                // Count collection cards that appear in this archetype's card list
+                int count = 0;
+                if (allCards != null && i < allCards.size()) {
+                    List<Model.CardsLists.Card> archCardList = allCards.get(i);
+                    if (archCardList != null) {
+                        for (Model.CardsLists.Card c : archCardList) {
+                            if (c == null) continue;
+                            boolean matchPass = c.getPassCode() != null
+                                    && collPassCodes.contains(c.getPassCode());
+                            boolean matchKonami = c.getKonamiId() != null
+                                    && collKonamiIds.contains(c.getKonamiId());
+                            if (matchPass || matchKonami) count++;
+                        }
+                    }
+                }
+
+                entries.add(new int[]{i, count, inName ? 1 : 0});
+            }
+
+            // ── Sort: inName DESC → count DESC → original index ASC ──────────
+            entries.sort((a, b) -> {
+                if (b[2] != a[2]) return b[2] - a[2];
+                if (b[1] != a[1]) return b[1] - a[1];
+                return a[0] - b[0];
+            });
+
+            // ── Build menu items ──────────────────────────────────────────────
+            boolean separatorInserted = false;
+            boolean inNameSectionEnded = false;
+
+            for (int[] entry : entries) {
+                int idx = entry[0];
+                int count = entry[1];
+                boolean inName = entry[2] == 1;
+                String archName = allNames.get(idx);
+
+                // Separator between the "in-name" tier and the rest
+                if (!inNameSectionEnded && !inName && separatorInserted) {
+                    menu.getItems().add(new SeparatorMenuItem());
+                    inNameSectionEnded = true;
+                }
+
+                String labelText = count > 0
+                        ? archName + "  (" + count + ")"
+                        : archName;
+
+                Label lbl = new Label(labelText);
+                lbl.setStyle(inName
+                        ? "-fx-text-fill: #cdfc04; -fx-font-size: 13; -fx-font-weight: bold;"
+                        : "-fx-text-fill: white; -fx-font-size: 13;");
+
+                HBox g = new HBox(lbl);
+                g.setAlignment(Pos.CENTER_LEFT);
+                g.setPadding(new Insets(2, 6, 2, 6));
+
+                MenuItem mi = new MenuItem();
+                mi.setGraphic(g);
+                mi.setText("");
+
+                final String finalArchName = archName;
+                mi.setOnAction(e -> {
+                    // Ensure the collection has an archetypes list
+                    if (collection.getArchetypes() == null)
+                        collection.setArchetypes(new java.util.ArrayList<>());
+
+                    // Avoid duplicates (case-insensitive)
+                    boolean duplicate = false;
+                    for (String existing : collection.getArchetypes()) {
+                        if (finalArchName.equalsIgnoreCase(existing)) {
+                            duplicate = true;
+                            break;
+                        }
+                    }
+                    if (!duplicate) {
+                        collection.getArchetypes().add(finalArchName);
+                        logger.debug("Added archetype '{}' to collection '{}'",
+                                finalArchName, collection.getName());
+                    }
+
+                    // Rebuild the view so the new archetype node appears in the tree
+                    refreshDecksAndCollectionsView();
+                });
+
+                menu.getItems().add(mi);
+                if (inName) separatorInserted = true;
+            }
+
+            if (menu.getItems().isEmpty())
+                menu.getItems().add(disabledItem("All archetypes already added"));
+        });
+
+        return menu;
+    }
+
+    /**
+     * Normalises a string for accent- and case-insensitive comparison:
+     * lower-case, NFD decomposition, strip combining marks, collapse
+     * non-alphanumeric runs to a single space.
+     */
+    private static String normalizeForSort(String s) {
+        if (s == null) return "";
+        String t = s.toLowerCase(java.util.Locale.ROOT).trim();
+        t = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
+        t = t.replaceAll("[^a-z0-9\\s]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        return t;
     }
 
     public static ContextMenu forDecksDeck(
@@ -351,95 +553,438 @@ public final class NavigationContextMenuBuilder {
 
         ContextMenu cm = styledContextMenu();
 
+        Model.CardsLists.ThemeCollection parentColl = findParentCollectionOfDeck(deck, dac);
+        boolean isLinked = parentColl != null;
+
+        MenuItem addDeckItem = isLinked
+                ? makeDecksAddLinkedDeckAfterItem(deck, parentColl)
+                : makeDecksAddStandaloneDeckAfterItem(deck, dac);
+
         Menu moveMenu = makeLazyMenu("Move to...");
         moveMenu.setOnShowing(evt -> {
             moveMenu.getItems().clear();
 
-            if (dac == null || dac.getCollections() == null) {
-                moveMenu.getItems().add(disabledItem("No collections available"));
+            if (dac == null) {
+                moveMenu.getItems().add(disabledItem("No data available"));
                 return;
             }
 
-            boolean isInCollection = false;
-            outer:
-            for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
-                if (tc == null || tc.getLinkedDecks() == null) continue;
-                for (List<Model.CardsLists.Deck> group : tc.getLinkedDecks()) {
-                    if (group == null) continue;
-                    for (Model.CardsLists.Deck d : group) {
-                        if (d == deck) {
-                            isInCollection = true;
-                            break outer;
-                        }
+            if (dac.getCollections() != null) {
+                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                    if (tc == null) continue;
+                    String collName = sanitize(tc.getName());
+                    if (collName.isEmpty()) collName = "(Unnamed collection)";
+
+                    List<List<Model.CardsLists.Deck>> units = tc.getLinkedDecks();
+                    int groupCount = (units == null) ? 0 : units.size();
+
+                    for (int i = 0; i < groupCount; i++) {
+                        final int unitIndex = i;
+                        final Model.CardsLists.ThemeCollection targetColl = tc;
+                        final String label = collName + " / Deck group " + (i + 1);
+
+                        // Skip the unit this deck already belongs to
+                        if (tc == parentColl && units.get(i) != null
+                                && units.get(i).contains(deck)) continue;
+
+                        moveMenu.getItems().add(
+                                makeMoveDeckToUnitItem(label, deck, dac, targetColl, unitIndex));
                     }
+
+                    // Always offer "New Deck group" for every collection
+                    final Model.CardsLists.ThemeCollection targetCollNew = tc;
+                    final String newGroupLabel = collName + " / New Deck group";
+                    moveMenu.getItems().add(
+                            makeMoveDeckToNewUnitItem(newGroupLabel, deck, dac, targetCollNew));
                 }
             }
 
-            for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
-                if (tc == null) continue;
-                String collName = sanitize(tc.getName());
-                if (collName.isEmpty()) collName = "(Unnamed collection)";
-
-                List<List<Model.CardsLists.Deck>> groups = tc.getLinkedDecks();
-                int groupCount = (groups == null) ? 0 : groups.size();
-
-                for (int i = 1; i <= groupCount; i++) {
-                    moveMenu.getItems().add(makeItem(collName + " / Deck group " + i));
-                }
-                moveMenu.getItems().add(makeItem(collName + " / New Deck group"));
+            // "No Collection" — only when deck is currently linked to a collection
+            if (isLinked) {
+                if (!moveMenu.getItems().isEmpty())
+                    moveMenu.getItems().add(new SeparatorMenuItem());
+                moveMenu.getItems().add(
+                        makeMoveDeckToStandaloneItem(deck, dac, parentColl));
             }
 
-            if (isInCollection) {
-                moveMenu.getItems().add(new SeparatorMenuItem());
-                moveMenu.getItems().add(makeItem("No Collection"));
-            }
-
-            if (moveMenu.getItems().isEmpty()) {
-                moveMenu.getItems().add(disabledItem("No collections available"));
-            }
+            if (moveMenu.getItems().isEmpty())
+                moveMenu.getItems().add(disabledItem("No destinations available"));
         });
 
         Runnable removeAction = () -> {
             if (!isDeckEmpty(deck) && !confirmRemoval("Deck")) return;
-            // Remove from standalone decks list
-            if (dac.getDecks() != null && dac.getDecks().remove(deck)) {
-                refreshDecksAndCollectionsView();
-                return;
-            }
-            // Remove from a collection's deck group
-            if (dac.getCollections() != null) {
+            boolean removed = false;
+            if (dac.getDecks() != null) removed = dac.getDecks().remove(deck);
+            if (!removed && dac.getCollections() != null) {
                 outer:
                 for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
                     if (tc == null || tc.getLinkedDecks() == null) continue;
                     for (List<Model.CardsLists.Deck> group : tc.getLinkedDecks()) {
-                        if (group == null) continue;
-                        if (group.remove(deck)) {
-                            refreshDecksAndCollectionsView();
+                        if (group != null && group.remove(deck)) {
+                            removed = true;
                             break outer;
                         }
                     }
                 }
             }
+            if (removed) refreshDecksAndCollectionsView();
         };
 
-        cm.getItems().addAll(
-                moveMenu,
-                makeItem("Add Collection"),
-                makeItem("Add Deck"),
-                makeItem("Rename"),
-                new SeparatorMenuItem(),
-                makeRemoveItem(removeAction)
-        );
+        // Build item list — "Create Collection" only for standalone decks
+        List<javafx.scene.control.MenuItem> menuItems = new java.util.ArrayList<>();
+        menuItems.add(moveMenu);
+        menuItems.add(makeDecksAddCollectionAfterDeckItem(dac));
+        menuItems.add(addDeckItem);
+        if (!isLinked) {
+            menuItems.add(makeDecksCreateCollectionFromDeckItem(deck, dac));
+        }
+        menuItems.add(makeDecksRenameItem(deck));
+        menuItems.add(new SeparatorMenuItem());
+        menuItems.add(makeRemoveItem(removeAction));
+
+        cm.getItems().addAll(menuItems);
         return cm;
+    }
+
+    /**
+     * "Create Collection" — only for standalone decks.
+     * <p>
+     * Creates a new ThemeCollection pre-named after the deck, moves the deck
+     * into it (new unit), then triggers the "pending create-collection rename"
+     * flow so the user sees the rename field with the deck already inside.
+     * Cancelling reverts everything: the collection is removed and the deck is
+     * returned to the standalone list.
+     */
+    private static MenuItem makeDecksCreateCollectionFromDeckItem(
+            Model.CardsLists.Deck deck,
+            Model.CardsLists.DecksAndCollectionsList dac) {
+
+        return makeActionItem("Create Collection", () -> {
+            // Use the deck's current name as the default collection name
+            String defaultName = (deck.getName() == null || deck.getName().trim().isEmpty())
+                    ? "New Collection"
+                    : deck.getName().trim();
+
+            // Create the collection
+            Model.CardsLists.ThemeCollection newColl = new Model.CardsLists.ThemeCollection();
+            newColl.setName(defaultName);
+
+            // Remove deck from the standalone list
+            if (dac.getDecks() != null) dac.getDecks().remove(deck);
+
+            // Place the deck in the new collection (AddDeck creates a new unit)
+            newColl.AddDeck(deck);
+
+            // Register the collection in the DAC
+            if (dac.getCollections() == null) dac.setCollections(new java.util.ArrayList<>());
+            dac.getCollections().add(newColl);
+
+            // Store {collection, deck} so the refresher can launch the special rename
+            Controller.UserInterfaceFunctions.setPendingDecksCreateCollectionData(
+                    new Object[]{newColl, deck});
+
+            refreshDecksAndCollectionsView();
+        });
     }
 
     public static ContextMenu forDecksEmpty() {
         ContextMenu cm = styledContextMenu();
         cm.getItems().addAll(
-                makeItem("Add Collection"),
-                makeItem("Add Deck")
+                makeDecksAddCollectionAtEndItem(),
+                makeDecksAddStandaloneDeckAtEndItem()
         );
         return cm;
+    }
+
+    // ── Decks-tab helpers ─────────────────────────────────────────────────────
+
+    /**
+     * Finds the ThemeCollection that contains the given deck as a linked deck,
+     * or null if the deck is standalone.
+     */
+    private static Model.CardsLists.ThemeCollection findParentCollectionOfDeck(
+            Model.CardsLists.Deck deck,
+            Model.CardsLists.DecksAndCollectionsList dac) {
+        if (dac == null || deck == null || dac.getCollections() == null) return null;
+        for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+            if (tc == null || tc.getLinkedDecks() == null) continue;
+            for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                if (unit == null) continue;
+                for (Model.CardsLists.Deck d : unit) {
+                    if (d == deck) return tc;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Removes {@code deck} from wherever it currently lives (any collection unit
+     * or the standalone list) without triggering a UI refresh.
+     */
+    private static void removeDeckFromCurrentLocation(
+            Model.CardsLists.Deck deck,
+            Model.CardsLists.DecksAndCollectionsList dac) {
+
+        if (dac == null || deck == null) return;
+
+        // Remove from standalone list
+        if (dac.getDecks() != null) dac.getDecks().remove(deck);
+
+        // Remove from every collection unit
+        if (dac.getCollections() != null) {
+            for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                if (tc == null || tc.getLinkedDecks() == null) continue;
+                for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                    if (unit != null) unit.remove(deck);
+                }
+                // Prune empty units so the collection stays tidy
+                tc.getLinkedDecks().removeIf(u -> u == null || u.isEmpty());
+            }
+        }
+    }
+
+    /**
+     * MenuItem: move {@code deck} to an existing unit (by index) in {@code targetColl}.
+     */
+    private static MenuItem makeMoveDeckToUnitItem(
+            String label,
+            Model.CardsLists.Deck deck,
+            Model.CardsLists.DecksAndCollectionsList dac,
+            Model.CardsLists.ThemeCollection targetColl,
+            int unitIndex) {
+
+        return makeActionItem(label, () -> {
+            removeDeckFromCurrentLocation(deck, dac);
+
+            List<List<Model.CardsLists.Deck>> units = targetColl.getLinkedDecks();
+            if (units == null) {
+                units = new java.util.ArrayList<>();
+                targetColl.setLinkedDecks(units);
+            }
+            // The unit index may have shifted after removal — clamp it
+            int safeIdx = Math.min(unitIndex, units.size() - 1);
+            if (safeIdx < 0) {
+                // No units left — create one
+                List<Model.CardsLists.Deck> newUnit = new java.util.ArrayList<>();
+                newUnit.add(deck);
+                units.add(newUnit);
+            } else {
+                units.get(safeIdx).add(deck);
+            }
+
+            Controller.UserInterfaceFunctions.setPendingDecksScrollTarget(deck);
+            refreshDecksAndCollectionsView();
+        });
+    }
+
+    /**
+     * MenuItem: move {@code deck} to a brand-new unit appended to {@code targetColl}.
+     */
+    private static MenuItem makeMoveDeckToNewUnitItem(
+            String label,
+            Model.CardsLists.Deck deck,
+            Model.CardsLists.DecksAndCollectionsList dac,
+            Model.CardsLists.ThemeCollection targetColl) {
+
+        return makeActionItem(label, () -> {
+            removeDeckFromCurrentLocation(deck, dac);
+            targetColl.AddDeck(deck);   // AddDeck always creates a new unit
+            Controller.UserInterfaceFunctions.setPendingDecksScrollTarget(deck);
+            refreshDecksAndCollectionsView();
+        });
+    }
+
+    /**
+     * MenuItem: move {@code deck} out of its collection into the standalone decks list.
+     */
+    private static MenuItem makeMoveDeckToStandaloneItem(
+            Model.CardsLists.Deck deck,
+            Model.CardsLists.DecksAndCollectionsList dac,
+            Model.CardsLists.ThemeCollection currentParent) {
+
+        return makeActionItem("No Collection", () -> {
+            removeDeckFromCurrentLocation(deck, dac);
+            if (dac.getDecks() == null) dac.setDecks(new java.util.ArrayList<>());
+            dac.getDecks().add(deck);
+            Controller.UserInterfaceFunctions.setPendingDecksScrollTarget(deck);
+            refreshDecksAndCollectionsView();
+        });
+    }
+
+    /**
+     * "Add Collection" from a Collection context: inserts after {@code reference}.
+     */
+    private static MenuItem makeDecksAddCollectionAfterItem(
+            Model.CardsLists.ThemeCollection reference,
+            Model.CardsLists.DecksAndCollectionsList dac) {
+        return makeActionItem("Add Collection", () -> {
+            Model.CardsLists.ThemeCollection newColl = new Model.CardsLists.ThemeCollection();
+            newColl.setName("New Collection");
+            if (dac.getCollections() == null) dac.setCollections(new java.util.ArrayList<>());
+            int idx = dac.getCollections().indexOf(reference);
+            if (idx >= 0) dac.getCollections().add(idx + 1, newColl);
+            else dac.getCollections().add(newColl);
+            Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newColl);
+            refreshDecksAndCollectionsView();
+        });
+    }
+
+    /**
+     * "Add Collection" from a Deck context: appends at end of the collections list.
+     */
+    private static MenuItem makeDecksAddCollectionAfterDeckItem(
+            Model.CardsLists.DecksAndCollectionsList dac) {
+        return makeActionItem("Add Collection", () -> {
+            Model.CardsLists.ThemeCollection newColl = new Model.CardsLists.ThemeCollection();
+            newColl.setName("New Collection");
+            if (dac.getCollections() == null) dac.setCollections(new java.util.ArrayList<>());
+            dac.getCollections().add(newColl);
+            Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newColl);
+            refreshDecksAndCollectionsView();
+        });
+    }
+
+    /**
+     * "Add Collection" from the empty-background context: appends at end.
+     */
+    private static MenuItem makeDecksAddCollectionAtEndItem() {
+        return makeActionItem("Add Collection", () -> {
+            Model.CardsLists.DecksAndCollectionsList dac =
+                    Controller.UserInterfaceFunctions.getDecksList();
+            if (dac == null) return;
+            Model.CardsLists.ThemeCollection newColl = new Model.CardsLists.ThemeCollection();
+            newColl.setName("New Collection");
+            if (dac.getCollections() == null) dac.setCollections(new java.util.ArrayList<>());
+            dac.getCollections().add(newColl);
+            Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newColl);
+            refreshDecksAndCollectionsView();
+        });
+    }
+
+    /**
+     * "Add Deck" from a Collection context: adds a new linked deck unit to the collection.
+     */
+    private static MenuItem makeDecksAddLinkedDeckToCollectionItem(
+            Model.CardsLists.ThemeCollection collection) {
+        return makeActionItem("Add Deck", () -> {
+            Model.CardsLists.Deck newDeck = new Model.CardsLists.Deck();
+            newDeck.setName("New Deck");
+            collection.AddDeck(newDeck);   // adds as a new unit at the end
+            Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newDeck);
+            refreshDecksAndCollectionsView();
+        });
+    }
+
+    /**
+     * "Add Deck" from a linked Deck context: inserts a new linked-deck unit
+     * immediately after the unit that contains {@code reference}.
+     */
+    private static MenuItem makeDecksAddLinkedDeckAfterItem(
+            Model.CardsLists.Deck reference,
+            Model.CardsLists.ThemeCollection parentCollection) {
+        return makeActionItem("Add Deck", () -> {
+            Model.CardsLists.Deck newDeck = new Model.CardsLists.Deck();
+            newDeck.setName("New Deck");
+            List<List<Model.CardsLists.Deck>> units = parentCollection.getLinkedDecks();
+            if (units != null) {
+                int unitIdx = -1;
+                outer:
+                for (int i = 0; i < units.size(); i++) {
+                    List<Model.CardsLists.Deck> unit = units.get(i);
+                    if (unit == null) continue;
+                    for (Model.CardsLists.Deck d : unit) {
+                        if (d == reference) {
+                            unitIdx = i;
+                            break outer;
+                        }
+                    }
+                }
+                List<Model.CardsLists.Deck> newUnit = new java.util.ArrayList<>();
+                newUnit.add(newDeck);
+                if (unitIdx >= 0) units.add(unitIdx + 1, newUnit);
+                else units.add(newUnit);
+            } else {
+                parentCollection.AddDeck(newDeck);
+            }
+            Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newDeck);
+            refreshDecksAndCollectionsView();
+        });
+    }
+
+    /**
+     * "Add Deck" from a standalone Deck context: inserts after {@code reference}.
+     */
+    private static MenuItem makeDecksAddStandaloneDeckAfterItem(
+            Model.CardsLists.Deck reference,
+            Model.CardsLists.DecksAndCollectionsList dac) {
+        return makeActionItem("Add Deck", () -> {
+            Model.CardsLists.Deck newDeck = new Model.CardsLists.Deck();
+            newDeck.setName("New Deck");
+            if (dac.getDecks() == null) dac.setDecks(new java.util.ArrayList<>());
+            int idx = dac.getDecks().indexOf(reference);
+            if (idx >= 0) dac.getDecks().add(idx + 1, newDeck);
+            else dac.getDecks().add(newDeck);
+            Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newDeck);
+            refreshDecksAndCollectionsView();
+        });
+    }
+
+    /**
+     * "Add Deck" from the empty-background context: appends a standalone deck at end.
+     */
+    private static MenuItem makeDecksAddStandaloneDeckAtEndItem() {
+        return makeActionItem("Add Deck", () -> {
+            Model.CardsLists.DecksAndCollectionsList dac =
+                    Controller.UserInterfaceFunctions.getDecksList();
+            if (dac == null) return;
+            Model.CardsLists.Deck newDeck = new Model.CardsLists.Deck();
+            newDeck.setName("New Deck");
+            if (dac.getDecks() == null) dac.setDecks(new java.util.ArrayList<>());
+            dac.getDecks().add(newDeck);
+            Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newDeck);
+            refreshDecksAndCollectionsView();
+        });
+    }
+
+    /**
+     * "Rename" for an existing Deck or ThemeCollection: walks up from the context-menu
+     * owner node to find the NavigationItem and starts an inline rename directly on it.
+     * No pending-rename mechanism needed since the object already exists in the model.
+     */
+    private static MenuItem makeDecksRenameItem(Object modelObj) {
+        MenuItem mi = new MenuItem();
+        Label lbl = new Label("Rename");
+        lbl.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        HBox g = new HBox(lbl);
+        g.setAlignment(Pos.CENTER_LEFT);
+        g.setPadding(new Insets(2, 6, 2, 6));
+        mi.setGraphic(g);
+        mi.setText("");
+
+        mi.setOnAction(e -> {
+            javafx.scene.Node owner = null;
+            try {
+                owner = mi.getParentPopup().getOwnerNode();
+            } catch (Throwable ignored) {
+            }
+            View.NavigationItem navItem = findNavigationItemAncestor(owner);
+            if (navItem == null) return;
+
+            navItem.startInlineRename(
+                    newName -> {
+                        if (modelObj instanceof Model.CardsLists.Deck)
+                            ((Model.CardsLists.Deck) modelObj).setName(newName);
+                        else if (modelObj instanceof Model.CardsLists.ThemeCollection)
+                            ((Model.CardsLists.ThemeCollection) modelObj).setName(newName);
+                        navItem.getLabel().setText(newName);
+                        refreshDecksAndCollectionsView();
+                    },
+                    null   // cancel is a no-op for an existing element
+            );
+        });
+
+        return mi;
     }
 
     // =========================================================================

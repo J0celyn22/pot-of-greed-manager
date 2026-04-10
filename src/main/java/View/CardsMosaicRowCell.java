@@ -4,7 +4,6 @@ import Controller.DragDropManager;
 import Controller.SelectionManager;
 import Controller.UserInterfaceFunctions;
 import Model.CardsLists.Card;
-import Model.CardsLists.DecksAndCollectionsList;
 import Utils.LruImageCache;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -127,7 +126,8 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
 
         addToMenu.setOnShowing(evt -> {
             addToMenu.getItems().clear();
-            List<MenuItem> items = buildAllDestinationItems();
+            // Pass card here so each menu item is wired to the correct card
+            List<MenuItem> items = buildAllDecksDestinationItems(card);
             if (items.isEmpty()) {
                 MenuItem none = new MenuItem("No destinations available");
                 none.setDisable(true);
@@ -139,6 +139,101 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
 
         cm.getItems().add(addToMenu);
         return cm;
+    }
+
+    /**
+     * Builds deck destination items wired to handleAddToDeck for the mosaic right-panel.
+     */
+    private static List<MenuItem> buildAllDecksDestinationItems(Card card) {
+        List<MenuItem> items = new ArrayList<>();
+        if (card == null) return items;
+        try {
+            Model.CardsLists.DecksAndCollectionsList dac = Controller.UserInterfaceFunctions.getDecksList();
+            if (dac == null) {
+                try {
+                    Controller.UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+                } catch (Exception ignored) {
+                }
+                dac = Controller.UserInterfaceFunctions.getDecksList();
+            }
+            if (dac == null) return items;
+
+            if (dac.getCollections() != null) {
+                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                    if (tc == null) continue;
+                    String coll = sanitize(tc.getName());
+
+                    items.add(makeDecksCollectionItem(coll, card));
+
+                    if (tc.getLinkedDecks() != null) {
+                        for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                            if (unit == null) continue;
+                            for (Model.CardsLists.Deck deck : unit) {
+                                if (deck == null) continue;
+                                String base = coll + " / " + sanitize(deck.getName());
+                                items.add(makeDecksDestItem(base + " / Main Deck", card));
+                                items.add(makeDecksDestItem(base + " / Extra Deck", card));
+                                items.add(makeDecksDestItem(base + " / Side Deck", card));
+                            }
+                        }
+                    }
+
+                    items.add(makeDecksExclusionItem(coll, card));
+                }
+            }
+
+            if (dac.getDecks() != null) {
+                for (Model.CardsLists.Deck deck : dac.getDecks()) {
+                    if (deck == null) continue;
+                    String d = sanitize(deck.getName());
+                    items.add(makeDecksDestItem(d + " / Main Deck", card));
+                    items.add(makeDecksDestItem(d + " / Extra Deck", card));
+                    items.add(makeDecksDestItem(d + " / Side Deck", card));
+                }
+            }
+        } catch (Exception ex) {
+            logger.error("buildAllDecksDestinationItems failed", ex);
+        }
+        return items;
+    }
+
+    private static MenuItem makeDecksCollectionItem(String collName, Card card) {
+        MenuItem mi = new MenuItem();
+        Label label = new Label(collName);
+        label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        javafx.scene.layout.HBox g = new javafx.scene.layout.HBox(label);
+        g.setAlignment(Pos.CENTER_LEFT);
+        g.setPadding(new Insets(2, 6, 2, 6));
+        mi.setGraphic(g);
+        mi.setText("");
+        mi.setOnAction(e -> Controller.MenuActionHandler.handleAddToCollectionCards(card, collName));
+        return mi;
+    }
+
+    private static MenuItem makeDecksExclusionItem(String collName, Card card) {
+        MenuItem mi = new MenuItem();
+        Label label = new Label(collName + " / Exclusion List");
+        label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        javafx.scene.layout.HBox g = new javafx.scene.layout.HBox(label);
+        g.setAlignment(Pos.CENTER_LEFT);
+        g.setPadding(new Insets(2, 6, 2, 6));
+        mi.setGraphic(g);
+        mi.setText("");
+        mi.setOnAction(e -> Controller.MenuActionHandler.handleAddToExclusionList(card, collName));
+        return mi;
+    }
+
+    private static MenuItem makeDecksDestItem(String path, Card card) {
+        MenuItem mi = new MenuItem();
+        Label label = new Label(path);
+        label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        javafx.scene.layout.HBox g = new javafx.scene.layout.HBox(label);
+        g.setAlignment(Pos.CENTER_LEFT);
+        g.setPadding(new Insets(2, 6, 2, 6));
+        mi.setGraphic(g);
+        mi.setText("");
+        mi.setOnAction(e -> Controller.MenuActionHandler.handleAddToDeck(card, path));
+        return mi;
     }
 
     private static ContextMenu buildMyCollectionContextMenu(Card card) {
@@ -222,55 +317,6 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
             }
         } catch (Exception ex) {
             logger.error("buildMyCollectionDestinationItems failed", ex);
-        }
-        return items;
-    }
-
-    private static List<MenuItem> buildAllDestinationItems() {
-        List<MenuItem> items = new ArrayList<>();
-        try {
-            DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
-            if (dac == null) {
-                try {
-                    UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
-                } catch (Exception ignored) {
-                }
-                dac = UserInterfaceFunctions.getDecksList();
-            }
-            if (dac == null) return items;
-
-            if (dac.getCollections() != null) {
-                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
-                    if (tc == null) continue;
-                    String coll = sanitize(tc.getName());
-                    items.add(makeDestItem(coll, null));
-                    if (tc.getLinkedDecks() != null) {
-                        for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
-                            if (unit == null) continue;
-                            for (Model.CardsLists.Deck deck : unit) {
-                                if (deck == null) continue;
-                                String base = coll + " / " + sanitize(deck.getName());
-                                items.add(makeDestItem(base + " / Main Deck", null));
-                                items.add(makeDestItem(base + " / Extra Deck", null));
-                                items.add(makeDestItem(base + " / Side Deck", null));
-                            }
-                        }
-                    }
-                    items.add(makeDestItem(coll + " / Exclusion List", null));
-                }
-            }
-
-            if (dac.getDecks() != null) {
-                for (Model.CardsLists.Deck deck : dac.getDecks()) {
-                    if (deck == null) continue;
-                    String d = sanitize(deck.getName());
-                    items.add(makeDestItem(d + " / Main Deck", null));
-                    items.add(makeDestItem(d + " / Extra Deck", null));
-                    items.add(makeDestItem(d + " / Side Deck", null));
-                }
-            }
-        } catch (Exception ex) {
-            logger.error("buildAllDestinationItems failed", ex);
         }
         return items;
     }

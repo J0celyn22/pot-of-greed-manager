@@ -161,13 +161,33 @@ public class CardsListCell extends ListCell<Card> {
         return items;
     }
 
-    private static ContextMenu buildContextMenuForDecks() {
+    // ── Replace the existing static buildContextMenuForDecks() with this instance method ──
+
+    private static MenuItem makeDecksCollectionItem(String collName, Card card) {
+        MenuItem mi = new MenuItem(collName);
+        mi.setOnAction(e -> Controller.MenuActionHandler.handleAddToCollectionCards(card, collName));
+        return mi;
+    }
+
+    private static MenuItem makeDecksExclusionItem(String collName, Card card) {
+        MenuItem mi = new MenuItem(collName + " / Exclusion List");
+        mi.setOnAction(e -> Controller.MenuActionHandler.handleAddToExclusionList(card, collName));
+        return mi;
+    }
+
+    private static MenuItem makeDecksDestItem(String path, Card card) {
+        MenuItem mi = new MenuItem(path);
+        mi.setOnAction(e -> Controller.MenuActionHandler.handleAddToDeck(card, path));
+        return mi;
+    }
+
+    private ContextMenu buildContextMenuForDecks() {
         ContextMenu cm = styledContextMenu();
         Menu addToMenu = makeMenuHeader("Add to...");
         addToMenu.getItems().add(loadingPlaceholder());
         addToMenu.setOnShowing(evt -> {
             addToMenu.getItems().clear();
-            List<MenuItem> items = buildAllDestinationItems();
+            List<MenuItem> items = buildAllDecksDestinationItems(getItem());
             if (items.isEmpty()) {
                 MenuItem none = new MenuItem("No destinations available");
                 none.setDisable(true);
@@ -178,6 +198,65 @@ public class CardsListCell extends ListCell<Card> {
         });
         cm.getItems().add(addToMenu);
         return cm;
+    }
+
+    /**
+     * Builds the flat list of all Main / Extra / Side Deck slots from the
+     * current DecksAndCollectionsList, wired to handleAddToDeck(card, path).
+     */
+    private List<MenuItem> buildAllDecksDestinationItems(Card card) {
+        java.util.List<MenuItem> items = new java.util.ArrayList<>();
+        if (card == null) return items;
+        try {
+            Model.CardsLists.DecksAndCollectionsList dac = Controller.UserInterfaceFunctions.getDecksList();
+            if (dac == null) {
+                try {
+                    Controller.UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+                } catch (Exception ignored) {
+                }
+                dac = Controller.UserInterfaceFunctions.getDecksList();
+            }
+            if (dac == null) return items;
+
+            if (dac.getCollections() != null) {
+                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                    if (tc == null) continue;
+                    String coll = sanitize(tc.getName());
+
+                    // Collection card-list slot
+                    items.add(makeDecksCollectionItem(coll, card));
+
+                    if (tc.getLinkedDecks() != null) {
+                        for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                            if (unit == null) continue;
+                            for (Model.CardsLists.Deck deck : unit) {
+                                if (deck == null) continue;
+                                String base = coll + " / " + sanitize(deck.getName());
+                                items.add(makeDecksDestItem(base + " / Main Deck", card));
+                                items.add(makeDecksDestItem(base + " / Extra Deck", card));
+                                items.add(makeDecksDestItem(base + " / Side Deck", card));
+                            }
+                        }
+                    }
+
+                    // Exclusion list slot
+                    items.add(makeDecksExclusionItem(coll, card));
+                }
+            }
+
+            if (dac.getDecks() != null) {
+                for (Model.CardsLists.Deck deck : dac.getDecks()) {
+                    if (deck == null) continue;
+                    String d = sanitize(deck.getName());
+                    items.add(makeDecksDestItem(d + " / Main Deck", card));
+                    items.add(makeDecksDestItem(d + " / Extra Deck", card));
+                    items.add(makeDecksDestItem(d + " / Side Deck", card));
+                }
+            }
+        } catch (Exception ex) {
+            logger.error("buildAllDecksDestinationItems failed", ex);
+        }
+        return items;
     }
 
     private static String sanitize(String raw) {

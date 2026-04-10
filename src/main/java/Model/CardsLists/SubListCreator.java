@@ -471,4 +471,48 @@ public class SubListCreator {
         }
         return indexes;
     }
+
+    /**
+     * After CreateArchetypeLists() has been called, iterates every archetype
+     * and adds its name to the archetypes list of every card that belongs to it.
+     * <p>
+     * This ensures card.getArchetypes() always reflects ALL archetypes a card
+     * participates in (both the primary one returned by the API and any secondary
+     * ones discovered via name-matching), fixing the bug where a card was missing
+     * from its main archetype because the API only reported a secondary one.
+     */
+    public static void UpdateCardArchetypes() {
+        if (archetypesList == null || archetypesCardsLists == null) return;
+
+        for (int i = 0; i < archetypesList.size(); i++) {
+            String archetypeName = archetypesList.get(i);
+            if (archetypeName == null) continue;
+            if (i >= archetypesCardsLists.size()) continue;
+
+            List<Card> cards = archetypesCardsLists.get(i);
+            if (cards == null) continue;
+
+            for (Card card : cards) {
+                if (card == null) continue;
+
+                List<String> existing = card.getArchetypes();
+                if (existing == null) {
+                    existing = new ArrayList<>();
+                    card.setArchetypes(existing);
+                }
+
+                // Case-insensitive duplicate check
+                boolean alreadyPresent = false;
+                for (String s : existing) {
+                    if (archetypeName.equalsIgnoreCase(s)) {
+                        alreadyPresent = true;
+                        break;
+                    }
+                }
+                if (!alreadyPresent) {
+                    existing.add(archetypeName);
+                }
+            }
+        }
+    }
 }

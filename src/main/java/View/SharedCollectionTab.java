@@ -34,6 +34,10 @@ public class SharedCollectionTab extends HBox {
 
     private static final Logger logger = LoggerFactory.getLogger(SharedCollectionTab.class);
 
+    public ScrollPane getMenuScrollPane() {
+        return menuScrollPane;
+    }
+
     public SharedCollectionTab(TabType tabType) {
         this.tabType = tabType;
         this.setSpacing(0);

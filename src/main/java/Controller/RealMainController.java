@@ -576,6 +576,9 @@ public class RealMainController {
             Map<Integer, Card> allCards = Model.Database.Database.getAllCardsList();
             if (allCards != null && !allCards.isEmpty()) {
                 SubListCreator.CreateArchetypeLists(allCards);
+                // Enrich every card's archetype list with ALL archetypes it belongs to,
+                // fixing the bug where secondary archetypes hid the primary one.
+                SubListCreator.UpdateCardArchetypes();
                 logger.info("SubListCreator archetypes loaded: names={}, lists={}",
                         SubListCreator.archetypesList == null ? 0 : SubListCreator.archetypesList.size(),
                         SubListCreator.archetypesCardsLists == null ? 0 : SubListCreator.archetypesCardsLists.size());
@@ -634,14 +637,9 @@ public class RealMainController {
                 try {
                     displayMyCollection();
                     populateMyCollectionMenu();
-                    // Capture the pending rename target NOW (before the normal refresher
-                    // fires its own populateMyCollectionMenu which would rebuild the nav again).
                     Object renameTarget = UserInterfaceFunctions.getAndClearPendingRenameTarget();
                     if (renameTarget != null) {
                         final Object finalTarget = renameTarget;
-                        // Platform.runLater defers until after the normal refresher's
-                        // populateMyCollectionMenu() has also completed, so the NavigationItem
-                        // we find is the live, final one.
                         Platform.runLater(() -> {
                             logger.debug("Pending rename: searching nav for target={}", finalTarget);
                             NavigationItem toRename = findNavItemInMenuVBox(
@@ -649,6 +647,10 @@ public class RealMainController {
                             if (toRename != null) {
                                 logger.debug("Pending rename: found NavigationItem '{}', starting inline rename",
                                         toRename.getLabel().getText());
+                                // Expand parent (e.g. Box that contains the new Category)
+                                expandNavAncestors(toRename);
+                                // Scroll nav menu so the rename field is visible
+                                scrollNavToItem(myCollectionTab, toRename);
                                 startAddRename(toRename, finalTarget);
                             } else {
                                 logger.warn("Pending rename: NavigationItem not found for target={}", finalTarget);
@@ -671,8 +673,65 @@ public class RealMainController {
                         populateDecksAndCollectionsMenu();
                         UserInterfaceFunctions.registerDecksCollectionsRefresher(() -> {
                             try {
+                                String cardTarget = MenuActionHandler.getAndClearLastDecksAddedTarget();
+                                Object deckMoveTarget = UserInterfaceFunctions.getAndClearPendingDecksScrollTarget();
+                                Object[] createCollData = UserInterfaceFunctions.getAndClearPendingDecksCreateCollectionData();
+
                                 populateDecksAndCollectionsMenu();
                                 displayDecksAndCollections();
+
+                                // Scroll content tree to where a card was added
+                                if (cardTarget != null) {
+                                    scrollToTargetInDecksTree(cardTarget);
+                                }
+
+                                // Scroll / expand nav to a moved deck
+                                if (deckMoveTarget != null) {
+                                    scrollToMovedDeck(deckMoveTarget);
+                                }
+
+                                // "Create Collection from Deck" — expand collection nav item,
+                                //  show the rename field; the deck is already inside.
+                                if (createCollData != null && createCollData.length == 2
+                                        && createCollData[0] instanceof ThemeCollection
+                                        && createCollData[1] instanceof Deck) {
+
+                                    final ThemeCollection newColl = (ThemeCollection) createCollData[0];
+                                    final Deck movedDeck = (Deck) createCollData[1];
+
+                                    Platform.runLater(() -> {
+                                        NavigationItem toRename = findNavItemInMenuVBox(
+                                                decksTab.getMenuVBox(), newColl);
+                                        if (toRename != null) {
+                                            // Expand the collection so the contained deck is visible
+                                            toRename.setExpanded(true);
+                                            expandNavAncestors(toRename);
+                                            scrollNavToItem(decksTab, toRename);
+                                            startDecksCreateCollectionRename(toRename, newColl, movedDeck);
+                                        } else {
+                                            logger.warn("Create-Collection rename: NavigationItem not found for {}",
+                                                    newColl.getName());
+                                        }
+                                    });
+                                }
+
+                                // Normal add/rename for newly created Deck or Collection
+                                Object renameTarget = UserInterfaceFunctions.getAndClearPendingDecksRenameTarget();
+                                if (renameTarget != null) {
+                                    final Object finalTarget = renameTarget;
+                                    Platform.runLater(() -> {
+                                        NavigationItem toRename = findNavItemInMenuVBox(
+                                                decksTab.getMenuVBox(), finalTarget);
+                                        if (toRename != null) {
+                                            expandNavAncestors(toRename);
+                                            scrollNavToItem(decksTab, toRename);
+                                            startDecksAddRename(toRename, finalTarget);
+                                        } else {
+                                            logger.warn("Pending decks rename: NavigationItem not found for target={}",
+                                                    finalTarget);
+                                        }
+                                    });
+                                }
                             } catch (Exception e) {
                                 logger.debug("Decks refresher failed", e);
                             }
@@ -758,6 +817,175 @@ public class RealMainController {
                 }
             });
         }*/
+    }
+
+    /**
+     * Starts an inline rename on a freshly created Deck or ThemeCollection.
+     * Confirm → updates the model name and refreshes the decks view.
+     * Cancel → removes the element from the model and refreshes.
+     */
+    private void startDecksAddRename(NavigationItem navItem, Object modelObj) {
+        navItem.startInlineRename(
+                newName -> {
+                    if (modelObj instanceof Deck) ((Deck) modelObj).setName(newName);
+                    else if (modelObj instanceof ThemeCollection)
+                        ((ThemeCollection) modelObj).setName(newName);
+                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                },
+                () -> {
+                    // Cancel: remove the freshly created element so it disappears
+                    try {
+                        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
+                        if (dac != null) {
+                            if (modelObj instanceof Deck) {
+                                Deck d = (Deck) modelObj;
+                                boolean removed = dac.getDecks() != null && dac.getDecks().remove(d);
+                                if (!removed && dac.getCollections() != null) {
+                                    outer:
+                                    for (ThemeCollection tc : dac.getCollections()) {
+                                        if (tc == null || tc.getLinkedDecks() == null) continue;
+                                        for (List<Deck> unit : tc.getLinkedDecks()) {
+                                            if (unit != null && unit.remove(d)) break outer;
+                                        }
+                                    }
+                                }
+                            } else if (modelObj instanceof ThemeCollection) {
+                                if (dac.getCollections() != null)
+                                    dac.getCollections().remove(modelObj);
+                            }
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                }
+        );
+    }
+
+    /**
+     * Starts an inline rename for a ThemeCollection that was just created from a
+     * standalone Deck ("Create Collection" action).
+     * <p>
+     * Confirm → renames the collection and refreshes.
+     * Cancel  → removes the collection and moves the deck back to the standalone
+     * list, then refreshes.
+     */
+    private void startDecksCreateCollectionRename(NavigationItem navItem,
+                                                  ThemeCollection newColl,
+                                                  Deck movedDeck) {
+        navItem.startInlineRename(
+                newName -> {
+                    newColl.setName(newName);
+                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                },
+                () -> {
+                    // Cancel: undo — remove the collection and restore the deck
+                    try {
+                        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
+                        if (dac != null) {
+                            if (dac.getCollections() != null)
+                                dac.getCollections().remove(newColl);
+                            if (dac.getDecks() == null)
+                                dac.setDecks(new java.util.ArrayList<>());
+                            dac.getDecks().add(movedDeck);
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                }
+        );
+    }
+
+    /**
+     * Expands all NavigationItem ancestors of the given item in the nav menu,
+     * so the item itself becomes visible.
+     */
+    private void expandNavAncestors(NavigationItem item) {
+        if (item == null) return;
+        javafx.scene.Node parent = item.getParent();
+        while (parent != null) {
+            if (parent instanceof NavigationItem) {
+                ((NavigationItem) parent).setExpanded(true);
+            }
+            parent = parent.getParent();
+        }
+    }
+
+    /**
+     * Scrolls the nav-menu ScrollPane inside {@code tab} so that {@code item}
+     * is centred in the viewport.
+     */
+    private void scrollNavToItem(SharedCollectionTab tab, NavigationItem item) {
+        if (tab == null || item == null) return;
+        Platform.runLater(() -> {
+            try {
+                ScrollPane sp = tab.getMenuScrollPane();
+                VBox content = tab.getMenuVBox();
+                if (sp == null || content == null) return;
+
+                // Walk up from item to content to accumulate Y offset
+                double itemY = 0;
+                javafx.scene.Node node = item;
+                while (node != null && node != content) {
+                    itemY += node.getBoundsInParent().getMinY();
+                    node = node.getParent();
+                }
+
+                javafx.geometry.Bounds vb = sp.getViewportBounds();
+                javafx.geometry.Bounds cb = content.getBoundsInLocal();
+                if (vb == null || cb == null) return;
+                double viewportH = vb.getHeight();
+                double contentH = cb.getHeight();
+                if (contentH <= viewportH) return;
+
+                double itemH = item.getBoundsInLocal().getHeight();
+                double targetY = itemY - (viewportH - itemH) / 2.0;
+                targetY = Math.max(0, Math.min(targetY, contentH - viewportH));
+                sp.setVvalue(targetY / (contentH - viewportH));
+            } catch (Throwable ignored) {
+            }
+        });
+    }
+
+    /**
+     * Scrolls the decks-and-collections TreeView so the node corresponding to
+     * {@code handlerTarget} is visible after a tree rebuild.
+     * Maps known aliases ("Exclusion List" → "Cards not to add").
+     */
+    private void scrollToTargetInDecksTree(String handlerTarget) {
+        if (decksAndCollectionsTreeView == null || handlerTarget == null) return;
+
+        String[] rawParts = handlerTarget.split("\\s*/\\s*");
+        String[] parts = new String[rawParts.length];
+        for (int i = 0; i < rawParts.length; i++) {
+            String p = rawParts[i].trim();
+            if (p.equalsIgnoreCase("Exclusion List")) p = "Cards not to add";
+            parts[i] = p;
+        }
+
+        Platform.runLater(() -> {
+            if (decksAndCollectionsTreeView == null) return;
+            TreeItem<String> root = decksAndCollectionsTreeView.getRoot();
+            if (root == null) return;
+
+            // Try full path, then last-2, then last-1
+            TreeItem<String> target = findTreeItemByPath(root, parts, 0);
+            if (target == null && parts.length >= 2)
+                target = findTreeItemByPath(root,
+                        new String[]{parts[parts.length - 2], parts[parts.length - 1]}, 0);
+            if (target == null)
+                target = findTreeItemByPath(root, new String[]{parts[parts.length - 1]}, 0);
+            if (target == null) return;
+
+            // Expand ancestors so the node is reachable
+            for (TreeItem<String> a = target.getParent(); a != null; a = a.getParent())
+                a.setExpanded(true);
+
+            final TreeItem<String> finalTarget = target;
+            Platform.runLater(() -> {
+                int row = decksAndCollectionsTreeView.getRow(finalTarget);
+                if (row >= 0) decksAndCollectionsTreeView.scrollTo(row);
+            });
+        });
     }
 
     /**
@@ -1541,6 +1769,7 @@ public class RealMainController {
         if (ouicheDetailed.getCollections() != null) {
             for (ThemeCollection collection : ouicheDetailed.getCollections()) {
                 NavigationItem collectionNavItem = createNavigationItem(collection.getName(), 0);
+                collectionNavItem.setUserData(collection);
 
                 // navigation wiring: click navigates to the collection node in ouicheTreeView
                 collectionNavItem.setOnLabelClicked(evt -> navigateToTree(ouicheTreeView, collection.getName()));
@@ -1554,6 +1783,7 @@ public class RealMainController {
                         for (Deck linkedDeck : unit) {
                             if (linkedDeck == null) continue;
                             NavigationItem deckSubItem = createNavigationItem(linkedDeck.getName(), 1);
+                            deckSubItem.setUserData(linkedDeck);
                             // navigate to collection -> Decks -> deckName
                             deckSubItem.setOnLabelClicked(evt -> navigateToTree(ouicheTreeView, collection.getName(), "Decks", linkedDeck.getName()));
                             collectionNavItem.addSubItem(deckSubItem);
@@ -1566,6 +1796,7 @@ public class RealMainController {
         if (ouicheDetailed.getDecks() != null) {
             for (Deck deck : ouicheDetailed.getDecks()) {
                 NavigationItem navItem = createNavigationItem(deck.getName(), 0);
+                navItem.setUserData(deck);
                 navItem.setOnLabelClicked(evt -> navigateToTree(ouicheTreeView, deck.getName()));
                 navigationMenu.addItem(navItem);
             }
@@ -1976,6 +2207,7 @@ public class RealMainController {
             if (decksCollection.getCollections() != null) {
                 for (ThemeCollection collection : decksCollection.getCollections()) {
                     NavigationItem collectionNavItem = createNavigationItem(collection.getName(), 0);
+                    collectionNavItem.setUserData(collection);
 
                     // highlight (unchanged)
                     boolean hasMissing = collectionHasMissing(collection);
@@ -2003,6 +2235,7 @@ public class RealMainController {
                             for (Deck linkedDeck : unit) {
                                 if (linkedDeck == null) continue;
                                 NavigationItem deckSubItem = createNavigationItem(linkedDeck.getName(), 1);
+                                deckSubItem.setUserData(linkedDeck);
 
                                 // navigation wiring (unchanged)
                                 deckSubItem.setOnLabelClicked(evt -> navigateToTree(decksAndCollectionsTreeView, collection.getName(), "Decks", linkedDeck.getName()));
@@ -2026,6 +2259,7 @@ public class RealMainController {
             if (decksCollection.getDecks() != null) {
                 for (Deck deck : decksCollection.getDecks()) {
                     NavigationItem navItem = createNavigationItem(deck.getName(), 0);
+                    navItem.setUserData(deck);
 
                     // navigation wiring (unchanged)
                     navItem.setOnLabelClicked(evt -> navigateToTree(decksAndCollectionsTreeView, deck.getName()));
@@ -2910,6 +3144,78 @@ public class RealMainController {
                     return (javafx.scene.control.skin.VirtualFlow<?>) n;
             }
         } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * After a deck move, scrolls the Decks tree so the deck's node is visible,
+     * and scrolls the nav menu so the deck's NavigationItem is visible.
+     */
+    private void scrollToMovedDeck(Object deckObj) {
+        if (!(deckObj instanceof Deck)) return;
+        Deck deck = (Deck) deckObj;
+        String deckName = deck.getName() == null ? "" : deck.getName().replaceAll("[=\\-]", "");
+
+        // ── Scroll the main tree ─────────────────────────────────────────────
+        Platform.runLater(() -> {
+            if (decksAndCollectionsTreeView == null) return;
+            TreeItem<String> root = decksAndCollectionsTreeView.getRoot();
+            if (root == null) return;
+            TreeItem<String> target = findTreeItemByPath(root, new String[]{deckName}, 0);
+            if (target == null) return;
+            for (TreeItem<String> a = target.getParent(); a != null; a = a.getParent())
+                a.setExpanded(true);
+            Platform.runLater(() -> {
+                int row = decksAndCollectionsTreeView.getRow(target);
+                if (row >= 0) decksAndCollectionsTreeView.scrollTo(row);
+            });
+        });
+
+        // ── Scroll + expand the nav menu ─────────────────────────────────────
+        Platform.runLater(() -> {
+            NavigationItem navItem = findNavItemInMenuVBox(decksTab.getMenuVBox(), deckObj);
+            if (navItem == null) {
+                // fall back to name-based search
+                navItem = findNavItemByNameInMenuVBox(decksTab.getMenuVBox(), deckName);
+            }
+            if (navItem != null) {
+                expandNavAncestors(navItem);
+                scrollNavToItem(decksTab, navItem);
+            }
+        });
+    }
+
+    /**
+     * Name-based fallback search through the nav menu when userData identity fails.
+     */
+    private NavigationItem findNavItemByNameInMenuVBox(VBox menuVBox, String name) {
+        if (menuVBox == null || name == null) return null;
+        for (javafx.scene.Node node : menuVBox.getChildren()) {
+            NavigationItem found = findNavItemByNameInNode(node, name);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private NavigationItem findNavItemByNameInNode(javafx.scene.Node node, String name) {
+        if (node instanceof NavigationMenu) {
+            for (NavigationItem item : ((NavigationMenu) node).getItems()) {
+                NavigationItem found = findNavItemByNameInItem(item, name);
+                if (found != null) return found;
+            }
+        } else if (node instanceof NavigationItem) {
+            return findNavItemByNameInItem((NavigationItem) node, name);
+        }
+        return null;
+    }
+
+    private NavigationItem findNavItemByNameInItem(NavigationItem item, String name) {
+        if (item == null) return null;
+        if (item.getLabel() != null && name.equals(item.getLabel().getText())) return item;
+        for (NavigationItem sub : item.getSubItems()) {
+            NavigationItem found = findNavItemByNameInItem(sub, name);
+            if (found != null) return found;
         }
         return null;
     }

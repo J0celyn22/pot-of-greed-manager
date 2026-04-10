@@ -75,8 +75,44 @@ public class UserInterfaceFunctions {
     private static final CopyOnWriteArrayList<Runnable> explicitStructureRefreshers = new CopyOnWriteArrayList<>();
     private static Object pendingRenameTarget = null;
 
+    private static Object pendingDecksRenameTarget = null;
+
+    private static Object pendingDecksScrollTarget = null;
+    // Stores {ThemeCollection, Deck} for the "Create Collection from Deck" flow
+    private static Object[] pendingDecksCreateCollectionData = null;
+
+    public static void setPendingDecksScrollTarget(Object target) {
+        pendingDecksScrollTarget = target;
+    }
+
+    public static Object getAndClearPendingDecksScrollTarget() {
+        Object t = pendingDecksScrollTarget;
+        pendingDecksScrollTarget = null;
+        return t;
+    }
+
+    public static void setPendingDecksRenameTarget(Object target) {
+        pendingDecksRenameTarget = target;
+    }
+
     public static void setPendingRenameTarget(Object target) {
         pendingRenameTarget = target;
+    }
+
+    public static Object getAndClearPendingDecksRenameTarget() {
+        Object t = pendingDecksRenameTarget;
+        pendingDecksRenameTarget = null;
+        return t;
+    }
+
+    public static void setPendingDecksCreateCollectionData(Object[] data) {
+        pendingDecksCreateCollectionData = data;
+    }
+
+    public static Object[] getAndClearPendingDecksCreateCollectionData() {
+        Object[] d = pendingDecksCreateCollectionData;
+        pendingDecksCreateCollectionData = null;
+        return d;
     }
 
     // Setter and getter for decksList.
