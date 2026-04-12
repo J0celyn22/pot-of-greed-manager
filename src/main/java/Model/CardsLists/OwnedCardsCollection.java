@@ -5,9 +5,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * A physical list of cards. Cards are stored in boxes.
- */
 public class OwnedCardsCollection implements CardsListFile {
     private List<Box> ownedCollection;
 
@@ -16,13 +13,26 @@ public class OwnedCardsCollection implements CardsListFile {
         this.ownedCollection = new ArrayList<>();
 
         for (String s : collectionFileList) {
-            if (!s.contains("#") && !s.contains("!") && !s.contains("TKN")) {
-                if (s.contains("=")) {
-                    AddBox(s);
-                } else if (s.contains("--")) {
-                    AddCategoryToLastBox(s);
-                } else {
-                    AddCardToLastBox(new CardElement(s));
+            String trimmed = s.trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith("!")) continue;
+            // Only skip pure comment lines — TKN cards, EN-only codes, etc. are valid
+
+            if (trimmed.startsWith("=")) {
+                // Box header — strip decorators and store clean name
+                this.ownedCollection.add(new Box(extractName(trimmed, '=')));
+            } else if (trimmed.startsWith("-")) {
+                // Category header — strip decorators and store clean name
+                if (!this.ownedCollection.isEmpty()) {
+                    Box last = this.ownedCollection.get(this.ownedCollection.size() - 1);
+                    last.AddCategory(extractName(trimmed, '-'));
+                }
+            } else {
+                // Card line
+                if (!this.ownedCollection.isEmpty()) {
+                    try {
+                        AddCardToLastBox(new CardElement(trimmed));
+                    } catch (Exception ignored) {
+                    }
                 }
             }
         }
@@ -32,171 +42,128 @@ public class OwnedCardsCollection implements CardsListFile {
         this.ownedCollection = new ArrayList<>();
     }
 
+    // --- utility ---
+
     /**
-     * Retrieves the list of all boxes within this collection.
-     *
-     * @return the list of boxes within this collection
+     * Strips only the leading and trailing decorator characters (= or -)
+     * from a raw file line, preserving hyphens INSIDE the name.
      */
+    public static String extractName(String s, char decorator) {
+        int start = 0;
+        while (start < s.length() && s.charAt(start) == decorator) start++;
+        int end = s.length();
+        while (end > start && s.charAt(end - 1) == decorator) end--;
+        return s.substring(start, end).trim();
+    }
+
+    /**
+     * Box header: [leading '='*count][name][trailing '=']
+     * leading  = 5 + depth*3 (depth 0 = top level)
+     * total    = 50, but always at least leading + name.length + 3
+     */
+    private static String formatBoxLine(String name, int depth) {
+        int leading = 5 + depth * 3;
+        int trailing = Math.max(3, 50 - leading - name.length());
+        return "=".repeat(leading) + name + "=".repeat(trailing);
+    }
+
+    /**
+     * Category header: ---[name][trailing '-']
+     * total = 50, but always at least 3 + name.length + 3
+     */
+    private static String formatCategoryLine(String name) {
+        int trailing = Math.max(3, 50 - 3 - name.length());
+        return "---" + name + "-".repeat(trailing);
+    }
+
+    /**
+     * Recursive box writer — supports sub-boxes at depth+1.
+     */
+    private static void writeBox(PrintWriter writer, Box box, int depth) {
+        String boxName = box.getName() == null ? "" : box.getName();
+        writer.println(formatBoxLine(boxName, depth));
+
+        for (CardsGroup group : box.getContent()) {
+            String groupName = group.getName() == null ? "" : group.getName();
+            // Only write the category header if the group actually has a name.
+            // Unnamed groups arise from boxes where cards appear directly (no category line).
+            if (!groupName.isEmpty()) {
+                writer.println(formatCategoryLine(groupName));
+            }
+            for (CardElement card : group.getCardList()) {
+                String line = card.toCollectionString();
+                if (line != null && !line.isEmpty()) {
+                    writer.println(line);
+                }
+            }
+        }
+
+        if (box.getSubBoxes() != null) {
+            for (Box sub : box.getSubBoxes()) {
+                writeBox(writer, sub, depth + 1);
+            }
+        }
+    }
+
+    // --- public API ---
+
     public List<Box> getOwnedCollection() {
         return ownedCollection;
     }
 
-    /**
-     * Sets the list of boxes within this collection.
-     * <p>
-     *
-     * @param ownedCollection the new list of boxes to set
-     */
-    public void setOwnedCollection(List<Box> ownedCollection) {
-        this.ownedCollection = ownedCollection;
+    public void setOwnedCollection(List<Box> c) {
+        this.ownedCollection = c;
     }
 
-    /**
-     * Calculates the total number of categories across all boxes in the owned collection.
-     *
-     * @return the total number of categories within this collection
-     */
     public int getSize() {
         int size = 0;
-
-        for (Box box : this.ownedCollection) {
-            size += box.getContent().size();
-        }
-
+        for (Box box : ownedCollection) size += box.getContent().size();
         return size;
     }
 
-    /**
-     * Adds a new box to the collection with the given name.
-     *
-     * @param boxName the name of the box to add
-     */
     public void AddBox(String boxName) {
         this.ownedCollection.add(new Box(boxName));
     }
 
-    /**
-     * Adds a new category to the last box in the owned collection with the given name.
-     *
-     * @param categoryName the name of the category to add
-     */
     public void AddCategoryToLastBox(String categoryName) {
         this.ownedCollection.get(this.ownedCollection.size() - 1).AddCategory(categoryName);
     }
 
-    /**
-     * Adds a card to the last category in the last box in the owned collection.
-     *
-     * @param card the card to add to the last category of the last box
-     */
     public void AddCardToLastBox(CardElement card) {
         this.ownedCollection.get(this.ownedCollection.size() - 1).AddCardToLastCategory(card);
     }
 
-    /**
-     * Saves the owned collection to a file with the given path.
-     * <p>
-     * The file is formatted as follows:
-     * <pre>
-     * Box name
-     * ===[Box name]========================================
-     * Category name
-     * ---[Category name]------------------------------------
-     * [Card element]
-     * [Card element]
-     * ...
-     * </pre>
-     * <p>
-     * @param filePathStr the path of the file to write to
-     * @throws Exception if an error occurs while writing to the file
-     */
     public void SaveCollection(String filePathStr) throws Exception {
         try (PrintWriter writer = new PrintWriter(filePathStr, StandardCharsets.UTF_8)) {
             for (Box box : this.ownedCollection) {
-                String boxNameLine = "===" + box.getName() + new String(new char[30 - box.getName().length()]).replace("\0", "=");
-                writer.println(boxNameLine);
-                for (CardsGroup group : box.getContent()) {
-                    String groupNameLine = "---" + group.getName() + new String(new char[30 - group.getName().length()]).replace("\0", "-");
-                    writer.println(groupNameLine);
-                    for (CardElement card : group.getCardList()) {
-                        writer.println(card.toString());
-                    }
-                }
+                writeBox(writer, box, 0);
             }
         }
     }
 
-    /**
-     * Returns a list of all CardElement objects contained in the owned collection.
-     * <p>
-     * This method iterates through each box in the owned collection, and then
-     * through each category in those boxes, aggregating all CardElement objects
-     * into a single list.
-     * </p>
-     * @return a List of CardElement objects from all categories in all boxes
-     */
     public List<CardElement> toList() {
-        List<CardElement> returnValue = new ArrayList<>();
-
-        for (int i = 0; i < this.getOwnedCollection().size(); i++) {
-            for (int j = 0; j < this.getOwnedCollection().get(i).getContent().size(); j++) {
-                returnValue.addAll(this.getOwnedCollection().get(i).getContent().get(j).cardList);
-            }
-        }
-
-        return returnValue;
+        List<CardElement> result = new ArrayList<>();
+        for (Box box : ownedCollection)
+            for (CardsGroup g : box.getContent())
+                result.addAll(g.cardList);
+        return result;
     }
 
-    /**
-     * Calculates the total number of cards in all boxes of the owned collection.
-     * <p>
-     * This method iterates through each box in the owned collection and sums up
-     * the total number of cards in each box.
-     * </p>
-     *
-     * @return the total number of cards in the owned collection as an Integer
-     */
     public Integer getCardCount() {
-        Integer returnValue = 0;
-        for (Box box : this.ownedCollection) {
-            returnValue += box.getCardCount();
-        }
-        return returnValue;
+        int n = 0;
+        for (Box box : ownedCollection) n += box.getCardCount();
+        return n;
     }
 
-    /**
-     * Calculates the total price of all cards in all boxes of the owned collection.
-     * <p>
-     * This method iterates through each box in the owned collection and sums up
-     * the total price of all cards in each box.
-     * </p>
-     *
-     * @return the total price of all cards in the owned collection as a String
-     */
     public String getPrice() {
-        float returnValue = 0;
-        for (Box box : this.ownedCollection) {
-            returnValue += Float.parseFloat(box.getPrice());
-        }
-        return String.valueOf(returnValue);
+        float total = 0;
+        for (Box box : ownedCollection) total += Float.parseFloat(box.getPrice());
+        return String.valueOf(total);
     }
 
-    /**
-     * Converts this OwnedCardsCollection to a string.
-     * <p>
-     * The string representation of this OwnedCardsCollection is a newline-separated
-     * list of the string representations of all boxes in the owned collection.
-     * </p>
-     *
-     * @return a string representation of this OwnedCardsCollection
-     */
     public String toString() {
-        String returnValue = "";
-
-        for (Box box : this.ownedCollection) {
-            returnValue = returnValue.concat(box.toString() + "\n");
-        }
-
-        return returnValue;
+        StringBuilder sb = new StringBuilder();
+        for (Box box : ownedCollection) sb.append(box.toString()).append("\n");
+        return sb.toString();
     }
 }

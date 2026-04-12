@@ -63,8 +63,13 @@ public class ThemeCollection {
             if (line.contains(",")) {
                 String[] cardInfo = line.split(",");
                 cardsList.add(new CardElement(cardInfo[0]));
-                cardsList.get(cardsList.size() - 1).setArtwork(Integer.parseInt(cardInfo[1]));
-                cardsList.get(cardsList.size() - 1).setSpecificArtwork(true);
+                int artworkNumber = Integer.parseInt(cardInfo[1].replace("*", "").trim());
+                CardElement lastAdded = cardsList.get(cardsList.size() - 1);
+                lastAdded.setArtwork(artworkNumber);
+                lastAdded.setSpecificArtwork(true);
+                if (artworkNumber > 1 && lastAdded.getCard() != null) {
+                    updateCardToAlternateArtwork(lastAdded.getCard(), artworkNumber);
+                }
             } else {
                 cardsList.add(new CardElement(line));
             }
@@ -113,6 +118,44 @@ public class ThemeCollection {
         }
     }
 
+    /**
+     * Given a Card that was created from its base passCode (artwork 1) and a
+     * requested artwork number, updates the card's imagePath and artNumber to
+     * those of the requested alternate artwork.
+     * <p>
+     * Uses passCodeToOtherPassCodes: imageId → ordered list of all imageIds for
+     * the same card.  The list is in API order, so index (artworkNumber-1) gives
+     * the imageId for the requested artwork.
+     */
+    private static void updateCardToAlternateArtwork(Card card, int artworkNumber) {
+        try {
+            if (card.getPassCode() == null) return;
+            Integer baseImageId = Integer.valueOf(card.getPassCode());
+
+            java.util.Map<Integer, java.util.List<Integer>> otherPassCodes =
+                    Model.Database.CardDatabaseManager.getPassCodeToOtherPassCodes();
+            if (otherPassCodes == null) return;
+
+            java.util.List<Integer> allImageIds = otherPassCodes.get(baseImageId);
+            if (allImageIds == null || allImageIds.size() < artworkNumber) {
+                return;  // Requested artwork doesn't exist in the database
+            }
+
+            Integer altImageId = allImageIds.get(artworkNumber - 1);  // 0-indexed
+            if (altImageId == null) return;
+
+            java.util.Map<Integer, Card> allCards = Model.Database.Database.getAllCardsList();
+            if (allCards == null) return;
+
+            Card altCard = allCards.get(altImageId);
+            if (altCard != null) {
+                card.setImagePath(altCard.getImagePath());
+                card.setArtNumber(altCard.getArtNumber());
+            }
+        } catch (Exception ignored) {
+            // If the lookup fails for any reason, keep the original artwork
+        }
+    }
 
     public ThemeCollection() {
         this.cardsList = new ArrayList<>();
@@ -282,26 +325,48 @@ public class ThemeCollection {
      * @throws IOException if there is an error writing to the file
      */
     public void SaveToFile(String savePath) throws IOException {
-        Path path = Paths.get(savePath + this.name + ".ytc");
-        BufferedWriter writer = Files.newBufferedWriter(path);
+        String dir = savePath.endsWith(java.io.File.separator)
+                ? savePath : savePath + java.io.File.separator;
+        Path path = Paths.get(dir + this.name + ".ytc");
+        try (BufferedWriter writer = Files.newBufferedWriter(path)) {
 
-        for (CardElement entry : cardsList) {
-            writer.write(entry.getCard().toString());
-            writer.newLine();
-        }
+            // 1. Cards list — use toThemeCollectionString() for correct ID + artwork
+            if (cardsList != null) {
+                for (CardElement entry : cardsList) {
+                    if (entry == null || entry.getCard() == null) continue;
+                    writer.write(entry.toThemeCollectionString());
+                    writer.newLine();
+                }
+            }
 
-        if (!exceptionsToNotAdd.isEmpty()) {
-            writer.write("Not to add");
-            writer.newLine();
-            for (CardElement card : exceptionsToNotAdd) {
-                writer.write(card.toString());
+            // 2. Exceptions / cards not to add
+            if (exceptionsToNotAdd != null && !exceptionsToNotAdd.isEmpty()) {
+                writer.write("#Not to add");
+                writer.newLine();
+                for (CardElement card : exceptionsToNotAdd) {
+                    if (card == null) continue;
+                    writer.write(card.toThemeCollectionString());
+                    writer.newLine();
+                }
+            }
+
+            // 3. Link-to-whole-collection flag
+            if (Boolean.TRUE.equals(connectToWholeCollection)) {
+                writer.write("#Link to whole collection");
                 writer.newLine();
             }
-        } else {
-            if (!linkedDecks.isEmpty()) {
+
+            // 4. Linked decks (only when not connected to whole collection)
+            if (!Boolean.TRUE.equals(connectToWholeCollection)
+                    && linkedDecks != null && !linkedDecks.isEmpty()) {
+                writer.write("#Linked decks");
+                writer.newLine();
                 for (int i = 0; i < linkedDecks.size(); i++) {
-                    for (Deck linkedDeck : linkedDecks.get(i)) {
-                        writer.write(linkedDeck.getName());
+                    List<Deck> unit = linkedDecks.get(i);
+                    if (unit == null) continue;
+                    for (Deck d : unit) {
+                        if (d == null) continue;
+                        writer.write(d.getName());
                         writer.newLine();
                     }
                     if (i < linkedDecks.size() - 1) {
@@ -309,18 +374,19 @@ public class ThemeCollection {
                         writer.newLine();
                     }
                 }
-
             }
-        }
 
-        if (!archetypes.isEmpty()) {
-            for (String archetype : archetypes) {
-                writer.write(archetype);
+            // 5. Archetypes
+            if (archetypes != null && !archetypes.isEmpty()) {
+                writer.write("#Archetypes");
                 writer.newLine();
+                for (String archetype : archetypes) {
+                    if (archetype == null) continue;
+                    writer.write(archetype);
+                    writer.newLine();
+                }
             }
         }
-
-        writer.close();
     }
 
     /**

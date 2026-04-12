@@ -8,6 +8,8 @@ public class CardElement {
     Boolean dontRemove;
     Boolean isInDeck;
 
+    private String rawCode;
+
     public CardElement(Card card, Boolean specificArtwork, Boolean isOwned, Boolean dontRemove, Boolean isInDeck) {
         this.card = card;
         this.specificArtwork = specificArtwork;
@@ -30,38 +32,37 @@ public class CardElement {
             String[] parts = string.split(",", 2);
             String part1 = parts[0];
             String part2 = parts[1];
+            this.rawCode = part1;   // ← preserve original ID
             if (part2.contains("O")) {
                 this.isOwned = true;
                 part2 = part2.replace("O", "");
             } else {
                 this.isOwned = false;
             }
-
             if (part2.contains("D")) {
                 this.isInDeck = true;
                 part2 = part2.replace("D", "");
             } else {
                 this.isInDeck = false;
             }
-
             if (part2.contains("+")) {
                 this.dontRemove = true;
                 part2 = part2.replace("+", "");
             } else {
                 this.dontRemove = false;
             }
-
             if (part2.contains("*")) {
                 this.specificArtwork = true;
                 part2 = part2.replace("*", "");
-                this.artwork = Integer.parseInt(part2);
-                this.card = new Card(part1, part2);
+                this.artwork = Integer.parseInt(part2.trim());
+                this.card = new Card(part1, part2.trim());
             } else {
                 this.specificArtwork = false;
                 this.artwork = 0;
                 this.card = new Card(part1);
             }
         } else {
+            this.rawCode = string;  // ← preserve original ID
             this.isOwned = false;
             this.isInDeck = false;
             this.dontRemove = false;
@@ -257,6 +258,14 @@ public class CardElement {
         }
     }
 
+    public String getRawCode() {
+        return rawCode;
+    }
+
+    public void setRawCode(String rawCode) {
+        this.rawCode = rawCode;
+    }
+
     /**
      * Converts this card element to a string.
      * <p>
@@ -297,7 +306,64 @@ public class CardElement {
         return returnValue;
     }
 
+    /**
+     * Serialises this element for the OwnedCardsCollection file.
+     * Priority: printCode (edition-specific) > passCode (generic) > rawCode (non-DB fallback)
+     */
+    public String toCollectionString() {
+        String id = null;
+        if (this.card != null) id = this.card.getPrintCode();
+        if (id == null && this.card != null) id = this.card.getPassCode();
+        if (id == null) id = this.rawCode;
+        if (id == null) id = "";
+
+        if (specificArtwork || isOwned || dontRemove) id += ",";
+        if (specificArtwork) {
+            id += "*";
+            id += this.card.getArtNumber();
+        }
+        if (isOwned) id += "O";
+        if (isInDeck) id += "D";
+        if (dontRemove) id += "+";
+        return id;
+    }
+
     public String getPrice() {
         return this.getCard().getPrice();
+    }
+
+    /**
+     * Save format for ThemeCollections: passCode first (printCode as fallback),
+     * with artwork marker if a non-default artwork is identified.
+     * <p>
+     * Two sources for artwork:
+     * - CardElement.artwork (set when the card was imported from a .ytc file)
+     * - card.getArtNumber()  (set when the card was picked in AllExistingCardsPane)
+     */
+    public String toThemeCollectionString() {
+        // ThemeCollection format: passCode first, printCode as fallback
+        String id = this.getCard().getPassCode();
+        if (id == null) id = this.getCard().getPrintCode();
+        if (id == null) id = "";
+
+        // Explicitly-flagged artwork (from .ytc file import)
+        if (this.specificArtwork && this.artwork > 0) {
+            return id + ",*" + this.artwork;
+        }
+
+        // Artwork picked in AllExistingCardsPane (stored in card.artNumber)
+        String cardArtNumber = this.getCard().getArtNumber();
+        if (cardArtNumber != null && !cardArtNumber.isEmpty()) {
+            try {
+                int artNum = Integer.parseInt(cardArtNumber);
+                if (artNum > 1) {
+                    // Non-default artwork — save the marker so it round-trips correctly
+                    return id + ",*" + artNum;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+
+        return id;
     }
 }

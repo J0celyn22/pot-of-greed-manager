@@ -182,7 +182,9 @@ public class NavigationItem extends VBox {
         HBox hbox = (HBox) firstChild;
 
         // Build the text field pre-filled with the current name
-        javafx.scene.control.TextField tf = new javafx.scene.control.TextField(label.getText());
+        String currentLabelText = label.getText() == null ? "" : label.getText().trim();
+        if (currentLabelText.startsWith("* ")) currentLabelText = currentLabelText.substring(2).trim();
+        javafx.scene.control.TextField tf = new javafx.scene.control.TextField(currentLabelText);
         tf.setStyle(
                 "-fx-background-color: black;" +
                         "-fx-text-fill: #cdfc04;" +

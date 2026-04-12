@@ -12,11 +12,13 @@ public class Deck {
     private List<CardElement> mainDeck;
     private List<CardElement> extraDeck;
     private List<CardElement> sideDeck;
+    private List<String> trailingLines = new ArrayList<>();
 
     public Deck(String filePath) {
         this.mainDeck = new ArrayList<>();
         this.extraDeck = new ArrayList<>();
         this.sideDeck = new ArrayList<>();
+        this.trailingLines = new ArrayList<>();
 
         if (filePath.contains(".ydk")) {
             File file = new File(filePath);
@@ -25,15 +27,34 @@ public class Deck {
             try (BufferedReader br = new BufferedReader(new FileReader(file))) {
                 String line;
                 List<CardElement> currentList = null;
+                boolean inTrailingSection = false;
+
                 while ((line = br.readLine()) != null) {
+                    // Skip our own header comment
+                    if (line.startsWith("#created")) continue;
+
                     if (line.equals("#main")) {
                         currentList = mainDeck;
+                        inTrailingSection = false;
                     } else if (line.equals("#extra")) {
                         currentList = extraDeck;
+                        inTrailingSection = false;
                     } else if (line.equals("!side")) {
                         currentList = sideDeck;
-                    } else if (!line.contains("#") && currentList != null && !line.isEmpty()) {
-                        currentList.add(new CardElement(new Card(line)));
+                        inTrailingSection = false;
+                    } else if (line.startsWith("#") || (line.startsWith("!") && !line.equals("!side"))) {
+                        // Unknown section marker (e.g. #tags from other software) — preserve
+                        trailingLines.add(line);
+                        currentList = null;
+                        inTrailingSection = true;
+                    } else if (inTrailingSection) {
+                        // Content lines of an unknown section — preserve
+                        trailingLines.add(line);
+                    } else if (currentList != null && !line.isEmpty()) {
+                        try {
+                            currentList.add(new CardElement(new Card(line)));
+                        } catch (Exception ignored) {
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -145,6 +166,14 @@ public class Deck {
         this.sideDeck = sideDeck;
     }
 
+    public List<String> getTrailingLines() {
+        return trailingLines;
+    }
+
+    public void setTrailingLines(List<String> lines) {
+        this.trailingLines = lines;
+    }
+
     /**
      * Saves the deck to the specified file path as a .ydk file.
      * <p>
@@ -153,12 +182,16 @@ public class Deck {
      * @param filePath the file path to save the deck to
      */
     public void saveDeck(String filePath) {
-        filePath += "/" + this.name + ".ydk";
-        try (PrintWriter writer = new PrintWriter(filePath)) {
+        String path = filePath + File.separator + this.name + ".ydk";
+        try (PrintWriter writer = new PrintWriter(path)) {
             writer.println("#created with PotOfGreedManager");
             writeCards(writer, "#main", mainDeck);
             writeCards(writer, "#extra", extraDeck);
             writeCards(writer, "!side", sideDeck);
+            // Restore any unknown trailing sections from the original file
+            if (trailingLines != null) {
+                for (String tl : trailingLines) writer.println(tl);
+            }
         } catch (FileNotFoundException e) {
             e.printStackTrace();
         }

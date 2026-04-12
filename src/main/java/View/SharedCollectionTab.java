@@ -120,6 +120,7 @@ public class SharedCollectionTab extends HBox {
     // OuicheList view-mode toggle buttons (accessible by the controller)
     private Button compactDetailedButton;
     private Button mosaicListButton;
+    private Button saveButton;
 
     /**
      * Returns the Compact/Detailed toggle button for the OuicheList tab.
@@ -139,6 +140,10 @@ public class SharedCollectionTab extends HBox {
 
     public void setOnDecksLoad(Runnable onDecksLoad) {
         this.onDecksLoad = onDecksLoad;
+    }
+
+    public Button getSaveButton() {
+        return saveButton;
     }
 
     private Node createHeaderContentForTab(TabType type) {
@@ -161,6 +166,11 @@ public class SharedCollectionTab extends HBox {
                 Button collectionFileButton = new Button("Browse");
                 Button collectionFileLoadButton = new Button("Load");
                 Button collectionFileGenerateHTMLButton = new Button("Generate HTML");
+
+                // Save button
+                saveButton = new Button("Save");
+                saveButton.getStyleClass().add("small-button");
+                groupRow.getChildren().add(saveButton);
 
                 // small buttons: keep compact size
                 collectionFileButton.getStyleClass().add("small-button");
@@ -212,6 +222,11 @@ public class SharedCollectionTab extends HBox {
                 decksAndCollectionsDirectoryLoadButton.getStyleClass().add("small-button");
                 decksAndCollectionsDirectoryGenerateHTMLButton.getStyleClass().add("small-button");
 
+                // Save button
+                saveButton = new Button("Save");
+                saveButton.getStyleClass().add("small-button");
+                groupRow.getChildren().add(saveButton);
+
                 groupRow.getChildren().addAll(decksAndCollectionsDirectoryButton, decksAndCollectionsDirectoryLoadButton, decksAndCollectionsDirectoryGenerateHTMLButton);
 
                 decksAndCollectionsDirectoryButton.setOnAction(e -> {
@@ -246,7 +261,9 @@ public class SharedCollectionTab extends HBox {
 
                 HBox groupRow3 = new HBox(5);
                 Button generateOuicheListButton = new Button("Generate OuicheList – Decks and Collections");
-                Button generateOuicheListSaveButton = new Button("Save");
+                saveButton = new Button("Save");
+                saveButton.getStyleClass().add("small-button");
+                Button generateOuicheListSaveButton = saveButton;
                 groupRow3.getChildren().addAll(generateOuicheListButton, generateOuicheListSaveButton);
                 ouicheGroup.getChildren().add(groupRow3);
 

@@ -403,6 +403,15 @@ public class CardTreeCell extends TreeCell<String> {
 
 
     /**
+     * Removes the leading "* " dirty marker from a tab label if present.
+     */
+    private static String stripDirtyPrefix(String tabText) {
+        if (tabText == null) return "";
+        String trimmed = tabText.trim();
+        return trimmed.startsWith("* ") ? trimmed.substring(2).trim() : trimmed;
+    }
+
+    /**
      * Helper: determine whether the currently selected Tab is the My Collection tab.
      * Uses the TreeView ancestor to find a TabPane and checks the selected Tab text.
      * Returns true only when the selected tab's text equals "My Collection" (case-insensitive).
@@ -410,15 +419,13 @@ public class CardTreeCell extends TreeCell<String> {
     private boolean isMyCollectionTabSelected() {
         try {
             Node node = getTreeView();
-            while (node != null && !(node instanceof TabPane)) {
+            while (node != null && !(node instanceof TabPane))
                 node = node.getParent();
-            }
             if (node instanceof TabPane) {
-                TabPane tp = (TabPane) node;
-                Tab sel = tp.getSelectionModel().getSelectedItem();
+                Tab sel = ((TabPane) node).getSelectionModel().getSelectedItem();
                 if (sel != null) {
-                    String t = sel.getText();
-                    return t != null && t.trim().equalsIgnoreCase("My Collection");
+                    String cleanText = stripDirtyPrefix(sel.getText());
+                    return cleanText.equalsIgnoreCase("My Collection");
                 }
             }
         } catch (Exception ignored) {
@@ -434,15 +441,13 @@ public class CardTreeCell extends TreeCell<String> {
     private boolean isOuicheListTabSelected() {
         try {
             Node node = getTreeView();
-            while (node != null && !(node instanceof TabPane)) {
+            while (node != null && !(node instanceof TabPane))
                 node = node.getParent();
-            }
             if (node instanceof TabPane) {
-                TabPane tp = (TabPane) node;
-                Tab sel = tp.getSelectionModel().getSelectedItem();
+                Tab sel = ((TabPane) node).getSelectionModel().getSelectedItem();
                 if (sel != null) {
-                    String t = sel.getText();
-                    return t != null && t.trim().equalsIgnoreCase("OuicheList");
+                    String cleanText = stripDirtyPrefix(sel.getText());
+                    return cleanText.equalsIgnoreCase("OuicheList");
                 }
             }
         } catch (Exception ignored) {
@@ -457,18 +462,14 @@ public class CardTreeCell extends TreeCell<String> {
     private boolean isDecksAndCollectionsTabSelected() {
         try {
             Node node = getTreeView();
-            while (node != null && !(node instanceof TabPane)) {
+            while (node != null && !(node instanceof TabPane))
                 node = node.getParent();
-            }
             if (node instanceof TabPane) {
-                TabPane tp = (TabPane) node;
-                Tab sel = tp.getSelectionModel().getSelectedItem();
+                Tab sel = ((TabPane) node).getSelectionModel().getSelectedItem();
                 if (sel != null) {
-                    String t = sel.getText();
-                    return t != null && (
-                            t.trim().equalsIgnoreCase("Decks and Collections") ||
-                                    t.trim().equalsIgnoreCase("Decks & Collections")
-                    );
+                    String cleanText = stripDirtyPrefix(sel.getText());
+                    return cleanText.equalsIgnoreCase("Decks and Collections")
+                            || cleanText.equalsIgnoreCase("Decks & Collections");
                 }
             }
         } catch (Exception ignored) {
@@ -1142,10 +1143,19 @@ public class CardTreeCell extends TreeCell<String> {
         return items;
     }
 
-    // Helper: sanitize display names (remove '=' and '-')
+    // Helper: sanitize display names (strip only leading/trailing decoration chars)
     private String sanitizeDisplayName(String raw) {
         if (raw == null) return "";
-        return raw.replaceAll("[=\\-]", "");
+        // Use extractName with '=' first to strip box-level decoration,
+        // then with '-' to strip category-level decoration.
+        // Since stored names are already clean, this is effectively a no-op
+        // for clean names but correctly handles any residual decoration.
+        String s = raw.trim();
+        int start = 0;
+        while (start < s.length() && (s.charAt(start) == '=' || s.charAt(start) == '-')) start++;
+        int end = s.length();
+        while (end > start && (s.charAt(end - 1) == '=' || s.charAt(end - 1) == '-')) end--;
+        return s.substring(start, end).trim();
     }
 
     /**
@@ -1374,6 +1384,174 @@ public class CardTreeCell extends TreeCell<String> {
             this.index = index;
             this.element = element;
         }
+    }
+
+    /**
+     * Create the visual cell for a CardsGroup.
+     * <p>
+     * If this group belongs to an archetype, the provided missingForThisGroup set is used.
+     * If this group belongs to the "My Cards Collection" tree, compute a "to-sort" set
+     * (cards that contain "Trap" in name_EN or "Piège" in name_FR) and set it as the GridView userData.
+     */
+    private void createCardsGroupCell(String itemName, CardsGroup group, Set<String> missingForThisGroup) {
+        HBox hbox = new HBox();
+        hbox.getStyleClass().add("card-group-hbox");
+        hbox.setSpacing(5);
+
+        customTriangleLabel = new Label();
+        customTriangleLabel.getStyleClass().add("custom-triangle-label");
+        customTriangleLabel.setMinWidth(15);
+        customTriangleLabel.setAlignment(Pos.CENTER);
+
+        String rawGroupName = group.getName() == null ? "" : group.getName();
+        boolean isArchetype;
+        String displayName = rawGroupName;
+        if (rawGroupName.startsWith(ARCHETYPE_MARKER)) {
+            isArchetype = true;
+            displayName = rawGroupName.substring(ARCHETYPE_MARKER.length());
+        } else {
+            isArchetype = false;
+        }
+        displayName = Model.CardsLists.OwnedCardsCollection.extractName(displayName, '-');
+
+        Label label = new Label(displayName);
+        label.getStyleClass().add("card-group-label");
+
+        hbox.getChildren().addAll(customTriangleLabel, label);
+
+        VBox vBox = new VBox();
+        vBox.getStyleClass().add("card-group-vbox");
+        vBox.getChildren().add(hbox);
+
+        GridView<CardElement> grid = new GridView<>();
+        grid.getStyleClass().add("card-grid-view");
+        grid.setCellFactory(gridView -> new CardGridCell());
+        javafx.collections.ObservableList<CardElement> groupItems = observableListFor(group);
+        grid.setItems(groupItems);
+        // Register as the current renderer so triggerHeightAdjustment() can find it.
+        GROUP_GRID_VIEWS.put(group, new java.lang.ref.WeakReference<>(grid));
+        grid.cellWidthProperty().bind(cardWidthProperty);
+        grid.cellHeightProperty().bind(cardHeightProperty);
+        grid.setHorizontalCellSpacing(5);
+        grid.setVerticalCellSpacing(5);
+        grid.setPadding(new Insets(5));
+        grid.prefWidthProperty().bind(getTreeView().widthProperty().subtract(50));
+
+        /*
+         * Store a Map as userData so the renderer has both pieces of information:
+         *  - "missingSet" : Set<String> (may be empty or null)
+         *  - "elementName": String (displayName)
+         *
+         * This preserves the archetype missing-set behavior (used by Decks & Collections / Archetypes)
+         * while also providing the element name for My Collection compute logic.
+         */
+        Map<String, Object> ud = new HashMap<>();
+        ud.put("missingSet", missingForThisGroup == null ? Collections.emptySet() : missingForThisGroup);
+        ud.put("elementName", displayName);
+        ud.put("isArchetype", isArchetype);
+        grid.setUserData(ud);
+
+        this.cardGridView = grid;
+
+        // Initial call: best-effort using prefWidth (grid not yet laid out)
+        adjustGridViewHeight(group);
+        // Deferred correction: re-runs after the first layout pass when grid.getWidth() is valid
+        Platform.runLater(() -> adjustGridViewHeight(group));
+
+        // Listeners: deferred so grid.getWidth() reflects the new size after layout
+        cardWidthProperty.addListener((obs, oldVal, newVal) ->
+                Platform.runLater(() -> adjustGridViewHeight(group)));
+        getTreeView().widthProperty().addListener((obs, oldVal, newVal) ->
+                Platform.runLater(() -> adjustGridViewHeight(group)));
+
+        customTriangleLabel.setOnMouseClicked(event -> {
+            boolean isExpanded = !grid.isVisible();
+            grid.setVisible(isExpanded);
+            grid.setManaged(isExpanded);
+            updateCustomTriangle(isExpanded);
+            event.consume();
+        });
+        grid.setVisible(true);
+        grid.setManaged(true);
+        updateCustomTriangle(true);
+
+        vBox.getChildren().add(grid);
+        VBox.setVgrow(grid, Priority.ALWAYS);
+        setGraphic(vBox);
+
+        // For Decks & Collections tab only; different menu per group type.
+        hbox.setOnContextMenuRequested(event -> {
+            if (!isDecksAndCollectionsTabSelected()) {
+                event.consume();
+                return;
+            }
+
+            ContextMenu headerCm;
+
+            if (isArchetype) {
+                // Archetype group header  →  "Remove" (red + trash icon)
+                headerCm = NavigationContextMenuBuilder.styledContextMenu();
+                headerCm.getItems().add(NavigationContextMenuBuilder.makeRemoveItem());
+            } else {
+                // Regular group header (Cards, Main Deck, etc.) — no menu for now
+                event.consume();
+                return;
+            }
+
+            headerCm.show(hbox, event.getScreenX(), event.getScreenY());
+            event.consume();
+        });
+    }
+
+    /**
+     * Correct preferred height: uses the ACTUAL rendered row span
+     * (cardHeight + 2×padding + verticalSpacing).
+     */
+    private static double computeGridPrefHeight(GridView<CardElement> grid, int numItems) {
+        if (numItems <= 0) return 0;
+
+        int cols = computeGridColumns(grid);
+        int rows = (int) Math.ceil((double) numItems / cols);
+        Insets pad = grid.getPadding();
+        double top = (pad != null) ? pad.getTop() : 0;
+        double bottom = (pad != null) ? pad.getBottom() : 0;
+        double cardH = grid.getCellHeight();
+        double vSpace = grid.getVerticalCellSpacing();
+        double actualCellH = cardH + 2 * CELL_INNER_PADDING;  // e.g. 146 + 10 = 156
+        double rowSpan = actualCellH + vSpace;              // e.g. 156 + 5  = 161
+        double h = top + bottom + rows * rowSpan + 1.0;
+
+        /*org.slf4j.LoggerFactory.getLogger(CardTreeCell.class).debug(
+                "[GridView-h] items={}  cols={}  rows={}  cardH={}  actualCellH={}  "
+                        + "vSpace={}  rowSpan={}  top={}  bot={}  h={}",
+                numItems, cols, rows,
+                String.format("%.1f", cardH),
+                String.format("%.1f", actualCellH),
+                String.format("%.1f", vSpace),
+                String.format("%.1f", rowSpan),
+                String.format("%.1f", top),
+                String.format("%.1f", bottom),
+                String.format("%.2f", h));*/
+
+        return h;
+    }
+
+    private static void applyGridPrefHeight(GridView<CardElement> grid, double h) {
+        grid.setPrefHeight(h);
+        grid.setMinHeight(h);
+        grid.setMaxHeight(h);
+    }
+
+    private void adjustGridViewHeight(CardsGroup group) {
+        if (cardGridView == null) return;
+        int numItems = group.getCardList() == null ? 0 : group.getCardList().size();
+        if (numItems <= 0) {
+            applyGridPrefHeight(cardGridView, 0);
+            return;
+        }
+        applyGridPrefHeight(cardGridView, computeGridPrefHeight(cardGridView, numItems));
+        logger.debug("Adjusted grid view height to {} for {} items",
+                cardGridView.getPrefHeight(), numItems);
     }
 
     // Replace the existing inner class CardGridCell with this complete implementation
@@ -1623,7 +1801,7 @@ public class CardTreeCell extends TreeCell<String> {
                     // We exclude ONLY the exact current group; box-level destinations are always allowed.
                     for (Model.CardsLists.Box b : owned.getOwnedCollection()) {
                         if (b == null) continue;
-                        String boxName = b.getName() == null ? "" : b.getName().replaceAll("[=\\-]", "").trim();
+                        String boxName = Model.CardsLists.OwnedCardsCollection.extractName(b.getName() == null ? "" : b.getName(), '=');
                         if (boxName.isEmpty()) boxName = "(Unnamed box)";
 
                         // Always offer the box-level destination (even if the card currently lives in a category of this box)
@@ -1641,7 +1819,7 @@ public class CardTreeCell extends TreeCell<String> {
                                     continue;
                                 }
 
-                                String groupName = rawName.replaceAll("[=\\-]", "").trim();
+                                String groupName = Model.CardsLists.OwnedCardsCollection.extractName(rawName, '-');
                                 if (groupName.isEmpty()) continue;
 
                                 boolean groupIsCurrent =
@@ -1660,7 +1838,7 @@ public class CardTreeCell extends TreeCell<String> {
                         if (b.getSubBoxes() != null) {
                             for (Model.CardsLists.Box sb : b.getSubBoxes()) {
                                 if (sb == null) continue;
-                                String subBoxName = sb.getName() == null ? "" : sb.getName().replaceAll("[=\\-]", "").trim();
+                                String subBoxName = Model.CardsLists.OwnedCardsCollection.extractName(sb.getName() == null ? "" : sb.getName(), '=');
                                 if (subBoxName.isEmpty()) subBoxName = "(Unnamed sub-box)";
 
                                 // Always offer sub-box-level destination too
@@ -1670,7 +1848,7 @@ public class CardTreeCell extends TreeCell<String> {
                                 if (sb.getContent() != null) {
                                     for (Model.CardsLists.CardsGroup g : sb.getContent()) {
                                         if (g == null) continue;
-                                        String groupName = g.getName() == null ? "" : g.getName().replaceAll("[=\\-]", "").trim();
+                                        String groupName = Model.CardsLists.OwnedCardsCollection.extractName(g.getName() == null ? "" : g.getName(), '-');
                                         if (groupName.isEmpty()) groupName = "(Unnamed group)";
                                         boolean groupIsCurrent = (currentBox != null && currentGroup != null && currentBox == sb && currentGroup == g);
                                         if (groupIsCurrent) continue;
@@ -1838,7 +2016,6 @@ public class CardTreeCell extends TreeCell<String> {
                 }
                 e.consume();
             });
-
         }
 
         // Helper: remove the given CardElement from the owned collection and refresh UI.
@@ -1868,6 +2045,8 @@ public class CardTreeCell extends TreeCell<String> {
                         } catch (Throwable ignored) {
                         }
                     });
+                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                    Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                     return;
                 }
             } catch (NoSuchMethodException ns) {
@@ -1905,6 +2084,8 @@ public class CardTreeCell extends TreeCell<String> {
                                     Model.CardsLists.CardElement ce2 = it.next();
                                     if (ce2 == ce) {
                                         it.remove();
+                                        Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                                        Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                                         break outer;
                                     }
                                 }
@@ -1920,6 +2101,8 @@ public class CardTreeCell extends TreeCell<String> {
                                         Model.CardsLists.CardElement ce2 = it.next();
                                         if (ce2 == ce) {
                                             it.remove();
+                                            Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                                            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                                             break outer;
                                         }
                                     }
@@ -1930,7 +2113,7 @@ public class CardTreeCell extends TreeCell<String> {
                 }
 
                 // 3) Try to save collection if a save helper exists
-                try {
+                /*try {
                     java.lang.reflect.Method save = Controller.UserInterfaceFunctions.class.getMethod("saveCollectionFile");
                     if (save != null) {
                         try {
@@ -1939,7 +2122,10 @@ public class CardTreeCell extends TreeCell<String> {
                         }
                     }
                 } catch (NoSuchMethodException ignored) {
-                }
+                }*/
+
+                Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
 
             } catch (Throwable t) {
                 logger.debug("Error removing card element directly", t);
@@ -1960,6 +2146,8 @@ public class CardTreeCell extends TreeCell<String> {
                     } catch (Throwable ignored) {
                     }
                 });
+                Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             }
         }
 
@@ -2106,7 +2294,8 @@ public class CardTreeCell extends TreeCell<String> {
             boolean owned = cardElement.getOwned() != null && cardElement.getOwned();
             if (ouicheSelected && owned) {
                 javafx.scene.effect.ColorAdjust grayscale = new javafx.scene.effect.ColorAdjust();
-                grayscale.setSaturation(-1.0);
+                grayscale.setSaturation(-0.7);   // 70% desaturation
+                grayscale.setBrightness(-0.5);   // darken by 50%
                 cardImageView.setEffect(grayscale);
             } else {
                 cardImageView.setEffect(null);
@@ -2171,14 +2360,16 @@ public class CardTreeCell extends TreeCell<String> {
             return null;
         }
 
-        private void removeCardElementFromDecksList(CardElement ce) {
-            if (ce == null) return;
+        private void removeCardElementFromDecksList(Model.CardsLists.CardElement cardElement) {
+            if (cardElement == null) return;
             try {
                 if (getGridView() == null || getGridView().getItems() == null) return;
-                Iterator<CardElement> it = getGridView().getItems().iterator();
+                java.util.Iterator<Model.CardsLists.CardElement> it = getGridView().getItems().iterator();
                 while (it.hasNext()) {
-                    if (it.next() == ce) {
-                        it.remove(); // fires ObservableList change event → GridView updates immediately
+                    if (it.next() == cardElement) {
+                        it.remove();
+                        Controller.UserInterfaceFunctions.markAllDecksAndCollectionsDirty();
+                        Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                         return;
                     }
                 }
@@ -2318,19 +2509,28 @@ public class CardTreeCell extends TreeCell<String> {
             mi.setGraphic(g);
             mi.setText("");
             mi.setOnAction(e -> {
-                Model.CardsLists.CardElement ce = getItem();
-                if (ce == null) return;
-                // Remove from source observable list
+                Model.CardsLists.CardElement cardElement = getItem();
+                if (cardElement == null) return;
+
+                // Mark SOURCE dirty
+                Object sourceOwner = resolveDecksTargetOwner(excludePath != null ? excludePath : "");
+                if (sourceOwner != null) Controller.UserInterfaceFunctions.markDirty(sourceOwner);
+                else Controller.UserInterfaceFunctions.markAllDecksAndCollectionsDirty();
+
                 if (getGridView() != null && getGridView().getItems() != null)
-                    getGridView().getItems().remove(ce);
-                // Add to target backing list
-                List<Model.CardsLists.CardElement> target = resolveDecksTargetList(path);
-                if (target != null) {
-                    target.add(ce);
+                    getGridView().getItems().remove(cardElement);
+
+                List<Model.CardsLists.CardElement> targetList = resolveDecksTargetList(path);
+                if (targetList != null) {
+                    targetList.add(cardElement);
                     Controller.MenuActionHandler.setLastDecksAddedTarget(path);
+                    Object destOwner = resolveDecksTargetOwner(path);
+                    if (destOwner != null) Controller.UserInterfaceFunctions.markDirty(destOwner);
+                    else Controller.UserInterfaceFunctions.markAllDecksAndCollectionsDirty();
                 } else {
                     logger.warn("addMoveDestItem: could not resolve '{}'", path);
                 }
+                Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                 Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
             });
             items.add(mi);
@@ -2489,173 +2689,46 @@ public class CardTreeCell extends TreeCell<String> {
             }
             return items;
         }
-    }
 
-    /**
-     * Correct preferred height: uses the ACTUAL rendered row span
-     * (cardHeight + 2×padding + verticalSpacing).
-     */
-    private static double computeGridPrefHeight(GridView<CardElement> grid, int numItems) {
-        if (numItems <= 0) return 0;
-
-        int cols = computeGridColumns(grid);
-        int rows = (int) Math.ceil((double) numItems / cols);
-        Insets pad = grid.getPadding();
-        double top = (pad != null) ? pad.getTop() : 0;
-        double bottom = (pad != null) ? pad.getBottom() : 0;
-        double cardH = grid.getCellHeight();
-        double vSpace = grid.getVerticalCellSpacing();
-        double actualCellH = cardH + 2 * CELL_INNER_PADDING;  // e.g. 146 + 10 = 156
-        double rowSpan = actualCellH + vSpace;              // e.g. 156 + 5  = 161
-        double h = top + bottom + rows * rowSpan + 1.0;
-
-        /*org.slf4j.LoggerFactory.getLogger(CardTreeCell.class).debug(
-                "[GridView-h] items={}  cols={}  rows={}  cardH={}  actualCellH={}  "
-                        + "vSpace={}  rowSpan={}  top={}  bot={}  h={}",
-                numItems, cols, rows,
-                String.format("%.1f", cardH),
-                String.format("%.1f", actualCellH),
-                String.format("%.1f", vSpace),
-                String.format("%.1f", rowSpan),
-                String.format("%.1f", top),
-                String.format("%.1f", bottom),
-                String.format("%.2f", h));*/
-
-        return h;
-    }
-
-    private static void applyGridPrefHeight(GridView<CardElement> grid, double h) {
-        grid.setPrefHeight(h);
-        grid.setMinHeight(h);
-        grid.setMaxHeight(h);
-    }
-
-    private void adjustGridViewHeight(CardsGroup group) {
-        if (cardGridView == null) return;
-        int numItems = group.getCardList() == null ? 0 : group.getCardList().size();
-        if (numItems <= 0) {
-            applyGridPrefHeight(cardGridView, 0);
-            return;
-        }
-        applyGridPrefHeight(cardGridView, computeGridPrefHeight(cardGridView, numItems));
-        logger.debug("Adjusted grid view height to {} for {} items",
-                cardGridView.getPrefHeight(), numItems);
-    }
-
-    /**
-     * Create the visual cell for a CardsGroup.
-     * <p>
-     * If this group belongs to an archetype, the provided missingForThisGroup set is used.
-     * If this group belongs to the "My Cards Collection" tree, compute a "to-sort" set
-     * (cards that contain "Trap" in name_EN or "Piège" in name_FR) and set it as the GridView userData.
-     */
-    private void createCardsGroupCell(String itemName, CardsGroup group, Set<String> missingForThisGroup) {
-        HBox hbox = new HBox();
-        hbox.getStyleClass().add("card-group-hbox");
-        hbox.setSpacing(5);
-
-        customTriangleLabel = new Label();
-        customTriangleLabel.getStyleClass().add("custom-triangle-label");
-        customTriangleLabel.setMinWidth(15);
-        customTriangleLabel.setAlignment(Pos.CENTER);
-
-        String rawGroupName = group.getName() == null ? "" : group.getName();
-        boolean isArchetype;
-        String displayName = rawGroupName;
-        if (rawGroupName.startsWith(ARCHETYPE_MARKER)) {
-            isArchetype = true;
-            displayName = rawGroupName.substring(ARCHETYPE_MARKER.length());
-        } else {
-            isArchetype = false;
-        }
-        displayName = displayName.replaceAll("[=\\-]", "");
-
-        Label label = new Label(displayName);
-        label.getStyleClass().add("card-group-label");
-
-        hbox.getChildren().addAll(customTriangleLabel, label);
-
-        VBox vBox = new VBox();
-        vBox.getStyleClass().add("card-group-vbox");
-        vBox.getChildren().add(hbox);
-
-        GridView<CardElement> grid = new GridView<>();
-        grid.getStyleClass().add("card-grid-view");
-        grid.setCellFactory(gridView -> new CardGridCell());
-        javafx.collections.ObservableList<CardElement> groupItems = observableListFor(group);
-        grid.setItems(groupItems);
-        // Register as the current renderer so triggerHeightAdjustment() can find it.
-        GROUP_GRID_VIEWS.put(group, new java.lang.ref.WeakReference<>(grid));
-        grid.cellWidthProperty().bind(cardWidthProperty);
-        grid.cellHeightProperty().bind(cardHeightProperty);
-        grid.setHorizontalCellSpacing(5);
-        grid.setVerticalCellSpacing(5);
-        grid.setPadding(new Insets(5));
-        grid.prefWidthProperty().bind(getTreeView().widthProperty().subtract(50));
-
-        /*
-         * Store a Map as userData so the renderer has both pieces of information:
-         *  - "missingSet" : Set<String> (may be empty or null)
-         *  - "elementName": String (displayName)
-         *
-         * This preserves the archetype missing-set behavior (used by Decks & Collections / Archetypes)
-         * while also providing the element name for My Collection compute logic.
+        /**
+         * Returns the Deck or ThemeCollection that owns the list at {@code path},
+         * or null if the path cannot be resolved.
          */
-        Map<String, Object> ud = new HashMap<>();
-        ud.put("missingSet", missingForThisGroup == null ? Collections.emptySet() : missingForThisGroup);
-        ud.put("elementName", displayName);
-        ud.put("isArchetype", isArchetype);
-        grid.setUserData(ud);
+        private Object resolveDecksTargetOwner(String path) {
+            if (path == null) return null;
+            Model.CardsLists.DecksAndCollectionsList dac =
+                    Controller.UserInterfaceFunctions.getDecksList();
+            if (dac == null) return null;
 
-        this.cardGridView = grid;
+            String[] parts = path.split("\\s*/\\s*");
+            for (int i = 0; i < parts.length; i++) parts[i] = parts[i].trim();
+            if (parts.length == 0) return null;
 
-        // Initial call: best-effort using prefWidth (grid not yet laid out)
-        adjustGridViewHeight(group);
-        // Deferred correction: re-runs after the first layout pass when grid.getWidth() is valid
-        Platform.runLater(() -> adjustGridViewHeight(group));
+            String lastLower = parts[parts.length - 1].toLowerCase(java.util.Locale.ROOT);
+            boolean isMain = lastLower.equals("main deck");
+            boolean isExtra = lastLower.equals("extra deck");
+            boolean isSide = lastLower.equals("side deck");
+            boolean isExcl = lastLower.equals("exclusion list")
+                    || lastLower.equals("cards not to add");
 
-        // Listeners: deferred so grid.getWidth() reflects the new size after layout
-        cardWidthProperty.addListener((obs, oldVal, newVal) ->
-                Platform.runLater(() -> adjustGridViewHeight(group)));
-        getTreeView().widthProperty().addListener((obs, oldVal, newVal) ->
-                Platform.runLater(() -> adjustGridViewHeight(group)));
-
-        customTriangleLabel.setOnMouseClicked(event -> {
-            boolean isExpanded = !grid.isVisible();
-            grid.setVisible(isExpanded);
-            grid.setManaged(isExpanded);
-            updateCustomTriangle(isExpanded);
-            event.consume();
-        });
-        grid.setVisible(true);
-        grid.setManaged(true);
-        updateCustomTriangle(true);
-
-        vBox.getChildren().add(grid);
-        VBox.setVgrow(grid, Priority.ALWAYS);
-        setGraphic(vBox);
-
-        // For Decks & Collections tab only; different menu per group type.
-        hbox.setOnContextMenuRequested(event -> {
-            if (!isDecksAndCollectionsTabSelected()) {
-                event.consume();
-                return;
+            // "CollName" or "CollName / Exclusion List"
+            if (parts.length == 1 || (parts.length == 2 && isExcl)) {
+                return findCollByDisplayName(parts[0], dac);
             }
-
-            ContextMenu headerCm;
-
-            if (isArchetype) {
-                // Archetype group header  →  "Remove" (red + trash icon)
-                headerCm = NavigationContextMenuBuilder.styledContextMenu();
-                headerCm.getItems().add(NavigationContextMenuBuilder.makeRemoveItem());
-            } else {
-                // Regular group header (Cards, Main Deck, etc.) — no menu for now
-                event.consume();
-                return;
+            // "DeckName / Main|Extra|Side Deck"
+            if (parts.length == 2 && (isMain || isExtra || isSide)) {
+                Model.CardsLists.Deck d = findStandaloneDeckByDisplayName(parts[0], dac);
+                if (d != null) return d;
             }
-
-            headerCm.show(hbox, event.getScreenX(), event.getScreenY());
-            event.consume();
-        });
+            // "CollName / DeckName / Main|Extra|Side Deck"
+            if (parts.length == 3 && (isMain || isExtra || isSide)) {
+                Model.CardsLists.ThemeCollection tc = findCollByDisplayName(parts[0], dac);
+                if (tc != null) {
+                    Model.CardsLists.Deck d = findLinkedDeckByDisplayName(parts[1], tc);
+                    if (d != null) return d;
+                }
+            }
+            return null;
+        }
     }
 }

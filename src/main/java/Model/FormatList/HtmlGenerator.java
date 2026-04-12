@@ -201,7 +201,7 @@ public class HtmlGenerator {
                 "}\n" +
                 "\n" +
                 ".grayscale {\n" +
-                "\tfilter: grayscale(100%);\n" +
+                "\tfilter: grayscale(70%) brightness(50%);\n" +
                 "}\n</style>\n</head>\n<body>\n");
     }
 

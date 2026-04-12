@@ -72,18 +72,22 @@ public class CardFactory {
     public static Card CreateCardFromPrintCode(String printCode) throws Exception {
         String id = getPrintCodeToKonamiId().get(printCode);
         if (id == null || id.equals("null")) {
-            //throw new IllegalArgumentException("Invalid print code: " + printCode);
             System.out.println("Invalid print code: " + printCode);
             return null;
         }
 
         String passCode = String.valueOf(getKonamiIdToPassCode().get(Integer.valueOf(id)));
         if (passCode == null || passCode.equals("null")) {
-            //throw new IllegalArgumentException("Card passcode is null for printcode " + printCode);
             System.out.println("Card passcode is null for printcode " + printCode);
         }
 
-        return CreateCardFromPassCode(passCode);
+        // Build the card from the passCode so all database fields are populated,
+        // then restore the original printCode so it round-trips correctly.
+        Card card = CreateCardFromPassCode(passCode);
+        if (card != null) {
+            card.setPrintCode(printCode);
+        }
+        return card;
     }
 
 

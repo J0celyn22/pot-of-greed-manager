@@ -128,7 +128,8 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                     logger.debug("Cell sees selected tab='{}' (owned={}) for item={}", detectedTab, owned, finalCardElement);
                     if (owned && ouiche) {
                         ColorAdjust grayscale = new ColorAdjust();
-                        grayscale.setSaturation(-1.0);
+                        grayscale.setSaturation(-0.7);   // 70% desaturation
+                        grayscale.setBrightness(-0.5);   // darken by 50%
                         cardImageView.setEffect(grayscale);
                     } else {
                         // Important: do not clear pane effect here; only clear imageView effect
@@ -487,7 +488,8 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                 logger.debug("reapplyEffectsForCurrentItem: owned={} ouicheSelected={}", owned, ouiche);
                 if (owned && ouiche) {
                     ColorAdjust grayscale = new ColorAdjust();
-                    grayscale.setSaturation(-1.0);
+                    grayscale.setSaturation(-0.8);   // 80% desaturation
+                    grayscale.setBrightness(-0.3);   // darken by 30%
                     cardImageView.setEffect(grayscale);
                 } else {
                     cardImageView.setEffect(null);

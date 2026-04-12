@@ -115,6 +115,186 @@ public class UserInterfaceFunctions {
         return d;
     }
 
+    // ── Dirty tracking ────────────────────────────────────────────────────────────
+    private static final java.util.Set<Object> dirtyDecksAndCollections =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+    private static volatile boolean myCollectionDirty = false;
+    private static volatile boolean ouicheListDirty = false;
+    // ── Tab dirty-indicator callback ──────────────────────────────────────────────
+    private static Runnable tabDirtyIndicatorUpdater = null;
+
+    public static void markDirty(Object deckOrCollection) {
+        if (deckOrCollection != null) dirtyDecksAndCollections.add(deckOrCollection);
+    }
+
+    public static void markMyCollectionDirty() {
+        myCollectionDirty = true;
+    }
+
+    public static boolean isDirty(Object deckOrCollection) {
+        return deckOrCollection != null && dirtyDecksAndCollections.contains(deckOrCollection);
+    }
+
+    public static boolean isMyCollectionDirty() {
+        return myCollectionDirty;
+    }
+
+    public static boolean isAnyDeckOrCollectionDirty() {
+        return !dirtyDecksAndCollections.isEmpty();
+    }
+
+    public static void clearDirty(Object obj) {
+        dirtyDecksAndCollections.remove(obj);
+    }
+
+    public static void clearAllDirtyDecksAndCollections() {
+        dirtyDecksAndCollections.clear();
+    }
+
+    public static void clearMyCollectionDirty() {
+        myCollectionDirty = false;
+    }
+
+    public static void markOuicheListDirty() {
+        ouicheListDirty = true;
+    }
+
+    public static boolean isOuicheListDirty() {
+        return ouicheListDirty;
+    }
+
+    public static void clearOuicheListDirty() {
+        ouicheListDirty = false;
+    }
+
+    // ── Save methods ──────────────────────────────────────────────────────────────
+
+    /**
+     * Marks every deck and collection in the currently loaded DAC as dirty.
+     */
+    public static void markAllDecksAndCollectionsDirty() {
+        DecksAndCollectionsList dac = getDecksList();
+        if (dac == null) return;
+        if (dac.getDecks() != null)
+            dac.getDecks().forEach(d -> {
+                if (d != null) markDirty(d);
+            });
+        if (dac.getCollections() != null) {
+            dac.getCollections().forEach(tc -> {
+                if (tc == null) return;
+                markDirty(tc);
+                if (tc.getLinkedDecks() != null)
+                    tc.getLinkedDecks().forEach(u -> {
+                        if (u != null) u.forEach(d -> {
+                            if (d != null) markDirty(d);
+                        });
+                    });
+            });
+        }
+    }
+
+    public static void saveMyCollection() throws Exception {
+        if (!myCollectionDirty) {
+            logger.debug("saveMyCollection: collection is not dirty, skipping save");
+            return;
+        }
+        if (filePath == null) {
+            logger.warn("saveMyCollection: no file path configured");
+            return;
+        }
+        Model.CardsLists.OwnedCardsCollection owned =
+                Model.CardsLists.OuicheList.getMyCardsCollection();
+        if (owned == null) return;
+        owned.SaveCollection(filePath.getAbsolutePath());
+        clearMyCollectionDirty();
+        logger.info("My Collection saved to {}", filePath.getAbsolutePath());
+    }
+
+    public static void saveAllDecksAndCollections() throws Exception {
+        if (folderPath == null) {
+            logger.warn("saveAllDecksAndCollections: no folder path configured");
+            return;
+        }
+        DecksAndCollectionsList dac = getDecksList();
+        if (dac == null) return;
+        String dir = folderPath.getAbsolutePath();
+
+        if (dac.getCollections() != null) {
+            for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                if (tc == null) continue;
+
+                // Determine whether the collection itself or any of its linked
+                // decks are dirty — if so the .ytc file must be saved.
+                boolean collectionIsDirty = isDirty(tc);
+
+                boolean anyLinkedDeckIsDirty = false;
+                if (tc.getLinkedDecks() != null) {
+                    for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                        if (unit == null) continue;
+                        for (Model.CardsLists.Deck d : unit) {
+                            if (d != null && isDirty(d)) {
+                                anyLinkedDeckIsDirty = true;
+                                break;
+                            }
+                        }
+                        if (anyLinkedDeckIsDirty) break;
+                    }
+                }
+
+                // Save .ytc only when needed
+                if (collectionIsDirty || anyLinkedDeckIsDirty) {
+                    tc.SaveToFile(dir);
+                    clearDirty(tc);
+                    logger.info("Saved collection '{}'", tc.getName());
+                }
+
+                // Save each linked .ydk only when that deck is dirty
+                if (tc.getLinkedDecks() != null) {
+                    for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                        if (unit == null) continue;
+                        for (Model.CardsLists.Deck d : unit) {
+                            if (d == null) continue;
+                            if (isDirty(d)) {
+                                d.saveDeck(dir);
+                                clearDirty(d);
+                                logger.info("Saved linked deck '{}'", d.getName());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (dac.getDecks() != null) {
+            for (Model.CardsLists.Deck deck : dac.getDecks()) {
+                if (deck == null) continue;
+                if (isDirty(deck)) {
+                    deck.saveDeck(dir);
+                    clearDirty(deck);
+                    logger.info("Saved standalone deck '{}'", deck.getName());
+                }
+            }
+        }
+
+        // All dirty flags have been individually cleared above;
+        // clear the set to catch any stragglers.
+        clearAllDirtyDecksAndCollections();
+        logger.info("Save complete — only modified elements were written.");
+    }
+
+    public static void registerTabDirtyIndicatorUpdater(Runnable r) {
+        tabDirtyIndicatorUpdater = r;
+    }
+
+    public static void triggerTabDirtyIndicatorUpdate() {
+        if (tabDirtyIndicatorUpdater != null) {
+            if (javafx.application.Platform.isFxApplicationThread())
+                tabDirtyIndicatorUpdater.run();
+            else
+                javafx.application.Platform.runLater(tabDirtyIndicatorUpdater);
+        }
+    }
+
     // Setter and getter for decksList.
     public static void setDecksList(DecksAndCollectionsList list) {
         decksList = list;
@@ -265,6 +445,8 @@ public class UserInterfaceFunctions {
 
             detailedOuicheListIsLoaded = true;
 
+            markOuicheListDirty();
+            triggerTabDirtyIndicatorUpdate();
         } catch (IOException e) {
             e.printStackTrace();
         } catch (Exception e) {
@@ -541,11 +723,13 @@ public class UserInterfaceFunctions {
      */
     public static void saveOuicheList() throws IOException {
         if (!detailedOuicheListIsLoaded) {
-            //TODO fenêtre erreur :
+            //TODO : fenêtre erreur ?
             System.out.println("OuicheList must be generated or loaded");
         } else {
             Files.createDirectories(Paths.get(outputPath));
             ouicheListSave(outputPath + "OuicheList.txt");
+            clearOuicheListDirty();           // ← ADD THIS
+            logger.info("OuicheList saved.");
         }
     }
 
@@ -652,6 +836,9 @@ public class UserInterfaceFunctions {
             generateHtml(SubListCreator.counterTrapCard, outputPathLists, "CounterTrapCard");
 
             ouicheListIsLoaded = true;
+
+            markOuicheListDirty();
+            triggerTabDirtyIndicatorUpdate();
         } catch (IOException e) {
             e.printStackTrace();
         } catch (Exception e) {

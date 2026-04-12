@@ -106,6 +106,9 @@ public final class MenuActionHandler {
         logger.debug("handleAddCopy: added '{}' to '{}'", card.getName_EN(), handlerTarget);
 
         lastAddedTarget = handlerTarget;
+
+        UserInterfaceFunctions.markMyCollectionDirty();
+        UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
     }
 
     /**
@@ -255,6 +258,9 @@ public final class MenuActionHandler {
         } catch (Throwable ex) {
             logger.debug("Failed to add element to destination", ex);
         }
+
+        UserInterfaceFunctions.markMyCollectionDirty();
+        UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
     }
 
     // --- Helpers ---
@@ -717,6 +723,9 @@ public final class MenuActionHandler {
         logger.debug("doAddCategoryAndMove: card '{}' added to new category '{}'",
                 toAdd.getCard() != null ? toAdd.getCard().getName_EN() : "?",
                 categoryName);
+
+        UserInterfaceFunctions.markMyCollectionDirty();
+        UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
     }
 
     /**
@@ -775,17 +784,28 @@ public final class MenuActionHandler {
             return t.toLowerCase().trim();
         };
         String targetNorm = norm.apply(collectionName);
+
+        ThemeCollection foundCollection = null;
         for (ThemeCollection tc : dac.getCollections()) {
             if (tc == null) continue;
             if (norm.apply(tc.getName()).equals(targetNorm)) {
-                if (tc.getCardsList() == null) tc.setCardsList(new ArrayList<>());
-                tc.getCardsList().add(new CardElement(card));
-                logger.debug("handleAddToCollectionCards: added '{}' to collection '{}'",
-                        card.getName_EN(), collectionName);
-                return;
+                foundCollection = tc;
+                break;
             }
         }
-        logger.info("handleAddToCollectionCards: collection '{}' not found", collectionName);
+        if (foundCollection == null) {
+            logger.info("handleAddToCollectionCards: collection '{}' not found", collectionName);
+            return;
+        }
+
+        if (foundCollection.getCardsList() == null)
+            foundCollection.setCardsList(new ArrayList<>());
+        foundCollection.getCardsList().add(new CardElement(card));
+        logger.debug("handleAddToCollectionCards: added '{}' to collection '{}'",
+                card.getName_EN(), collectionName);
+
+        UserInterfaceFunctions.markDirty(foundCollection);
+        UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
     }
 
     public static void handleAddToExclusionList(Card card, String collectionName) {
@@ -822,17 +842,28 @@ public final class MenuActionHandler {
             return t.toLowerCase().trim();
         };
         String targetNorm = norm.apply(collectionName);
+
+        ThemeCollection foundCollection = null;
         for (ThemeCollection tc : dac.getCollections()) {
             if (tc == null) continue;
             if (norm.apply(tc.getName()).equals(targetNorm)) {
-                if (tc.getExceptionsToNotAdd() == null) tc.setExceptionsToNotAdd(new ArrayList<>());
-                tc.getExceptionsToNotAdd().add(new CardElement(card));
-                logger.debug("handleAddToExclusionList: added '{}' to exclusion list of '{}'",
-                        card.getName_EN(), collectionName);
-                return;
+                foundCollection = tc;
+                break;
             }
         }
-        logger.info("handleAddToExclusionList: collection '{}' not found", collectionName);
+        if (foundCollection == null) {
+            logger.info("handleAddToExclusionList: collection '{}' not found", collectionName);
+            return;
+        }
+
+        if (foundCollection.getExceptionsToNotAdd() == null)
+            foundCollection.setExceptionsToNotAdd(new ArrayList<>());
+        foundCollection.getExceptionsToNotAdd().add(new CardElement(card));
+        logger.debug("handleAddToExclusionList: added '{}' to exclusion list of '{}'",
+                card.getName_EN(), collectionName);
+
+        UserInterfaceFunctions.markDirty(foundCollection);
+        UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
     }
 
     private static void doAddToDeck(Card card, String handlerTarget) {
@@ -892,6 +923,9 @@ public final class MenuActionHandler {
             targetDeck.getSideDeck().add(newElement);
         }
         logger.debug("doAddToDeck: added '{}' to '{}'", card.getName_EN(), handlerTarget);
+
+        UserInterfaceFunctions.markDirty(targetDeck);
+        UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
     }
 
     private static Deck findDeckInDac(String deckNameNorm,

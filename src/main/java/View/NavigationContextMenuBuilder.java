@@ -53,6 +53,8 @@ public final class NavigationContextMenuBuilder {
                 final Box target = topBox;
                 MenuItem mi = makeActionItem(name, () -> {
                     doMoveBoxToSubBox(box, target, owned);
+                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                    Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                     refreshOwnedCollectionView();
                 });
                 moveMenu.getItems().add(mi);
@@ -67,6 +69,8 @@ public final class NavigationContextMenuBuilder {
                         final Box subTarget = sub;
                         MenuItem subMi = makeActionItem(name + " / " + subName, () -> {
                             doMoveBoxToSubBox(box, subTarget, owned);
+                            Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                             refreshOwnedCollectionView();
                         });
                         moveMenu.getItems().add(subMi);
@@ -79,6 +83,8 @@ public final class NavigationContextMenuBuilder {
                 if (!moveMenu.getItems().isEmpty()) moveMenu.getItems().add(new SeparatorMenuItem());
                 MenuItem noBox = makeActionItem("No Box (top level)", () -> {
                     doMoveBoxToTopLevel(box, owned);
+                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                    Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                     refreshOwnedCollectionView();
                 });
                 moveMenu.getItems().add(noBox);
@@ -93,12 +99,16 @@ public final class NavigationContextMenuBuilder {
             if (!isBoxEmpty(box) && !confirmRemoval("Box")) return;
             if (owned != null && owned.getOwnedCollection() != null) {
                 if (owned.getOwnedCollection().remove(box)) {
+                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                    Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                     refreshOwnedCollectionView();
                     return;
                 }
                 for (Model.CardsLists.Box parent : owned.getOwnedCollection()) {
                     if (parent == null || parent.getSubBoxes() == null) continue;
                     if (parent.getSubBoxes().remove(box)) {
+                        Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                        Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                         refreshOwnedCollectionView();
                         return;
                     }
@@ -144,6 +154,8 @@ public final class NavigationContextMenuBuilder {
                 final String destBoxName = boxName;
                 MenuItem miBox = makeActionItem(destBoxName, () -> {
                     doMoveCategory(category, parentBox, destBox, null, owned);
+                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                    Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                     refreshOwnedCollectionView();
                 });
                 moveMenu.getItems().add(miBox);
@@ -157,6 +169,8 @@ public final class NavigationContextMenuBuilder {
                         final Model.CardsLists.CardsGroup afterGroup = g;
                         MenuItem miGroup = makeActionItem(destBoxName + " / " + groupName, () -> {
                             doMoveCategory(category, parentBox, destBox, afterGroup, owned);
+                            Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                             refreshOwnedCollectionView();
                         });
                         moveMenu.getItems().add(miGroup);
@@ -173,6 +187,8 @@ public final class NavigationContextMenuBuilder {
                         final String destSubName = subName;
                         MenuItem miSub = makeActionItem(destSubName, () -> {
                             doMoveCategory(category, parentBox, destSub, null, owned);
+                            Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                             refreshOwnedCollectionView();
                         });
                         moveMenu.getItems().add(miSub);
@@ -185,6 +201,8 @@ public final class NavigationContextMenuBuilder {
                                 final Model.CardsLists.CardsGroup afterGroup = g;
                                 MenuItem miSubGroup = makeActionItem(destSubName + " / " + groupName, () -> {
                                     doMoveCategory(category, parentBox, destSub, afterGroup, owned);
+                                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                                    Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                                     refreshOwnedCollectionView();
                                 });
                                 moveMenu.getItems().add(miSubGroup);
@@ -203,6 +221,8 @@ public final class NavigationContextMenuBuilder {
             if (!isCategoryEmpty(category) && !confirmRemoval("Category")) return;
             if (parentBox != null && parentBox.getContent() != null) {
                 parentBox.getContent().remove(category);
+                Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                 refreshOwnedCollectionView();
             }
         };
@@ -234,6 +254,8 @@ public final class NavigationContextMenuBuilder {
             parentBox.getSubBoxes().add(newBox);
             Controller.UserInterfaceFunctions.setPendingRenameTarget(newBox);
             Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
+            Controller.UserInterfaceFunctions.markMyCollectionDirty();
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -266,6 +288,8 @@ public final class NavigationContextMenuBuilder {
             }
             Controller.UserInterfaceFunctions.setPendingRenameTarget(newBox);
             Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
+            Controller.UserInterfaceFunctions.markMyCollectionDirty();
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -294,6 +318,8 @@ public final class NavigationContextMenuBuilder {
             }
             Controller.UserInterfaceFunctions.setPendingRenameTarget(newCat);
             Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
+            Controller.UserInterfaceFunctions.markMyCollectionDirty();
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -312,6 +338,8 @@ public final class NavigationContextMenuBuilder {
             owned.getOwnedCollection().add(newBox);
             Controller.UserInterfaceFunctions.setPendingRenameTarget(newBox);
             Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
+            Controller.UserInterfaceFunctions.markMyCollectionDirty();
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -334,6 +362,8 @@ public final class NavigationContextMenuBuilder {
             if (!isCollectionEmpty(collection) && !confirmRemoval("Collection")) return;
             if (dac != null && dac.getCollections() != null) {
                 dac.getCollections().remove(collection);
+                Controller.UserInterfaceFunctions.markAllDecksAndCollectionsDirty();
+                Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                 refreshDecksAndCollectionsView();
             }
         };
@@ -512,6 +542,8 @@ public final class NavigationContextMenuBuilder {
                     }
                     if (!duplicate) {
                         collection.getArchetypes().add(finalArchName);
+                        Controller.UserInterfaceFunctions.markDirty(collection);
+                        Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                         logger.debug("Added archetype '{}' to collection '{}'",
                                 finalArchName, collection.getName());
                     }
@@ -627,7 +659,11 @@ public final class NavigationContextMenuBuilder {
                     }
                 }
             }
-            if (removed) refreshDecksAndCollectionsView();
+            if (removed) {
+                Controller.UserInterfaceFunctions.markAllDecksAndCollectionsDirty();
+                Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                refreshDecksAndCollectionsView();
+            }
         };
 
         // Build item list — "Create Collection" only for standalone decks
@@ -682,6 +718,11 @@ public final class NavigationContextMenuBuilder {
             // Store {collection, deck} so the refresher can launch the special rename
             Controller.UserInterfaceFunctions.setPendingDecksCreateCollectionData(
                     new Object[]{newColl, deck});
+
+            // Both the new collection and the moved deck are dirty
+            Controller.UserInterfaceFunctions.markDirty(newColl);
+            Controller.UserInterfaceFunctions.markDirty(deck);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
 
             refreshDecksAndCollectionsView();
         });
@@ -775,6 +816,8 @@ public final class NavigationContextMenuBuilder {
 
             Controller.UserInterfaceFunctions.setPendingDecksScrollTarget(deck);
             refreshDecksAndCollectionsView();
+            Controller.UserInterfaceFunctions.markAllDecksAndCollectionsDirty();
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -792,6 +835,8 @@ public final class NavigationContextMenuBuilder {
             targetColl.AddDeck(deck);   // AddDeck always creates a new unit
             Controller.UserInterfaceFunctions.setPendingDecksScrollTarget(deck);
             refreshDecksAndCollectionsView();
+            Controller.UserInterfaceFunctions.markAllDecksAndCollectionsDirty();
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -809,6 +854,8 @@ public final class NavigationContextMenuBuilder {
             dac.getDecks().add(deck);
             Controller.UserInterfaceFunctions.setPendingDecksScrollTarget(deck);
             refreshDecksAndCollectionsView();
+            Controller.UserInterfaceFunctions.markAllDecksAndCollectionsDirty();
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -827,6 +874,8 @@ public final class NavigationContextMenuBuilder {
             else dac.getCollections().add(newColl);
             Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newColl);
             refreshDecksAndCollectionsView();
+            Controller.UserInterfaceFunctions.markDirty(newColl);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -842,6 +891,8 @@ public final class NavigationContextMenuBuilder {
             dac.getCollections().add(newColl);
             Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newColl);
             refreshDecksAndCollectionsView();
+            Controller.UserInterfaceFunctions.markDirty(newColl);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -859,6 +910,8 @@ public final class NavigationContextMenuBuilder {
             dac.getCollections().add(newColl);
             Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newColl);
             refreshDecksAndCollectionsView();
+            Controller.UserInterfaceFunctions.markDirty(newColl);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -873,6 +926,8 @@ public final class NavigationContextMenuBuilder {
             collection.AddDeck(newDeck);   // adds as a new unit at the end
             Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newDeck);
             refreshDecksAndCollectionsView();
+            Controller.UserInterfaceFunctions.markDirty(collection);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -909,6 +964,8 @@ public final class NavigationContextMenuBuilder {
             }
             Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newDeck);
             refreshDecksAndCollectionsView();
+            Controller.UserInterfaceFunctions.markDirty(parentCollection);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -927,6 +984,8 @@ public final class NavigationContextMenuBuilder {
             else dac.getDecks().add(newDeck);
             Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newDeck);
             refreshDecksAndCollectionsView();
+            Controller.UserInterfaceFunctions.markDirty(newDeck);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -944,6 +1003,8 @@ public final class NavigationContextMenuBuilder {
             dac.getDecks().add(newDeck);
             Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newDeck);
             refreshDecksAndCollectionsView();
+            Controller.UserInterfaceFunctions.markDirty(newDeck);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
         });
     }
 
@@ -979,6 +1040,8 @@ public final class NavigationContextMenuBuilder {
                             ((Model.CardsLists.ThemeCollection) modelObj).setName(newName);
                         navItem.getLabel().setText(newName);
                         refreshDecksAndCollectionsView();
+                        Controller.UserInterfaceFunctions.markDirty(modelObj);
+                        Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                     },
                     null   // cancel is a no-op for an existing element
             );
@@ -1067,9 +1130,22 @@ public final class NavigationContextMenuBuilder {
         return mi;
     }
 
-    private static String sanitize(String raw) {
+    /*private static String sanitize(String raw) {
         if (raw == null) return "";
         return raw.replaceAll("[=\\-]", "").trim();
+    }*/
+    private static String sanitize(String raw) {
+        if (raw == null) return "";
+        // Strip only leading/trailing decorator characters (= for boxes, - for categories),
+        // preserving hyphens that are genuinely part of the name.
+        String s = raw.trim();
+        // Strip leading = or -
+        int start = 0;
+        while (start < s.length() && (s.charAt(start) == '=' || s.charAt(start) == '-')) start++;
+        // Strip trailing = or -
+        int end = s.length();
+        while (end > start && (s.charAt(end - 1) == '=' || s.charAt(end - 1) == '-')) end--;
+        return s.substring(start, end).trim();
     }
 
     // ── Emptiness checks ─────────────────────────────────────────────────────
@@ -1420,6 +1496,8 @@ public final class NavigationContextMenuBuilder {
                         }
                         // Refresh both views
                         Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
+                        Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                        Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                     },
                     null  // cancel: nothing to do
             );

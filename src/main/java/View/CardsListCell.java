@@ -259,9 +259,22 @@ public class CardsListCell extends ListCell<Card> {
         return items;
     }
 
-    private static String sanitize(String raw) {
+    /*private static String sanitize(String raw) {
         if (raw == null) return "";
         return raw.replaceAll("[=\\-]", "").trim();
+    }*/
+    private static String sanitize(String raw) {
+        if (raw == null) return "";
+        // Strip only leading/trailing decorator characters (= for boxes, - for categories),
+        // preserving hyphens that are genuinely part of the name.
+        String s = raw.trim();
+        // Strip leading = or -
+        int start = 0;
+        while (start < s.length() && (s.charAt(start) == '=' || s.charAt(start) == '-')) start++;
+        // Strip trailing = or -
+        int end = s.length();
+        while (end > start && (s.charAt(end - 1) == '=' || s.charAt(end - 1) == '-')) end--;
+        return s.substring(start, end).trim();
     }
 
     private static javafx.scene.control.TabPane findTabPane(javafx.scene.Parent parent) {
@@ -279,24 +292,29 @@ public class CardsListCell extends ListCell<Card> {
         return null;
     }
 
+    private static String stripDirtyPrefix(String tabText) {
+        if (tabText == null) return "";
+        String trimmed = tabText.trim();
+        return trimmed.startsWith("* ") ? trimmed.substring(2).trim() : trimmed;
+    }
+
     private String getCurrentTabName() {
         try {
-            // First: walk up the ancestor chain (works when the list is inside the TabPane)
             javafx.scene.Node node = getListView();
-            while (node != null && !(node instanceof javafx.scene.control.TabPane)) {
+            while (node != null && !(node instanceof javafx.scene.control.TabPane))
                 node = node.getParent();
-            }
             if (node instanceof javafx.scene.control.TabPane) {
                 javafx.scene.control.Tab sel =
                         ((javafx.scene.control.TabPane) node).getSelectionModel().getSelectedItem();
-                if (sel != null && sel.getText() != null) return sel.getText().trim();
+                if (sel != null && sel.getText() != null)
+                    return stripDirtyPrefix(sel.getText());
             }
-            // Fallback: search the whole scene graph (works when the list is a sibling of the TabPane)
             if (getListView() != null && getListView().getScene() != null) {
                 javafx.scene.control.TabPane tp = findTabPane(getListView().getScene().getRoot());
                 if (tp != null) {
                     javafx.scene.control.Tab sel = tp.getSelectionModel().getSelectedItem();
-                    if (sel != null && sel.getText() != null) return sel.getText().trim();
+                    if (sel != null && sel.getText() != null)
+                        return stripDirtyPrefix(sel.getText());
                 }
             }
         } catch (Exception ignored) {

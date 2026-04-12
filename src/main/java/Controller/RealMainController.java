@@ -81,6 +81,10 @@ public class RealMainController {
     private TreeView<String> archetypesTreeView;
     private TreeView<String> decksAndCollectionsTreeView;
 
+    private Tab myCollectionTabHandle;
+    private Tab decksTabHandle;
+    private Tab ouicheListTabHandle;
+
     /**
      * computeCardNeedsSorting (non-destructive version)
      * <p>
@@ -568,6 +572,20 @@ public class RealMainController {
 
     // --- My Collection display ---
 
+    private static String sanitize(String raw) {
+        if (raw == null) return "";
+        // Strip only leading/trailing decorator characters (= for boxes, - for categories),
+        // preserving hyphens that are genuinely part of the name.
+        String s = raw.trim();
+        // Strip leading = or -
+        int start = 0;
+        while (start < s.length() && (s.charAt(start) == '=' || s.charAt(start) == '-')) start++;
+        // Strip trailing = or -
+        int end = s.length();
+        while (end > start && (s.charAt(end - 1) == '=' || s.charAt(end - 1) == '-')) end--;
+        return s.substring(start, end).trim();
+    }
+
     @FXML
     private void initialize() {
         UserInterfaceFunctions.readPathsFromFile();
@@ -611,6 +629,52 @@ public class RealMainController {
             mainTabPane.getTabs().get(3).setContent(archetypesTab);
             mainTabPane.getTabs().get(4).setContent(friendsTab);
             mainTabPane.getTabs().get(5).setContent(shopsTab);
+
+            // Store tab handles for dirty-indicator updates
+            if (mainTabPane != null && mainTabPane.getTabs().size() >= 2) {
+                myCollectionTabHandle = mainTabPane.getTabs().get(0);
+                decksTabHandle = mainTabPane.getTabs().get(1);
+                ouicheListTabHandle = mainTabPane.getTabs().get(2);
+            }
+            UserInterfaceFunctions.registerTabDirtyIndicatorUpdater(this::updateTabDirtyIndicators);
+        }
+
+        // Wire My Collection save button
+        if (myCollectionTab.getSaveButton() != null) {
+            myCollectionTab.getSaveButton().setOnAction(e -> {
+                try {
+                    UserInterfaceFunctions.saveMyCollection();
+                    updateTabDirtyIndicators();
+                    populateMyCollectionMenu();         // refresh nav to remove "*" markers
+                } catch (Exception ex) {
+                    logger.error("Error saving My Collection", ex);
+                }
+            });
+        }
+
+        // Wire Decks and Collections save button
+        if (decksTab.getSaveButton() != null) {
+            decksTab.getSaveButton().setOnAction(e -> {
+                try {
+                    UserInterfaceFunctions.saveAllDecksAndCollections();
+                    updateTabDirtyIndicators();
+                    populateDecksAndCollectionsMenu();  // refresh nav to remove "*" markers
+                } catch (Exception ex) {
+                    logger.error("Error saving Decks and Collections", ex);
+                }
+            });
+        }
+
+        // Wire OuicheList save button
+        if (ouicheListTab.getSaveButton() != null) {
+            ouicheListTab.getSaveButton().setOnAction(e -> {
+                try {
+                    UserInterfaceFunctions.saveOuicheList();
+                    updateTabDirtyIndicators();
+                } catch (Exception ex) {
+                    logger.error("Error saving OuicheList", ex);
+                }
+            });
         }
 
         try {
@@ -629,6 +693,8 @@ public class RealMainController {
                     if (target != null) {
                         scrollToNewCardInGroup(target);
                     }
+                    // ── Dirty indicator ──
+                    updateTabDirtyIndicators();
                 } catch (Exception e) {
                     logger.debug("My Collection refresher failed", e);
                 }
@@ -732,6 +798,8 @@ public class RealMainController {
                                         }
                                     });
                                 }
+                                // Update dirty indicators
+                                updateTabDirtyIndicators();
                             } catch (Exception e) {
                                 logger.debug("Decks refresher failed", e);
                             }
@@ -830,10 +898,13 @@ public class RealMainController {
                     if (modelObj instanceof Deck) ((Deck) modelObj).setName(newName);
                     else if (modelObj instanceof ThemeCollection)
                         ((ThemeCollection) modelObj).setName(newName);
+                    // The element now has a real name — mark it dirty
+                    UserInterfaceFunctions.markDirty(modelObj);
+                    UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                     UserInterfaceFunctions.refreshDecksAndCollectionsView();
                 },
                 () -> {
-                    // Cancel: remove the freshly created element so it disappears
+                    // Cancel: remove the freshly created element
                     try {
                         DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
                         if (dac != null) {
@@ -856,40 +927,9 @@ public class RealMainController {
                         }
                     } catch (Throwable ignored) {
                     }
-                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
-                }
-        );
-    }
-
-    /**
-     * Starts an inline rename for a ThemeCollection that was just created from a
-     * standalone Deck ("Create Collection" action).
-     * <p>
-     * Confirm → renames the collection and refreshes.
-     * Cancel  → removes the collection and moves the deck back to the standalone
-     * list, then refreshes.
-     */
-    private void startDecksCreateCollectionRename(NavigationItem navItem,
-                                                  ThemeCollection newColl,
-                                                  Deck movedDeck) {
-        navItem.startInlineRename(
-                newName -> {
-                    newColl.setName(newName);
-                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
-                },
-                () -> {
-                    // Cancel: undo — remove the collection and restore the deck
-                    try {
-                        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
-                        if (dac != null) {
-                            if (dac.getCollections() != null)
-                                dac.getCollections().remove(newColl);
-                            if (dac.getDecks() == null)
-                                dac.setDecks(new java.util.ArrayList<>());
-                            dac.getDecks().add(movedDeck);
-                        }
-                    } catch (Throwable ignored) {
-                    }
+                    // Element was never committed — clear its dirty flag
+                    UserInterfaceFunctions.clearDirty(modelObj);
+                    UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                     UserInterfaceFunctions.refreshDecksAndCollectionsView();
                 }
         );
@@ -1248,6 +1288,90 @@ public class RealMainController {
     }
 
     /**
+     * Starts an inline rename for a ThemeCollection that was just created from a
+     * standalone Deck ("Create Collection" action).
+     * <p>
+     * Confirm → renames the collection and refreshes.
+     * Cancel  → removes the collection and moves the deck back to the standalone
+     * list, then refreshes.
+     */
+    private void startDecksCreateCollectionRename(NavigationItem navItem,
+                                                  ThemeCollection newColl,
+                                                  Deck movedDeck) {
+        navItem.startInlineRename(
+                newName -> {
+                    newColl.setName(newName);
+                    // Both the collection and the deck it now contains are dirty
+                    UserInterfaceFunctions.markDirty(newColl);
+                    UserInterfaceFunctions.markDirty(movedDeck);
+                    UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                },
+                () -> {
+                    // Cancel: undo — remove the collection, restore the deck to standalone
+                    try {
+                        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
+                        if (dac != null) {
+                            if (dac.getCollections() != null)
+                                dac.getCollections().remove(newColl);
+                            if (dac.getDecks() == null)
+                                dac.setDecks(new java.util.ArrayList<>());
+                            dac.getDecks().add(movedDeck);
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    // The collection was never saved — remove it from dirty tracking
+                    UserInterfaceFunctions.clearDirty(newColl);
+                    // The deck is back standalone; clear its "dirty from the failed create" flag too
+                    // It may legitimately be dirty from previous edits, but those would have been
+                    // marked before this action — clearDirty here only removes the flag we added.
+                    UserInterfaceFunctions.clearDirty(movedDeck);
+                    UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                }
+        );
+    }
+
+    /**
+     * Searches the live menuVBox for the NavigationItem whose userData == target.
+     * This must be called AFTER all nav rebuilds have completed.
+     */
+    private NavigationItem findNavItemInMenuVBox(VBox menuVBox, Object target) {
+        if (menuVBox == null || target == null) return null;
+        for (javafx.scene.Node node : menuVBox.getChildren()) {
+            NavigationItem found = findNavItemInNode(node, target);
+            if (found != null) return found;
+        }
+        logger.debug("findNavItemInMenuVBox: no item found for target={}", target);
+        return null;
+    }
+
+    private NavigationItem findNavItemInNode(javafx.scene.Node node, Object target) {
+        if (node instanceof NavigationMenu) {
+            for (NavigationItem item : ((NavigationMenu) node).getItems()) {
+                NavigationItem found = findNavItemByUserDataInItem(item, target);
+                if (found != null) return found;
+            }
+        } else if (node instanceof NavigationItem) {
+            return findNavItemByUserDataInItem((NavigationItem) node, target);
+        }
+        return null;
+    }
+
+    private NavigationItem findNavItemByUserDataInItem(NavigationItem item, Object target) {
+        if (item == null) return null;
+        logger.debug("findNavItemByUserDataInItem: checking '{}' userData={}",
+                item.getLabel() != null ? item.getLabel().getText() : "?",
+                item.getUserData());
+        if (item.getUserData() == target) return item;
+        for (NavigationItem sub : item.getSubItems()) {
+            NavigationItem found = findNavItemByUserDataInItem(sub, target);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /**
      * Populate the My Collection navigation menu.
      *
      * IMPORTANT: This method wires click handlers so that clicking a navigation label
@@ -1283,7 +1407,7 @@ public class RealMainController {
         if (collection != null && collection.getOwnedCollection() != null) {
             for (Box box : collection.getOwnedCollection()) {
                 String rawBoxName = box.getName() == null ? "" : box.getName();
-                String boxName = rawBoxName.replaceAll("[=\\-]", "");
+                String boxName = Model.CardsLists.OwnedCardsCollection.extractName(rawBoxName, '=');
                 NavigationItem boxItem = createNavigationItem(boxName, 0);
                 boxItem.setUserData(box);
 
@@ -1307,7 +1431,8 @@ public class RealMainController {
                 if (box.getContent() != null) {
                     for (CardsGroup group : box.getContent()) {
                         String rawGroupName = group.getName() == null ? "" : group.getName();
-                        String groupName = rawGroupName.replaceAll("[=\\-]", "");
+                        String groupName = Model.CardsLists.OwnedCardsCollection.extractName(rawGroupName, '-');
+                        if (groupName.isEmpty()) continue; // skip unnamed groups (boxes with cards directly)
                         NavigationItem groupItem = createNavigationItem(groupName, 1);
                         groupItem.setUserData(group);
 
@@ -1339,7 +1464,7 @@ public class RealMainController {
                 if (box.getSubBoxes() != null) {
                     for (Box subBox : box.getSubBoxes()) {
                         String rawSubBoxName = subBox.getName() == null ? "" : subBox.getName();
-                        String subBoxName = rawSubBoxName.replaceAll("[=\\-]", "");
+                        String subBoxName = Model.CardsLists.OwnedCardsCollection.extractName(rawSubBoxName, '=');
                         NavigationItem subBoxItem = createNavigationItem(subBoxName, 1);
                         subBoxItem.setUserData(subBox);
 
@@ -1364,7 +1489,8 @@ public class RealMainController {
                         if (subBox.getContent() != null) {
                             for (CardsGroup group : subBox.getContent()) {
                                 String rawGName = group.getName() == null ? "" : group.getName();
-                                String gName = rawGName.replaceAll("[=\\-]", "");
+                                String gName = Model.CardsLists.OwnedCardsCollection.extractName(rawGName, '-');
+                                if (gName.isEmpty()) continue; // skip unnamed groups
                                 NavigationItem gItem = createNavigationItem(gName, 2);
                                 gItem.setUserData(group);
 
@@ -1418,45 +1544,6 @@ public class RealMainController {
     }
 
     /**
-     * Searches the live menuVBox for the NavigationItem whose userData == target.
-     * This must be called AFTER all nav rebuilds have completed.
-     */
-    private NavigationItem findNavItemInMenuVBox(VBox menuVBox, Object target) {
-        if (menuVBox == null || target == null) return null;
-        for (javafx.scene.Node node : menuVBox.getChildren()) {
-            NavigationItem found = findNavItemInNode(node, target);
-            if (found != null) return found;
-        }
-        logger.debug("findNavItemInMenuVBox: no item found for target={}", target);
-        return null;
-    }
-
-    private NavigationItem findNavItemInNode(javafx.scene.Node node, Object target) {
-        if (node instanceof NavigationMenu) {
-            for (NavigationItem item : ((NavigationMenu) node).getItems()) {
-                NavigationItem found = findNavItemByUserDataInItem(item, target);
-                if (found != null) return found;
-            }
-        } else if (node instanceof NavigationItem) {
-            return findNavItemByUserDataInItem((NavigationItem) node, target);
-        }
-        return null;
-    }
-
-    private NavigationItem findNavItemByUserDataInItem(NavigationItem item, Object target) {
-        if (item == null) return null;
-        logger.debug("findNavItemByUserDataInItem: checking '{}' userData={}",
-                item.getLabel() != null ? item.getLabel().getText() : "?",
-                item.getUserData());
-        if (item.getUserData() == target) return item;
-        for (NavigationItem sub : item.getSubItems()) {
-            NavigationItem found = findNavItemByUserDataInItem(sub, target);
-            if (found != null) return found;
-        }
-        return null;
-    }
-
-    /**
      * Starts an inline rename on a freshly created Box or CardsGroup.
      * Confirm → updates the model name and does a full structure refresh.
      * Cancel → removes the element from the model and does a full structure refresh.
@@ -1464,13 +1551,15 @@ public class RealMainController {
     private void startAddRename(NavigationItem navItem, Object modelObj) {
         navItem.startInlineRename(
                 newName -> {
-                    // Apply name to model (no decoration — SaveCollection adds it)
                     if (modelObj instanceof Box) ((Box) modelObj).setName(newName);
                     else if (modelObj instanceof CardsGroup) ((CardsGroup) modelObj).setName(newName);
+                    // Mark dirty — the new element now has a real name, so it needs saving
+                    UserInterfaceFunctions.markMyCollectionDirty();
+                    UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                     UserInterfaceFunctions.refreshOwnedCollectionStructure();
                 },
                 () -> {
-                    // Cancel: remove the freshly created element so it disappears
+                    // Cancel: remove the freshly created element
                     try {
                         OwnedCardsCollection owned = OuicheList.getMyCardsCollection();
                         if (owned != null) {
@@ -1488,7 +1577,8 @@ public class RealMainController {
                                     if (top.getContent() != null && top.getContent().remove(cat)) break;
                                     if (top.getSubBoxes() != null) {
                                         for (Box sub : top.getSubBoxes()) {
-                                            if (sub.getContent() != null && sub.getContent().remove(cat)) break outer;
+                                            if (sub.getContent() != null && sub.getContent().remove(cat))
+                                                break outer;
                                         }
                                     }
                                 }
@@ -1496,63 +1586,10 @@ public class RealMainController {
                         }
                     } catch (Throwable ignored) {
                     }
+                    // Nothing new was actually persisted — no dirty change needed
                     UserInterfaceFunctions.refreshOwnedCollectionStructure();
                 }
         );
-    }
-
-    /**
-     * Returns true if the given box or any of its groups/sub-boxes contains at least one card
-     * that computeCardNeedsSorting(...) reports as needing sorting.
-     *
-     * @param box            The Box to inspect.
-     * @param boxDisplayName The sanitized display name used in the navigation (no = or -).
-     * @return true if at least one card in the box (or its groups/subboxes) needs sorting.
-     */
-    private boolean boxHasUnsortedCards(Box box, String boxDisplayName) {
-        if (box == null) return false;
-
-        // 1) Check cards that may be directly present in categories (groups) of this box
-        if (box.getContent() != null) {
-            for (CardsGroup group : box.getContent()) {
-                // If a group contains unsorted cards, the box is considered to have unsorted cards
-                if (groupHasUnsortedCards(group, group.getName() == null ? "" : group.getName().replaceAll("[=\\-]", ""))) {
-                    return true;
-                }
-            }
-        }
-
-        // 2) If the Box itself may directly contain cards (some formats may put cards at box-level),
-        //    check them by iterating groups with empty names or by checking the group's card list directly.
-        //    (This covers the case where a Box may contain cards without a named category.)
-        if (box.getContent() != null) {
-            for (CardsGroup group : box.getContent()) {
-                if (group.getName() == null || group.getName().trim().isEmpty()) {
-                    // treat as box-level cards
-                    if (group.getCardList() != null) {
-                        for (CardElement ce : group.getCardList()) {
-                            if (ce == null || ce.getCard() == null) continue;
-                            try {
-                                boolean needs = Controller.RealMainController.computeCardNeedsSorting(ce.getCard(), boxDisplayName);
-                                if (needs) return true;
-                            } catch (Throwable t) {
-                                // If compute method fails, be conservative and treat as not needing sorting
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3) Check sub-boxes recursively
-        if (box.getSubBoxes() != null) {
-            for (Box sub : box.getSubBoxes()) {
-                String subBoxDisplayName = sub.getName() == null ? "" : sub.getName().replaceAll("[=\\-]", "");
-                if (boxHasUnsortedCards(sub, subBoxDisplayName)) return true;
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -1882,8 +1919,62 @@ public class RealMainController {
 
     // --- Tree item builders and helpers (unchanged) ---
 
+    /**
+     * Returns true if the given box or any of its groups/sub-boxes contains at least one card
+     * that computeCardNeedsSorting(...) reports as needing sorting.
+     *
+     * @param box            The Box to inspect.
+     * @param boxDisplayName The sanitized display name used in the navigation (no = or -).
+     * @return true if at least one card in the box (or its groups/subboxes) needs sorting.
+     */
+    private boolean boxHasUnsortedCards(Box box, String boxDisplayName) {
+        if (box == null) return false;
+
+        // 1) Check cards that may be directly present in categories (groups) of this box
+        if (box.getContent() != null) {
+            for (CardsGroup group : box.getContent()) {
+                // If a group contains unsorted cards, the box is considered to have unsorted cards
+                if (groupHasUnsortedCards(group, Model.CardsLists.OwnedCardsCollection.extractName(group.getName() == null ? "" : group.getName(), '-'))) {
+                    return true;
+                }
+            }
+        }
+
+        // 2) If the Box itself may directly contain cards (some formats may put cards at box-level),
+        //    check them by iterating groups with empty names or by checking the group's card list directly.
+        //    (This covers the case where a Box may contain cards without a named category.)
+        if (box.getContent() != null) {
+            for (CardsGroup group : box.getContent()) {
+                if (group.getName() == null || group.getName().trim().isEmpty()) {
+                    // treat as box-level cards
+                    if (group.getCardList() != null) {
+                        for (CardElement ce : group.getCardList()) {
+                            if (ce == null || ce.getCard() == null) continue;
+                            try {
+                                boolean needs = Controller.RealMainController.computeCardNeedsSorting(ce.getCard(), boxDisplayName);
+                                if (needs) return true;
+                            } catch (Throwable t) {
+                                // If compute method fails, be conservative and treat as not needing sorting
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3) Check sub-boxes recursively
+        if (box.getSubBoxes() != null) {
+            for (Box sub : box.getSubBoxes()) {
+                String subBoxDisplayName = Model.CardsLists.OwnedCardsCollection.extractName(sub.getName() == null ? "" : sub.getName(), '=');
+                if (boxHasUnsortedCards(sub, subBoxDisplayName)) return true;
+            }
+        }
+
+        return false;
+    }
+
     private DataTreeItem<Object> createBoxTreeItem(Box box) {
-        String cleanName = box.getName() == null ? "" : box.getName().replaceAll("[=\\-]", "");
+        String cleanName = Model.CardsLists.OwnedCardsCollection.extractName(box.getName() == null ? "" : box.getName(), '=');
         DataTreeItem<Object> boxItem = new DataTreeItem<>(cleanName, box);
         boxItem.setExpanded(true);
         if (box.getContent() != null) {
@@ -1902,14 +1993,14 @@ public class RealMainController {
     }
 
     private DataTreeItem<Object> createGroupTreeItem(CardsGroup group) {
-        String displayName = group.getName() == null ? "" : group.getName().replaceAll("[=\\-]", "");
+        String displayName = Model.CardsLists.OwnedCardsCollection.extractName(group.getName() == null ? "" : group.getName(), '-');
         DataTreeItem<Object> groupItem = new DataTreeItem<>(displayName, group);
         groupItem.setExpanded(true);
         return groupItem;
     }
 
     private DataTreeItem<Object> createDeckTreeItem(Deck deck) {
-        String cleanName = deck.getName() == null ? "" : deck.getName().replaceAll("[=\\-]", "");
+        String cleanName = deck.getName() == null ? "" : deck.getName();
         DataTreeItem<Object> deckItem = new DataTreeItem<>(cleanName, deck);
         deckItem.setExpanded(true);
 
@@ -1937,9 +2028,82 @@ public class RealMainController {
         return deckItem;
     }
 
+    private void displayDecksAndCollections() throws Exception {
+        AnchorPane contentPane = decksTab.getContentPane();
+        contentPane.getChildren().clear();
+
+        if (UserInterfaceFunctions.getDecksList() == null) {
+            UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+        }
+        DecksAndCollectionsList decksCollection = UserInterfaceFunctions.getDecksList();
+        if (decksCollection == null) {
+            throw new Exception("DecksAndCollectionsList is null. Please check the decks folder path.");
+        }
+
+        DataTreeItem<Object> rootItem = new DataTreeItem<>("Decks and Collections", "ROOT");
+        rootItem.setExpanded(true);
+
+        if (decksCollection.getCollections() != null) {
+            for (ThemeCollection collection : decksCollection.getCollections()) {
+                DataTreeItem<Object> collItem = createThemeCollectionTreeItem(collection, TabType.DECKS);
+                rootItem.getChildren().add(collItem);
+            }
+        }
+
+        if (decksCollection.getDecks() != null) {
+            for (Deck deck : decksCollection.getDecks()) {
+                DataTreeItem<Object> deckItem = createDeckTreeItem(deck);
+                rootItem.getChildren().add(deckItem);
+            }
+        }
+
+        decksAndCollectionsTreeView = new TreeView<>(rootItem);
+        decksAndCollectionsTreeView.setUserData("DECKS_COLLECTIONS");
+        decksAndCollectionsTreeView.setCellFactory(param -> new CardTreeCell(cardWidthProperty, cardHeightProperty));
+        decksAndCollectionsTreeView.setStyle("-fx-background-color: #100317;");
+        decksAndCollectionsTreeView.setShowRoot(false);
+
+        contentPane.getChildren().add(decksAndCollectionsTreeView);
+        AnchorPane.setTopAnchor(decksAndCollectionsTreeView, 0.0);
+        AnchorPane.setBottomAnchor(decksAndCollectionsTreeView, 0.0);
+        AnchorPane.setLeftAnchor(decksAndCollectionsTreeView, 0.0);
+        AnchorPane.setRightAnchor(decksAndCollectionsTreeView, 0.0);
+
+        String stylesheetPath = "src/main/resources/styles.css";
+        decksAndCollectionsTreeView.getStylesheets().add(new File(stylesheetPath).toURI().toString());
+
+        logger.info("Decks and Collections displayed using the unified layout.");
+    }
+
+    private List<CardElement> buildElementsFromGlobalArchetype(String archetypeName) {
+        List<CardElement> elements = new ArrayList<>();
+        if (archetypeName == null || archetypeName.trim().isEmpty()) return elements;
+        try {
+            List<String> globalNames = SubListCreator.archetypesList;
+            List<List<Card>> globalLists = SubListCreator.archetypesCardsLists;
+            if (globalNames == null || globalLists == null) return elements;
+            for (int i = 0; i < globalNames.size(); i++) {
+                String globalName = globalNames.get(i);
+                if (globalName == null) continue;
+                if (globalName.equalsIgnoreCase(archetypeName.trim())) {
+                    List<Card> cardsForArchetype = globalLists.size() > i ? globalLists.get(i) : null;
+                    if (cardsForArchetype != null) {
+                        for (Card c : cardsForArchetype) {
+                            if (c != null) elements.add(new CardElement(c));
+                        }
+                    }
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("buildElementsFromGlobalArchetype failed for {}: {}", archetypeName, e.getMessage());
+        }
+        return elements;
+    }
+
     //TODO WTF, there is logic from deck import ! The deck should already be imported, just use the decks that are in the Collection !
     private DataTreeItem<Object> createThemeCollectionTreeItem(ThemeCollection collection, TabType tabType) {
-        String cleanName = collection.getName() == null ? "" : collection.getName().replaceAll("[=\\-]", "");
+        String cleanName = collection.getName() == null ? "" : collection.getName();
         DataTreeItem<Object> collectionItem = new DataTreeItem<>(cleanName, collection);
         collectionItem.setExpanded(true);
 
@@ -2120,79 +2284,6 @@ public class RealMainController {
         return collectionItem;
     }
 
-    private void displayDecksAndCollections() throws Exception {
-        AnchorPane contentPane = decksTab.getContentPane();
-        contentPane.getChildren().clear();
-
-        if (UserInterfaceFunctions.getDecksList() == null) {
-            UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
-        }
-        DecksAndCollectionsList decksCollection = UserInterfaceFunctions.getDecksList();
-        if (decksCollection == null) {
-            throw new Exception("DecksAndCollectionsList is null. Please check the decks folder path.");
-        }
-
-        DataTreeItem<Object> rootItem = new DataTreeItem<>("Decks and Collections", "ROOT");
-        rootItem.setExpanded(true);
-
-        if (decksCollection.getCollections() != null) {
-            for (ThemeCollection collection : decksCollection.getCollections()) {
-                DataTreeItem<Object> collItem = createThemeCollectionTreeItem(collection, TabType.DECKS);
-                rootItem.getChildren().add(collItem);
-            }
-        }
-
-        if (decksCollection.getDecks() != null) {
-            for (Deck deck : decksCollection.getDecks()) {
-                DataTreeItem<Object> deckItem = createDeckTreeItem(deck);
-                rootItem.getChildren().add(deckItem);
-            }
-        }
-
-        decksAndCollectionsTreeView = new TreeView<>(rootItem);
-        decksAndCollectionsTreeView.setUserData("DECKS_COLLECTIONS");
-        decksAndCollectionsTreeView.setCellFactory(param -> new CardTreeCell(cardWidthProperty, cardHeightProperty));
-        decksAndCollectionsTreeView.setStyle("-fx-background-color: #100317;");
-        decksAndCollectionsTreeView.setShowRoot(false);
-
-        contentPane.getChildren().add(decksAndCollectionsTreeView);
-        AnchorPane.setTopAnchor(decksAndCollectionsTreeView, 0.0);
-        AnchorPane.setBottomAnchor(decksAndCollectionsTreeView, 0.0);
-        AnchorPane.setLeftAnchor(decksAndCollectionsTreeView, 0.0);
-        AnchorPane.setRightAnchor(decksAndCollectionsTreeView, 0.0);
-
-        String stylesheetPath = "src/main/resources/styles.css";
-        decksAndCollectionsTreeView.getStylesheets().add(new File(stylesheetPath).toURI().toString());
-
-        logger.info("Decks and Collections displayed using the unified layout.");
-    }
-
-    private List<CardElement> buildElementsFromGlobalArchetype(String archetypeName) {
-        List<CardElement> elements = new ArrayList<>();
-        if (archetypeName == null || archetypeName.trim().isEmpty()) return elements;
-        try {
-            List<String> globalNames = SubListCreator.archetypesList;
-            List<List<Card>> globalLists = SubListCreator.archetypesCardsLists;
-            if (globalNames == null || globalLists == null) return elements;
-            for (int i = 0; i < globalNames.size(); i++) {
-                String globalName = globalNames.get(i);
-                if (globalName == null) continue;
-                if (globalName.equalsIgnoreCase(archetypeName.trim())) {
-                    List<Card> cardsForArchetype = globalLists.size() > i ? globalLists.get(i) : null;
-                    if (cardsForArchetype != null) {
-                        for (Card c : cardsForArchetype) {
-                            if (c != null) elements.add(new CardElement(c));
-                        }
-                    }
-                    break;
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("buildElementsFromGlobalArchetype failed for {}: {}", archetypeName, e.getMessage());
-        }
-        return elements;
-    }
-
     private void populateDecksAndCollectionsMenu() throws Exception {
         VBox menuVBox = decksTab.getMenuVBox();
         menuVBox.getChildren().clear();
@@ -2208,6 +2299,12 @@ public class RealMainController {
                 for (ThemeCollection collection : decksCollection.getCollections()) {
                     NavigationItem collectionNavItem = createNavigationItem(collection.getName(), 0);
                     collectionNavItem.setUserData(collection);
+                    // ── Dirty indicator ──
+                    if (UserInterfaceFunctions.isDirty(collection)) {
+                        collectionNavItem.getLabel().setText("* " + sanitize(collection.getName()));
+                        collectionNavItem.getLabel().setStyle(
+                                "-fx-text-fill: #cdfc04; -fx-font-weight: bold;");
+                    }
 
                     // highlight (unchanged)
                     boolean hasMissing = collectionHasMissing(collection);
@@ -2236,6 +2333,12 @@ public class RealMainController {
                                 if (linkedDeck == null) continue;
                                 NavigationItem deckSubItem = createNavigationItem(linkedDeck.getName(), 1);
                                 deckSubItem.setUserData(linkedDeck);
+                                // ── Dirty indicator ──
+                                if (UserInterfaceFunctions.isDirty(linkedDeck)) {
+                                    deckSubItem.getLabel().setText("* " + sanitize(linkedDeck.getName()));
+                                    deckSubItem.getLabel().setStyle(
+                                            "-fx-text-fill: #cdfc04; -fx-font-weight: bold;");
+                                }
 
                                 // navigation wiring (unchanged)
                                 deckSubItem.setOnLabelClicked(evt -> navigateToTree(decksAndCollectionsTreeView, collection.getName(), "Decks", linkedDeck.getName()));
@@ -2260,6 +2363,12 @@ public class RealMainController {
                 for (Deck deck : decksCollection.getDecks()) {
                     NavigationItem navItem = createNavigationItem(deck.getName(), 0);
                     navItem.setUserData(deck);
+                    // ── Dirty indicator ──
+                    if (UserInterfaceFunctions.isDirty(deck)) {
+                        navItem.getLabel().setText("* " + sanitize(deck.getName()));
+                        navItem.getLabel().setStyle(
+                                "-fx-text-fill: #cdfc04; -fx-font-weight: bold;");
+                    }
 
                     // navigation wiring (unchanged)
                     navItem.setOnLabelClicked(evt -> navigateToTree(decksAndCollectionsTreeView, deck.getName()));
@@ -2418,8 +2527,9 @@ public class RealMainController {
 
     private NavigationItem createNavigationItem(String name, int depth) {
         if (name == null) name = "";
-        String clean = name.replaceAll("[=\\-]", "");
-        NavigationItem item = new NavigationItem(clean, depth);
+        // Do NOT strip here — callers pass already-clean names.
+        // Stripping here would remove legitimate hyphens inside names.
+        NavigationItem item = new NavigationItem(name, depth);
         item.setOnLabelClicked(event -> {
         });
         return item;
@@ -3218,5 +3328,38 @@ public class RealMainController {
             if (found != null) return found;
         }
         return null;
+    }
+
+    /**
+     * Updates the text of the My Collection and Decks & Collections tabs
+     * to show a "*" prefix when unsaved changes exist.
+     */
+    private void updateTabDirtyIndicators() {
+        if (!Platform.isFxApplicationThread()) {
+            Platform.runLater(this::updateTabDirtyIndicators);
+            return;
+        }
+        if (mainTabPane == null) return;
+
+        // My Collection
+        if (myCollectionTabHandle != null) {
+            boolean dirty = UserInterfaceFunctions.isMyCollectionDirty();
+            myCollectionTabHandle.setText(dirty ? "* My Collection" : "My Collection");
+            myCollectionTabHandle.setStyle(dirty ? "-fx-font-weight: bold;" : "");
+        }
+
+        // Decks and Collections
+        if (decksTabHandle != null) {
+            boolean dirty = UserInterfaceFunctions.isAnyDeckOrCollectionDirty();
+            decksTabHandle.setText(dirty ? "* Decks and Collections" : "Decks and Collections");
+            decksTabHandle.setStyle(dirty ? "-fx-font-weight: bold;" : "");
+        }
+
+        // OuicheList
+        if (ouicheListTabHandle != null) {
+            boolean dirty = UserInterfaceFunctions.isOuicheListDirty();
+            ouicheListTabHandle.setText(dirty ? "* OuicheList" : "OuicheList");
+            ouicheListTabHandle.setStyle(dirty ? "-fx-font-weight: bold;" : "");
+        }
     }
 }
