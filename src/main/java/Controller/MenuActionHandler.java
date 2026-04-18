@@ -181,7 +181,7 @@ public final class MenuActionHandler {
      * Returns the default (empty-named) CardsGroup for a Box, or the first one,
      * or creates and registers a new one if the box has no groups at all.
      */
-    private static CardsGroup getOrCreateDefaultGroup(Box box) {
+    public static CardsGroup getOrCreateDefaultGroup(Box box) {
         if (box.getContent() != null) {
             for (CardsGroup g : box.getContent()) {
                 if (g != null) {
@@ -950,5 +950,469 @@ public final class MenuActionHandler {
             }
         }
         return null;
+    }
+
+// ── Bulk operations ────────────────────────────────────────────────────────────
+
+    /**
+     * Finds all CardElements in the OwnedCardsCollection whose Card matches
+     * any card in the provided collection (by passCode / printCode / konamiId).
+     */
+    public static List<CardElement> findCardElementsForCards(java.util.Collection<Card> targetCards) {
+        List<CardElement> result = new ArrayList<>();
+        if (targetCards == null || targetCards.isEmpty()) return result;
+        OwnedCardsCollection owned = safeGetOwnedCollection();
+        if (owned == null || owned.getOwnedCollection() == null) return result;
+        for (Box box : owned.getOwnedCollection()) {
+            if (box == null) continue;
+            collectMatchingElementsFromBox(box, targetCards, result);
+        }
+        return result;
+    }
+
+    private static void collectMatchingElementsFromBox(
+            Box box, java.util.Collection<Card> targetCards, List<CardElement> result) {
+        if (box.getContent() != null) {
+            for (CardsGroup group : box.getContent()) {
+                if (group == null || group.getCardList() == null) continue;
+                for (CardElement cardElement : group.getCardList()) {
+                    if (cardElement != null && cardElement.getCard() != null
+                            && collectionContainsCard(targetCards, cardElement.getCard())) {
+                        result.add(cardElement);
+                    }
+                }
+            }
+        }
+        if (box.getSubBoxes() != null) {
+            for (Box subBox : box.getSubBoxes()) {
+                if (subBox != null) collectMatchingElementsFromBox(subBox, targetCards, result);
+            }
+        }
+    }
+
+    /**
+     * Returns the {@link Deck} or {@link ThemeCollection} inside the current
+     * {@link DecksAndCollectionsList} that owns the list containing {@code element}
+     * (matched by instance identity). Returns {@code null} if not found (e.g. the
+     * element lives in the OwnedCardsCollection instead).
+     */
+    public static Object findDacOwnerForCardElement(CardElement element) {
+        if (element == null) return null;
+        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
+        if (dac == null) return null;
+        if (dac.getCollections() != null) {
+            for (ThemeCollection tc : dac.getCollections()) {
+                if (tc == null) continue;
+                if (listContainsElementByIdentity(tc.getCardsList(), element)
+                        || listContainsElementByIdentity(tc.getExceptionsToNotAdd(), element))
+                    return tc;
+                if (tc.getLinkedDecks() != null) {
+                    for (List<Deck> unit : tc.getLinkedDecks()) {
+                        if (unit == null) continue;
+                        for (Deck d : unit) {
+                            if (d == null) continue;
+                            if (listContainsElementByIdentity(d.getMainDeck(), element)
+                                    || listContainsElementByIdentity(d.getExtraDeck(), element)
+                                    || listContainsElementByIdentity(d.getSideDeck(), element))
+                                return d;
+                        }
+                    }
+                }
+            }
+        }
+        if (dac.getDecks() != null) {
+            for (Deck d : dac.getDecks()) {
+                if (d == null) continue;
+                if (listContainsElementByIdentity(d.getMainDeck(), element)
+                        || listContainsElementByIdentity(d.getExtraDeck(), element)
+                        || listContainsElementByIdentity(d.getSideDeck(), element))
+                    return d;
+            }
+        }
+        return null;
+    }
+
+    private static boolean listContainsElementByIdentity(List<CardElement> list, CardElement target) {
+        if (list == null || target == null) return false;
+        for (CardElement ce : list) if (ce == target) return true;
+        return false;
+    }
+
+    private static boolean collectionContainsCard(
+            java.util.Collection<Card> cards, Card target) {
+        for (Card card : cards) {
+            if (cardsMatch(card, target)) return true;
+        }
+        return false;
+    }
+
+    public static void handleBulkMove(List<CardElement> elements, String handlerTarget) {
+        if (elements == null || elements.isEmpty() || handlerTarget == null) return;
+        try {
+            if (Platform.isFxApplicationThread()) {
+                for (CardElement element : elements) doMove(element, handlerTarget);
+            } else {
+                final List<CardElement> copy = new ArrayList<>(elements);
+                Platform.runLater(() -> {
+                    for (CardElement element : copy) doMove(element, handlerTarget);
+                });
+            }
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+        } catch (Throwable throwable) {
+            logger.debug("handleBulkMove failed for target {}", handlerTarget, throwable);
+        }
+    }
+
+    public static void handleBulkRemoveFromOwnedCollection(List<CardElement> elements) {
+        if (elements == null || elements.isEmpty()) return;
+        try {
+            if (Platform.isFxApplicationThread()) {
+                doBulkRemoveFromOwnedCollection(elements);
+            } else {
+                final List<CardElement> copy = new ArrayList<>(elements);
+                Platform.runLater(() -> doBulkRemoveFromOwnedCollection(copy));
+            }
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+        } catch (Throwable throwable) {
+            logger.debug("handleBulkRemoveFromOwnedCollection failed", throwable);
+        }
+    }
+
+    private static void doBulkRemoveFromOwnedCollection(List<CardElement> elements) {
+        OwnedCardsCollection owned = safeGetOwnedCollection();
+        if (owned == null || owned.getOwnedCollection() == null) return;
+        for (CardElement targetElement : elements) {
+            removeElementFromOwned(targetElement, owned);
+        }
+    }
+
+    private static void removeElementFromOwned(CardElement targetElement, OwnedCardsCollection owned) {
+        if (targetElement == null) return;
+        for (Box box : owned.getOwnedCollection()) {
+            if (box == null) continue;
+            if (removeElementFromBox(targetElement, box)) return;
+        }
+    }
+
+    private static boolean removeElementFromBox(CardElement targetElement, Box box) {
+        if (box.getContent() != null) {
+            for (CardsGroup group : box.getContent()) {
+                if (group == null) continue;
+                javafx.collections.ObservableList<CardElement> observableList =
+                        View.CardTreeCell.observableListFor(group);
+                if (observableList.remove(targetElement)) {
+                    View.CardTreeCell.triggerHeightAdjustment(group);
+                    return true;
+                }
+            }
+        }
+        if (box.getSubBoxes() != null) {
+            for (Box subBox : box.getSubBoxes()) {
+                if (subBox != null && removeElementFromBox(targetElement, subBox)) return true;
+            }
+        }
+        return false;
+    }
+
+    public static void handleBulkAddCopy(java.util.Collection<Card> cards, String handlerTarget) {
+        if (cards == null || cards.isEmpty() || handlerTarget == null) return;
+        try {
+            if (Platform.isFxApplicationThread()) {
+                for (Card card : cards) doAddCopy(card, handlerTarget);
+            } else {
+                final List<Card> copy = new ArrayList<>(cards);
+                Platform.runLater(() -> {
+                    for (Card card : copy) doAddCopy(card, handlerTarget);
+                });
+            }
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+        } catch (Throwable throwable) {
+            logger.debug("handleBulkAddCopy failed for target {}", handlerTarget, throwable);
+        }
+    }
+
+    public static void handleBulkAddToDeck(java.util.Collection<Card> cards, String handlerTarget) {
+        if (cards == null || cards.isEmpty() || handlerTarget == null) return;
+        try {
+            if (Platform.isFxApplicationThread()) {
+                for (Card card : cards) doAddToDeck(card, handlerTarget);
+            } else {
+                final List<Card> copy = new ArrayList<>(cards);
+                Platform.runLater(() -> {
+                    for (Card card : copy) doAddToDeck(card, handlerTarget);
+                });
+            }
+            lastDecksAddedTarget = handlerTarget;
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        } catch (Throwable throwable) {
+            logger.debug("handleBulkAddToDeck failed for target {}", handlerTarget, throwable);
+        }
+    }
+
+    public static void handleBulkAddToCollectionCards(
+            java.util.Collection<Card> cards, String collectionName) {
+        if (cards == null || cards.isEmpty() || collectionName == null) return;
+        try {
+            if (Platform.isFxApplicationThread()) {
+                for (Card card : cards) doAddToCollectionCards(card, collectionName);
+            } else {
+                final List<Card> copy = new ArrayList<>(cards);
+                Platform.runLater(() -> {
+                    for (Card card : copy) doAddToCollectionCards(card, collectionName);
+                });
+            }
+            lastDecksAddedTarget = collectionName + " / Cards";
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        } catch (Throwable throwable) {
+            logger.debug("handleBulkAddToCollectionCards failed for {}", collectionName, throwable);
+        }
+    }
+
+    public static void handleBulkAddToExclusionList(
+            java.util.Collection<Card> cards, String collectionName) {
+        if (cards == null || cards.isEmpty() || collectionName == null) return;
+        try {
+            if (Platform.isFxApplicationThread()) {
+                for (Card card : cards) doAddToExclusionList(card, collectionName);
+            } else {
+                final List<Card> copy = new ArrayList<>(cards);
+                Platform.runLater(() -> {
+                    for (Card card : copy) doAddToExclusionList(card, collectionName);
+                });
+            }
+            lastDecksAddedTarget = collectionName + " / Cards not to add";
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        } catch (Throwable throwable) {
+            logger.debug("handleBulkAddToExclusionList failed for {}", collectionName, throwable);
+        }
+    }
+
+    /**
+     * Pastes clipboardCards after afterElement in the group that contains it.
+     */
+    public static void handlePasteAfterElementInOwnedCollection(
+            List<Card> clipboardCards, CardElement afterElement) {
+        if (clipboardCards == null || clipboardCards.isEmpty() || afterElement == null) return;
+        try {
+            if (Platform.isFxApplicationThread()) {
+                doPasteAfterElementInOwnedCollection(clipboardCards, afterElement);
+            } else {
+                Platform.runLater(() ->
+                        doPasteAfterElementInOwnedCollection(clipboardCards, afterElement));
+            }
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+        } catch (Throwable throwable) {
+            logger.debug("handlePasteAfterElementInOwnedCollection failed", throwable);
+        }
+    }
+
+    private static void doPasteAfterElementInOwnedCollection(
+            List<Card> clipboardCards, CardElement afterElement) {
+        OwnedCardsCollection owned = safeGetOwnedCollection();
+        if (owned == null || owned.getOwnedCollection() == null) return;
+        CardsGroup targetGroup = findGroupContainingElement(afterElement, owned);
+        if (targetGroup == null) {
+            logger.warn("doPasteAfterElementInOwnedCollection: group not found for element");
+            return;
+        }
+        javafx.collections.ObservableList<CardElement> observableList =
+                View.CardTreeCell.observableListFor(targetGroup);
+        int insertionIndex = observableList.indexOf(afterElement);
+        if (insertionIndex < 0) insertionIndex = observableList.size() - 1;
+        for (int i = 0; i < clipboardCards.size(); i++) {
+            Card card = clipboardCards.get(i);
+            if (card == null) continue;
+            int targetIndex = insertionIndex + 1 + i;
+            if (targetIndex > observableList.size()) targetIndex = observableList.size();
+            observableList.add(targetIndex, new CardElement(card));
+        }
+        View.CardTreeCell.triggerHeightAdjustment(targetGroup);
+    }
+
+    private static CardsGroup findGroupContainingElement(
+            CardElement targetElement, OwnedCardsCollection owned) {
+        if (targetElement == null || owned == null) return null;
+        for (Box box : owned.getOwnedCollection()) {
+            CardsGroup found = findGroupContainingElementInBox(targetElement, box);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private static CardsGroup findGroupContainingElementInBox(CardElement targetElement, Box box) {
+        if (box == null) return null;
+        if (box.getContent() != null) {
+            for (CardsGroup group : box.getContent()) {
+                if (group != null && group.getCardList() != null
+                        && group.getCardList().contains(targetElement)) return group;
+            }
+        }
+        if (box.getSubBoxes() != null) {
+            for (Box subBox : box.getSubBoxes()) {
+                CardsGroup found = findGroupContainingElementInBox(targetElement, subBox);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Removes all cards matching any card in {@code cardsToRemove} from every
+     * list in the DecksAndCollectionsList (main, extra, side decks and collection
+     * card lists). Marks all dirty and triggers a D&C view refresh.
+     */
+    public static void handleBulkRemoveFromDecksAndCollections(
+            java.util.Collection<Card> cardsToRemove) {
+        if (cardsToRemove == null || cardsToRemove.isEmpty()) return;
+        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
+        if (dac == null) return;
+
+        java.util.function.Predicate<List<CardElement>> removeMatching = list -> {
+            if (list == null) return false;
+            return list.removeIf(ce -> ce != null && ce.getCard() != null
+                    && collectionContainsCard(cardsToRemove, ce.getCard()));
+        };
+
+        java.util.Set<Object> dirtyOwners = new java.util.LinkedHashSet<>();
+
+        if (dac.getCollections() != null) {
+            for (ThemeCollection themeCollection : dac.getCollections()) {
+                if (themeCollection == null) continue;
+                boolean tcChanged =
+                        removeMatching.test(themeCollection.getCardsList())
+                                | removeMatching.test(themeCollection.getExceptionsToNotAdd());
+                if (tcChanged) dirtyOwners.add(themeCollection);
+                if (themeCollection.getLinkedDecks() != null) {
+                    for (List<Deck> unit : themeCollection.getLinkedDecks()) {
+                        if (unit == null) continue;
+                        for (Deck deck : unit) {
+                            if (deck == null) continue;
+                            boolean changed =
+                                    removeMatching.test(deck.getMainDeck())
+                                            | removeMatching.test(deck.getExtraDeck())
+                                            | removeMatching.test(deck.getSideDeck());
+                            if (changed) dirtyOwners.add(deck);
+                        }
+                    }
+                }
+            }
+        }
+        if (dac.getDecks() != null) {
+            for (Deck deck : dac.getDecks()) {
+                if (deck == null) continue;
+                boolean changed =
+                        removeMatching.test(deck.getMainDeck())
+                                | removeMatching.test(deck.getExtraDeck())
+                                | removeMatching.test(deck.getSideDeck());
+                if (changed) dirtyOwners.add(deck);
+            }
+        }
+
+        for (Object owner : dirtyOwners) UserInterfaceFunctions.markDirty(owner);
+        if (!dirtyOwners.isEmpty()) {
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        }
+    }
+
+    /**
+     * Removes exactly the given CardElement instances (by object identity) from
+     * every list in the DecksAndCollectionsList. Unlike handleBulkRemoveFromDecksAndCollections,
+     * this never touches other elements that share the same Card/passCode.
+     */
+    public static void handleBulkRemoveElementsFromDecksAndCollections(
+            java.util.Collection<CardElement> elementsToRemove) {
+        if (elementsToRemove == null || elementsToRemove.isEmpty()) return;
+        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
+        if (dac == null) return;
+
+        // Identity-based set so two CardElements wrapping the same Card are treated independently
+        java.util.Set<CardElement> identitySet =
+                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        identitySet.addAll(elementsToRemove);
+
+        java.util.function.Predicate<List<CardElement>> removeMatching = list -> {
+            if (list == null) return false;
+            return list.removeIf(ce -> ce != null && identitySet.contains(ce));
+        };
+
+        java.util.Set<Object> dirtyOwners = new java.util.LinkedHashSet<>();
+
+        if (dac.getCollections() != null) {
+            for (ThemeCollection tc : dac.getCollections()) {
+                if (tc == null) continue;
+                boolean tcChanged =
+                        removeMatching.test(tc.getCardsList())
+                                | removeMatching.test(tc.getExceptionsToNotAdd());
+                if (tcChanged) dirtyOwners.add(tc);
+                if (tc.getLinkedDecks() != null) {
+                    for (List<Deck> unit : tc.getLinkedDecks()) {
+                        if (unit == null) continue;
+                        for (Deck deck : unit) {
+                            if (deck == null) continue;
+                            boolean changed =
+                                    removeMatching.test(deck.getMainDeck())
+                                            | removeMatching.test(deck.getExtraDeck())
+                                            | removeMatching.test(deck.getSideDeck());
+                            if (changed) dirtyOwners.add(deck);
+                        }
+                    }
+                }
+            }
+        }
+        if (dac.getDecks() != null) {
+            for (Deck deck : dac.getDecks()) {
+                if (deck == null) continue;
+                boolean changed =
+                        removeMatching.test(deck.getMainDeck())
+                                | removeMatching.test(deck.getExtraDeck())
+                                | removeMatching.test(deck.getSideDeck());
+                if (changed) dirtyOwners.add(deck);
+            }
+        }
+
+        for (Object owner : dirtyOwners) UserInterfaceFunctions.markDirty(owner);
+        if (!dirtyOwners.isEmpty()) {
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        }
+    }
+
+    /**
+     * Inserts copies of {@code cardsToInsert} immediately after {@code afterElement}.
+     * Returns true if the insertion succeeded, false if the containing group was not found.
+     */
+    public static boolean handleInsertCardsAfterElement(
+            List<Card> cardsToInsert, CardElement afterElement) {
+        if (cardsToInsert == null || cardsToInsert.isEmpty() || afterElement == null) return false;
+
+        CardsGroup hostGroup = View.CardTreeCell.findGroupForCardElement(afterElement);
+        if (hostGroup == null) {
+            OwnedCardsCollection owned = safeGetOwnedCollection();
+            if (owned != null) hostGroup = findGroupContainingElement(afterElement, owned);
+        }
+        if (hostGroup == null) {
+            logger.warn("handleInsertCardsAfterElement: could not find group for element");
+            return false;
+        }
+
+        javafx.collections.ObservableList<CardElement> observableList =
+                View.CardTreeCell.observableListFor(hostGroup);
+        int insertionIndex = observableList.indexOf(afterElement);
+        if (insertionIndex < 0) insertionIndex = observableList.size() - 1;
+
+        for (int i = 0; i < cardsToInsert.size(); i++) {
+            Card card = cardsToInsert.get(i);
+            if (card == null) continue;
+            int targetIndex = insertionIndex + 1 + i;
+            if (targetIndex > observableList.size()) targetIndex = observableList.size();
+            observableList.add(targetIndex, new CardElement(card));
+        }
+        View.CardTreeCell.triggerHeightAdjustment(hostGroup);
+        return true;
     }
 }

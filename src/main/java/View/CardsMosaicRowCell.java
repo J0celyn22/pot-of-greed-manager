@@ -37,9 +37,8 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
         this.imageWidth = imageWidth;
         this.imageHeight = imageHeight;
         hbox = new HBox(5);
-        hbox.setPadding(new Insets(5));
+        hbox.setPadding(new Insets(2));
         hbox.setStyle("-fx-background-color: transparent;");
-        // Disable default row selection
         hbox.setPickOnBounds(true);
         setStyle("-fx-background-color: transparent;");
         setGraphic(hbox);
@@ -104,17 +103,191 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
         return "file:./src/main/resources/placeholder.jpg";
     }
 
-    private static ContextMenu buildAddToContextMenu(Card card) {
+    private static ContextMenu buildAddToContextMenu(Card clickedCard) {
         ContextMenu cm = new ContextMenu();
         cm.setStyle(
                 "-fx-background-color: #100317; -fx-background-radius: 6; " +
-                        "-fx-border-color: #3a3a3a; -fx-border-radius: 6; -fx-border-width: 1;"
-        );
+                        "-fx-border-color: #3a3a3a; -fx-border-radius: 6; -fx-border-width: 1;");
+
+        // Add to…
+        Menu addToMenu = new Menu();
+        {
+            Label lbl = new Label("Add to...");
+            lbl.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 13;");
+            HBox g = new HBox(lbl);
+            g.setAlignment(Pos.CENTER_LEFT);
+            g.setPadding(new Insets(2, 6, 2, 6));
+            addToMenu.setGraphic(g);
+            addToMenu.setText("");
+            MenuItem placeholder = new MenuItem("Loading...");
+            placeholder.setDisable(true);
+            addToMenu.getItems().add(placeholder);
+            addToMenu.setOnShowing(evt -> {
+                addToMenu.getItems().clear();
+                java.util.Collection<Model.CardsLists.Card> cardsToAdd =
+                        getEffectiveRightPaneCardsStatic(clickedCard);
+                List<MenuItem> items = buildAllDecksDestinationItemsForCards(cardsToAdd);
+                if (items.isEmpty()) {
+                    MenuItem none = new MenuItem("No destinations available");
+                    none.setDisable(true);
+                    addToMenu.getItems().add(none);
+                } else {
+                    addToMenu.getItems().addAll(items);
+                }
+            });
+        }
+        cm.getItems().add(addToMenu);
+
+        // Copy
+        MenuItem copyMenuItem = new MenuItem();
+        {
+            Label lbl = new Label("Copy");
+            lbl.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 13;");
+            HBox g = new HBox(lbl);
+            g.setAlignment(Pos.CENTER_LEFT);
+            g.setPadding(new Insets(2, 6, 2, 6));
+            copyMenuItem.setGraphic(g);
+            copyMenuItem.setText("");
+            copyMenuItem.setOnAction(e -> {
+                if (clickedCard == null) return;
+                Controller.CardClipboard.copyCards(new java.util.ArrayList<>(
+                        getEffectiveRightPaneCardsStatic(clickedCard)));
+            });
+        }
+        cm.getItems().add(copyMenuItem);
+
+        return cm;
+    }
+
+    private static java.util.Collection<Model.CardsLists.Card> getEffectiveRightPaneCardsStatic(
+            Model.CardsLists.Card clickedCard) {
+        if (clickedCard == null) return java.util.Collections.emptyList();
+        boolean isRightMultiSelect =
+                "RIGHT".equals(Controller.SelectionManager.getActivePart())
+                        && Controller.SelectionManager.getSelectedCards().size() > 1
+                        && Controller.SelectionManager.getSelectedCards().contains(clickedCard);
+        return isRightMultiSelect
+                ? Controller.SelectionManager.getSelectedCards()
+                : java.util.Collections.singletonList(clickedCard);
+    }
+
+    /**
+     * Builds deck destination items wired to handleAddToDeck for the mosaic right-panel.
+     */
+    private static List<MenuItem> buildAllDecksDestinationItemsForCards(
+            java.util.Collection<Model.CardsLists.Card> cards) {
+        List<MenuItem> items = new ArrayList<>();
+        if (cards == null || cards.isEmpty()) return items;
+        try {
+            Model.CardsLists.DecksAndCollectionsList dac =
+                    Controller.UserInterfaceFunctions.getDecksList();
+            if (dac == null) {
+                try {
+                    Controller.UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+                } catch (Exception ignored) {
+                }
+                dac = Controller.UserInterfaceFunctions.getDecksList();
+            }
+            if (dac == null) return items;
+
+            if (dac.getCollections() != null) {
+                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                    if (tc == null) continue;
+                    String coll = sanitize(tc.getName());
+                    items.add(makeDecksCollectionItem(coll, cards));
+                    if (tc.getLinkedDecks() != null) {
+                        for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                            if (unit == null) continue;
+                            for (Model.CardsLists.Deck deck : unit) {
+                                if (deck == null) continue;
+                                String base = coll + " / " + sanitize(deck.getName());
+                                items.add(makeDecksDestItem(base + " / Main Deck", cards));
+                                items.add(makeDecksDestItem(base + " / Extra Deck", cards));
+                                items.add(makeDecksDestItem(base + " / Side Deck", cards));
+                            }
+                        }
+                    }
+                    items.add(makeDecksExclusionItem(coll, cards));
+                }
+            }
+            if (dac.getDecks() != null) {
+                for (Model.CardsLists.Deck deck : dac.getDecks()) {
+                    if (deck == null) continue;
+                    String d = sanitize(deck.getName());
+                    items.add(makeDecksDestItem(d + " / Main Deck", cards));
+                    items.add(makeDecksDestItem(d + " / Extra Deck", cards));
+                    items.add(makeDecksDestItem(d + " / Side Deck", cards));
+                }
+            }
+        } catch (Exception ex) {
+            logger.error("buildAllDecksDestinationItemsForCards failed", ex);
+        }
+        return items;
+    }
+
+    private static MenuItem makeDecksCollectionItem(
+            String collName, java.util.Collection<Model.CardsLists.Card> cards) {
+        MenuItem mi = new MenuItem();
+        Label label = new Label(collName);
+        label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        javafx.scene.layout.HBox g = new javafx.scene.layout.HBox(label);
+        g.setAlignment(Pos.CENTER_LEFT);
+        g.setPadding(new Insets(2, 6, 2, 6));
+        mi.setGraphic(g);
+        mi.setText("");
+        mi.setOnAction(e -> {
+            if (cards.size() == 1) Controller.MenuActionHandler.handleAddToCollectionCards(
+                    cards.iterator().next(), collName);
+            else Controller.MenuActionHandler.handleBulkAddToCollectionCards(cards, collName);
+        });
+        return mi;
+    }
+
+    private static MenuItem makeDecksExclusionItem(
+            String collName, java.util.Collection<Model.CardsLists.Card> cards) {
+        MenuItem mi = new MenuItem();
+        Label label = new Label(collName + " / Exclusion List");
+        label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        javafx.scene.layout.HBox g = new javafx.scene.layout.HBox(label);
+        g.setAlignment(Pos.CENTER_LEFT);
+        g.setPadding(new Insets(2, 6, 2, 6));
+        mi.setGraphic(g);
+        mi.setText("");
+        mi.setOnAction(e -> {
+            if (cards.size() == 1) Controller.MenuActionHandler.handleAddToExclusionList(
+                    cards.iterator().next(), collName);
+            else Controller.MenuActionHandler.handleBulkAddToExclusionList(cards, collName);
+        });
+        return mi;
+    }
+
+    private static MenuItem makeDecksDestItem(
+            String path, java.util.Collection<Model.CardsLists.Card> cards) {
+        MenuItem mi = new MenuItem();
+        Label label = new Label(path);
+        label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        javafx.scene.layout.HBox g = new javafx.scene.layout.HBox(label);
+        g.setAlignment(Pos.CENTER_LEFT);
+        g.setPadding(new Insets(2, 6, 2, 6));
+        mi.setGraphic(g);
+        mi.setText("");
+        mi.setOnAction(e -> {
+            if (cards.size() == 1) Controller.MenuActionHandler.handleAddToDeck(
+                    cards.iterator().next(), path);
+            else Controller.MenuActionHandler.handleBulkAddToDeck(cards, path);
+        });
+        return mi;
+    }
+
+    private static ContextMenu buildMyCollectionContextMenu(Card card) {
+        ContextMenu cm = new ContextMenu();
+        cm.setStyle("-fx-background-color: #100317; -fx-background-radius: 6; " +
+                "-fx-border-color: #3a3a3a; -fx-border-radius: 6; -fx-border-width: 1;");
 
         Menu addToMenu = new Menu();
         Label lbl = new Label("Add to...");
-        lbl.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
-        javafx.scene.layout.HBox graphic = new javafx.scene.layout.HBox(lbl);
+        lbl.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 13;");
+        HBox graphic = new HBox(lbl);
         graphic.setAlignment(Pos.CENTER_LEFT);
         graphic.setPadding(new Insets(2, 6, 2, 6));
         addToMenu.setGraphic(graphic);
@@ -126,8 +299,10 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
 
         addToMenu.setOnShowing(evt -> {
             addToMenu.getItems().clear();
-            // Pass card here so each menu item is wired to the correct card
-            List<MenuItem> items = buildAllDecksDestinationItems(card);
+            // Resolve effective cards at menu-open time so selection is always current
+            java.util.Collection<Model.CardsLists.Card> cardsToAdd =
+                    getEffectiveRightPaneCardsStatic(card);
+            List<MenuItem> items = buildMyCollectionDestinationItemsForCards(cardsToAdd);
             if (items.isEmpty()) {
                 MenuItem none = new MenuItem("No destinations available");
                 none.setDisable(true);
@@ -142,88 +317,66 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
     }
 
     /**
-     * Builds deck destination items wired to handleAddToDeck for the mosaic right-panel.
+     * Builds "Add to My Collection" destination items for a set of cards.
+     * Wires each item to handleAddCopy (single) or handleBulkAddCopy (multi).
      */
-    private static List<MenuItem> buildAllDecksDestinationItems(Card card) {
+    private static List<MenuItem> buildMyCollectionDestinationItemsForCards(
+            java.util.Collection<Model.CardsLists.Card> cards) {
         List<MenuItem> items = new ArrayList<>();
-        if (card == null) return items;
+        if (cards == null || cards.isEmpty()) return items;
         try {
-            Model.CardsLists.DecksAndCollectionsList dac = Controller.UserInterfaceFunctions.getDecksList();
-            if (dac == null) {
+            Model.CardsLists.OwnedCardsCollection owned =
+                    Model.CardsLists.OuicheList.getMyCardsCollection();
+            if (owned == null) {
                 try {
-                    Controller.UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+                    UserInterfaceFunctions.loadCollectionFile();
                 } catch (Exception ignored) {
                 }
-                dac = Controller.UserInterfaceFunctions.getDecksList();
+                owned = Model.CardsLists.OuicheList.getMyCardsCollection();
             }
-            if (dac == null) return items;
+            if (owned == null || owned.getOwnedCollection() == null) return items;
 
-            if (dac.getCollections() != null) {
-                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
-                    if (tc == null) continue;
-                    String coll = sanitize(tc.getName());
-
-                    items.add(makeDecksCollectionItem(coll, card));
-
-                    if (tc.getLinkedDecks() != null) {
-                        for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
-                            if (unit == null) continue;
-                            for (Model.CardsLists.Deck deck : unit) {
-                                if (deck == null) continue;
-                                String base = coll + " / " + sanitize(deck.getName());
-                                items.add(makeDecksDestItem(base + " / Main Deck", card));
-                                items.add(makeDecksDestItem(base + " / Extra Deck", card));
-                                items.add(makeDecksDestItem(base + " / Side Deck", card));
+            final java.util.Collection<Model.CardsLists.Card> finalCards = cards;
+            for (Model.CardsLists.Box box : owned.getOwnedCollection()) {
+                if (box == null) continue;
+                String boxName = sanitize(box.getName());
+                if (boxName.isEmpty()) boxName = "(Unnamed box)";
+                items.add(makeMyCollDestItemForCards(boxName, finalCards));
+                if (box.getContent() != null) {
+                    for (Model.CardsLists.CardsGroup g : box.getContent()) {
+                        if (g == null) continue;
+                        String groupName = sanitize(g.getName());
+                        if (groupName.isEmpty()) continue;
+                        final String path = boxName + " / " + groupName;
+                        items.add(makeMyCollDestItemForCards(path, finalCards));
+                    }
+                }
+                if (box.getSubBoxes() != null) {
+                    for (Model.CardsLists.Box sb : box.getSubBoxes()) {
+                        if (sb == null) continue;
+                        String subName = sanitize(sb.getName());
+                        if (subName.isEmpty()) subName = "(Unnamed sub-box)";
+                        items.add(makeMyCollDestItemForCards(subName, finalCards));
+                        if (sb.getContent() != null) {
+                            for (Model.CardsLists.CardsGroup g : sb.getContent()) {
+                                if (g == null) continue;
+                                String groupName = sanitize(g.getName());
+                                if (groupName.isEmpty()) continue;
+                                final String path = subName + " / " + groupName;
+                                items.add(makeMyCollDestItemForCards(path, finalCards));
                             }
                         }
                     }
-
-                    items.add(makeDecksExclusionItem(coll, card));
-                }
-            }
-
-            if (dac.getDecks() != null) {
-                for (Model.CardsLists.Deck deck : dac.getDecks()) {
-                    if (deck == null) continue;
-                    String d = sanitize(deck.getName());
-                    items.add(makeDecksDestItem(d + " / Main Deck", card));
-                    items.add(makeDecksDestItem(d + " / Extra Deck", card));
-                    items.add(makeDecksDestItem(d + " / Side Deck", card));
                 }
             }
         } catch (Exception ex) {
-            logger.error("buildAllDecksDestinationItems failed", ex);
+            logger.error("buildMyCollectionDestinationItemsForCards failed", ex);
         }
         return items;
     }
 
-    private static MenuItem makeDecksCollectionItem(String collName, Card card) {
-        MenuItem mi = new MenuItem();
-        Label label = new Label(collName);
-        label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
-        javafx.scene.layout.HBox g = new javafx.scene.layout.HBox(label);
-        g.setAlignment(Pos.CENTER_LEFT);
-        g.setPadding(new Insets(2, 6, 2, 6));
-        mi.setGraphic(g);
-        mi.setText("");
-        mi.setOnAction(e -> Controller.MenuActionHandler.handleAddToCollectionCards(card, collName));
-        return mi;
-    }
-
-    private static MenuItem makeDecksExclusionItem(String collName, Card card) {
-        MenuItem mi = new MenuItem();
-        Label label = new Label(collName + " / Exclusion List");
-        label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
-        javafx.scene.layout.HBox g = new javafx.scene.layout.HBox(label);
-        g.setAlignment(Pos.CENTER_LEFT);
-        g.setPadding(new Insets(2, 6, 2, 6));
-        mi.setGraphic(g);
-        mi.setText("");
-        mi.setOnAction(e -> Controller.MenuActionHandler.handleAddToExclusionList(card, collName));
-        return mi;
-    }
-
-    private static MenuItem makeDecksDestItem(String path, Card card) {
+    private static MenuItem makeMyCollDestItemForCards(
+            String path, java.util.Collection<Model.CardsLists.Card> cards) {
         MenuItem mi = new MenuItem();
         Label label = new Label(path);
         label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
@@ -232,42 +385,14 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
         g.setPadding(new Insets(2, 6, 2, 6));
         mi.setGraphic(g);
         mi.setText("");
-        mi.setOnAction(e -> Controller.MenuActionHandler.handleAddToDeck(card, path));
-        return mi;
-    }
-
-    private static ContextMenu buildMyCollectionContextMenu(Card card) {
-        ContextMenu cm = new ContextMenu();
-        cm.setStyle("-fx-background-color: #100317; -fx-background-radius: 6; " +
-                "-fx-border-color: #3a3a3a; -fx-border-radius: 6; -fx-border-width: 1;");
-
-        Menu addToMenu = new Menu();
-        Label lbl = new Label("Add to...");
-        lbl.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
-        HBox graphic = new HBox(lbl);
-        graphic.setAlignment(Pos.CENTER_LEFT);
-        graphic.setPadding(new Insets(2, 6, 2, 6));
-        addToMenu.setGraphic(graphic);
-        addToMenu.setText("");
-
-        MenuItem placeholder = new MenuItem("Loading...");
-        placeholder.setDisable(true);
-        addToMenu.getItems().add(placeholder);
-
-        addToMenu.setOnShowing(evt -> {
-            addToMenu.getItems().clear();
-            List<MenuItem> items = buildMyCollectionDestinationItems(card); // pass card here
-            if (items.isEmpty()) {
-                MenuItem none = new MenuItem("No destinations available");
-                none.setDisable(true);
-                addToMenu.getItems().add(none);
+        mi.setOnAction(e -> {
+            if (cards.size() == 1) {
+                Controller.MenuActionHandler.handleAddCopy(cards.iterator().next(), path);
             } else {
-                addToMenu.getItems().addAll(items);
+                Controller.MenuActionHandler.handleBulkAddCopy(cards, path);
             }
         });
-
-        cm.getItems().add(addToMenu);
-        return cm;
+        return mi;
     }
 
     private static List<MenuItem> buildMyCollectionDestinationItems(Card card) {
@@ -427,20 +552,42 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
 
                 // Wrap the ImageView in a StackPane so we can show a selection border.
                 StackPane wrapper = new StackPane(iv);
-                wrapper.setPadding(new Insets(2));
-                // Apply selection style only if the active part is "RIGHT".
-                if ("RIGHT".equals(SelectionManager.getActivePart()) &&
-                        SelectionManager.getSelectedCards().contains(card)) {
-                    wrapper.setStyle("-fx-border-color: #cdfc04; -fx-border-width: 3; -fx-border-radius: 8; -fx-background-radius: 8;");
+
+                // Use the same padding as the middle-pane CardGridCell (5px on each side).
+                // This creates a visible gap between the image and the selection border,
+                // matching the middle-pane look exactly.
+                wrapper.setPadding(new Insets(4));
+
+                // Fix the wrapper to a constant size (padding × 2 per axis) so the selection
+                // border is drawn within the existing space and never causes layout shifts
+                // or a horizontal scrollbar.
+                double wrapperWidth = imageWidth + 8; // 4px padding × 2 sides
+                double wrapperHeight = imageHeight + 8;
+                wrapper.setMinWidth(wrapperWidth);
+                wrapper.setPrefWidth(wrapperWidth);
+                wrapper.setMaxWidth(wrapperWidth);
+                wrapper.setMinHeight(wrapperHeight);
+                wrapper.setPrefHeight(wrapperHeight);
+                wrapper.setMaxHeight(wrapperHeight);
+
+                // Selection visual — identical parameters to the middle-pane CardGridCell:
+                // 2px border, 6px radius, drawn inside the 5px padding so the gap between
+                // the image edge and the inner face of the border is ~3px.
+                if ("RIGHT".equals(SelectionManager.getActivePart())
+                        && SelectionManager.getSelectedCards().contains(card)) {
+                    wrapper.setStyle(
+                            "-fx-background-color: transparent; " +
+                                    "-fx-border-color: #cdfc04; " +
+                                    "-fx-border-width: 2; " +
+                                    "-fx-border-radius: 6;");
                 } else {
-                    wrapper.setStyle("");
+                    wrapper.setStyle("-fx-background-color: transparent;");
                 }
 
                 // Build the menu once for this card/wrapper — outside setOnMousePressed
                 ContextMenu decksCardContextMenu = buildAddToContextMenu(card);
                 ContextMenu myCollCardContextMenu = buildMyCollectionContextMenu(card);
 
-                // Click handler for selection. Always passes "RIGHT".
                 wrapper.setOnMouseClicked(event -> {
                     if (event.getButton() == javafx.scene.input.MouseButton.SECONDARY) {
                         event.consume();
@@ -448,29 +595,23 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
                     }
                     event.consume();
                     if (card == null) return;
-                    String currentPart = "RIGHT";
+
                     if (event.isControlDown()) {
-                        if (!currentPart.equals(SelectionManager.getActivePart())) {
-                            SelectionManager.clearSelection();
-                            SelectionManager.selectCard(card, currentPart);
-                        } else {
-                            if (SelectionManager.getSelectedCards().contains(card)) {
-                                SelectionManager.removeFromSelection(card);
-                            } else {
-                                SelectionManager.addToSelection(card, currentPart);
+                        SelectionManager.toggleSelection(card, "RIGHT");
+                    } else if (event.isShiftDown()) {
+                        // Flatten ALL rows from the ListView into one ordered list so the range
+                        // can span rows (the anchor might be in a completely different row).
+                        java.util.List<Card> allCardsAcrossAllRows = new java.util.ArrayList<>();
+                        if (getListView() != null && getListView().getItems() != null) {
+                            for (java.util.List<Card> rowInMosaic : getListView().getItems()) {
+                                if (rowInMosaic != null) allCardsAcrossAllRows.addAll(rowInMosaic);
                             }
                         }
-                    } else if (event.isShiftDown()) {
-                        if (!currentPart.equals(SelectionManager.getActivePart())) {
-                            SelectionManager.clearSelection();
-                            SelectionManager.selectCard(card, currentPart);
-                        } else {
-                            SelectionManager.addToSelection(card, currentPart);
-                        }
+                        SelectionManager.rangeSelect(card, "RIGHT", allCardsAcrossAllRows);
                     } else {
-                        SelectionManager.clearSelection();
-                        SelectionManager.selectCard(card, currentPart);
+                        SelectionManager.selectCard(card, "RIGHT");
                     }
+
                     if (getListView() != null) {
                         getListView().refresh();
                     }

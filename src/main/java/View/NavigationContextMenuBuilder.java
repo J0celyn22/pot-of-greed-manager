@@ -9,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.Optional;
 
 public final class NavigationContextMenuBuilder {
 
@@ -122,6 +121,21 @@ public final class NavigationContextMenuBuilder {
                 makeAddBoxAfterItem(box, owned),
                 makeAddCategoryItem(box, null, owned),
                 makeRenameItem(box, null, owned),
+                makePasteItem(() -> {
+                    // Paste clipboard cards to the default group of this box
+                    Model.CardsLists.CardsGroup defaultGroup =
+                            Controller.MenuActionHandler.getOrCreateDefaultGroup(box);
+                    if (defaultGroup == null) return;
+                    javafx.collections.ObservableList<Model.CardsLists.CardElement> observableList =
+                            CardTreeCell.observableListFor(defaultGroup);
+                    for (Model.CardsLists.Card card : Controller.CardClipboard.getContents()) {
+                        if (card != null) observableList.add(new Model.CardsLists.CardElement(card));
+                    }
+                    CardTreeCell.triggerHeightAdjustment(defaultGroup);
+                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                    Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                    refreshOwnedCollectionView();
+                }),
                 new SeparatorMenuItem(),
                 makeRemoveItem(removeAction)
         );
@@ -231,6 +245,18 @@ public final class NavigationContextMenuBuilder {
                 moveMenu,
                 makeAddCategoryItem(parentBox, category, owned),
                 makeRenameItem(null, category, owned),
+                makePasteItem(() -> {
+                    // Paste clipboard cards at the end of this category
+                    javafx.collections.ObservableList<Model.CardsLists.CardElement> observableList =
+                            CardTreeCell.observableListFor(category);
+                    for (Model.CardsLists.Card card : Controller.CardClipboard.getContents()) {
+                        if (card != null) observableList.add(new Model.CardsLists.CardElement(card));
+                    }
+                    CardTreeCell.triggerHeightAdjustment(category);
+                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                    Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                    refreshOwnedCollectionView();
+                }),
                 new SeparatorMenuItem(),
                 makeRemoveItem(removeAction)
         );
@@ -371,8 +397,20 @@ public final class NavigationContextMenuBuilder {
         cm.getItems().addAll(
                 makeDecksAddCollectionAfterItem(collection, dac),
                 makeDecksAddLinkedDeckToCollectionItem(collection),
-                makeDecksAddArchetypeMenu(collection),          // ← real submenu
+                makeDecksAddArchetypeMenu(collection),
                 makeDecksRenameItem(collection),
+                makePasteItem(() -> {
+                    // Paste clipboard cards at the end of the collection's cards list
+                    if (collection.getCardsList() == null)
+                        collection.setCardsList(new java.util.ArrayList<>());
+                    for (Model.CardsLists.Card card : Controller.CardClipboard.getContents()) {
+                        if (card != null)
+                            collection.getCardsList().add(new Model.CardsLists.CardElement(card));
+                    }
+                    Controller.UserInterfaceFunctions.markDirty(collection);
+                    Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                    refreshDecksAndCollectionsView();
+                }),
                 new SeparatorMenuItem(),
                 makeRemoveItem(removeAction)
         );
@@ -675,9 +713,17 @@ public final class NavigationContextMenuBuilder {
             menuItems.add(makeDecksCreateCollectionFromDeckItem(deck, dac));
         }
         menuItems.add(makeDecksRenameItem(deck));
+        menuItems.add(makePasteItem(() -> {
+            // Paste clipboard cards at the end of the deck's Main Deck
+            for (Model.CardsLists.Card card : Controller.CardClipboard.getContents()) {
+                if (card != null) deck.getMainDeck().add(new Model.CardsLists.CardElement(card));
+            }
+            Controller.UserInterfaceFunctions.markDirty(deck);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            refreshDecksAndCollectionsView();
+        }));
         menuItems.add(new SeparatorMenuItem());
         menuItems.add(makeRemoveItem(removeAction));
-
         cm.getItems().addAll(menuItems);
         return cm;
     }
@@ -1202,59 +1248,57 @@ public final class NavigationContextMenuBuilder {
 
     // ── Confirmation dialog ───────────────────────────────────────────────────
 
-    private static boolean confirmRemoval(String elementType) {
+    /**
+     * Shows a styled Yes/No confirmation dialog.
+     * Enter triggers Yes, Escape triggers No.
+     */
+    public static boolean confirmWithCustomMessage(String message) {
         Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-        alert.setTitle("Confirm Removal");
+        alert.setTitle("Confirm");
         alert.setHeaderText(null);
-        alert.setContentText("Do you really want to remove this " + elementType + "?");
 
-        ButtonType yes = new ButtonType("Yes");
+        ButtonType yes = new ButtonType("Yes", ButtonBar.ButtonData.OK_DONE);
         ButtonType no = new ButtonType("No", ButtonBar.ButtonData.CANCEL_CLOSE);
         alert.getButtonTypes().setAll(yes, no);
 
-        javafx.scene.control.DialogPane dp = alert.getDialogPane();
-
-        // ── Dialog pane background and border ───────────────────────────────
-        dp.setStyle(
+        javafx.scene.control.DialogPane dialogPane = alert.getDialogPane();
+        dialogPane.setStyle(
                 "-fx-background-color: #100317;" +
                         "-fx-border-color: #cdfc04;" +
                         "-fx-border-width: 1.5;" +
                         "-fx-border-radius: 8;" +
-                        "-fx-background-radius: 8;"
-        );
+                        "-fx-background-radius: 8;");
+        dialogPane.setContentText(message);
 
-        // ── Content text ─────────────────────────────────────────────────────
-        dp.setContentText("Do you really want to remove this " + elementType + "?");
-        javafx.scene.Node contentLabel = dp.lookup(".content.label");
-        if (contentLabel instanceof javafx.scene.control.Label lbl) {
-            lbl.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 13px;");
+        javafx.scene.Node contentLabel = dialogPane.lookup(".content.label");
+        if (contentLabel instanceof javafx.scene.control.Label) {
+            ((javafx.scene.control.Label) contentLabel)
+                    .setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 13px;");
         }
 
-        // ── Button bar: center the buttons ───────────────────────────────────
-        javafx.scene.Node barNode = dp.lookup(".button-bar");
-        if (barNode instanceof javafx.scene.control.ButtonBar bar) {
-            bar.setStyle("-fx-background-color: #100317; -fx-padding: 10 20 14 20;");
-            bar.setButtonMinWidth(80);
-            // CENTER_LAST puts both buttons as a centered group
-            bar.setButtonOrder(javafx.scene.control.ButtonBar.BUTTON_ORDER_NONE);
-            bar.setStyle(bar.getStyle() + "-fx-alignment: center;");
+        javafx.scene.Node barNode = dialogPane.lookup(".button-bar");
+        if (barNode instanceof javafx.scene.control.ButtonBar) {
+            ((javafx.scene.control.ButtonBar) barNode).setStyle(
+                    "-fx-background-color: #100317; -fx-padding: 10 20 14 20;");
         }
 
-        // ── Style buttons — must use show() listener so nodes exist ──────────
-        alert.getDialogPane().getScene().windowProperty().addListener((obs, oldW, newW) -> {
-            if (newW != null) stylePopupButtons(dp, yes, no);
+        alert.getDialogPane().getScene().windowProperty().addListener((obs, oldWindow, newWindow) -> {
+            if (newWindow != null) stylePopupButtons(dialogPane, yes, no);
         });
-        // Also try immediately in case scene/window already set
-        if (dp.getScene() != null && dp.getScene().getWindow() != null) {
-            stylePopupButtons(dp, yes, no);
+        if (dialogPane.getScene() != null && dialogPane.getScene().getWindow() != null) {
+            stylePopupButtons(dialogPane, yes, no);
         }
 
-        // Remove the title bar entirely
-        javafx.stage.Stage stage = (javafx.stage.Stage) dp.getScene().getWindow();
+        javafx.stage.Stage stage = (javafx.stage.Stage) dialogPane.getScene().getWindow();
         stage.initStyle(javafx.stage.StageStyle.UNDECORATED);
 
-        Optional<ButtonType> result = alert.showAndWait();
+        java.util.Optional<ButtonType> result = alert.showAndWait();
         return result.isPresent() && result.get() == yes;
+    }
+
+    // Replace the old confirmRemoval body with a call to the new method:
+    private static boolean confirmRemoval(String elementType) {
+        return confirmWithCustomMessage("Do you really want to remove this " + elementType + "?");
     }
 
     private static void stylePopupButtons(javafx.scene.control.DialogPane dp,
@@ -1536,5 +1580,28 @@ public final class NavigationContextMenuBuilder {
             cur = cur.getParent();
         }
         return null;
+    }
+
+    private static MenuItem makePasteItem(Runnable pasteAction) {
+        MenuItem mi = new MenuItem();
+        Label lbl = new Label("Paste");
+        lbl.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+        HBox g = new HBox(lbl);
+        g.setAlignment(Pos.CENTER_LEFT);
+        g.setPadding(new Insets(2, 6, 2, 6));
+        mi.setGraphic(g);
+        mi.setText("");
+        mi.setVisible(!Controller.CardClipboard.isEmpty());
+        // Refresh visibility each time the menu opens
+        Controller.CardClipboard.addChangeListener(() -> {
+            javafx.application.Platform.runLater(() -> {
+                boolean notEmpty = !Controller.CardClipboard.isEmpty();
+                mi.setVisible(notEmpty);
+            });
+        });
+        mi.setOnAction(e -> {
+            if (!Controller.CardClipboard.isEmpty()) pasteAction.run();
+        });
+        return mi;
     }
 }
