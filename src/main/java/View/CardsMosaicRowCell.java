@@ -7,18 +7,15 @@ import Model.CardsLists.Card;
 import Utils.LruImageCache;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.SnapshotParameters;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
-import javafx.scene.image.WritableImage;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
-import javafx.scene.paint.Color;
 import javafx.util.Callback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +40,38 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
         setStyle("-fx-background-color: transparent;");
         setGraphic(hbox);
         setFocusTraversable(true);
+        setupDropTarget();
+    }
+
+    /**
+     * Makes the mosaic row cell a drop target.
+     * MIDDLE → RIGHT: remove the dragged CardElements from the middle pane.
+     * RIGHT → RIGHT: ignore.
+     */
+    private void setupDropTarget() {
+        this.setOnDragOver(event -> {
+            if ("MIDDLE".equals(Controller.DragDropManager.getDragSourcePane())
+                    && event.getDragboard().hasString()) {
+                event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
+            }
+            event.consume();
+        });
+
+        this.setOnDragDropped(event -> {
+            if (!"MIDDLE".equals(Controller.DragDropManager.getDragSourcePane())) {
+                event.setDropCompleted(false);
+                event.consume();
+                return;
+            }
+            java.util.List<Model.CardsLists.CardElement> elements =
+                    new java.util.ArrayList<>(Controller.DragDropManager.getDraggedElements());
+            if (!elements.isEmpty()) {
+                Controller.MenuActionHandler.handleBulkRemoveElementsFromDecksAndCollections(elements);
+                Controller.MenuActionHandler.handleBulkRemoveFromOwnedCollection(elements);
+            }
+            event.setDropCompleted(true);
+            event.consume();
+        });
     }
 
     public static Callback<ListView<List<Card>>, ListCell<List<Card>>> forListView(double imageWidth, double imageHeight) {
@@ -619,17 +648,45 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
 
                 // Drag handlers.
                 wrapper.setOnDragDetected(event -> {
-                    Dragboard db = wrapper.startDragAndDrop(TransferMode.MOVE);
-                    SnapshotParameters params = new SnapshotParameters();
-                    params.setFill(Color.TRANSPARENT);
-                    WritableImage ghost = wrapper.snapshot(params, null);
-                    if (ghost != null) {
-                        db.setDragView(ghost, ghost.getWidth() / 2, ghost.getHeight() / 2);
+                    // Primary card first, then other selected RIGHT-pane cards in order, cap 5
+                    java.util.Set<Card> selected = SelectionManager.getSelectedCards();
+                    List<Card> dragCards = new ArrayList<>();
+                    dragCards.add(card);
+                    if ("RIGHT".equals(SelectionManager.getActivePart())
+                            && selected.size() > 1 && selected.contains(card)) {
+                        for (Card c : selected) {
+                            if (c != card) {
+                                dragCards.add(c);
+                                if (dragCards.size() >= 5) break;
+                            }
+                        }
                     }
+
+                    // Resolve raw images (no selection border)
+                    List<Image> ghostImages = new ArrayList<>();
+                    for (Card c : dragCards) {
+                        String path = getImagePath(c);
+                        Image img = path != null ? LruImageCache.getImage(path) : null;
+                        if (img == null && path != null) {
+                            try {
+                                img = new Image(path, imageWidth, imageHeight, true, true);
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        ghostImages.add(img);
+                    }
+
+                    Dragboard db = wrapper.startDragAndDrop(TransferMode.MOVE);
+                    javafx.scene.image.WritableImage ghost =
+                            DragDropManager.buildDragGhost(ghostImages, imageWidth, imageHeight);
+                    if (ghost != null) {
+                        db.setDragView(ghost, imageWidth / 2.0, imageHeight / 2.0);
+                    }
+
                     ClipboardContent content = new ClipboardContent();
                     content.putString(card.getPassCode());
                     db.setContent(content);
-                    DragDropManager.setCurrentlyDraggedCard(card);
+                    DragDropManager.startRightDrag(dragCards);
                     logger.debug("Started drag for card in mosaic: {}", card.getName_EN());
                     event.consume();
                 });

@@ -1387,18 +1387,6 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     /**
-     * Collects all Card objects from the entire TreeView in display order
-     * (depth-first traversal, collecting only from CardsGroup nodes).
-     * Enables SHIFT+click range selection that spans multiple groups/lists.
-     */
-    public static List<Card> collectAllCardsInTreeOrder(TreeItem<String> rootItem) {
-        List<Card> allCards = new ArrayList<>();
-        if (rootItem == null) return allCards;
-        collectCardsRecursive(rootItem, allCards);
-        return allCards;
-    }
-
-    /**
      * Correct preferred height: uses the ACTUAL rendered row span
      * (cardHeight + 2×padding + verticalSpacing).
      */
@@ -1437,16 +1425,16 @@ public class CardTreeCell extends TreeCell<String> {
         grid.setMaxHeight(h);
     }
 
-    private void adjustGridViewHeight(CardsGroup group) {
-        if (cardGridView == null) return;
-        int numItems = group.getCardList() == null ? 0 : group.getCardList().size();
-        if (numItems <= 0) {
-            applyGridPrefHeight(cardGridView, 0);
-            return;
-        }
-        applyGridPrefHeight(cardGridView, computeGridPrefHeight(cardGridView, numItems));
-        logger.debug("Adjusted grid view height to {} for {} items",
-                cardGridView.getPrefHeight(), numItems);
+    /**
+     * Collects all Card objects from the entire TreeView in display order
+     * (depth-first traversal, collecting only from CardsGroup nodes).
+     * Enables SHIFT+click range selection that spans multiple groups/lists.
+     */
+    public static List<Card> collectAllCardsInTreeOrder(TreeItem<String> rootItem) {
+        List<Card> allCards = new ArrayList<>();
+        if (rootItem == null) return allCards;
+        collectCardsRecursive(rootItem, allCards);
+        return allCards;
     }
 
     /**
@@ -1514,9 +1502,174 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     /**
+     * Marks the owner of {@code group} dirty (My Collection, or the specific
+     * Deck / ThemeCollection in D&C) and triggers the appropriate view refresh.
+     */
+    static void markDirtyAndRefreshForGroup(CardsGroup group) {
+        if (group == null) return;
+        // Try D&C owner first
+        javafx.collections.ObservableList<CardElement> obs = GROUP_OBSERVABLE_LISTS.get(group);
+        Object dacOwner = null;
+        if (obs != null) {
+            Model.CardsLists.DecksAndCollectionsList dac =
+                    Controller.UserInterfaceFunctions.getDecksList();
+            if (dac != null) {
+                outer:
+                for (Model.CardsLists.ThemeCollection tc :
+                        dac.getCollections() != null
+                                ? dac.getCollections()
+                                : java.util.Collections.<Model.CardsLists.ThemeCollection>emptyList()) {
+                    if (tc == null) continue;
+                    if (obs == tc.getCardsList() || obs == tc.getExceptionsToNotAdd()) {
+                        dacOwner = tc;
+                        break outer;
+                    }
+                    if (tc.getLinkedDecks() != null) {
+                        for (java.util.List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                            if (unit == null) continue;
+                            for (Model.CardsLists.Deck d : unit) {
+                                if (d == null) continue;
+                                if (obs == d.getMainDeck()
+                                        || obs == d.getExtraDeck()
+                                        || obs == d.getSideDeck()) {
+                                    dacOwner = d;
+                                    break outer;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (dacOwner == null && dac.getDecks() != null) {
+                    for (Model.CardsLists.Deck d : dac.getDecks()) {
+                        if (d == null) continue;
+                        if (obs == d.getMainDeck()
+                                || obs == d.getExtraDeck()
+                                || obs == d.getSideDeck()) {
+                            dacOwner = d;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (dacOwner != null) {
+            Controller.UserInterfaceFunctions.markDirty(dacOwner);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        } else {
+            Controller.UserInterfaceFunctions.markMyCollectionDirty();
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
+        }
+    }
+
+    /**
+     * Inserts {@code newElements} into {@code targetList} at {@code insertionIndex}.
+     * If {@code sourceElements} is non-null and non-empty, each source element is
+     * first removed from its current group (MOVE semantics); otherwise new
+     * {@link CardElement} wrappers are created from the cards (ADD semantics).
+     *
+     * <p>Dirty marking and view refresh are handled by the caller.
+     */
+    public static void dropInsertIntoGroup(
+            CardsGroup targetGroup,
+            int insertionIndex,
+            java.util.List<Model.CardsLists.CardElement> sourceElements,
+            java.util.List<Model.CardsLists.Card> sourceCards) {
+
+        javafx.collections.ObservableList<CardElement> targetList = observableListFor(targetGroup);
+        int idx = Math.max(0, Math.min(insertionIndex, targetList.size()));
+
+        if (sourceElements != null && !sourceElements.isEmpty()) {
+            // MOVE: remove from sources first (may be in different groups)
+            for (CardElement ce : sourceElements) {
+                for (java.util.Map.Entry<CardsGroup,
+                        javafx.collections.ObservableList<CardElement>> entry
+                        : GROUP_OBSERVABLE_LISTS.entrySet()) {
+                    if (entry.getValue().remove(ce)) {
+                        triggerHeightAdjustment(entry.getKey());
+                        break;
+                    }
+                }
+            }
+            // Re-compute index in case removals shifted it
+            idx = Math.min(idx, targetList.size());
+            for (int i = 0; i < sourceElements.size(); i++) {
+                int pos = Math.min(idx + i, targetList.size());
+                targetList.add(pos, sourceElements.get(i));
+            }
+        } else if (sourceCards != null && !sourceCards.isEmpty()) {
+            // ADD: create new elements
+            for (int i = 0; i < sourceCards.size(); i++) {
+                Model.CardsLists.Card card = sourceCards.get(i);
+                if (card == null) continue;
+                int pos = Math.min(idx + i, targetList.size());
+                targetList.add(pos, new CardElement(card));
+            }
+        }
+        triggerHeightAdjustment(targetGroup);
+    }
+
+    /**
+     * Given a local X coordinate inside a {@link GridView} cell and the cell width,
+     * returns {@code true} if the point is on the right half of the card image
+     * (i.e. insert AFTER), {@code false} for the left half (insert BEFORE).
+     */
+    public static boolean isRightHalf(double localX, double cardWidth) {
+        return localX >= (cardWidth + 2 * CELL_INNER_PADDING) / 2.0;
+    }
+
+    /**
      * Finds the CardsGroup whose observable list contains the given CardElement,
      * by searching the live GROUP_OBSERVABLE_LISTS registry.
      */
+
+    /**
+     * Computes the insertion index inside {@code group}'s list when the user
+     * drops between cards at pixel position {@code gridLocalX, gridLocalY} inside
+     * the {@link GridView}.
+     *
+     * <p>Returns -1 when the drop position is outside the card rows entirely
+     * (e.g. below the last row).
+     */
+    public static int computeGapInsertionIndex(
+            GridView<CardElement> grid, CardsGroup group,
+            double gridLocalX, double gridLocalY) {
+        if (group == null || group.getCardList() == null) return -1;
+        int n = group.getCardList().size();
+        if (n == 0) return 0;
+
+        Insets pad = grid.getPadding();
+        double padL = pad != null ? pad.getLeft() : 0;
+        double padT = pad != null ? pad.getTop() : 0;
+        double hSpace = grid.getHorizontalCellSpacing();
+        double vSpace = grid.getVerticalCellSpacing();
+        double cellW = grid.getCellWidth() + 2 * CELL_INNER_PADDING;
+        double cellH = grid.getCellHeight() + 2 * CELL_INNER_PADDING;
+        int cols = computeGridColumns(grid);
+
+        double x = gridLocalX - padL;
+        double y = gridLocalY - padT;
+        if (x < 0 || y < 0) return 0;
+
+        int col = (int) Math.floor(x / (cellW + hSpace));
+        int row = (int) Math.floor(y / (cellH + vSpace));
+
+        double colFrac = (x - col * (cellW + hSpace)) / cellW;
+        // If click is in the spacing gap between columns, treat as right-half of left card
+        boolean inHGap = colFrac > 1.0;
+        col = Math.min(col, cols - 1);
+
+        int flatIndex = row * cols + col;
+        if (flatIndex >= n) return -1; // below last row content
+
+        // If in the right half (or in a gap), insert after this card
+        if (inHGap || colFrac >= 0.5) flatIndex++;
+        return Math.min(flatIndex, n);
+    }
+
+    // ── Drop execution helpers (called from drag-drop handlers) ────────────────
+
     public static CardsGroup findGroupForCardElement(CardElement targetElement) {
         if (targetElement == null) return null;
         for (java.util.Map.Entry<CardsGroup,
@@ -1636,6 +1789,54 @@ public class CardTreeCell extends TreeCell<String> {
 
         vBox.getChildren().add(grid);
         VBox.setVgrow(grid, Priority.ALWAYS);
+
+        // ── GridView drop target: between-card gaps ───────────────────────────────
+        // The wrapper inside each CardGridCell consumes card-level events; the
+        // GridView only receives events that land in gaps between or below cards.
+        grid.setOnDragOver(event -> {
+            if (!isArchetype
+                    && event.getDragboard().hasString()
+                    && Controller.DragDropManager.getDragSourcePane() != null) {
+                event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
+            }
+            event.consume();
+        });
+
+        grid.setOnDragDropped(event -> {
+            if (isArchetype) {
+                event.setDropCompleted(false);
+                event.consume();
+                return;
+            }
+            int insertionIndex = computeGapInsertionIndex(
+                    grid, group, event.getX(), event.getY());
+            if (insertionIndex < 0) {
+                // Click is outside the card rows — treat as append
+                insertionIndex = group.getCardList() == null ? 0 : group.getCardList().size();
+            }
+
+            String srcPane = Controller.DragDropManager.getDragSourcePane();
+            if (srcPane == null) {
+                event.setDropCompleted(false);
+                event.consume();
+                return;
+            }
+
+            boolean isMiddle = "MIDDLE".equals(srcPane);
+            if (isMiddle) {
+                java.util.List<CardElement> srcElements =
+                        new java.util.ArrayList<>(Controller.DragDropManager.getDraggedElements());
+                dropInsertIntoGroup(group, insertionIndex, srcElements, null);
+            } else {
+                java.util.List<Model.CardsLists.Card> srcCards =
+                        new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
+                dropInsertIntoGroup(group, insertionIndex, null, srcCards);
+            }
+            markDirtyAndRefreshForGroup(group);
+            event.setDropCompleted(true);
+            event.consume();
+        });
+
         setGraphic(vBox);
 
         // For Decks & Collections tab only; different menu per group type.
@@ -1660,6 +1861,18 @@ public class CardTreeCell extends TreeCell<String> {
             headerCm.show(hbox, event.getScreenX(), event.getScreenY());
             event.consume();
         });
+    }
+
+    private void adjustGridViewHeight(CardsGroup group) {
+        if (cardGridView == null) return;
+        int numItems = group.getCardList() == null ? 0 : group.getCardList().size();
+        if (numItems <= 0) {
+            applyGridPrefHeight(cardGridView, 0);
+            return;
+        }
+        applyGridPrefHeight(cardGridView, computeGridPrefHeight(cardGridView, numItems));
+        logger.debug("Adjusted grid view height to {} for {} items",
+                cardGridView.getPrefHeight(), numItems);
     }
     // Add this static method to CardTreeCell, after the existing refreshAllGridViews-like statics:
 
@@ -2364,7 +2577,164 @@ public class CardTreeCell extends TreeCell<String> {
                 }
                 event.consume();
             });
-        }
+
+            // ── Middle-pane drag ──────────────────────────────────────────────────────────
+            wrapper.setOnDragDetected(event -> {
+                CardElement ce = getItem();
+                if (ce == null || ce.getCard() == null) return;
+
+                if (isInArchetypeGroup()) {
+                    // Archetype cards are read-only — behave like a right-pane (ADD) drag
+                    java.util.List<Card> cards = new java.util.ArrayList<>();
+                    cards.add(ce.getCard());
+                    java.util.Set<CardElement> sel = Controller.SelectionManager.getSelectedMiddleElements();
+                    if ("MIDDLE".equals(Controller.SelectionManager.getActivePart())
+                            && sel.size() > 1 && sel.contains(ce)) {
+                        for (CardElement el : sel) {
+                            if (el != ce && el.getCard() != null) {
+                                cards.add(el.getCard());
+                                if (cards.size() >= 5) break;
+                            }
+                        }
+                    }
+                    java.util.List<Image> ghostImages = new java.util.ArrayList<>();
+                    for (Card c : cards) {
+                        String key = c.getImagePath();
+                        String rp = key != null ? imagePathCache.get(key) : null;
+                        ghostImages.add(rp != null ? LruImageCache.getImage(rp) : null);
+                    }
+                    javafx.scene.input.Dragboard db =
+                            wrapper.startDragAndDrop(javafx.scene.input.TransferMode.MOVE);
+                    javafx.scene.image.WritableImage ghost =
+                            Controller.DragDropManager.buildDragGhost(
+                                    ghostImages, cardWidthProperty.get(), cardHeightProperty.get());
+                    if (ghost != null)
+                        db.setDragView(ghost, cardWidthProperty.get() / 2.0, cardHeightProperty.get() / 2.0);
+                    javafx.scene.input.ClipboardContent content = new javafx.scene.input.ClipboardContent();
+                    content.putString(ce.getCard().getPassCode());
+                    db.setContent(content);
+                    Controller.DragDropManager.startRightDrag(cards);
+                    event.consume();
+                    return;
+                }
+
+                // Primary element first, then other selected MIDDLE elements in selection
+                // order, capped at 5 total.
+                java.util.Set<CardElement> selected =
+                        Controller.SelectionManager.getSelectedMiddleElements();
+                java.util.List<CardElement> dragElements = new java.util.ArrayList<>();
+                dragElements.add(ce);
+                if ("MIDDLE".equals(Controller.SelectionManager.getActivePart())
+                        && selected.size() > 1 && selected.contains(ce)) {
+                    for (CardElement el : selected) {
+                        if (el != ce) {
+                            dragElements.add(el);
+                            if (dragElements.size() >= 5) break;
+                        }
+                    }
+                }
+
+                // Resolve raw card images — look up cached path then LRU cache, no border
+                java.util.List<Image> ghostImages = new java.util.ArrayList<>();
+                for (CardElement el : dragElements) {
+                    Card c = el.getCard();
+                    String key = c != null ? c.getImagePath() : null;
+                    String resolvedPath = key != null ? imagePathCache.get(key) : null;
+                    Image img = resolvedPath != null ? LruImageCache.getImage(resolvedPath) : null;
+                    ghostImages.add(img); // null entries are handled in buildDragGhost
+                }
+
+                javafx.scene.input.Dragboard db =
+                        wrapper.startDragAndDrop(javafx.scene.input.TransferMode.MOVE);
+                javafx.scene.image.WritableImage ghost =
+                        Controller.DragDropManager.buildDragGhost(
+                                ghostImages, cardWidthProperty.get(), cardHeightProperty.get());
+                if (ghost != null) {
+                    db.setDragView(ghost,
+                            cardWidthProperty.get() / 2.0,
+                            cardHeightProperty.get() / 2.0);
+                }
+
+                javafx.scene.input.ClipboardContent content =
+                        new javafx.scene.input.ClipboardContent();
+                content.putString(ce.getCard().getPassCode());
+                db.setContent(content);
+                Controller.DragDropManager.startMiddleDrag(dragElements);
+                event.consume();
+            });
+
+            wrapper.setOnDragDone(event -> {
+                Controller.DragDropManager.clearCurrentlyDraggedCard();
+                event.consume();
+            });
+
+            // ── Drop target: card-level (left half = before, right half = after) ────────
+            wrapper.setOnDragOver(event -> {
+                if (!isInArchetypeGroup()
+                        && event.getDragboard().hasString()
+                        && Controller.DragDropManager.getDragSourcePane() != null) {
+                    event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
+                }
+                event.consume();
+            });
+
+            wrapper.setOnDragDropped(event -> {
+                if (isInArchetypeGroup()) {
+                    event.setDropCompleted(false);
+                    event.consume();
+                    return;
+                }
+                CardElement anchor = getItem();
+                if (anchor == null) {
+                    event.setDropCompleted(false);
+                    event.consume();
+                    return;
+                }
+
+                CardsGroup group = findGroupForCardElement(anchor);
+                if (group == null) {
+                    event.setDropCompleted(false);
+                    event.consume();
+                    return;
+                }
+
+                javafx.collections.ObservableList<CardElement> list = observableListFor(group);
+                int anchorIdx = list.indexOf(anchor);
+                if (anchorIdx < 0) {
+                    event.setDropCompleted(false);
+                    event.consume();
+                    return;
+                }
+
+                // Determine left/right half using mouse X relative to the wrapper
+                double localX = event.getX();
+                boolean insertAfter = isRightHalf(localX, cardWidthProperty.get());
+                int insertionIndex = insertAfter ? anchorIdx + 1 : anchorIdx;
+
+                String srcPane = Controller.DragDropManager.getDragSourcePane();
+                boolean isMiddle = "MIDDLE".equals(srcPane);
+
+                if (isMiddle) {
+                    java.util.List<CardElement> srcElements =
+                            new java.util.ArrayList<>(Controller.DragDropManager.getDraggedElements());
+                    // Don't move onto itself
+                    if (srcElements.size() == 1 && srcElements.get(0) == anchor) {
+                        event.setDropCompleted(false);
+                        event.consume();
+                        return;
+                    }
+                    dropInsertIntoGroup(group, insertionIndex, srcElements, null);
+                    markDirtyAndRefreshForGroup(group);
+                } else {
+                    java.util.List<Model.CardsLists.Card> srcCards =
+                            new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
+                    dropInsertIntoGroup(group, insertionIndex, null, srcCards);
+                    markDirtyAndRefreshForGroup(group);
+                }
+                event.setDropCompleted(true);
+                event.consume();
+            });
+        } // end CardGridCell()
 
         // Helper: remove the given CardElement from the owned collection and refresh UI.
         // Tries MenuActionHandler.handleRemove(...) first, falls back to direct removal.

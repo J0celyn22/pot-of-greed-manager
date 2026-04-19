@@ -9,7 +9,6 @@ import Model.Database.DataBaseUpdate;
 import Utils.LruImageCache;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.SnapshotParameters;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
@@ -20,10 +19,10 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
-import javafx.scene.paint.Color;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class CardsListCell extends ListCell<Card> {
@@ -42,12 +41,26 @@ public class CardsListCell extends ListCell<Card> {
         this.imageHeight = imageHeight;
         setFocusTraversable(true);
         setupDragAndDrop();
+        setupDropTarget();
         setupSelectionHandler();
         myCollContextMenu = buildContextMenuForMyCollection();
         decksContextMenu = buildContextMenuForDecks();
     }
 
-    // ── Destination lists ─────────────────────────────────────────────────────
+    private static MenuItem makeDecksCollectionItemForCards(
+            String collName, java.util.Collection<Model.CardsLists.Card> cards) {
+        MenuItem mi = new MenuItem(collName);
+        mi.setOnAction(e -> {
+            if (cards.size() == 1) {
+                Controller.MenuActionHandler.handleAddToCollectionCards(
+                        cards.iterator().next(), collName);
+            } else {
+                Controller.MenuActionHandler.handleBulkAddToCollectionCards(cards, collName);
+            }
+        });
+        return mi;
+    }
+
 
     private static MenuItem makeMyCollDestItem(String path, Card card) {
         MenuItem mi = new MenuItem(path);
@@ -181,60 +194,6 @@ public class CardsListCell extends ListCell<Card> {
         return mi;
     }
 
-    private static MenuItem makeDecksCollectionItemForCards(
-            String collName, java.util.Collection<Model.CardsLists.Card> cards) {
-        MenuItem mi = new MenuItem(collName);
-        mi.setOnAction(e -> {
-            if (cards.size() == 1) {
-                Controller.MenuActionHandler.handleAddToCollectionCards(
-                        cards.iterator().next(), collName);
-            } else {
-                Controller.MenuActionHandler.handleBulkAddToCollectionCards(cards, collName);
-            }
-        });
-        return mi;
-    }
-
-    private static MenuItem makeDecksExclusionItemForCards(
-            String collName, java.util.Collection<Model.CardsLists.Card> cards) {
-        MenuItem mi = new MenuItem(collName + " / Exclusion List");
-        mi.setOnAction(e -> {
-            if (cards.size() == 1) {
-                Controller.MenuActionHandler.handleAddToExclusionList(
-                        cards.iterator().next(), collName);
-            } else {
-                Controller.MenuActionHandler.handleBulkAddToExclusionList(cards, collName);
-            }
-        });
-        return mi;
-    }
-
-    private static MenuItem makeDecksDestItemForCards(
-            String path, java.util.Collection<Model.CardsLists.Card> cards) {
-        MenuItem mi = new MenuItem(path);
-        mi.setOnAction(e -> {
-            if (cards.size() == 1) {
-                Controller.MenuActionHandler.handleAddToDeck(cards.iterator().next(), path);
-            } else {
-                Controller.MenuActionHandler.handleBulkAddToDeck(cards, path);
-            }
-        });
-        return mi;
-    }
-
-    private static MenuItem makeMyCollDestItemForCards(
-            String path, java.util.Collection<Model.CardsLists.Card> cards) {
-        MenuItem mi = new MenuItem(path);
-        mi.setOnAction(e -> {
-            if (cards.size() == 1) {
-                Controller.MenuActionHandler.handleAddCopy(cards.iterator().next(), path);
-            } else {
-                Controller.MenuActionHandler.handleBulkAddCopy(cards, path);
-            }
-        });
-        return mi;
-    }
-
     private ContextMenu buildContextMenuForDecks() {
         ContextMenu cm = styledContextMenu();
 
@@ -277,6 +236,78 @@ public class CardsListCell extends ListCell<Card> {
         cm.getItems().add(copyMenuItem);
 
         return cm;
+    }
+
+    private static MenuItem makeDecksExclusionItemForCards(
+            String collName, java.util.Collection<Model.CardsLists.Card> cards) {
+        MenuItem mi = new MenuItem(collName + " / Exclusion List");
+        mi.setOnAction(e -> {
+            if (cards.size() == 1) {
+                Controller.MenuActionHandler.handleAddToExclusionList(
+                        cards.iterator().next(), collName);
+            } else {
+                Controller.MenuActionHandler.handleBulkAddToExclusionList(cards, collName);
+            }
+        });
+        return mi;
+    }
+
+    private static MenuItem makeDecksDestItemForCards(
+            String path, java.util.Collection<Model.CardsLists.Card> cards) {
+        MenuItem mi = new MenuItem(path);
+        mi.setOnAction(e -> {
+            if (cards.size() == 1) {
+                Controller.MenuActionHandler.handleAddToDeck(cards.iterator().next(), path);
+            } else {
+                Controller.MenuActionHandler.handleBulkAddToDeck(cards, path);
+            }
+        });
+        return mi;
+    }
+
+    private static MenuItem makeMyCollDestItemForCards(
+            String path, java.util.Collection<Model.CardsLists.Card> cards) {
+        MenuItem mi = new MenuItem(path);
+        mi.setOnAction(e -> {
+            if (cards.size() == 1) {
+                Controller.MenuActionHandler.handleAddCopy(cards.iterator().next(), path);
+            } else {
+                Controller.MenuActionHandler.handleBulkAddCopy(cards, path);
+            }
+        });
+        return mi;
+    }
+
+    /**
+     * Makes this list cell a drop target.
+     * RIGHT → RIGHT: ignore (nothing happens).
+     * MIDDLE → RIGHT: remove the dragged CardElements from the middle pane.
+     */
+    private void setupDropTarget() {
+        this.setOnDragOver(event -> {
+            if ("MIDDLE".equals(Controller.DragDropManager.getDragSourcePane())
+                    && event.getDragboard().hasString()) {
+                event.acceptTransferModes(TransferMode.MOVE);
+            }
+            event.consume();
+        });
+
+        this.setOnDragDropped(event -> {
+            if (!"MIDDLE".equals(Controller.DragDropManager.getDragSourcePane())) {
+                event.setDropCompleted(false);
+                event.consume();
+                return;
+            }
+            java.util.List<Model.CardsLists.CardElement> elements =
+                    new java.util.ArrayList<>(Controller.DragDropManager.getDraggedElements());
+            if (!elements.isEmpty()) {
+                // Try D&C removal first; if nothing removed, fall back to OwnedCollection removal
+                Controller.MenuActionHandler.handleBulkRemoveElementsFromDecksAndCollections(elements);
+                Controller.MenuActionHandler.handleBulkRemoveFromOwnedCollection(elements);
+            }
+            event.setDropCompleted(true);
+            event.consume();
+        });
     }
 
     /**
@@ -405,42 +436,57 @@ public class CardsListCell extends ListCell<Card> {
     // Existing methods — unchanged
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void setupDragAndDrop() {
-        this.setOnDragDetected(event -> {
-            Card card = getItem();
-            if (card == null) return;
-            Dragboard db = startDragAndDrop(TransferMode.MOVE);
-            SnapshotParameters params = new SnapshotParameters();
-            params.setFill(Color.TRANSPARENT);
-            WritableImage ghostImage = null;
-            if (getGraphic() instanceof HBox) {
-                HBox cellBox = (HBox) getGraphic();
-                if (!cellBox.getChildren().isEmpty() && cellBox.getChildren().get(0) instanceof ImageView) {
-                    ImageView iv = (ImageView) cellBox.getChildren().get(0);
-                    ghostImage = iv.snapshot(params, null);
+    private List<MenuItem> buildAllDecksDestinationItemsForCards(
+            java.util.Collection<Model.CardsLists.Card> cards) {
+        java.util.List<MenuItem> items = new java.util.ArrayList<>();
+        if (cards == null || cards.isEmpty()) return items;
+        try {
+            Model.CardsLists.DecksAndCollectionsList dac =
+                    Controller.UserInterfaceFunctions.getDecksList();
+            if (dac == null) {
+                try {
+                    Controller.UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+                } catch (Exception ignored) {
+                }
+                dac = Controller.UserInterfaceFunctions.getDecksList();
+            }
+            if (dac == null) return items;
+
+            final java.util.Collection<Model.CardsLists.Card> finalCards = cards;
+
+            if (dac.getCollections() != null) {
+                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                    if (tc == null) continue;
+                    String coll = sanitize(tc.getName());
+                    items.add(makeDecksCollectionItemForCards(coll, finalCards));
+                    if (tc.getLinkedDecks() != null) {
+                        for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                            if (unit == null) continue;
+                            for (Model.CardsLists.Deck deck : unit) {
+                                if (deck == null) continue;
+                                String base = coll + " / " + sanitize(deck.getName());
+                                items.add(makeDecksDestItemForCards(base + " / Main Deck", finalCards));
+                                items.add(makeDecksDestItemForCards(base + " / Extra Deck", finalCards));
+                                items.add(makeDecksDestItemForCards(base + " / Side Deck", finalCards));
+                            }
+                        }
+                    }
+                    items.add(makeDecksExclusionItemForCards(coll, finalCards));
                 }
             }
-            if (ghostImage != null) {
-                db.setDragView(ghostImage, ghostImage.getWidth() / 2, ghostImage.getHeight() / 2);
+            if (dac.getDecks() != null) {
+                for (Model.CardsLists.Deck deck : dac.getDecks()) {
+                    if (deck == null) continue;
+                    String d = sanitize(deck.getName());
+                    items.add(makeDecksDestItemForCards(d + " / Main Deck", finalCards));
+                    items.add(makeDecksDestItemForCards(d + " / Extra Deck", finalCards));
+                    items.add(makeDecksDestItemForCards(d + " / Side Deck", finalCards));
+                }
             }
-            ClipboardContent content = new ClipboardContent();
-            content.putString(card.getPassCode());
-            db.setContent(content);
-            DragDropManager.setCurrentlyDraggedCard(card);
-            event.consume();
-        });
-
-        this.setOnDragDone(event -> {
-            DragDropManager.clearCurrentlyDraggedCard();
-            event.consume();
-        });
-
-        this.setOnKeyPressed(event -> {
-            if (event.getCode() == KeyCode.ESCAPE) {
-                DragDropManager.clearCurrentlyDraggedCard();
-                event.consume();
-            }
-        });
+        } catch (Exception ex) {
+            logger.error("buildAllDecksDestinationItemsForCards failed", ex);
+        }
+        return items;
     }
 
     /**
@@ -499,57 +545,66 @@ public class CardsListCell extends ListCell<Card> {
         return items;
     }
 
-    private List<MenuItem> buildAllDecksDestinationItemsForCards(
-            java.util.Collection<Model.CardsLists.Card> cards) {
-        java.util.List<MenuItem> items = new java.util.ArrayList<>();
-        if (cards == null || cards.isEmpty()) return items;
-        try {
-            Model.CardsLists.DecksAndCollectionsList dac =
-                    Controller.UserInterfaceFunctions.getDecksList();
-            if (dac == null) {
-                try {
-                    Controller.UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
-                } catch (Exception ignored) {
-                }
-                dac = Controller.UserInterfaceFunctions.getDecksList();
-            }
-            if (dac == null) return items;
+    private void setupDragAndDrop() {
+        this.setOnDragDetected(event -> {
+            Card card = getItem();
+            if (card == null) return;
 
-            final java.util.Collection<Model.CardsLists.Card> finalCards = cards;
-
-            if (dac.getCollections() != null) {
-                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
-                    if (tc == null) continue;
-                    String coll = sanitize(tc.getName());
-                    items.add(makeDecksCollectionItemForCards(coll, finalCards));
-                    if (tc.getLinkedDecks() != null) {
-                        for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
-                            if (unit == null) continue;
-                            for (Model.CardsLists.Deck deck : unit) {
-                                if (deck == null) continue;
-                                String base = coll + " / " + sanitize(deck.getName());
-                                items.add(makeDecksDestItemForCards(base + " / Main Deck", finalCards));
-                                items.add(makeDecksDestItemForCards(base + " / Extra Deck", finalCards));
-                                items.add(makeDecksDestItemForCards(base + " / Side Deck", finalCards));
-                            }
-                        }
+            // Primary card first, then other selected RIGHT-pane cards in selection order,
+            // capped at 5 total. Only expand to multi-card if this card is part of a
+            // RIGHT-pane multi-selection.
+            java.util.Set<Card> selected = SelectionManager.getSelectedCards();
+            List<Card> dragCards = new ArrayList<>();
+            dragCards.add(card);
+            if ("RIGHT".equals(SelectionManager.getActivePart())
+                    && selected.size() > 1 && selected.contains(card)) {
+                for (Card c : selected) {
+                    if (c != card) {
+                        dragCards.add(c);
+                        if (dragCards.size() >= 5) break;
                     }
-                    items.add(makeDecksExclusionItemForCards(coll, finalCards));
                 }
             }
-            if (dac.getDecks() != null) {
-                for (Model.CardsLists.Deck deck : dac.getDecks()) {
-                    if (deck == null) continue;
-                    String d = sanitize(deck.getName());
-                    items.add(makeDecksDestItemForCards(d + " / Main Deck", finalCards));
-                    items.add(makeDecksDestItemForCards(d + " / Extra Deck", finalCards));
-                    items.add(makeDecksDestItemForCards(d + " / Side Deck", finalCards));
+
+            // Resolve raw images (no selection border)
+            List<Image> ghostImages = new ArrayList<>();
+            for (Card c : dragCards) {
+                String path = getImagePath(c);
+                Image img = path != null ? LruImageCache.getImage(path) : null;
+                if (img == null && path != null) {
+                    try {
+                        img = new Image(path, imageWidth, imageHeight, true, true);
+                    } catch (Exception ignored) {
+                    }
                 }
+                ghostImages.add(img);
             }
-        } catch (Exception ex) {
-            logger.error("buildAllDecksDestinationItemsForCards failed", ex);
-        }
-        return items;
+
+            Dragboard db = startDragAndDrop(TransferMode.MOVE);
+            WritableImage ghost = DragDropManager.buildDragGhost(ghostImages, imageWidth, imageHeight);
+            if (ghost != null) {
+                // Anchor at centre of the frontmost (dragged) card
+                db.setDragView(ghost, imageWidth / 2.0, imageHeight / 2.0);
+            }
+
+            ClipboardContent content = new ClipboardContent();
+            content.putString(card.getPassCode());
+            db.setContent(content);
+            DragDropManager.startRightDrag(dragCards);
+            event.consume();
+        });
+
+        this.setOnDragDone(event -> {
+            DragDropManager.clearCurrentlyDraggedCard();
+            event.consume();
+        });
+
+        this.setOnKeyPressed(event -> {
+            if (event.getCode() == KeyCode.ESCAPE) {
+                DragDropManager.clearCurrentlyDraggedCard();
+                event.consume();
+            }
+        });
     }
 
     @Override
@@ -631,36 +686,6 @@ public class CardsListCell extends ListCell<Card> {
         }
     }
 
-    private void setupSelectionHandler() {
-        this.setOnMouseClicked(event -> {
-            // Let right-clicks fall through to the context menu
-            if (event.getButton() == javafx.scene.input.MouseButton.SECONDARY) {
-                event.consume(); // Prevent the empty-space handler from clearing the selection
-                return;
-            }
-            Card card = getItem();
-            if (card == null) return;
-
-            if (event.isControlDown()) {
-                SelectionManager.toggleSelection(card, "RIGHT");
-            } else if (event.isShiftDown()) {
-                // Build an ordered list from this ListView for range selection
-                java.util.List<Card> orderedCardsInList = new java.util.ArrayList<>();
-                if (getListView() != null && getListView().getItems() != null) {
-                    orderedCardsInList.addAll(getListView().getItems());
-                }
-                SelectionManager.rangeSelect(card, "RIGHT", orderedCardsInList);
-            } else {
-                SelectionManager.selectCard(card, "RIGHT");
-            }
-
-            if (getListView() != null) {
-                getListView().refresh();
-            }
-            event.consume();
-        });
-    }
-
     private ContextMenu buildContextMenuForMyCollection() {
         ContextMenu cm = styledContextMenu();
 
@@ -703,6 +728,36 @@ public class CardsListCell extends ListCell<Card> {
         cm.getItems().add(copyMenuItem);
 
         return cm;
+    }
+
+    private void setupSelectionHandler() {
+        this.setOnMouseClicked(event -> {
+            // Let right-clicks fall through to the context menu
+            if (event.getButton() == javafx.scene.input.MouseButton.SECONDARY) {
+                event.consume(); // Prevent the empty-space handler from clearing the selection
+                return;
+            }
+            Card card = getItem();
+            if (card == null) return;
+
+            if (event.isControlDown()) {
+                SelectionManager.toggleSelection(card, "RIGHT");
+            } else if (event.isShiftDown()) {
+                // Build an ordered list from this ListView for range selection
+                java.util.List<Card> orderedCardsInList = new java.util.ArrayList<>();
+                if (getListView() != null && getListView().getItems() != null) {
+                    orderedCardsInList.addAll(getListView().getItems());
+                }
+                SelectionManager.rangeSelect(card, "RIGHT", orderedCardsInList);
+            } else {
+                SelectionManager.selectCard(card, "RIGHT");
+            }
+
+            if (getListView() != null) {
+                getListView().refresh();
+            }
+            event.consume();
+        });
     }
 
     private List<MenuItem> buildMyCollectionDestinationItemsForCards(
