@@ -40,6 +40,10 @@ public class OuicheListToHtml {
                     addRectangleBeginning(writer);
                     addTitle2(writer, ouicheList.getCollections().get(i).getName(), ouicheList.getCollections().get(i).getCardCount(), ouicheList.getCollections().get(i).getPrice());
 
+                    addRectangleBeginning(writer);
+                    displayListWithOwned(ouicheList.getCollections().get(i).getCardsList(), "Collection", writer, dirPath, relativeImagePath);
+                    addRectangleEnd(writer);
+
                     for (int j = 0; j < ouicheList.getCollections().get(i).getLinkedDecks().size(); j++) {
                         addRectangleBeginning(writer);
                         for (int k = 0; k < ouicheList.getCollections().get(i).getLinkedDecks().size(); k++) {
@@ -52,10 +56,6 @@ public class OuicheListToHtml {
                         }
                         addRectangleEnd(writer);
                     }
-
-                    addRectangleBeginning(writer);
-                    displayListWithOwned(ouicheList.getCollections().get(i).getCardsList(), "Collection", writer, dirPath, relativeImagePath);
-                    addRectangleEnd(writer);
 
                     addRectangleEnd(writer);
                 }
@@ -109,6 +109,10 @@ public class OuicheListToHtml {
                     addRectangleBeginning(writer);
                     addTitle2(writer, ouicheList.getCollections().get(i).getName(), ouicheList.getCollections().get(i).getCardCount(), ouicheList.getCollections().get(i).getPrice());
 
+                    addRectangleBeginning(writer);
+                    displayMosaicWithOwned(ouicheList.getCollections().get(i).getCardsList(), "Collection", writer, dirPath, relativeImagePath);
+                    addRectangleEnd(writer);
+
                     for (int j = 0; j < ouicheList.getCollections().get(i).getLinkedDecks().size(); j++) {
                         addRectangleBeginning(writer);
                         for (int k = 0; k < ouicheList.getCollections().get(i).getLinkedDecks().size(); k++) {
@@ -121,10 +125,6 @@ public class OuicheListToHtml {
                         }
                         addRectangleEnd(writer);
                     }
-
-                    addRectangleBeginning(writer);
-                    displayMosaicWithOwned(ouicheList.getCollections().get(i).getCardsList(), "Collection", writer, dirPath, relativeImagePath);
-                    addRectangleEnd(writer);
 
                     addRectangleEnd(writer);
                 }

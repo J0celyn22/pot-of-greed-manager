@@ -293,6 +293,11 @@ public class SharedCollectionTab extends HBox {
                 generateOuicheListTypeButton.setOnAction(e -> UserInterfaceFunctions.generateOuicheListType());
                 generateAllButton.setOnAction(e -> {
                     try {
+                        // loadCollectionFile and loadDecksAndCollectionsDirectory are both
+                        // guarded by isLoaded flags — they only load from disk on the first call.
+                        // CreateDetailedOuicheList now works on an internal deep copy of decksList
+                        // (fresh CardElement instances), so it never mutates decksList and
+                        // exportDecksAndCollectionsDirectory always sees clean data.
                         UserInterfaceFunctions.loadCollectionFile();
                         UserInterfaceFunctions.exportCollectionFile();
                         UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
@@ -478,7 +483,7 @@ public class SharedCollectionTab extends HBox {
                         }
                         if (UserInterfaceFunctions.getOuicheListIsLoaded()) {
                             java.util.List<Model.CardsLists.CardElement> maOuicheList =
-                                    Model.CardsLists.OuicheList.getMaOuicheList();
+                                    Model.CardsLists.OuicheList.getMaOuicheListAsFlatList();
                             double maxPrice = 100;
                             java.util.Map<String, java.util.List<String>> cardNamesFromWebsite =
                                     Model.UltraJeux.CardScraper.getCardNamesFromWebsite(maOuicheList, maxPrice);

@@ -38,8 +38,7 @@ import static Model.CardsLists.OuicheList.*;
 import static Model.CardsLists.SubListCreator.*;
 import static Model.FilePaths.outputPath;
 import static Model.FilePaths.outputPathLists;
-import static Model.FormatList.CardListToHtml.generateHtml;
-import static Model.FormatList.CardListToHtml.generateHtmlWithOwned;
+import static Model.FormatList.CardListToHtml.*;
 import static Model.FormatList.OuicheListToHtml.generateOuicheListAsListHtml;
 import static Model.FormatList.OuicheListToHtml.generateOuicheListAsMosaicHtml;
 
@@ -566,10 +565,11 @@ public class UserInterfaceFunctions {
      * @throws Exception if an error occurs during directory loading or initialization
      */
     public static void loadDecksAndCollectionsDirectory() throws Exception {
-        String dirPath = folderPath.getAbsolutePath();
-        setDecksList(new DecksAndCollectionsList(dirPath));
-
-        decksAndCollectionIsLoaded = true;
+        if (!decksAndCollectionIsLoaded) {
+            String dirPath = folderPath.getAbsolutePath();
+            setDecksList(new DecksAndCollectionsList(dirPath));
+            decksAndCollectionIsLoaded = true;
+        }
     }
 
     /**
@@ -766,16 +766,19 @@ public class UserInterfaceFunctions {
                 loadDecksAndCollectionsDirectory();
             }
 
-            setMaOuicheList(Model.CardsLists.OuicheList.CreateOuicheList(getMyCardsCollection(), getDecksList()));
+            // CreateOuicheList is now void and builds the internal LinkedHashMap directly.
+            // All callers that need a List<CardElement> use getMaOuicheListAsFlatList().
+            Model.CardsLists.OuicheList.CreateOuicheList(getMyCardsCollection(), getDecksList());
 
             // Create the output directory.
             //String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
             Files.createDirectories(Paths.get(outputPathLists));
 
             generateHtml(getUnusedCards(), outputPathLists, "Available Cards");
-            generateHtml(getMaOuicheList(), outputPathLists, "OuicheList");
+            generateHtml(getMaOuicheListAsFlatList(), outputPathLists, "OuicheList");
+            generateOuicheListMosaicHtml(getMaOuicheListAsFlatList(), outputPathLists);
 
-            SubListCreator.CreateSubLists(getMaOuicheList());
+            SubListCreator.CreateSubLists(getMaOuicheListAsFlatList());
             SubListCreator.CreateSubMonsterLists(SubListCreator.monsterList);
             SubListCreator.CreateSubSpellLists(SubListCreator.spellList);
             SubListCreator.CreateSubTrapLists(SubListCreator.trapList);

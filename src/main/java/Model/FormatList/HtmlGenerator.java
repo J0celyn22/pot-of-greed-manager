@@ -259,6 +259,19 @@ public class HtmlGenerator {
     }
 
     /**
+     * Write a link to the OuicheList - Mosaic HTML page to the given writer.
+     *
+     * @param writer The writer to which to write the link
+     * @throws IOException If the file cannot be written
+     */
+    public static void addOuicheListMosaicButton(BufferedWriter writer) throws IOException {
+        writer.write(
+                "<ul>\n" +
+                        "    <li><a class=\"menu-link\" href=\"OuicheList - Mosaic.html\">OuicheList - Mosaic</a></li>\n" +
+                        "</ul>\n");
+    }
+
+    /**
      * Write a title to the given writer.
      *
      * @param writer The writer to which to write the title
@@ -346,7 +359,7 @@ public class HtmlGenerator {
                 }
             }
         }
-        return String.valueOf(price);
+        return String.format("%.2f", price);
     }
 
     /**
@@ -360,7 +373,7 @@ public class HtmlGenerator {
         for (Card card : cardsList) {
             price += Float.parseFloat(card.getPrice());
         }
-        return String.valueOf(price);
+        return String.format("%.2f", price);
     }
 
     /**
@@ -824,7 +837,8 @@ public class HtmlGenerator {
         writer.write("<div class=\"card-value\">\n");
         writer.write("<p><b>" + entryValue + "</b></p>\n");
         if (entryKey.getPrice() != null) {
-            writer.write("<b>" + Float.parseFloat(entryKey.getPrice()) + "€ / " + entryValue * Float.parseFloat(entryKey.getPrice()) + "€" + "</b>\n");
+            float unitPrice = Float.parseFloat(entryKey.getPrice());
+            writer.write("<b>" + String.format("%.2f", unitPrice) + "€ / " + String.format("%.2f", entryValue * unitPrice) + "€" + "</b>\n");
         }
         writer.write("</div>\n");
         writer.write("</div>\n");

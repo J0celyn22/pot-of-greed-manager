@@ -40,6 +40,10 @@ public class CardListToHtml {
             addTitle(writer, outputFileName, cards.size(), getPriceCardElement(cards));
             addLinkButtons(writer);
 
+            if ("OuicheList".equals(outputFileName)) {
+                addOuicheListMosaicButton(writer);
+            }
+
             Map<Card, Integer> cardCount = createCardsMap(cards);
 
             for (Map.Entry<Card, Integer> entry : cardCount.entrySet()) {
@@ -52,6 +56,48 @@ public class CardListToHtml {
             if (!Files.exists(Paths.get(dirPath + "..\\Menu.html"))) {
                 generateMenu(dirPath + "..\\");
             }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Generates a flat mosaic HTML page for the OuicheList: one image per unique card
+     * (deduplicated by imagePath), wrapped in a flex-wrap layout, with no counts or
+     * card-detail text. Owned cards are displayed in grayscale.
+     *
+     * @param cards   the list of card elements to display
+     * @param dirPath the directory path where the HTML file will be created
+     * @throws IOException if the file cannot be created
+     */
+    public static void generateOuicheListMosaicHtml(List<CardElement> cards, String dirPath) throws IOException {
+        String outputFileName = "OuicheList - Mosaic";
+        String filePath = dirPath + outputFileName + ".html";
+        createHtmlFile(filePath);
+        String relativeImagePath = "..\\Images\\";
+        String imagesDirPath = dirPath + relativeImagePath;
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
+                new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
+            addHeader(writer, outputFileName, relativeImagePath, dirPath);
+            addTitle(writer, outputFileName, cards.size(), getPriceCardElement(cards));
+            // Link back to the list page
+            addOuicheListButton(writer);
+            addLinkButtons(writer);
+
+            // Deduplicate by imagePath, preserve insertion order
+            java.util.Map<String, CardElement> byImagePath = new java.util.LinkedHashMap<>();
+            for (CardElement ce : cards) {
+                if (ce.getCard() != null && ce.getCard().getImagePath() != null) {
+                    byImagePath.putIfAbsent(ce.getCard().getImagePath(), ce);
+                }
+            }
+
+            // Write one image per unique card
+            for (CardElement ce : byImagePath.values()) {
+                writeCardElement(writer, ce, imagesDirPath, relativeImagePath);
+            }
+
+            addFooter(writer);
         } catch (IOException e) {
             e.printStackTrace();
         }

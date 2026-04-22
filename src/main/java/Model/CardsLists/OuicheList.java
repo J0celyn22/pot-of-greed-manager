@@ -6,7 +6,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static Model.CardsLists.ListDifferenceIntersection.*;
 
@@ -14,7 +16,13 @@ public class OuicheList {
     private static OwnedCardsCollection myCardsCollection;
     private static DecksAndCollectionsList decksList;
 
-    private static List<CardElement> maOuicheList;
+    // The canonical compact form of the OuicheList ("maOuicheList" is a word play on "wishlist").
+    // Key = passCode if available, otherwise imagePath.
+    // Storing the Map directly means consumers never have to rebuild it themselves.
+    // The CardElement instances stored here are INDEPENDENT COPIES of those in detailedOuicheList,
+    // so that mutations made by downstream generators cannot affect the detailed view.
+    private static LinkedHashMap<String, CardElement> maOuicheList;
+    private static LinkedHashMap<String, Integer> maOuicheListCounts;
     private static List<CardElement> unusedCards;
     private static List<CardElement> listsIntersection;
     private static DecksAndCollectionsList detailedOuicheList;
@@ -23,23 +31,43 @@ public class OuicheList {
     private static List<CardElement> thirdPartyCardsINeedList;
 
     /**
-     * Gets the value of the {@link #maOuicheList} field.
-     * <p>
+     * Returns the OuicheList as a map of unique cards (key = passCode ?? imagePath)
+     * to their representative {@link CardElement}.
+     * Insertion order is preserved; the count for each key is in {@link #getMaOuicheListCounts()}.
      *
-     * @return the value of the {@link #maOuicheList} field
+     * @return the OuicheList map, or {@code null} if not yet generated.
      */
-    public static List<CardElement> getMaOuicheList() {
-        //TODO if maOuicheList == null => createOuicheList
+    public static LinkedHashMap<String, CardElement> getMaOuicheList() {
         return maOuicheList;
     }
 
     /**
-     * Sets the value of the {@link #maOuicheList} field.
+     * Returns the required count for each card in the OuicheList,
+     * keyed by the same passCode ?? imagePath key as {@link #getMaOuicheList()}.
      *
-     * @param maOuicheList the new value of the {@link #maOuicheList} field
+     * @return the count map, or {@code null} if not yet generated.
      */
-    public static void setMaOuicheList(List<CardElement> maOuicheList) {
-        OuicheList.maOuicheList = maOuicheList;
+    public static LinkedHashMap<String, Integer> getMaOuicheListCounts() {
+        return maOuicheListCounts;
+    }
+
+    /**
+     * Returns the OuicheList as a flat {@link List}, with each card repeated as many
+     * times as it is required. Intended for callers that operate on lists
+     * (e.g. HTML generators, sub-list creators, third-party scrapers).
+     *
+     * @return a flat list derived from the OuicheList map, or {@code null} if not yet generated.
+     */
+    public static List<CardElement> getMaOuicheListAsFlatList() {
+        if (maOuicheList == null) return null;
+        List<CardElement> flat = new ArrayList<>();
+        for (Map.Entry<String, CardElement> entry : maOuicheList.entrySet()) {
+            int count = maOuicheListCounts.getOrDefault(entry.getKey(), 1);
+            for (int i = 0; i < count; i++) {
+                flat.add(entry.getValue());
+            }
+        }
+        return flat;
     }
 
     /**
@@ -177,33 +205,70 @@ public class OuicheList {
     }
 
     /**
-     * Generates the OuicheList by calling {@link #CreateDetailedOuicheList(OwnedCardsCollection, DecksAndCollectionsList)}
-     * and generates several sublists of the OuicheList based on the different types of cards.
-     *
-     * @param ownedCardsCollection the OwnedCardsCollection representing the user's card collection
-     * @param decksList the DecksAndCollectionsList representing the user's decks
-     *
-     * @return the OuicheList
+     * Returns the canonical key used to identify a card in the OuicheList map.
+     * Prefers passCode for uniqueness; falls back to imagePath when passCode is absent.
      */
-    public static List<CardElement> CreateOuicheList(OwnedCardsCollection ownedCardsCollection, DecksAndCollectionsList decksList) throws Exception {
-        maOuicheList = new ArrayList<>();
+    private static String cardKey(CardElement ce) {
+        Card card = ce.getCard();
+        return card.getPassCode() != null ? card.getPassCode() : card.getImagePath();
+    }
+
+    /**
+     * Returns a new list of fresh {@link CardElement} copies built from the given list.
+     * Each copy wraps the same {@link Card} object but is an independent {@link CardElement}
+     * instance, so that {@code setValues()} calls on the copies never affect the originals.
+     */
+    private static List<CardElement> copyCardElements(List<CardElement> original) {
+        if (original == null) return new ArrayList<>();
+        List<CardElement> copy = new ArrayList<>(original.size());
+        for (CardElement ce : original) {
+            copy.add(new CardElement(ce.getCard()));
+        }
+        return copy;
+    }
+
+    /**
+     * Builds the compact OuicheList from the detailed OuicheList.
+     *
+     * <p>The detailed OuicheList uses artwork-aware comparisons that mark owned cards
+     * in-place with an {@code "O"} suffix. This method iterates the flat projection of the
+     * detailed list, skips every card marked as owned, and aggregates the remaining ones
+     * into a {@link LinkedHashMap} (unique card key → representative {@link CardElement})
+     * and a parallel count map.
+     *
+     * <p>Only FRESH {@link CardElement} instances are stored in the map so that downstream
+     * callers (HTML generators, SubListCreator, etc.) cannot corrupt the detailed view's
+     * ownership markers via {@code setValues()}.
+     *
+     * <p>If {@link #CreateDetailedOuicheList} has already been called, its markings are
+     * reused and the detailed list is not recomputed.
+     *
+     * @param ownedCardsCollection the user's owned card collection
+     * @param decksList            the decks and collections the user wants to complete
+     */
+    public static void CreateOuicheList(OwnedCardsCollection ownedCardsCollection, DecksAndCollectionsList decksList) throws Exception {
         listsIntersection = new ArrayList<>();
 
-        //Add all wished elements from decks and collections
-        maOuicheList = decksList.toList();
+        if (detailedOuicheList == null) {
+            CreateDetailedOuicheList(ownedCardsCollection, decksList);
+        }
 
-        //Create list of owned cards
-        unusedCards = ownedCardsCollection.toList();
-
-        List<List<CardElement>> tempList = ListDifIntersectPrintcode(maOuicheList, unusedCards);
-        maOuicheList = tempList.get(0);
-        unusedCards = tempList.get(1);
-
-        tempList = ListDifIntersectKonamiId(maOuicheList, unusedCards);
-        maOuicheList = tempList.get(0);
-        unusedCards = tempList.get(1);
-
-        return maOuicheList;
+        maOuicheList = new LinkedHashMap<>();
+        maOuicheListCounts = new LinkedHashMap<>();
+        for (CardElement card : detailedOuicheList.toList()) {
+            if (!card.getOwned()) {
+                String key = cardKey(card);
+                if (key == null) continue;
+                if (!maOuicheList.containsKey(key)) {
+                    // Fresh copy: downstream generators may call setValues() on these;
+                    // a copy ensures detailedOuicheList instances are never affected.
+                    maOuicheList.put(key, new CardElement(card.getCard()));
+                    maOuicheListCounts.put(key, 1);
+                } else {
+                    maOuicheListCounts.merge(key, 1, Integer::sum);
+                }
+            }
+        }
     }
 
     /**
@@ -223,14 +288,60 @@ public class OuicheList {
      * @return the created detailed OuicheList
      */
     public static DecksAndCollectionsList CreateDetailedOuicheList(OwnedCardsCollection ownedCardsCollection, DecksAndCollectionsList decksList) {
-        detailedOuicheList = new DecksAndCollectionsList();
         listsIntersection = new ArrayList<>();
 
-        //Add all wished elements from decks and collections
-        detailedOuicheList = decksList;
+        // Build detailedOuicheList as an independent deep copy of decksList.
+        //
+        // The 6-parameter ListDifIntersect marks matched cards by calling setValues() on
+        // CardElement instances IN PLACE, and setMainDeck/setExtraDeck/setSideDeck replaces
+        // the list references inside each Deck. Because those Deck objects are shared between
+        // detailedOuicheList and decksList when we do "detailedOuicheList = decksList", both
+        // mutations propagate back into decksList — corrupting it for any subsequent consumer
+        // (e.g. exportDecksAndCollectionsDirectory) without any reload.
+        //
+        // The fix: each card list is populated with fresh CardElement copies (same Card object,
+        // new CardElement wrapper). setValues() on a copy never touches the original, and
+        // setMainDeck/setExtraDeck/setSideDeck operates on the copy Deck — decksList is untouched.
+        detailedOuicheList = new DecksAndCollectionsList();
 
-        //Create list of owned cards
-        unusedCards = ownedCardsCollection.toList();
+        if (decksList.getCollections() != null) {
+            for (ThemeCollection originalCollection : decksList.getCollections()) {
+                ThemeCollection collectionCopy = new ThemeCollection();
+                collectionCopy.setName(originalCollection.getName());
+                for (List<Deck> deckGroup : originalCollection.getLinkedDecks()) {
+                    for (Deck originalDeck : deckGroup) {
+                        Deck deckCopy = new Deck();
+                        deckCopy.setName(originalDeck.getName());
+                        deckCopy.setMainDeck(copyCardElements(originalDeck.getMainDeck()));
+                        deckCopy.setExtraDeck(copyCardElements(originalDeck.getExtraDeck()));
+                        deckCopy.setSideDeck(copyCardElements(originalDeck.getSideDeck()));
+                        collectionCopy.AddDeck(deckCopy);
+                    }
+                }
+                collectionCopy.setCardsList(copyCardElements(originalCollection.getCardsList()));
+                detailedOuicheList.addCollection(collectionCopy);
+            }
+        }
+
+        if (decksList.getDecks() != null) {
+            for (Deck originalDeck : decksList.getDecks()) {
+                Deck deckCopy = new Deck();
+                deckCopy.setName(originalDeck.getName());
+                deckCopy.setMainDeck(copyCardElements(originalDeck.getMainDeck()));
+                deckCopy.setExtraDeck(copyCardElements(originalDeck.getExtraDeck()));
+                deckCopy.setSideDeck(copyCardElements(originalDeck.getSideDeck()));
+                detailedOuicheList.addDeck(deckCopy);
+            }
+        }
+
+        // Create list of owned cards as INDEPENDENT COPIES.
+        // exportCollectionFile() (called before OuicheList generation in "Generate All")
+        // runs OwnedCardsCollectionToHtml on myCardsCollection, which marks its CardElement
+        // instances with "O" via setValues(). If we use toList() directly, all those
+        // pre-marked instances land in unusedCards. The 6-param ListDifIntersect guard
+        // !valueB.contains("O") then skips every single owned card, so nothing ever matches
+        // and the entire OuicheList appears unowned. Fresh copies are immune to that.
+        unusedCards = copyCardElements(ownedCardsCollection.toList());
 
         //Remove all cards that are already owned (present in ownedCardsCollection)
         if (detailedOuicheList.getCollections() != null) {
@@ -346,7 +457,8 @@ public class OuicheList {
         List<String> lines = Files.readAllLines(path);
 
         detailedOuicheList = new DecksAndCollectionsList();
-        maOuicheList = new ArrayList<>();
+        maOuicheList = new LinkedHashMap<>();
+        maOuicheListCounts = new LinkedHashMap<>();
 
         ThemeCollection currentCollection = null;
         Deck currentDeck = null;
@@ -380,15 +492,27 @@ public class OuicheList {
                     if (isDecksSection) {
                         if (currentDeck != null) {
                             currentDeck.AddCardMain(card);
-                            maOuicheList.add(card);
+                            String key = cardKey(card);
+                            if (key != null) {
+                                maOuicheList.putIfAbsent(key, card);
+                                maOuicheListCounts.merge(key, 1, Integer::sum);
+                            }
                         }
                     } else {
                         if (currentDeck != null) {
                             currentDeck.AddCardMain(card);
-                            maOuicheList.add(card);
+                            String key = cardKey(card);
+                            if (key != null) {
+                                maOuicheList.putIfAbsent(key, card);
+                                maOuicheListCounts.merge(key, 1, Integer::sum);
+                            }
                         } else if (currentCollection != null) {
                             currentCollection.getCardsList().add(card);
-                            maOuicheList.add(card);
+                            String key = cardKey(card);
+                            if (key != null) {
+                                maOuicheList.putIfAbsent(key, card);
+                                maOuicheListCounts.merge(key, 1, Integer::sum);
+                            }
                         }
                     }
                 }
@@ -444,7 +568,8 @@ public class OuicheList {
         List<CardElement> maOuicheListTemp;
         List<CardElement> thirdPartyListTemp;
 
-        List<List<CardElement>> tempList = ListDifIntersectPrintcode(thirdPartyList, maOuicheList);
+        List<CardElement> flatOuicheList = getMaOuicheListAsFlatList();
+        List<List<CardElement>> tempList = ListDifIntersectPrintcode(thirdPartyList, flatOuicheList);
         thirdPartyListTemp = tempList.get(0);
         maOuicheListTemp = tempList.get(1);
         thirdPartyCardsINeedList = tempList.get(2);
@@ -611,7 +736,7 @@ public class OuicheList {
     public String toString() {
         String returnString = "";
 
-        for (CardElement cardElement : maOuicheList) {
+        for (CardElement cardElement : maOuicheList.values()) {
             returnString = returnString.concat(cardElement.toString());
         }
 

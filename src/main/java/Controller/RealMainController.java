@@ -3052,28 +3052,17 @@ public class RealMainController {
         if (Model.CardsLists.OuicheList.getMaOuicheList() == null) {
             UserInterfaceFunctions.generateOuicheListType();
         }
-        java.util.List<CardElement> ouicheList = Model.CardsLists.OuicheList.getMaOuicheList();
-        if (ouicheList == null || ouicheList.isEmpty()) {
+
+        // The OuicheList is already stored as unique-card → CardElement / count maps;
+        // no local rebuilding needed.
+        java.util.Map<String, CardElement> uniqueCards = Model.CardsLists.OuicheList.getMaOuicheList();
+        java.util.Map<String, Integer> cardCounts = Model.CardsLists.OuicheList.getMaOuicheListCounts();
+
+        if (uniqueCards == null || uniqueCards.isEmpty()) {
             javafx.scene.control.Label empty = new javafx.scene.control.Label("OuicheList is empty.");
             empty.setStyle("-fx-text-fill: white;");
             contentPane.getChildren().add(empty);
             return;
-        }
-
-        // Deduplicate: preserve insertion order, count occurrences by passCode (fallback: imagePath)
-        java.util.Map<String, CardElement> uniqueCards = new java.util.LinkedHashMap<>();
-        java.util.Map<String, Integer> cardCounts = new java.util.LinkedHashMap<>();
-        for (CardElement ce : ouicheList) {
-            if (ce == null || ce.getCard() == null) continue;
-            Card card = ce.getCard();
-            String key = card.getPassCode() != null ? card.getPassCode() : card.getImagePath();
-            if (key == null) continue;
-            if (!uniqueCards.containsKey(key)) {
-                uniqueCards.put(key, ce);
-                cardCounts.put(key, 1);
-            } else {
-                cardCounts.merge(key, 1, Integer::sum);
-            }
         }
 
         javafx.scene.Node content = mosaicMode
