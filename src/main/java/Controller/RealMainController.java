@@ -48,17 +48,9 @@ public class RealMainController {
     private final java.util.concurrent.ConcurrentHashMap<Object, List<Boolean>> positionSortCache = new java.util.concurrent.ConcurrentHashMap<>();
     @FXML
     private TabPane mainTabPane;
-    @FXML
-    private VBox allExistingCardsPane;
-    @FXML
-    private TextField nameTextField;
-    @FXML
-    private TextField printcodeTextField;
-    @FXML
-    private Button searchButton;
-    @FXML
+
     private Button listMosaicButton;
-    @FXML
+
     private Button printedUniqueButton;
     private SharedCollectionTab myCollectionTab;
     private SharedCollectionTab decksTab;
@@ -66,7 +58,7 @@ public class RealMainController {
     private SharedCollectionTab archetypesTab;
     private SharedCollectionTab friendsTab;
     private SharedCollectionTab shopsTab;
-    @FXML
+
     private AnchorPane cardsDisplayContainer;
     // keep references to the TreeViews so navigation items can select/scroll to nodes
     private TreeView<String> myCollectionTreeView;
@@ -527,52 +519,86 @@ public class RealMainController {
 
     // --- My Collection display ---
 
+    /**
+     * Returns the FilterPane for whichever SharedCollectionTab is currently active,
+     * or null if no tab is active.
+     */
+    private FilterPane getActiveFilterPane() {
+        if (mainTabPane == null) return null;
+        int idx = mainTabPane.getSelectionModel().getSelectedIndex();
+        SharedCollectionTab tab = getSharedTabAt(idx);
+        return tab == null ? null : tab.getFilterPane();
+    }
+
     private void updateCardsDisplay() {
-        String nameFilter = (nameTextField == null ? "" : nameTextField.getText()).toLowerCase().trim();
-        String codeFilter = (printcodeTextField == null ? "" : printcodeTextField.getText()).toLowerCase().trim();
+        FilterPane fp = getActiveFilterPane();
+
+        // Ensure the currently-visible page's field values are flushed to pageStates
+        // before we read them (handles the case where the user typed without switching).
+        if (fp != null) {
+            fp.saveCurrentPageState();
+        }
+
+        // Collect every page that is both ENABLED and has its bottom-right arrow ENABLED.
+        // Only those pages contribute to the AllExistingCards filter.
+        List<FilterPane.FilterPageState> activeStates = new ArrayList<>();
+        if (fp != null) {
+            for (int i = 0; i < 5; i++) {
+                FilterPane.FilterPageState ps = fp.getPageState(i);
+                if (ps != null && ps.enabled && ps.bottomRightEnabled) {
+                    activeStates.add(ps);
+                }
+            }
+        }
 
         List<Card> allCards;
         try {
             allCards = isPrintedMode
-                    ? Model.Database.Database.getAllPrintedCardsList().values().stream().collect(Collectors.toList())
-                    : Model.Database.Database.getAllCardsList().values().stream().collect(Collectors.toList());
+                    ? Model.Database.Database.getAllPrintedCardsList().values()
+                    .stream().collect(Collectors.toList())
+                    : Model.Database.Database.getAllCardsList().values()
+                    .stream().collect(Collectors.toList());
         } catch (URISyntaxException e) {
             throw new RuntimeException(e);
         }
 
-        List<Card> filteredCards = allCards.stream().filter(card -> {
-            boolean matchesName = nameFilter.isEmpty() ||
-                    (card.getName_EN() != null && card.getName_EN().toLowerCase().contains(nameFilter)) ||
-                    (card.getName_FR() != null && card.getName_FR().toLowerCase().contains(nameFilter)) ||
-                    (card.getName_JA() != null && card.getName_JA().toLowerCase().contains(nameFilter));
-            boolean matchesCode = codeFilter.isEmpty() ||
-                    (isPrintedMode
-                            ? (card.getPrintCode() != null && card.getPrintCode().toLowerCase().contains(codeFilter))
-                            : (card.getPassCode() != null && card.getPassCode().toLowerCase().contains(codeFilter)));
-            return matchesName && matchesCode;
-        }).collect(Collectors.toList());
+        // A card must satisfy ALL active pages' filters (AND semantics across pages).
+        List<Card> filteredCards = allCards.stream()
+                .filter(card -> {
+                    for (FilterPane.FilterPageState ps : activeStates) {
+                        if (!matchesPageFilter(card, ps)) return false;
+                    }
+                    return true;
+                })
+                .collect(Collectors.toList());
 
         Node view;
         double mosaicImageWidth = 100, mosaicImageHeight = 146;
         double listImageWidth = 80, listImageHeight = 116;
         if (isMosaicMode) {
-            double availableWidth = (cardsDisplayContainer == null ? 375 : cardsDisplayContainer.getWidth());
+            double availableWidth =
+                    (cardsDisplayContainer == null ? 375 : cardsDisplayContainer.getWidth());
             if (availableWidth <= 0) availableWidth = 375;
             double gap = 5;
-            List<List<Card>> rows = groupCardsIntoRows(filteredCards, availableWidth, mosaicImageWidth, gap);
-            ListView<List<Card>> mosaicListView = new ListView<>(FXCollections.observableArrayList(rows));
-            mosaicListView.setCellFactory(param -> new CardsMosaicRowCell(mosaicImageWidth, mosaicImageHeight));
-            mosaicListView.setStyle("-fx-background-color: #100317; -fx-control-inner-background: #100317;");
-            // Clear selection when clicking on empty space in the mosaic list
+            List<List<Card>> rows =
+                    groupCardsIntoRows(filteredCards, availableWidth, mosaicImageWidth, gap);
+            ListView<List<Card>> mosaicListView =
+                    new ListView<>(FXCollections.observableArrayList(rows));
+            mosaicListView.setCellFactory(
+                    param -> new CardsMosaicRowCell(mosaicImageWidth, mosaicImageHeight));
+            mosaicListView.setStyle(
+                    "-fx-background-color: #100317; -fx-control-inner-background: #100317;");
             mosaicListView.addEventHandler(
                     javafx.scene.input.MouseEvent.MOUSE_CLICKED,
                     buildRightPaneEmptySpaceClearHandler());
             view = mosaicListView;
         } else {
-            ListView<Card> listView = new ListView<>(FXCollections.observableArrayList(filteredCards));
-            listView.setCellFactory(param -> new CardsListCell(isPrintedMode, listImageWidth, listImageHeight));
-            listView.setStyle("-fx-background-color: #100317; -fx-control-inner-background: #100317;");
-            // Clear selection when clicking on empty space in the card list
+            ListView<Card> listView =
+                    new ListView<>(FXCollections.observableArrayList(filteredCards));
+            listView.setCellFactory(
+                    param -> new CardsListCell(isPrintedMode, listImageWidth, listImageHeight));
+            listView.setStyle(
+                    "-fx-background-color: #100317; -fx-control-inner-background: #100317;");
             listView.addEventHandler(
                     javafx.scene.input.MouseEvent.MOUSE_CLICKED,
                     buildRightPaneEmptySpaceClearHandler());
@@ -586,6 +612,68 @@ public class RealMainController {
             AnchorPane.setBottomAnchor(view, 0.0);
             AnchorPane.setLeftAnchor(view, 0.0);
             AnchorPane.setRightAnchor(view, 0.0);
+        }
+    }
+
+
+    /**
+     * Moves the shared cardsDisplayContainer (with list/mosaic + printed/unique toggle buttons)
+     * into the given tab's right-content pane.
+     * The FilterPane is already owned by each SharedCollectionTab's rightHeaderPane — no injection needed.
+     */
+    private void injectSharedRightPanel(SharedCollectionTab tab) {
+        if (tab == null) return;
+
+        // Wire the filter-change callbacks on this tab's own FilterPane.
+        // onRightFilterChange → refresh the AllExistingCards display (right pane).
+        // onLeftFilterChange  → refresh the middle-pane display (stub – implement per tab).
+        FilterPane fp = tab.getFilterPane();
+        if (fp != null) {
+            fp.setOnRightFilterChange(() -> updateCardsDisplay());
+            fp.setOnLeftFilterChange(() -> {
+                // TODO: trigger the middle-pane display filter for this tab
+                // e.g. refreshDecksAndCollectionsView() / refreshOwnedCollectionView()
+            });
+        }
+
+        // Top bar: List/Mosaic and Printed/Unique toggle buttons above the cards display
+        HBox cardsTopBar = new HBox(10, listMosaicButton, printedUniqueButton);
+        cardsTopBar.setPadding(new Insets(5, 10, 5, 10));
+        cardsTopBar.setStyle("-fx-background-color: #100317;");
+
+        // Cards display → right content pane
+        VBox.setVgrow(cardsDisplayContainer, Priority.ALWAYS);
+        VBox rightContentVBox = new VBox(0, cardsTopBar, cardsDisplayContainer);
+        rightContentVBox.setStyle("-fx-background-color: #100317;");
+
+        AnchorPane rc = tab.getRightContentPane();
+        rc.getChildren().clear();
+        rc.getChildren().add(rightContentVBox);
+        AnchorPane.setTopAnchor(rightContentVBox, 0.0);
+        AnchorPane.setBottomAnchor(rightContentVBox, 0.0);
+        AnchorPane.setLeftAnchor(rightContentVBox, 0.0);
+        AnchorPane.setRightAnchor(rightContentVBox, 0.0);
+    }
+
+    /**
+     * Returns the SharedCollectionTab for a given tab index, or null if out of range.
+     */
+    private SharedCollectionTab getSharedTabAt(int index) {
+        switch (index) {
+            case 0:
+                return myCollectionTab;
+            case 1:
+                return decksTab;
+            case 2:
+                return ouicheListTab;
+            case 3:
+                return archetypesTab;
+            case 4:
+                return friendsTab;
+            case 5:
+                return shopsTab;
+            default:
+                return null;
         }
     }
 
@@ -621,9 +709,6 @@ public class RealMainController {
             logger.warn("Failed to initialize SubListCreator archetypes at startup", e);
         }
 
-        if (listMosaicButton != null) listMosaicButton.setText("List");
-        if (printedUniqueButton != null) printedUniqueButton.setText("Printed");
-
         myCollectionTab = new SharedCollectionTab(TabType.MY_COLLECTION);
         decksTab = new SharedCollectionTab(TabType.DECKS);
         ouicheListTab = new SharedCollectionTab(TabType.OUICHE_LIST);
@@ -643,6 +728,35 @@ public class RealMainController {
             mainTabPane.getTabs().get(3).setContent(archetypesTab);
             mainTabPane.getTabs().get(4).setContent(friendsTab);
             mainTabPane.getTabs().get(5).setContent(shopsTab);
+
+            // cardsDisplayContainer holds the live cards list/mosaic view (shared across tabs)
+            cardsDisplayContainer = new AnchorPane();
+            cardsDisplayContainer.setStyle("-fx-background-color: #100317;");
+
+            // List/Mosaic and Printed/Unique toggle buttons — shown above the cards display
+            listMosaicButton = new Button("List");
+            listMosaicButton.getStyleClass().add("small-button");
+            listMosaicButton.setOnAction(e -> {
+                isMosaicMode = !isMosaicMode;
+                listMosaicButton.setText(isMosaicMode ? "List" : "Mosaic");
+                updateCardsDisplay();
+            });
+            printedUniqueButton = new Button("Printed");
+            printedUniqueButton.getStyleClass().add("small-button");
+            printedUniqueButton.setOnAction(e -> {
+                isPrintedMode = !isPrintedMode;
+                printedUniqueButton.setText(isPrintedMode ? "Unique" : "Printed");
+                updateCardsDisplay();
+            });
+            injectSharedRightPanel(myCollectionTab);
+            // Pre-wire the remaining tabs so their FilterPanes have listeners attached
+            injectSharedRightPanel(decksTab);
+            injectSharedRightPanel(ouicheListTab);
+            injectSharedRightPanel(archetypesTab);
+            injectSharedRightPanel(friendsTab);
+            injectSharedRightPanel(shopsTab);
+            // Re-inject myCollectionTab so its cards container is placed back correctly
+            injectSharedRightPanel(myCollectionTab);
 
             // Store tab handles for dirty-indicator updates
             if (mainTabPane != null && mainTabPane.getTabs().size() >= 2) {
@@ -748,6 +862,8 @@ public class RealMainController {
         if (mainTabPane != null) {
             mainTabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
                 int selectedIndex = mainTabPane.getTabs().indexOf(newTab);
+                // Move the shared right panel (filter + cards display) to the newly active tab
+                injectSharedRightPanel(getSharedTabAt(selectedIndex));
                 if (selectedIndex == 1) {
                     try {
                         populateDecksAndCollectionsMenu();
@@ -865,21 +981,7 @@ public class RealMainController {
             }
         });
 
-        if (searchButton != null) searchButton.setOnAction(e -> updateCardsDisplay());
-        if (listMosaicButton != null) listMosaicButton.setOnAction(e -> {
-            isMosaicMode = !isMosaicMode;
-            listMosaicButton.setText(isMosaicMode ? "List" : "Mosaic");
-            updateCardsDisplay();
-        });
-        if (printedUniqueButton != null) printedUniqueButton.setOnAction(e -> {
-            isPrintedMode = !isPrintedMode;
-            printedUniqueButton.setText(isPrintedMode ? "Unique" : "Printed");
-            updateCardsDisplay();
-        });
-        if (nameTextField != null)
-            nameTextField.textProperty().addListener((obs, oldVal, newVal) -> updateCardsDisplay());
-        if (printcodeTextField != null)
-            printcodeTextField.textProperty().addListener((obs, oldVal, newVal) -> updateCardsDisplay());
+        // Button/field wiring is done per-tab inside injectSharedRightPanel()
 
         updateCardsDisplay();
 
@@ -3971,5 +4073,54 @@ public class RealMainController {
             }
         }
         return null;
+    }
+
+    /**
+     * Returns {@code true} when {@code card} satisfies all active constraints
+     * expressed in the given {@link FilterPane.FilterPageState}.
+     *
+     * <p>Only the fields that are implemented so far are checked here.
+     * Add further field checks as the rest of the filter UI is wired up.
+     */
+    private boolean matchesPageFilter(Card card, FilterPane.FilterPageState ps) {
+        if (card == null || ps == null) return true;
+
+        // ── Name filter ──────────────────────────────────────────────────
+        String nameFilter = ps.name.toLowerCase().trim();
+        if (!nameFilter.isEmpty()) {
+            boolean matchesName =
+                    (card.getName_EN() != null
+                            && card.getName_EN().toLowerCase().contains(nameFilter))
+                            || (card.getName_FR() != null
+                            && card.getName_FR().toLowerCase().contains(nameFilter))
+                            || (card.getName_JA() != null
+                            && card.getName_JA().toLowerCase().contains(nameFilter));
+            if (!matchesName) return false;
+        }
+
+        // ── PrintCode / PassCode filter ──────────────────────────────────
+        // In Printed mode we match printCode; in Unique mode we match passCode.
+        String codeFilter = ps.printCode.toLowerCase().trim();
+        if (!codeFilter.isEmpty()) {
+            boolean matchesCode = isPrintedMode
+                    ? (card.getPrintCode() != null
+                    && card.getPrintCode().toLowerCase().contains(codeFilter))
+                    : (card.getPassCode() != null
+                    && card.getPassCode().toLowerCase().contains(codeFilter));
+            if (!matchesCode) return false;
+        }
+
+        // ── TODO: add further field checks as they are implemented ───────
+        // Example stubs (uncomment and implement):
+        //
+        // String passCodeFilter = ps.passCode.toLowerCase().trim();
+        // if (!passCodeFilter.isEmpty()) { ... }
+        //
+        // if (!"(All)".equals(ps.attribute)) { ... }
+        // if (!"(All)".equals(ps.cardType))  { ... }
+        // if (!ps.atk.isEmpty())             { ... }
+        // etc.
+
+        return true;
     }
 }

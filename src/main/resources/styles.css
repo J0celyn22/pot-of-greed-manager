@@ -172,6 +172,7 @@
    Large buttons remain controlled by the .large-button class. */
 .all-existing-cards-pane Button,
 #allExistingCardsPane Button,
+.filter-pane Button,
 .header-pane Button,
 .display-vbox Button,
 .threepart-left-pane Button,
@@ -198,6 +199,7 @@
 /* Hover: invert colors — background becomes accent, text becomes black */
 .all-existing-cards-pane Button:hover,
 #allExistingCardsPane Button:hover,
+.filter-pane Button:hover,
 .header-pane Button:hover,
 .display-vbox Button:hover,
 .threepart-left-pane Button:hover,
@@ -215,6 +217,7 @@
 /* Pressed: slightly darker accent */
 .all-existing-cards-pane Button:pressed,
 #allExistingCardsPane Button:pressed,
+.filter-pane Button:pressed,
 .header-pane Button:pressed,
 .display-vbox Button:pressed,
 .threepart-left-pane Button:pressed,
@@ -231,6 +234,7 @@
 /* Make sure buttons remain visually consistent when disabled */
 .all-existing-cards-pane Button:disabled,
 #allExistingCardsPane Button:disabled,
+.filter-pane Button:disabled,
 .header-pane Button:disabled,
 .display-vbox Button:disabled,
 .threepart-left-pane Button:disabled,
@@ -324,16 +328,20 @@
     -fx-text-fill: #cdfc04;
     -fx-prompt-text-fill: rgba(205,252,4,0.55); /* slightly transparent prompt */
     -fx-caret-color: #cdfc04;
-    -fx-padding: 6 8 6 8;
+    -fx-padding: 2 4 2 4;
     -fx-font-size: 13px;
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+    -fx-max-height: 30px;
 }
 
-/* Hover/focus: stronger border and bold text */
+/* Hover/focus: glow effect instead of border-width change or bold text
+   so the layout geometry stays exactly the same size. */
 .accent-text-field:hover,
 .accent-text-field:focused {
     -fx-border-color: #cdfc04;
-    -fx-border-width: 2;
-    -fx-font-weight: bold;
+    -fx-border-width: 1.5;
+    -fx-effect: dropshadow(gaussian, #cdfc04, 5, 0.55, 0, 0);
 }
 
 /* Fixed-size accent text fields (prevent growth on hover/focus) */
@@ -346,7 +354,7 @@
     -fx-text-fill: #cdfc04;
     -fx-prompt-text-fill: rgba(205,252,4,0.55);
     -fx-caret-color: #cdfc04;
-    -fx-padding: 6 8 6 8;
+    -fx-padding: 2 8 2 8;
     -fx-font-size: 13px;
     -fx-font-weight: normal;
 
@@ -354,6 +362,9 @@
     -fx-min-width: 300px;
     -fx-pref-width: 360px;
     -fx-max-width: 480px;
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+    -fx-max-height: 30px;
 }
 
 /* Keep hover/focus visual feedback but preserve geometry */
@@ -368,6 +379,7 @@
 /* Apply to textfields in the right pane and header areas (fallback if style class not set) */
 .all-existing-cards-pane TextField,
 #allExistingCardsPane TextField,
+.filter-pane TextField,
 .header-pane TextField,
 .display-vbox TextField,
 .threepart-left-pane TextField,
@@ -380,26 +392,31 @@
     -fx-text-fill: #cdfc04;
     -fx-prompt-text-fill: rgba(205,252,4,0.55);
     -fx-caret-color: #cdfc04;
-    -fx-padding: 6 8 6 8;
+    -fx-padding: 2 8 2 8;
     -fx-font-size: 13px;
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+    -fx-max-height: 30px;
 }
 
 /* Hover/focus for the fallback selectors */
 .all-existing-cards-pane TextField:hover,
 #allExistingCardsPane TextField:hover,
+.filter-pane TextField:hover,
 .header-pane TextField:hover,
 .display-vbox TextField:hover,
 .threepart-left-pane TextField:hover,
 .threepart-right-pane TextField:hover,
 .all-existing-cards-pane TextField:focused,
 #allExistingCardsPane TextField:focused,
+.filter-pane TextField:focused,
 .header-pane TextField:focused,
 .display-vbox TextField:focused,
 .threepart-left-pane TextField:focused,
 .threepart-right-pane TextField:focused {
     -fx-border-color: #cdfc04;
-    -fx-border-width: 2;
-    -fx-font-weight: bold;
+    -fx-border-width: 1.5;
+    -fx-effect: dropshadow(gaussian, #cdfc04, 5, 0.55, 0, 0);
 }
 
 /* TabPane background and header area */
@@ -539,4 +556,154 @@
   -fx-border-width: 0 0 1 0;
 }
 
+/* ── ComboBox styled to match the accent theme ── */
+.accent-combo {
+    -fx-background-color: transparent;
+}
+.accent-combo .combo-box-base {
+    -fx-background-color: black;
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 1.5;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 2 4 2 4;
+}
+.accent-combo .combo-box-base:hover,
+.accent-combo .combo-box-base:focused {
+    -fx-border-width: 2;
+}
+.accent-combo .combo-box-base .label {
+    -fx-text-fill: #cdfc04;
+    -fx-font-size: 13px;
+}
+.accent-combo .combo-box-base .arrow-button {
+    -fx-background-color: transparent;
+}
+.accent-combo .combo-box-base .arrow-button .arrow {
+    -fx-background-color: #cdfc04;
+}
+.accent-combo .list-cell {
+    -fx-text-fill: #cdfc04;
+    -fx-background-color: black;
+    -fx-font-size: 13px;
+    -fx-padding: 4 8 4 8;
+}
+.accent-combo .list-cell:hover {
+    -fx-background-color: rgba(205,252,4,0.12);
+}
+.accent-combo .list-cell:selected {
+    -fx-background-color: rgba(205,252,4,0.22);
+}
+/* Dropdown list container */
+.accent-combo .combo-popup .list-view {
+    -fx-background-color: black;
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 1;
+}
+
 /* End of styles.css */
+
+/* ── Link markers button in FilterPane col 1 ── */
+.link-markers-button {
+    -fx-background-color: black;
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 1.5;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-text-fill: #cdfc04;
+    -fx-font-size: 11px;
+    -fx-padding: 3 4 3 4;
+    -fx-pref-width: 82px;
+    -fx-min-width: 82px;
+    -fx-max-width: 82px;
+}
+.link-markers-button:hover {
+    -fx-background-color: rgba(205, 252, 4, 0.12);
+    -fx-border-width: 2;
+}
+.link-markers-button:pressed {
+    -fx-background-color: rgba(205, 252, 4, 0.25);
+}
+
+/* ── Number buttons [1..5] in FilterPane col 4 ── */
+.number-button {
+    -fx-background-color: black;
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 1.5;
+    -fx-border-radius: 3;
+    -fx-background-radius: 3;
+    -fx-text-fill: #cdfc04;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 0;
+    -fx-alignment: center;
+}
+.number-button:hover {
+    -fx-background-color: rgba(205, 252, 4, 0.12);
+    -fx-border-width: 2;
+}
+.number-button:pressed {
+    -fx-background-color: rgba(205, 252, 4, 0.25);
+}
+.number-button:disabled {
+    -fx-opacity: 0.4;
+}
+
+/* ── Col-4 action buttons: Disable, Disable all, Active, All ── */
+.col4-button {
+    -fx-background-color: black;
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 1.5;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-text-fill: #cdfc04;
+    -fx-font-size: 12px;
+    -fx-padding: 3 8 3 8;
+}
+.col4-button:hover {
+    -fx-background-color: rgba(205, 252, 4, 0.12);
+    -fx-border-width: 2;
+}
+.col4-button:pressed {
+    -fx-background-color: rgba(205, 252, 4, 0.25);
+}
+.col4-button:disabled {
+    -fx-opacity: 0.4;
+}
+
+/* ── Camera button in FilterPane col 4 ── */
+.camera-button {
+    -fx-background-color: black;
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 1.5;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-text-fill: #cdfc04;
+    -fx-font-size: 15px;
+    -fx-padding: 2 4 2 4;
+    -fx-alignment: center;
+    -fx-pref-height: 35px;
+    -fx-min-height: 35px;
+    -fx-max-height: 35px;
+}
+.camera-button:hover {
+    -fx-background-color: rgba(205, 252, 4, 0.12);
+    -fx-border-width: 2;
+}
+.camera-button:pressed {
+    -fx-background-color: rgba(205, 252, 4, 0.25);
+}
+/* ── Number-button hover/pressed overrides that work on top of inline styles ──
+   The inline styles set background/text/border-radius dynamically.
+   These pseudo-state rules add a subtle visual response without fighting the
+   dynamic colours. The !important-equivalent trick in JavaFX CSS is to keep
+   specificity low so inline styles stay dominant, but we still get feedback. */
+
+/* Cursor hand for all number buttons */
+.number-button {
+    -fx-cursor: hand;
+}
+
+/* The border-color from the base .number-button rule stays; only bg changes on hover.
+   We DON'T override -fx-background-color here so inline styles dominate.
+   Instead we rely on the base hover rule already defined above (rgba overlay). */

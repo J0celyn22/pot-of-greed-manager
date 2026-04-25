@@ -24,7 +24,6 @@ public class CardScraper {
 
     /**
      * Fetches the edition (set) list from the site and returns a map editionName -> editionId.
-     * (Assumes your working getEditionMap implementation is present; keep the version that already works.)
      */
     private static Map<String, String> getEditionMap() throws IOException {
         Map<String, String> editionMap = new HashMap<>();
@@ -95,22 +94,35 @@ public class CardScraper {
     }
 
     /**
-     * Retrieves card names from the website by iterating all editions (sets) and paginating each edition.
-     * Uses robust parsing with fallbacks for different page layouts.
+     * Retrieves cards from the website that are present in the OuicheList.
+     *
+     * <p>The returned list is sorted by price (cheapest first), but entries for the
+     * same card name are kept consecutive: if a card appears at prices 0.10€ and 0.50€,
+     * both entries will appear together even if another card costs 0.20€.
+     *
+     * <p>Results are also written to {@code outputPath/ListeUltraJeux.txt}.
+     *
+     * @param maOuicheList flat list of card elements from the OuicheList
+     * @param maxPrice     entries above this price are skipped
+     * @return list of {@link ShopResultEntry} objects ready for display
      */
-    public static Map<String, List<String>> getCardNamesFromWebsite(List<CardElement> maOuicheList, double maxPrice) throws Exception {
+    public static List<ShopResultEntry> getCardNamesFromWebsite(
+            List<CardElement> maOuicheList, double maxPrice) throws Exception {
+
         final double OVERPRICE_THRESHOLD = 0.30;
         Map<String, Integer> ouicheCountMap = buildOuicheCountMap(maOuicheList);
 
-        Map<String, List<String>> result = new HashMap<>();
         Pattern printCodePattern = Pattern.compile("\\b([A-Z0-9]{2,}(?:-?[A-Z0-9]+)?)\\b");
 
         Map<String, String> editionMap = getEditionMap();
         System.out.println("Found " + editionMap.size() + " editions.");
 
-        Map<String, Integer> occurrenceCounts = new HashMap<>();
+        List<ShopResultEntry> result = new ArrayList<>();
 
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(outputPath + "\\ListeUltraJeux.txt"), StandardCharsets.UTF_8))) {
+        try (BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(
+                        new FileOutputStream(outputPath + "\\ListeUltraJeux.txt"),
+                        StandardCharsets.UTF_8))) {
 
             List<Entry> collected = new ArrayList<>();
 
@@ -118,7 +130,6 @@ public class CardScraper {
                 String editionName = editionEntry.getKey();
                 String editionId = editionEntry.getValue();
 
-                //writer.write("=== Edition: " + editionName + " (id=" + editionId + ") ===\n");
                 System.out.println("Scraping edition: " + editionName + " (id=" + editionId + ")");
 
                 int pageNumber = 1;
@@ -129,7 +140,8 @@ public class CardScraper {
                     Thread.sleep((long) (Math.random() * 2000));
 
                     int offset = (pageNumber - 1) * 50;
-                    String url = "https://www.ultrajeux.com/search3.php?submit=Ok&tri=prix&order=0&jeu=2&prix_min=0&prix_ref_max=30&dispo=1&num_edition%5B%5D="
+                    String url = "https://www.ultrajeux.com/search3.php?submit=Ok&tri=prix&order=0&jeu=2"
+                            + "&prix_min=0&prix_ref_max=30&dispo=1&num_edition%5B%5D="
                             + editionId + "&limit=" + offset;
 
                     Document doc;
@@ -140,8 +152,10 @@ public class CardScraper {
                                 .timeout(30_000)
                                 .get();
                     } catch (IOException e) {
-                        System.err.println("Failed to fetch page for edition " + editionName + " page " + pageNumber + ": " + e.getMessage());
-                        writer.write("Failed to fetch page " + pageNumber + " for edition " + editionName + ": " + e.getMessage() + "\n");
+                        System.err.println("Failed to fetch page for edition " + editionName
+                                + " page " + pageNumber + ": " + e.getMessage());
+                        writer.write("Failed to fetch page " + pageNumber + " for edition "
+                                + editionName + ": " + e.getMessage() + "\n");
                         break;
                     }
 
@@ -154,25 +168,21 @@ public class CardScraper {
                         Elements rows = doc.select("table tr");
                         if (!rows.isEmpty()) {
                             usedFallbackTable = true;
-                            // parse rows into pseudo-products
                             for (Element row : rows) {
                                 Elements cols = row.select("td");
                                 if (cols.size() < 2) continue;
-                                // Heuristic: find link, name and price in the row
                                 Element linkEl = row.selectFirst("a[href]");
                                 String productUrl = (linkEl != null) ? linkEl.absUrl("href") : url;
                                 String name = null;
                                 if (linkEl != null) name = linkEl.text().trim();
-                                if (name == null || name.isEmpty()) {
-                                    // try first column text
+                                if (name == null || name.isEmpty())
                                     name = cols.get(0).text().trim();
-                                }
                                 if (name == null || name.isEmpty()) continue;
 
-                                // price: try last column that contains digits
                                 double price = -1;
                                 for (int i = cols.size() - 1; i >= 0; i--) {
-                                    String pt = cols.get(i).text().replace("\u00A0", " ").replace("€", "").trim();
+                                    String pt = cols.get(i).text()
+                                            .replace("\u00A0", " ").replace("€", "").trim();
                                     pt = pt.replace(',', '.').replaceAll("[^0-9.]", "");
                                     if (pt.isEmpty()) continue;
                                     try {
@@ -183,35 +193,38 @@ public class CardScraper {
                                 }
                                 if (price < 0) continue;
 
-                                Entry entry = new Entry(name, price, editionName, editionId, pageNumber, productUrl);
-                                // try to extract print code from row text
+                                Entry entry = new Entry(name, price, editionName, editionId,
+                                        pageNumber, productUrl);
                                 Matcher mpc = printCodePattern.matcher(row.text());
                                 if (mpc.find()) entry.extraNote = mpc.group(1);
 
-                                // flags
-                                if (price > maxPrice) entry.skipped = true;
-                                else if (price >= OVERPRICE_THRESHOLD) entry.noMatch = true;
-                                else {
+                                if (price > maxPrice) {
+                                    entry.skipped = true;
+                                } else if (price >= OVERPRICE_THRESHOLD) {
+                                    entry.noMatch = true;
+                                } else {
                                     String konamiId = null;
                                     if (entry.extraNote != null)
                                         konamiId = getPrintCodeToKonamiId().get(entry.extraNote);
                                     Card card = null;
-                                    if (konamiId != null) card = findCardById(maOuicheList, konamiId);
+                                    if (konamiId != null)
+                                        card = findCardById(maOuicheList, konamiId);
                                     else {
                                         String normalized = normalizeForCompare(name);
                                         if (!normalized.isEmpty())
                                             card = findCardByNormalizedName(maOuicheList, normalized, name);
-                                        else card = findCardByName(maOuicheList, name);
+                                        else
+                                            card = findCardByName(maOuicheList, name);
                                     }
                                     if (card != null) {
                                         entry.matched = true;
+                                        entry.card = card; // ← store card reference
                                         String img = card.getImagePath();
-                                        if (img != null) {
-                                            entry.ouicheCount = ouicheCountMap.getOrDefault(img, 0);
-                                        } else {
-                                            entry.ouicheCount = 0;
-                                        }
-                                    } else entry.noMatch = true;
+                                        entry.ouicheCount = (img != null)
+                                                ? ouicheCountMap.getOrDefault(img, 0) : 0;
+                                    } else {
+                                        entry.noMatch = true;
+                                    }
                                 }
                                 if (entry.matched) {
                                     collected.add(entry);
@@ -223,17 +236,14 @@ public class CardScraper {
                     // If not using table fallback, parse div.block_produit
                     if (!usedFallbackTable) {
                         if (products.isEmpty()) {
-                            // no products on this page -> stop
                             hasMorePages = false;
                             break;
                         }
 
                         for (Element product : products) {
-                            // name
                             Element nameEl = product.selectFirst("div.contenu p.titre");
                             if (nameEl == null) nameEl = product.selectFirst("p.titre");
                             if (nameEl == null) {
-                                // try any link text inside product
                                 Element link = product.selectFirst("a[href]");
                                 if (link != null) nameEl = link;
                             }
@@ -241,7 +251,6 @@ public class CardScraper {
                             String name = nameEl.text().trim();
                             if (name.isEmpty()) continue;
 
-                            // subtitle / print code
                             String subtitle = "";
                             Element sousTitreEl = product.selectFirst("div.contenu p.sous_titre");
                             if (sousTitreEl == null) sousTitreEl = product.selectFirst("p.sous_titre");
@@ -253,22 +262,16 @@ public class CardScraper {
                                 if (m.find()) printCode = m.group(1).trim();
                             }
 
-                            // price
                             Element priceEl = product.selectFirst("span.prix");
                             double price;
-                            if (priceEl == null) {
-                                // try other heuristics: any element with class containing "prix" or last numeric text
+                            if (priceEl == null)
                                 priceEl = product.selectFirst("[class*=prix]");
-                            }
                             if (priceEl == null) {
-                                // fallback: search for any numeric token in product text that looks like a price
                                 String all = product.text();
                                 Matcher pm = Pattern.compile("([0-9]+[\\.,]?[0-9]*)\\s*€").matcher(all);
                                 if (pm.find()) {
-                                    String pt = pm.group(1).replace(',', '.');
-                                    price = Double.parseDouble(pt);
+                                    price = Double.parseDouble(pm.group(1).replace(',', '.'));
                                 } else {
-                                    // try last number in text
                                     Matcher nm = Pattern.compile("([0-9]+[\\.,]?[0-9]*)").matcher(all);
                                     double found = -1;
                                     while (nm.find()) {
@@ -281,7 +284,8 @@ public class CardScraper {
                                     price = found;
                                 }
                             } else {
-                                String priceText = priceEl.text().replace("\u00A0", " ").replace("€", "").trim();
+                                String priceText = priceEl.text()
+                                        .replace("\u00A0", " ").replace("€", "").trim();
                                 priceText = priceText.replace(',', '.').replaceAll("[^0-9.]", "");
                                 try {
                                     price = Double.parseDouble(priceText);
@@ -290,44 +294,41 @@ public class CardScraper {
                                 }
                             }
 
-                            // product link
                             Element linkEl = product.selectFirst("a[href]");
                             String productUrl = (linkEl != null) ? linkEl.absUrl("href") : url;
                             if (productUrl == null || productUrl.isEmpty()) productUrl = url;
 
-                            Entry entry = new Entry(name, price, editionName, editionId, pageNumber, productUrl);
+                            Entry entry = new Entry(name, price, editionName, editionId,
+                                    pageNumber, productUrl);
                             entry.extraNote = (printCode != null ? printCode : "");
 
-                            // flags and matching
                             if (price > maxPrice) {
                                 entry.skipped = true;
                             } else if (price >= OVERPRICE_THRESHOLD) {
                                 entry.noMatch = true;
                             } else {
                                 String konamiId = null;
-                                if (printCode != null) konamiId = getPrintCodeToKonamiId().get(printCode);
-
+                                if (printCode != null)
+                                    konamiId = getPrintCodeToKonamiId().get(printCode);
                                 Card card = null;
                                 if (konamiId != null) {
                                     card = findCardById(maOuicheList, konamiId);
                                 } else {
                                     String normalized = normalizeForCompare(name);
-                                    if (!normalized.isEmpty()) {
+                                    if (!normalized.isEmpty())
                                         card = findCardByNormalizedName(maOuicheList, normalized, name);
-                                    } else {
+                                    else
                                         card = findCardByName(maOuicheList, name);
-                                    }
                                 }
-
                                 if (card != null) {
                                     entry.matched = true;
+                                    entry.card = card; // ← store card reference
                                     String img = card.getImagePath();
-                                    if (img != null) {
-                                        entry.ouicheCount = ouicheCountMap.getOrDefault(img, 0);
-                                    } else {
-                                        entry.ouicheCount = 0;
-                                    }
-                                } else entry.noMatch = true;
+                                    entry.ouicheCount = (img != null)
+                                            ? ouicheCountMap.getOrDefault(img, 0) : 0;
+                                } else {
+                                    entry.noMatch = true;
+                                }
                             }
 
                             if (entry.matched) {
@@ -336,33 +337,43 @@ public class CardScraper {
                         }
                     }
 
-                    // decide whether to continue pagination
                     if (collected.isEmpty() && !usedFallbackTable) {
-                        // if no items found on first page, stop
                         hasMorePages = false;
                     } else {
-                        // increment page if we found items on this page
                         pageNumber++;
-                        // Some pages may have fewer than 50 items; we continue until a page returns no items
-                        // The loop will break when a page yields no products
                     }
                 } // end pagination
-            }
+            } // end edition loop
 
-            // sort collected entries by price ascending
+            // ── 1. Sort all matched entries by price ascending ────────────────────────
             collected.sort(Comparator.comparingDouble(e -> e.price));
 
-            // write sorted entries and compute occurrence at display time
+            // ── 2. Group same-name entries together ───────────────────────────────────
+            //    The first occurrence of each name keeps its position in the price-sorted
+            //    order; subsequent copies of the same card are placed immediately after it,
+            //    even if their price is higher than the next card's first occurrence.
+            //
+            //    Example (sorted):  A(0.10), B(0.20), A(0.50)
+            //    After grouping:    A(0.10), A(0.50), B(0.20)
+            Map<String, List<Entry>> byName = new LinkedHashMap<>();
+            for (Entry e : collected) {
+                byName.computeIfAbsent(e.name, k -> new ArrayList<>()).add(e);
+            }
+            List<Entry> regrouped = new ArrayList<>(collected.size());
+            for (List<Entry> group : byName.values()) {
+                regrouped.addAll(group);
+            }
+            collected = regrouped;
+
+            // ── 3. Write to txt file and build the result list ────────────────────────
+            Map<String, Integer> occurrenceCounts = new HashMap<>();
             for (Entry e : collected) {
                 int occ = occurrenceCounts.getOrDefault(e.name, 0) + 1;
                 occurrenceCounts.put(e.name, occ);
 
                 String priceStr = String.format(Locale.US, "%.2f", e.price);
                 StringBuilder line = new StringBuilder();
-                line//.append("Card Name: ")
-                        .append(e.name)
-                        //.append(", Edition: ").append(e.editionName)
-                        //.append(", Page: ").append(e.pageNumber)
+                line.append(e.name)
                         .append(", Price: ").append(priceStr).append("€");
 
                 if (e.skipped) {
@@ -376,20 +387,18 @@ public class CardScraper {
                 }
 
                 line.append(", InOuicheList: ").append(e.ouicheCount);
-
                 line.append(" Link: ").append(e.productUrl);
 
                 writer.write(line.toString() + "\n");
                 System.out.println(line.toString());
 
                 if (e.matched) {
-                    String pageKey = "Edition: " + e.editionName + " - Page " + e.pageNumber;
-                    result.computeIfAbsent(pageKey, k -> new ArrayList<>()).add(e.name);
+                    result.add(new ShopResultEntry(
+                            e.card, e.name, e.price, e.ouicheCount, e.productUrl, occ));
                 }
             }
 
             writer.write("\n");
-            //} // end edition loop
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -398,7 +407,8 @@ public class CardScraper {
         return result;
     }
 
-    // Build a map imagePath -> count from the provided maOuicheList
+    // ── Private helpers ──────────────────────────────────────────────────────────
+
     private static Map<String, Integer> buildOuicheCountMap(List<CardElement> maOuicheList) {
         Map<String, Integer> map = new HashMap<>();
         if (maOuicheList == null) return map;
@@ -411,42 +421,19 @@ public class CardScraper {
         return map;
     }
 
-    private static class Entry {
-        String name;
-        double price;
-        String editionName;
-        String editionId;
-        int pageNumber;
-        String productUrl;
-        boolean matched;
-        boolean noMatch;
-        boolean skipped;
-        String extraNote;
-        int ouicheCount = 0;
-
-        Entry(String name, double price, String editionName, String editionId, int pageNumber, String productUrl) {
-            this.name = name;
-            this.price = price;
-            this.editionName = editionName;
-            this.editionId = editionId;
-            this.pageNumber = pageNumber;
-            this.productUrl = productUrl;
-        }
-    }
-
-
     // Normalizes a String: lowercase, strip diacritics, remove punctuation and extra spaces
     private static String normalizeForCompare(String s) {
         if (s == null) return "";
         String t = s.toLowerCase().trim();
-        t = Normalizer.normalize(t, Normalizer.Form.NFD).replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
+        t = Normalizer.normalize(t, Normalizer.Form.NFD)
+                .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
         t = t.replaceAll("[^\\p{Alnum}\\s]", "");
         t = t.replaceAll("\\s+", " ").trim();
         return t;
     }
 
-    // Find by normalized name first, else fallback to original name comparison
-    private static Card findCardByNormalizedName(List<CardElement> maOuicheList, String normalizedName, String originalName) {
+    private static Card findCardByNormalizedName(List<CardElement> maOuicheList,
+                                                 String normalizedName, String originalName) {
         for (CardElement element : maOuicheList) {
             Card c = element.getCard();
             if (c.getName_EN() != null) {
@@ -463,6 +450,15 @@ public class CardScraper {
         return null;
     }
 
+    private static Card findCardByName(List<CardElement> maOuicheList, String name) {
+        for (CardElement element : maOuicheList) {
+            Card card = element.getCard();
+            if (card.getName_EN() != null && card.getName_EN().equals(name)) return card;
+            if (card.getName_FR() != null && card.getName_FR().equals(name)) return card;
+        }
+        return null;
+    }
+
     private static Card findCardById(List<CardElement> maOuicheList, String konamiId) {
         for (CardElement element : maOuicheList) {
             if (element.getCard().getKonamiId() != null) {
@@ -474,20 +470,31 @@ public class CardScraper {
         return null;
     }
 
-    private static Card findCardByName(List<CardElement> maOuicheList, String name) {
-        for (CardElement element : maOuicheList) {
-            Card card = element.getCard();
-            if (card.getName_EN() != null) {
-                if (card.getName_EN().equals(name)) {
-                    return card;
-                }
-            }
-            if (card.getName_FR() != null) {
-                if (card.getName_FR().equals(name)) {
-                    return card;
-                }
-            }
+    private static class Entry {
+        String name;
+        double price;
+        String editionName;
+        String editionId;
+        int pageNumber;
+        String productUrl;
+        boolean matched;
+        boolean noMatch;
+        boolean skipped;
+        String extraNote;
+        int ouicheCount = 0;
+        /**
+         * The matched Card object, set alongside {@code matched = true}.
+         */
+        Card card = null;
+
+        Entry(String name, double price, String editionName, String editionId,
+              int pageNumber, String productUrl) {
+            this.name = name;
+            this.price       = price;
+            this.editionName = editionName;
+            this.editionId = editionId;
+            this.pageNumber = pageNumber;
+            this.productUrl  = productUrl;
         }
-        return null;
     }
 }
