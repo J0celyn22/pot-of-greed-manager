@@ -618,7 +618,8 @@
     -fx-max-width: 82px;
 }
 .link-markers-button:hover {
-    -fx-background-color: rgba(205, 252, 4, 0.12);
+    -fx-background-color: #9dc000;
+    -fx-text-fill: black;
     -fx-border-width: 2;
 }
 .link-markers-button:pressed {
@@ -626,28 +627,7 @@
 }
 
 /* ── Number buttons [1..5] in FilterPane col 4 ── */
-.number-button {
-    -fx-background-color: black;
-    -fx-border-color: #cdfc04;
-    -fx-border-width: 1.5;
-    -fx-border-radius: 3;
-    -fx-background-radius: 3;
-    -fx-text-fill: #cdfc04;
-    -fx-font-size: 11px;
-    -fx-font-weight: bold;
-    -fx-padding: 0;
-    -fx-alignment: center;
-}
-.number-button:hover {
-    -fx-background-color: rgba(205, 252, 4, 0.12);
-    -fx-border-width: 2;
-}
-.number-button:pressed {
-    -fx-background-color: rgba(205, 252, 4, 0.25);
-}
-.number-button:disabled {
-    -fx-opacity: 0.4;
-}
+/* .number-button class removed — number selectors are now Labels styled inline */
 
 /* ── Col-4 action buttons: Disable, Disable all, Active, All ── */
 .col4-button {
@@ -661,7 +641,8 @@
     -fx-padding: 3 8 3 8;
 }
 .col4-button:hover {
-    -fx-background-color: rgba(205, 252, 4, 0.12);
+    -fx-background-color: #9dc000;
+    -fx-text-fill: black;
     -fx-border-width: 2;
 }
 .col4-button:pressed {

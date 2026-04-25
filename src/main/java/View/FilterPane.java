@@ -4,50 +4,52 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.*;
 import javafx.scene.text.Text;
 
 /**
  * FilterPane — the top-right "command" area of the AllExistingCards tab.
- * <p>
- * Col 1          │ Col 2            │ Col 3          │ Col 4
- * ───────────────┼──────────────────┼────────────────┼─────────────────
- * Category : [T] [ST]               │ Year           │  [1][2][3][4][5]
- * Attribute : [combo]               │ Word Count     │  [Disable]
- * Type      : [combo]               │ Pack      (right-aligned combo)
- * Lv/Rank/Link:[f][LinkMkr] Scale:[f│ State     (right-aligned combo)  [Disable all]
- * ATK:[f] DEF:[f]                   │ Rarity    (right-aligned combo)  Clear
- * │ Name             │                │  [Active] [All]
- * │ PrintCode        │                │  [📷]
- * │ PassCode         │
- * │ Konami ID        │
- * │ Effect           │
- * │ Genesys Points   │
- * ──────────────────────────────────────────────────────────────────────
- * [LM-BottomLeft]                                 [LM-BottomRight]
- * <p>
+ *
+ *  Col 1          │ Col 2            │ Col 3          │ Col 4
+ *  ───────────────┼──────────────────┼────────────────┼─────────────────
+ *  Category : [T] [ST]               │ Year           │  [1][2][3][4][5]
+ *  Attribute : [combo]               │ Word Count     │  [Disable]
+ *  Type      : [combo]               │ Pack      (right-aligned combo)
+ *  Lv/Rank/Link:[f][LinkMkr] Scale:[f│ State     (right-aligned combo)  [Disable all]
+ *  ATK:[f] DEF:[f]                   │ Rarity    (right-aligned combo)  Clear
+ *                 │ Name             │                │  [Active] [All]
+ *                 │ PrintCode        │                │  [📷]
+ *                 │ PassCode         │
+ *                 │ Konami ID        │
+ *                 │ Effect           │
+ *                 │ Genesys Points   │
+ *  ──────────────────────────────────────────────────────────────────────
+ *  [LM-BottomLeft]                                 [LM-BottomRight]
+ *
  * ─────────────────────────────────────────────────────────────────────
  * FILTER PAGE SYSTEM (5 independent filter pages, selected via [1]-[5])
  * ─────────────────────────────────────────────────────────────────────
- * • All 5 pages start DISABLED.
- * • Modifying any filter field on a page ENABLES that page.
- * • "Disable" button toggles the current page; text changes to "Enable"
- * while disabled, reverts to "Disable" when re-enabled.
- * • "Disable all" disables all pages (text never changes).
- * • Number buttons [1]-[5]:
- * - Selected page → bold text + rectangular (non-rounded) border.
- * - Enabled pages  → black text + yellow-green background.
- * • Bottom-left/right images are clickable per page (toggle enabled/disabled).
- * - Clicking them does NOT enable or disable the page.
- * - Page 0  : bottomLeft  starts DISABLED.
- * - Page 1  : bottomRight starts DISABLED.
- * - Pages 3 & 4 : both    start DISABLED.
- * - All others  : both    start ENABLED.
- * • Bottom-right ENABLED  → page filters apply to AllExistingCards list (right pane).
- * • Bottom-left  ENABLED  → page filters apply to the middle-pane display.
+ *  • All 5 pages start DISABLED.
+ *  • Modifying any filter field on a page ENABLES that page.
+ *  • "Disable" button toggles the current page; text changes to "Enable"
+ *    while disabled, reverts to "Disable" when re-enabled.
+ *  • "Disable all" disables all pages (text never changes).
+ *  • Number buttons [1]-[5]:
+ *      - Selected page → bold text + rectangular (non-rounded) border.
+ *      - Enabled pages  → black text + yellow-green background.
+ *  • Bottom-left/right images are clickable per page (toggle enabled/disabled).
+ *      - Clicking them does NOT enable or disable the page.
+ *      - Page 0  : bottomLeft  starts DISABLED.
+ *      - Page 1  : bottomRight starts DISABLED.
+ *      - Pages 3 & 4 : both    start DISABLED.
+ *      - All others  : both    start ENABLED.
+ *  • Bottom-right ENABLED  → page filters apply to AllExistingCards list (right pane).
+ *  • Bottom-left  ENABLED  → page filters apply to the middle-pane display.
  */
 public class FilterPane extends VBox {
 
@@ -61,10 +63,7 @@ public class FilterPane extends VBox {
     // ═══════════════════════════════════════════════════════════════════
     // UI controls
     // ═══════════════════════════════════════════════════════════════════
-    private static final double COL3_LABEL_WIDTH = 82;
-    // ── Column 4 ──────────────────────────────────────────
-    private final Button[] numberButtons = new Button[5];
-    private final FilterPageState[] pageStates = new FilterPageState[5];
+
     // ── Column 1 ──────────────────────────────────────────
     private ComboBox<String> cardTypeCombo;
     private ComboBox<String> cardSubtypeCombo;
@@ -74,6 +73,7 @@ public class FilterPane extends VBox {
     private TextField scaleField;
     private TextField atkField;
     private TextField defField;
+
     // ── Column 2 ──────────────────────────────────────────
     private TextField nameTextField;
     private TextField printcodeTextField;
@@ -82,43 +82,51 @@ public class FilterPane extends VBox {
     private TextField effectTextField;
     private TextField genesysPointsField;
     private Button linkMarkersButton;
+
     // ── Column 3 ──────────────────────────────────────────
     private TextField yearField;
     private TextField wordCountField;
     private ComboBox<String> packCombo;
     private ComboBox<String> stateCombo;
     private ComboBox<String> rarityCombo;
+    private static final double COL3_LABEL_WIDTH = 82;
     private Button disableButton;
     private Button disableAllButton;
     private Button activeButton;
     private Button allButton;
     private Button cameraButton;
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Page state
-    // ═══════════════════════════════════════════════════════════════════
     // ── Bottom corner images ───────────────────────────────
     private ImageView bottomLeftIV;
     private ImageView bottomRightIV;
-    private int currentPage = 0;
 
     // ═══════════════════════════════════════════════════════════════════
-    // External callbacks
+    // Page state
     // ═══════════════════════════════════════════════════════════════════
+    // ── Column 4 ──────────────────────────────────────────
+    private final Label[] numberSelectors = new Label[5];
+    private final FilterPageState[] pageStates = new FilterPageState[5];
     /**
      * Set to true while loading a page so listeners do not fire.
      */
     private boolean suppressListeners = false;
+
+    // ═══════════════════════════════════════════════════════════════════
+    // External callbacks
+    // ═══════════════════════════════════════════════════════════════════
+
     /**
      * Fired whenever a change may affect the AllExistingCards right-side display
      * (i.e. a filter value changed, or a page/bottom-right state changed).
      */
     private Runnable onRightFilterChange;
+
     /**
      * Fired whenever a change may affect the middle-pane display
      * (i.e. a filter value changed, or a bottom-left state changed).
      */
     private Runnable onLeftFilterChange;
+    private int currentPage = 0;
     public FilterPane() {
         this.setStyle("-fx-background-color: #100317;");
         this.getStyleClass().add("filter-pane");
@@ -139,7 +147,7 @@ public class FilterPane extends VBox {
         columnsBox.getChildren().addAll(col1, col2, col3, col4);
 
         // ── Bottom images — default for page 0: left disabled, right enabled ──
-        bottomLeftIV = loadCornerImage("LM-BottomLeft_Disabled.png", 42, 42);
+        bottomLeftIV = loadCornerImage("LM-BottomLeft_Disabled.png",  42, 42);
         bottomRightIV = loadCornerImage("LM-BottomRight_Enabled.png", 42, 42);
 
         // The overlay HBox is purely decorative — fully mouse-transparent so it
@@ -231,9 +239,7 @@ public class FilterPane extends VBox {
         }
     }
 
-    /**
-     * Col 1: Category / Attribute / Type / Lv+[LinkMkr]+Scale / ATK+DEF
-     */
+    /** Col 1: Category / Attribute / Type / Lv+[LinkMkr]+Scale / ATK+DEF */
     private VBox buildColumn1() {
         VBox col = new VBox(6);
         col.setStyle("-fx-background-color: #100317;");
@@ -287,9 +293,24 @@ public class FilterPane extends VBox {
     // Page state initialisation
     // ═══════════════════════════════════════════════════════════════════
 
-    /**
-     * Col 2: Name / PrintCode / PassCode / Konami ID / Effect / Genesys Points
-     */
+    private void initPageStates() {
+        // Page 0: bottomLeft DISABLED, bottomRight enabled
+        pageStates[0] = new FilterPageState(false, true);
+        // Page 1: bottomLeft enabled,  bottomRight DISABLED
+        pageStates[1] = new FilterPageState(true, false);
+        // Page 2: both enabled
+        pageStates[2] = new FilterPageState(true, true);
+        // Page 3: both DISABLED
+        pageStates[3] = new FilterPageState(false, false);
+        // Page 4: both DISABLED
+        pageStates[4] = new FilterPageState(false, false);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Control wiring
+    // ═══════════════════════════════════════════════════════════════════
+
+    /** Col 2: Name / PrintCode / PassCode / Konami ID / Effect / Genesys Points */
     private VBox buildColumn2() {
         VBox col = new VBox(6);
         col.setStyle("-fx-background-color: #100317;");
@@ -321,13 +342,7 @@ public class FilterPane extends VBox {
         return col;
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Control wiring
-    // ═══════════════════════════════════════════════════════════════════
-
-    /**
-     * Col 3: Year / Word Count / Pack / State / Rarity (combos right-aligned)
-     */
+    /** Col 3: Year / Word Count / Pack / State / Rarity (combos right-aligned) */
     private VBox buildColumn3() {
         VBox col = new VBox(6);
         col.setStyle("-fx-background-color: #100317;");
@@ -351,27 +366,151 @@ public class FilterPane extends VBox {
     }
 
     /**
-     * Col 4: [1..5] / Disable / Disable all / Clear / Active+All / Camera
+     * Same as {@link #wireTextField} but for ComboBoxes.
      */
+    private void wireComboBox(ComboBox<String> cb) {
+        if (cb == null) return;
+        cb.valueProperty().addListener((obs, oldVal, newVal) -> {
+            if (suppressListeners) return;
+            enableCurrentPage();
+            saveCurrentPageState();
+            fireRightFilterChange();
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Page management
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Switches the visible page to {@code page} (0-based).
+     * Saves the current page's state first.
+     */
+    public void selectPage(int page) {
+        if (page < 0 || page >= 5 || page == currentPage) return;
+        saveCurrentPageState();
+        currentPage = page;
+        loadPageState(page);
+        updateNumberButtonStyles();
+        updateDisableButtonText();
+        updateBottomImages();
+    }
+
+    /**
+     * Returns the 0-based index of the currently selected page.
+     */
+    public int getCurrentPage() {
+        return currentPage;
+    }
+
+    /**
+     * Enables the current page and refreshes related UI.
+     * Called automatically when any filter field is modified.
+     */
+    private void enableCurrentPage() {
+        if (!pageStates[currentPage].enabled) {
+            pageStates[currentPage].enabled = true;
+            updateNumberButtonStyles();
+            updateDisableButtonText();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // State save / load
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Copies the current UI field values into {@code pageStates[currentPage]}.
+     * Always call this before switching pages or before reading page data externally.
+     */
+    public void saveCurrentPageState() {
+        FilterPageState ps = pageStates[currentPage];
+        ps.name = text(nameTextField);
+        ps.printCode = text(printcodeTextField);
+        ps.passCode = text(passCodeTextField);
+        ps.konamiId = text(konamiIdTextField);
+        ps.effect = text(effectTextField);
+        ps.genesysPoints = text(genesysPointsField);
+        ps.level = text(levelField);
+        ps.scale = text(scaleField);
+        ps.atk = text(atkField);
+        ps.def = text(defField);
+        ps.year = text(yearField);
+        ps.wordCount = text(wordCountField);
+        ps.cardType = comboVal(cardTypeCombo);
+        ps.cardSubtype = comboVal(cardSubtypeCombo);
+        ps.attribute = comboVal(attributeCombo);
+        ps.type = comboVal(typeCombo);
+        ps.pack = comboVal(packCombo);
+        ps.state = comboVal(stateCombo);
+        ps.rarity = comboVal(rarityCombo);
+    }
+
+    /**
+     * Populates the UI fields from {@code pageStates[page]}.
+     * Suppresses listeners during population to avoid spurious filter-change events.
+     */
+    private void loadPageState(int page) {
+        FilterPageState ps = pageStates[page];
+        suppressListeners = true;
+        try {
+            setTF(nameTextField, ps.name);
+            setTF(printcodeTextField, ps.printCode);
+            setTF(passCodeTextField, ps.passCode);
+            setTF(konamiIdTextField, ps.konamiId);
+            setTF(effectTextField, ps.effect);
+            setTF(genesysPointsField, ps.genesysPoints);
+            setTF(levelField, ps.level);
+            setTF(scaleField, ps.scale);
+            setTF(atkField, ps.atk);
+            setTF(defField, ps.def);
+            setTF(yearField, ps.year);
+            setTF(wordCountField, ps.wordCount);
+            setCB(cardTypeCombo, ps.cardType);
+            setCB(cardSubtypeCombo, ps.cardSubtype);
+            setCB(attributeCombo, ps.attribute);
+            setCB(typeCombo, ps.type);
+            setCB(packCombo, ps.pack);
+            setCB(stateCombo, ps.state);
+            setCB(rarityCombo, ps.rarity);
+        } finally {
+            suppressListeners = false;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Visual update helpers
+    // ═══════════════════════════════════════════════════════════════════
+
+    /** Col 4: [1..5] / Disable / Disable all / Clear / Active+All / Camera */
     private VBox buildColumn4() {
         VBox col = new VBox(6);
         col.setStyle("-fx-background-color: #100317;");
         col.setAlignment(Pos.TOP_LEFT);
         col.setPadding(new Insets(0, 0, 0, 4));
 
-        // Line 1 – number buttons [1][2][3][4][5]
+        // Line 1 – number selectors [1][2][3][4][5]
+        // Using Labels instead of Buttons: Labels have no ButtonSkin, so setStyle()
+        // is never overridden by press/focus/hover CSS re-passes.
         HBox numbersRow = new HBox(3);
         numbersRow.setAlignment(Pos.CENTER_RIGHT);
         for (int i = 0; i < 5; i++) {
-            Button nb = new Button(String.valueOf(i + 1));
-            nb.getStyleClass().add("number-button");
+            final int idx = i;
+            Label nb = new Label(String.valueOf(i + 1));
             nb.setPrefWidth(20);
             nb.setPrefHeight(20);
             nb.setMinWidth(20);
             nb.setMinHeight(20);
             nb.setMaxWidth(20);
             nb.setMaxHeight(20);
-            numberButtons[i] = nb;
+            nb.setAlignment(Pos.CENTER);
+            nb.setFocusTraversable(false);
+            nb.setOnMouseClicked(e -> selectPage(idx));
+            nb.addEventHandler(MouseEvent.MOUSE_ENTERED, e -> applyNumberSelectorStyle(idx, true));
+            nb.addEventHandler(MouseEvent.MOUSE_EXITED, e -> applyNumberSelectorStyle(idx, false));
+            nb.addEventHandler(MouseEvent.MOUSE_PRESSED, e -> applyNumberSelectorStyle(idx, true));
+            nb.addEventHandler(MouseEvent.MOUSE_RELEASED, e -> applyNumberSelectorStyle(idx, true));
+            numberSelectors[i] = nb;
             numbersRow.getChildren().add(nb);
         }
 
@@ -447,30 +586,9 @@ public class FilterPane extends VBox {
         return col;
     }
 
-    private void initPageStates() {
-        // Page 0: bottomLeft DISABLED, bottomRight enabled
-        pageStates[0] = new FilterPageState(false, true);
-        // Page 1: bottomLeft enabled,  bottomRight DISABLED
-        pageStates[1] = new FilterPageState(true, false);
-        // Page 2: both enabled
-        pageStates[2] = new FilterPageState(true, true);
-        // Page 3: both DISABLED
-        pageStates[3] = new FilterPageState(false, false);
-        // Page 4: both DISABLED
-        pageStates[4] = new FilterPageState(false, false);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Page management
-    // ═══════════════════════════════════════════════════════════════════
-
     private void wireControls() {
 
-        // ── Number buttons 1-5 ──────────────────────────────────────────
-        for (int i = 0; i < 5; i++) {
-            final int pageIndex = i;
-            numberButtons[i].setOnAction(e -> selectPage(pageIndex));
-        }
+        // ── Number selectors 1-5 — wired directly in buildColumn4() ────────
 
         // ── Disable / Enable toggle ──────────────────────────────────────
         disableButton.setOnAction(e -> {
@@ -517,174 +635,6 @@ public class FilterPane extends VBox {
     }
 
     /**
-     * Attaches a text-change listener that:
-     * 1. Enables the current page.
-     * 2. Saves the page's state snapshot.
-     * 3. Fires the right-filter-change callback.
-     */
-    private void wireTextField(TextField tf) {
-        if (tf == null) return;
-        tf.textProperty().addListener((obs, oldVal, newVal) -> {
-            if (suppressListeners) return;
-            enableCurrentPage();
-            saveCurrentPageState();
-            fireRightFilterChange();
-        });
-    }
-
-    /**
-     * Same as {@link #wireTextField} but for ComboBoxes.
-     */
-    private void wireComboBox(ComboBox<String> cb) {
-        if (cb == null) return;
-        cb.valueProperty().addListener((obs, oldVal, newVal) -> {
-            if (suppressListeners) return;
-            enableCurrentPage();
-            saveCurrentPageState();
-            fireRightFilterChange();
-        });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // State save / load
-    // ═══════════════════════════════════════════════════════════════════
-
-    /**
-     * Switches the visible page to {@code page} (0-based).
-     * Saves the current page's state first.
-     */
-    public void selectPage(int page) {
-        if (page < 0 || page >= 5 || page == currentPage) return;
-        saveCurrentPageState();
-        currentPage = page;
-        loadPageState(page);
-        updateNumberButtonStyles();
-        updateDisableButtonText();
-        updateBottomImages();
-    }
-
-    /**
-     * Returns the 0-based index of the currently selected page.
-     */
-    public int getCurrentPage() {
-        return currentPage;
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Visual update helpers
-    // ═══════════════════════════════════════════════════════════════════
-
-    /**
-     * Enables the current page and refreshes related UI.
-     * Called automatically when any filter field is modified.
-     */
-    private void enableCurrentPage() {
-        if (!pageStates[currentPage].enabled) {
-            pageStates[currentPage].enabled = true;
-            updateNumberButtonStyles();
-            updateDisableButtonText();
-        }
-    }
-
-    /**
-     * Copies the current UI field values into {@code pageStates[currentPage]}.
-     * Always call this before switching pages or before reading page data externally.
-     */
-    public void saveCurrentPageState() {
-        FilterPageState ps = pageStates[currentPage];
-        ps.name = text(nameTextField);
-        ps.printCode = text(printcodeTextField);
-        ps.passCode = text(passCodeTextField);
-        ps.konamiId = text(konamiIdTextField);
-        ps.effect = text(effectTextField);
-        ps.genesysPoints = text(genesysPointsField);
-        ps.level = text(levelField);
-        ps.scale = text(scaleField);
-        ps.atk = text(atkField);
-        ps.def = text(defField);
-        ps.year = text(yearField);
-        ps.wordCount = text(wordCountField);
-        ps.cardType = comboVal(cardTypeCombo);
-        ps.cardSubtype = comboVal(cardSubtypeCombo);
-        ps.attribute = comboVal(attributeCombo);
-        ps.type = comboVal(typeCombo);
-        ps.pack = comboVal(packCombo);
-        ps.state = comboVal(stateCombo);
-        ps.rarity = comboVal(rarityCombo);
-    }
-
-    /**
-     * Populates the UI fields from {@code pageStates[page]}.
-     * Suppresses listeners during population to avoid spurious filter-change events.
-     */
-    private void loadPageState(int page) {
-        FilterPageState ps = pageStates[page];
-        suppressListeners = true;
-        try {
-            setTF(nameTextField, ps.name);
-            setTF(printcodeTextField, ps.printCode);
-            setTF(passCodeTextField, ps.passCode);
-            setTF(konamiIdTextField, ps.konamiId);
-            setTF(effectTextField, ps.effect);
-            setTF(genesysPointsField, ps.genesysPoints);
-            setTF(levelField, ps.level);
-            setTF(scaleField, ps.scale);
-            setTF(atkField, ps.atk);
-            setTF(defField, ps.def);
-            setTF(yearField, ps.year);
-            setTF(wordCountField, ps.wordCount);
-            setCB(cardTypeCombo, ps.cardType);
-            setCB(cardSubtypeCombo, ps.cardSubtype);
-            setCB(attributeCombo, ps.attribute);
-            setCB(typeCombo, ps.type);
-            setCB(packCombo, ps.pack);
-            setCB(stateCombo, ps.state);
-            setCB(rarityCombo, ps.rarity);
-        } finally {
-            suppressListeners = false;
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Callback helpers
-    // ═══════════════════════════════════════════════════════════════════
-
-    /**
-     * Refreshes the inline styles on each number button to reflect:
-     * • selected page  → bold text, rectangular border (no radius)
-     * • enabled page   → black text, yellow-green background
-     */
-    private void updateNumberButtonStyles() {
-        for (int i = 0; i < 5; i++) {
-            boolean sel = (i == currentPage);
-            boolean enabled = pageStates[i].enabled;
-            Button btn = numberButtons[i];
-
-            StringBuilder sb = new StringBuilder();
-
-            // Background and text colour
-            if (enabled) {
-                sb.append("-fx-background-color: #9dc000;");   // yellow-green
-                sb.append("-fx-text-fill: black;");
-            } else {
-                sb.append("-fx-background-color: black;");
-                sb.append("-fx-text-fill: #cdfc04;");
-            }
-
-            // Border shape: rectangle for selected, rounded for others
-            if (sel) {
-                sb.append("-fx-font-weight: bold;");
-                sb.append("-fx-border-radius: 0;-fx-background-radius: 0;");
-            } else {
-                sb.append("-fx-font-weight: normal;");
-                sb.append("-fx-border-radius: 3;-fx-background-radius: 3;");
-            }
-
-            btn.setStyle(sb.toString());
-        }
-    }
-
-    /**
      * Updates the Disable/Enable button text to match the current page's state.
      */
     private void updateDisableButtonText() {
@@ -692,10 +642,6 @@ public class FilterPane extends VBox {
             disableButton.setText(pageStates[currentPage].enabled ? "Disable" : "Enable");
         }
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Factory helpers  (unchanged from original)
-    // ═══════════════════════════════════════════════════════════════════
 
     /**
      * Swaps the bottom-left and bottom-right image files to match
@@ -721,6 +667,10 @@ public class FilterPane extends VBox {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // Callback helpers
+    // ═══════════════════════════════════════════════════════════════════
+
     private void fireRightFilterChange() {
         if (onRightFilterChange != null) onRightFilterChange.run();
     }
@@ -728,6 +678,10 @@ public class FilterPane extends VBox {
     private void fireLeftFilterChange() {
         if (onLeftFilterChange != null) onLeftFilterChange.run();
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Factory helpers  (unchanged from original)
+    // ═══════════════════════════════════════════════════════════════════
 
     private Text makeLabel(String text) {
         return styledText(text, false);
@@ -807,10 +761,6 @@ public class FilterPane extends VBox {
         return row;
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Small value-extraction helpers
-    // ═══════════════════════════════════════════════════════════════════
-
     private ImageView loadCornerImage(String filename, double w, double h) {
         try {
             Image img = new Image("file:./src/main/resources/" + filename);
@@ -845,6 +795,84 @@ public class FilterPane extends VBox {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // Small value-extraction helpers
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Attaches a text-change listener that:
+     *  1. Enables the current page.
+     *  2. Saves the page's state snapshot.
+     *  3. Fires the right-filter-change callback.
+     */
+    private void wireTextField(TextField tf) {
+        if (tf == null) return;
+        tf.textProperty().addListener((obs, oldVal, newVal) -> {
+            if (suppressListeners) return;
+            enableCurrentPage();
+            saveCurrentPageState();
+            fireRightFilterChange();
+        });
+    }
+
+    /**
+     * Refreshes all number selector styles (non-hovered state).
+     */
+    private void updateNumberButtonStyles() {
+        for (int i = 0; i < 5; i++) {
+            applyNumberSelectorStyle(i, false);
+        }
+    }
+
+    /**
+     * Applies the correct inline style to number selector {@code i}.
+     * Because these are Labels (no ButtonSkin), setStyle() is authoritative —
+     * no CSS pseudo-state re-pass can override it.
+     *
+     * @param hovered true when the mouse is currently over this selector
+     */
+    private void applyNumberSelectorStyle(int i, boolean hovered) {
+        if (i < 0 || i >= 5 || numberSelectors[i] == null) return;
+        boolean sel = (i == currentPage);
+        boolean enabled = pageStates[i].enabled;
+        Label lbl = numberSelectors[i];
+
+        String bg, fg;
+        if (enabled) {
+            bg = hovered ? "#b5d600" : "#9dc000";   // yellow-green; slightly darker on hover
+            fg = "black";
+        } else {
+            bg = hovered ? "rgba(205,252,4,0.15)" : "black";
+            fg = "#cdfc04";                          // yellow-green text on black bg
+        }
+
+        String borderWidth = sel ? "2.5" : "1.5";
+        String fontWeight = sel ? "bold" : "normal";
+
+        lbl.setStyle(
+                "-fx-background-color: " + bg + ";" +
+                        "-fx-text-fill: " + fg + ";" +
+                        "-fx-font-size: 11px;" +
+                        "-fx-font-weight: " + fontWeight + ";" +
+                        "-fx-border-color: #cdfc04;" +
+                        "-fx-border-width: " + borderWidth + ";" +
+                        "-fx-border-radius: 3;" +
+                        "-fx-background-radius: 3;" +
+                        "-fx-padding: 0;" +
+                        "-fx-alignment: center;" +
+                        "-fx-cursor: hand;"
+        );
+    }
+
+    public TextField getDefField() {
+        return defField; }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Public accessors
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ── Page state ────────────────────────────────────────────────────
+
     /**
      * Returns the state snapshot for page {@code index} (0-based).
      * <p>
@@ -855,12 +883,6 @@ public class FilterPane extends VBox {
         if (index < 0 || index >= 5) return null;
         return pageStates[index];
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Public accessors
-    // ═══════════════════════════════════════════════════════════════════
-
-    // ── Page state ────────────────────────────────────────────────────
 
     public boolean isPageEnabled(int index) {
         FilterPageState ps = getPageState(index);
@@ -877,6 +899,8 @@ public class FilterPane extends VBox {
         return ps != null && ps.bottomLeftEnabled;
     }
 
+    // ── Callbacks ─────────────────────────────────────────────────────
+
     /**
      * Sets the callback invoked when any change may affect the AllExistingCards display.
      * This includes: filter value edits, page enable/disable, bottom-right toggle.
@@ -884,8 +908,6 @@ public class FilterPane extends VBox {
     public void setOnRightFilterChange(Runnable callback) {
         this.onRightFilterChange = callback;
     }
-
-    // ── Callbacks ─────────────────────────────────────────────────────
 
     /**
      * Sets the callback invoked when any change may affect the middle-pane display.
@@ -924,9 +946,8 @@ public class FilterPane extends VBox {
         return atkField;
     }
 
-    public TextField getDefField() {
-        return defField;
-    }
+    public Button getLinkMarkersButton() {
+        return linkMarkersButton; }
 
     // ── Column 2 ──────────────────────────────────────────────────────
     public TextField getNameTextField() {
@@ -953,9 +974,8 @@ public class FilterPane extends VBox {
         return genesysPointsField;
     }
 
-    public Button getLinkMarkersButton() {
-        return linkMarkersButton;
-    }
+    public ComboBox<String> getRarityCombo() {
+        return rarityCombo; }
 
     // ── Column 3 ──────────────────────────────────────────────────────
     public TextField getYearField() {
@@ -974,18 +994,17 @@ public class FilterPane extends VBox {
         return stateCombo;
     }
 
-    public ComboBox<String> getRarityCombo() {
-        return rarityCombo;
-    }
-
     /**
      * @param index 0-based (0 = button "1", …, 4 = button "5")
      */
-    public Button getNumberButton(int index) {
-        return numberButtons[index];
+    public Label getNumberSelector(int index) {
+        return numberSelectors[index];
     }
 
     // ── Column 4 ──────────────────────────────────────────────────────
+
+    public Button getCameraButton() {
+        return cameraButton; }
 
     public Button getDisableButton() {
         return disableButton;
@@ -1001,10 +1020,6 @@ public class FilterPane extends VBox {
 
     public Button getAllButton() {
         return allButton;
-    }
-
-    public Button getCameraButton() {
-        return cameraButton;
     }
 
     public static class FilterPageState {
