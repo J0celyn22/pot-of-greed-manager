@@ -8,6 +8,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.TreeSet;
 
 import static Model.FilePaths.databaseDir;
 
@@ -148,6 +149,51 @@ public class PrintCodeToKonamiId {
                 }
             }
         }
+    }
+
+    /**
+     * Returns a sorted, deduplicated list of set-name prefixes derived from all
+     * known set codes (both from _sets.txt and from the printcode directory).
+     *
+     * <p>Each raw set code (e.g. {@code "LOB-EN"}, {@code "SDVR-JP"}) is stripped
+     * of everything from the first {@code '-'} onwards, yielding the base set name
+     * (e.g. {@code "LOB"}, {@code "SDVR"}).  The result is sorted alphabetically
+     * and contains no duplicates, making it suitable for autocomplete suggestions.
+     *
+     * @return sorted list of unique set-name prefixes
+     */
+    public static List<String> getSetNames() throws URISyntaxException {
+        // Ensure the maps are initialised so we can reuse the set-code discovery.
+        // (createKonamiIdPrintCodeMaps already reads _sets.txt + directory.)
+        if (printCodeToKonamiId == null) {
+            createKonamiIdPrintCodeMaps();
+        }
+
+        // Re-read _sets.txt codes and directory file names to collect raw set codes,
+        // then strip the '-...' suffix from each one.
+        TreeSet<String> names = new TreeSet<>();
+
+        List<String> setCodes = Database.openSets("_sets.txt");
+        if (setCodes != null) {
+            for (String code : setCodes) {
+                int dash = code.indexOf('-');
+                names.add(dash > 0 ? code.substring(0, dash) : code);
+            }
+        }
+
+        File directory = new File(databaseDir.resolve(
+                java.nio.file.Paths.get("ygoresources", "printcode")).toUri());
+        File[] files = directory.listFiles((dir, name) -> name.endsWith(".json"));
+        if (files != null) {
+            for (File file : files) {
+                String code = file.getName();
+                code = code.substring(0, code.length() - 5); // strip .json
+                int dash = code.indexOf('-');
+                names.add(dash > 0 ? code.substring(0, dash) : code);
+            }
+        }
+
+        return new ArrayList<>(names);
     }
 
     /**

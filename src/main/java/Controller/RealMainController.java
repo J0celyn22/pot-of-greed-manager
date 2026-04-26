@@ -3682,42 +3682,6 @@ public class RealMainController {
                     event.consume();
                 }
                 break;
-            case NUMPAD1:
-                handleNumpadAddFromRightPane(1);
-                event.consume();
-                break;
-            case NUMPAD2:
-                handleNumpadAddFromRightPane(2);
-                event.consume();
-                break;
-            case NUMPAD3:
-                handleNumpadAddFromRightPane(3);
-                event.consume();
-                break;
-            case NUMPAD4:
-                handleNumpadAddFromRightPane(4);
-                event.consume();
-                break;
-            case NUMPAD5:
-                handleNumpadAddFromRightPane(5);
-                event.consume();
-                break;
-            case NUMPAD6:
-                handleNumpadAddFromRightPane(6);
-                event.consume();
-                break;
-            case NUMPAD7:
-                handleNumpadAddFromRightPane(7);
-                event.consume();
-                break;
-            case NUMPAD8:
-                handleNumpadAddFromRightPane(8);
-                event.consume();
-                break;
-            case NUMPAD9:
-                handleNumpadAddFromRightPane(9);
-                event.consume();
-                break;
             default:
                 break;
         }
@@ -4160,139 +4124,6 @@ public class RealMainController {
      * <p>Only the fields that are implemented so far are checked here.
      * Add further field checks as the rest of the filter UI is wired up.
      */
-// ── Numpad add ──────────────────────────────────────────────────────────────
-
-    /**
-     * Numpad 1-9: adds {@code count} copies of each right-pane source card
-     * into the active middle pane at the appropriate insertion point.
-     * <p>
-     * Source: visible right-pane selection if non-empty, or the sole displayed card.
-     * Destination (same priority as paste):
-     * 1. After the last element of the current MIDDLE selection.
-     * 2. After the last explicitly clicked MIDDLE element.
-     * 3. Into the last clicked navigation-menu item.
-     * After insertion the last added element is selected (becomes the next anchor).
-     */
-    private void handleNumpadAddFromRightPane(int count) {
-        int tabIdx = mainTabPane.getSelectionModel().getSelectedIndex();
-        if (tabIdx != 0 && tabIdx != 1) return;
-
-        List<Card> sourceCards = getNumpadSourceCards();
-        if (sourceCards.isEmpty()) return;
-
-        // Build expanded list: each card repeated 'count' times, preserving order
-        List<Card> toInsert = new ArrayList<>();
-        for (Card c : sourceCards)
-            for (int i = 0; i < count; i++)
-                toInsert.add(c);
-        int totalInserted = toInsert.size();
-
-        // Priority 1: after last selected or last clicked MIDDLE element
-        Model.CardsLists.CardElement targetElem = getNumpadTargetMiddleElement();
-        if (targetElem != null) {
-            boolean ok = pasteCardsAfterElement(toInsert, targetElem);
-            if (ok) {
-                // Select the last inserted element so it becomes the next anchor
-                TreeView<String> tv = getActiveMiddleTreeView();
-                if (tv != null) {
-                    List<Model.CardsLists.CardElement> allElems =
-                            View.CardTreeCell.collectAllElementsInTreeOrder(tv.getRoot());
-                    int targetIdx = allElems.indexOf(targetElem);
-                    if (targetIdx >= 0) {
-                        int lastIdx = Math.min(targetIdx + totalInserted, allElems.size() - 1);
-                        Controller.SelectionManager.selectElement(allElems.get(lastIdx));
-                    }
-                }
-                return;
-            }
-        }
-
-        // Fallback: into the last clicked navigation-menu item
-        Object navItem = Controller.SelectionManager.getLastClickedNavigationItem();
-        if (navItem != null) {
-            List<Model.CardsLists.CardElement> backing = getTargetGroupElements(navItem);
-            pasteCardsIntoNavigationItem(toInsert, navItem);
-            if (!backing.isEmpty()) {
-                Controller.SelectionManager.selectElement(backing.get(backing.size() - 1));
-            }
-        }
-    }
-
-    /**
-     * Returns the cards to use as source for a numpad-add operation.
-     * <p>
-     * Priority:
-     * 1. The right-pane selection intersected with the currently displayed cards.
-     * If cards are selected but none are visible (filtered out), this is empty.
-     * 2. The single card currently displayed (if exactly one passes all filters).
-     * Returns empty list if neither applies → nothing happens.
-     */
-    @SuppressWarnings("unchecked")
-    private List<Card> getNumpadSourceCards() {
-        List<Card> displayedCards = getDisplayedRightPaneCards();
-
-        // Priority 1: visible selected cards only
-        java.util.Set<Card> selected = Controller.SelectionManager.getSelectedCards();
-        if (!selected.isEmpty()) {
-            List<Card> visibleSelected = displayedCards.stream()
-                    .filter(selected::contains)
-                    .collect(Collectors.toList());
-            if (!visibleSelected.isEmpty()) return visibleSelected;
-        }
-
-        // Priority 2: the sole card passing the filters
-        if (displayedCards.size() == 1) return new ArrayList<>(displayedCards);
-
-        return Collections.emptyList();
-    }
-
-    /**
-     * Returns all cards currently visible in the right pane (filtered list).
-     */
-    @SuppressWarnings("unchecked")
-    private List<Card> getDisplayedRightPaneCards() {
-        if (cardsDisplayContainer == null) return Collections.emptyList();
-        for (javafx.scene.Node node : cardsDisplayContainer.getChildren()) {
-            if (node instanceof javafx.scene.control.ListView) {
-                if (!isMosaicMode) {
-                    javafx.scene.control.ListView<Card> lv =
-                            (javafx.scene.control.ListView<Card>) node;
-                    return new ArrayList<>(lv.getItems());
-                } else {
-                    javafx.scene.control.ListView<List<Card>> lv =
-                            (javafx.scene.control.ListView<List<Card>>) node;
-                    List<Card> all = new ArrayList<>();
-                    for (List<Card> row : lv.getItems()) all.addAll(row);
-                    return all;
-                }
-            }
-        }
-        return Collections.emptyList();
-    }
-
-    /**
-     * Returns the MIDDLE-pane CardElement after which numpad cards should be
-     * inserted, mirroring the paste priority logic.
-     */
-    private Model.CardsLists.CardElement getNumpadTargetMiddleElement() {
-        // Priority 1: last element of the current MIDDLE selection
-        if ("MIDDLE".equals(Controller.SelectionManager.getActivePart())
-                && !Controller.SelectionManager.getSelectedMiddleElements().isEmpty()) {
-            TreeView<String> tv = getActiveMiddleTreeView();
-            if (tv != null) {
-                List<Model.CardsLists.CardElement> allElems =
-                        View.CardTreeCell.collectAllElementsInTreeOrder(tv.getRoot());
-                java.util.Set<Model.CardsLists.CardElement> sel =
-                        Controller.SelectionManager.getSelectedMiddleElements();
-                for (int i = allElems.size() - 1; i >= 0; i--) {
-                    if (sel.contains(allElems.get(i))) return allElems.get(i);
-                }
-            }
-        }
-        // Priority 2: last explicitly clicked middle element
-        return Controller.SelectionManager.getLastMiddleElement();
-    }
-
     private boolean matchesPageFilter(Card card, FilterPane.FilterPageState ps) {
         if (card == null || ps == null) return true;
 
@@ -4400,6 +4231,25 @@ public class RealMainController {
             }
 
         } // end Monster-only block
+
+        // ── Link Marker filter ───────────────────────────────────────────────
+        if (!"Spell".equals(ps.cardType) && !"Trap".equals(ps.cardType)) {
+            if (ps.linkMarkers != null && !ps.linkMarkers.isEmpty()) {
+                java.util.List<String> cardMarkers = card.getLinkMarker();
+                if (cardMarkers == null) return false;
+                for (String marker : ps.linkMarkers) {
+                    if (!cardMarkers.contains(marker)) return false;
+                }
+            }
+        }
+
+        // ── Word Count filter ──────────────────────────────────────────────
+        if (!ps.wordCount.isEmpty()) {
+            String desc = card.getDescription();
+            int wc = (desc == null || desc.isBlank()) ? 0
+                    : desc.trim().split("\\s+").length;
+            if (!matchesIntField(ps.wordCount, wc)) return false;
+        }
 
         // ── TODO: add further field checks as they are implemented ───────
         // if (!"(All)".equals(ps.attribute)) { ... }
