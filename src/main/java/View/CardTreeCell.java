@@ -90,6 +90,20 @@ public class CardTreeCell extends TreeCell<String> {
             GROUP_OBSERVABLE_LISTS = new java.util.WeakHashMap<>();
     private static final java.util.WeakHashMap<CardsGroup, java.lang.ref.WeakReference<GridView<CardElement>>>
             GROUP_GRID_VIEWS = new java.util.WeakHashMap<>();
+
+    /**
+     * Tracks the FilteredList wrapping each group's ObservableList so the predicate
+     * can be updated without rebuilding the tree.
+     */
+    private static final java.util.WeakHashMap<CardsGroup,
+            java.lang.ref.WeakReference<javafx.collections.transformation.FilteredList<CardElement>>>
+            GROUP_FILTERED_LISTS = new java.util.WeakHashMap<>();
+    /**
+     * Active filter predicate for the middle pane.
+     * When non-null every GridView shows only cards that pass this predicate.
+     * When null all cards are shown (no filter).
+     */
+    private static java.util.function.Predicate<Card> activeMiddleFilter = null;
     /**
      * The StackPane wrapper inside every GridCell has Insets(5) padding on each side,
      * adding 2×5 = 10 px to both the rendered cell width and height beyond the bound
@@ -1699,6 +1713,52 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     /**
+     * Sets (or clears) the active filter for the middle pane.
+     * Pass {@code null} to remove all filtering and restore the full card lists.
+     * The change is applied immediately to every live GridView via their FilteredList.
+     *
+     * @param predicate a {@link java.util.function.Predicate} on {@link Card}, or {@code null}
+     */
+    public static void setMiddleFilter(java.util.function.Predicate<Card> predicate) {
+        activeMiddleFilter = predicate;
+        Platform.runLater(CardTreeCell::applyFilterToAllGroups);
+    }
+
+    /**
+     * Pushes the current {@link #activeMiddleFilter} to every live FilteredList and
+     * recalculates each GridView's preferred height accordingly.
+     */
+    private static void applyFilterToAllGroups() {
+        // Iterate over a snapshot to avoid ConcurrentModificationException
+        List<Map.Entry<CardsGroup,
+                java.lang.ref.WeakReference<javafx.collections.transformation.FilteredList<CardElement>>>>
+                snapshot = new ArrayList<>(GROUP_FILTERED_LISTS.entrySet());
+
+        for (Map.Entry<CardsGroup,
+                java.lang.ref.WeakReference<javafx.collections.transformation.FilteredList<CardElement>>> entry
+                : snapshot) {
+            CardsGroup group = entry.getKey();
+            javafx.collections.transformation.FilteredList<CardElement> fl = entry.getValue().get();
+            if (fl == null) {
+                GROUP_FILTERED_LISTS.remove(group);
+                continue;
+            }
+
+            if (activeMiddleFilter == null) {
+                fl.setPredicate(null);
+            } else {
+                final java.util.function.Predicate<Card> captured = activeMiddleFilter;
+                fl.setPredicate(ce -> ce != null && ce.getCard() != null && captured.test(ce.getCard()));
+            }
+
+            // Recompute height using the post-filter count
+            java.lang.ref.WeakReference<GridView<CardElement>> gridRef = GROUP_GRID_VIEWS.get(group);
+            GridView<CardElement> grid = gridRef != null ? gridRef.get() : null;
+            adjustGridViewHeightStatic(grid, fl.size());
+        }
+    }
+
+    /**
      * Create the visual cell for a CardsGroup.
      * <p>
      * If this group belongs to an archetype, the provided missingForThisGroup set is used.
@@ -1739,7 +1799,16 @@ public class CardTreeCell extends TreeCell<String> {
         grid.getStyleClass().add("card-grid-view");
         grid.setCellFactory(gridView -> new CardGridCell());
         javafx.collections.ObservableList<CardElement> groupItems = observableListFor(group);
-        grid.setItems(groupItems);
+        // Wrap in a FilteredList so the active middle-pane filter can be applied without
+        // touching the underlying model list (which is used by drag-drop and save).
+        javafx.collections.transformation.FilteredList<CardElement> filteredItems =
+                new javafx.collections.transformation.FilteredList<>(groupItems);
+        if (activeMiddleFilter != null) {
+            final java.util.function.Predicate<Card> captured = activeMiddleFilter;
+            filteredItems.setPredicate(ce -> ce != null && ce.getCard() != null && captured.test(ce.getCard()));
+        }
+        GROUP_FILTERED_LISTS.put(group, new java.lang.ref.WeakReference<>(filteredItems));
+        grid.setItems(filteredItems);
         // Register as the current renderer so triggerHeightAdjustment() can find it.
         GROUP_GRID_VIEWS.put(group, new java.lang.ref.WeakReference<>(grid));
         grid.cellWidthProperty().bind(cardWidthProperty);
@@ -1865,7 +1934,17 @@ public class CardTreeCell extends TreeCell<String> {
 
     private void adjustGridViewHeight(CardsGroup group) {
         if (cardGridView == null) return;
-        int numItems = group.getCardList() == null ? 0 : group.getCardList().size();
+        // Use the filtered count when a filter is active so the row height is correct.
+        int numItems;
+        java.lang.ref.WeakReference<javafx.collections.transformation.FilteredList<CardElement>> flRef =
+                GROUP_FILTERED_LISTS.get(group);
+        javafx.collections.transformation.FilteredList<CardElement> fl =
+                flRef != null ? flRef.get() : null;
+        if (fl != null) {
+            numItems = fl.size();
+        } else {
+            numItems = group.getCardList() == null ? 0 : group.getCardList().size();
+        }
         if (numItems <= 0) {
             applyGridPrefHeight(cardGridView, 0);
             return;

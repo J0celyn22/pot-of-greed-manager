@@ -589,16 +589,31 @@
     -fx-padding: 4 8 4 8;
 }
 .accent-combo .list-cell:hover {
-    -fx-background-color: rgba(205,252,4,0.12);
+    -fx-background-color: #262114
 }
 .accent-combo .list-cell:selected {
-    -fx-background-color: rgba(205,252,4,0.22);
+    -fx-background-color: #393912;
+    -fx-text-fill: #cdfc04;
+}
+/* selected + hover */
+.accent-combo .list-cell:selected:hover {
+    -fx-background-color: #4a4a18;
+    -fx-text-fill: #cdfc04;
 }
 /* Dropdown list container */
 .accent-combo .combo-popup .list-view {
     -fx-background-color: black;
     -fx-border-color: #cdfc04;
     -fx-border-width: 1;
+}
+
+/* ── Separator row inside the subtype multi-select combo ── */
+.combo-separator {
+    -fx-pref-height: 1px;
+    -fx-min-height: 1px;
+    -fx-max-height: 1px;
+    -fx-background-color: rgba(205, 252, 4, 0.35);
+    -fx-padding: 0;
 }
 
 /* End of styles.css */
@@ -618,8 +633,7 @@
     -fx-max-width: 82px;
 }
 .link-markers-button:hover {
-    -fx-background-color: #9dc000;
-    -fx-text-fill: black;
+    -fx-background-color: rgba(205, 252, 4, 0.12);
     -fx-border-width: 2;
 }
 .link-markers-button:pressed {
@@ -627,7 +641,28 @@
 }
 
 /* ── Number buttons [1..5] in FilterPane col 4 ── */
-/* .number-button class removed — number selectors are now Labels styled inline */
+.number-button {
+    -fx-background-color: black;
+    -fx-border-color: #cdfc04;
+    -fx-border-width: 1.5;
+    -fx-border-radius: 3;
+    -fx-background-radius: 3;
+    -fx-text-fill: #cdfc04;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 0;
+    -fx-alignment: center;
+}
+.number-button:hover {
+    -fx-background-color: rgba(205, 252, 4, 0.12);
+    -fx-border-width: 2;
+}
+.number-button:pressed {
+    -fx-background-color: rgba(205, 252, 4, 0.25);
+}
+.number-button:disabled {
+    -fx-opacity: 0.4;
+}
 
 /* ── Col-4 action buttons: Disable, Disable all, Active, All ── */
 .col4-button {
@@ -641,8 +676,7 @@
     -fx-padding: 3 8 3 8;
 }
 .col4-button:hover {
-    -fx-background-color: #9dc000;
-    -fx-text-fill: black;
+    -fx-background-color: rgba(205, 252, 4, 0.12);
     -fx-border-width: 2;
 }
 .col4-button:pressed {
@@ -674,17 +708,3 @@
 .camera-button:pressed {
     -fx-background-color: rgba(205, 252, 4, 0.25);
 }
-/* ── Number-button hover/pressed overrides that work on top of inline styles ──
-   The inline styles set background/text/border-radius dynamically.
-   These pseudo-state rules add a subtle visual response without fighting the
-   dynamic colours. The !important-equivalent trick in JavaFX CSS is to keep
-   specificity low so inline styles stay dominant, but we still get feedback. */
-
-/* Cursor hand for all number buttons */
-.number-button {
-    -fx-cursor: hand;
-}
-
-/* The border-color from the base .number-button rule stays; only bg changes on hover.
-   We DON'T override -fx-background-color here so inline styles dominate.
-   Instead we rely on the base hover rule already defined above (rgba overlay). */

@@ -617,6 +617,48 @@ public class RealMainController {
 
 
     /**
+     * Builds the active card filter for the middle pane from every FilterPage that is
+     * both ENABLED and has its bottom-left arrow ENABLED, then pushes it into all live
+     * GridViews via {@link View.CardTreeCell#setMiddleFilter}.
+     *
+     * <p>Called by the {@code onLeftFilterChange} callback wired in
+     * {@link #injectSharedRightPanel}.</p>
+     */
+    private void updateMiddlePaneDisplay() {
+        FilterPane fp = getActiveFilterPane();
+
+        // Flush latest field values from the currently-visible page into pageStates.
+        if (fp != null) {
+            fp.saveCurrentPageState();
+        }
+
+        // Collect every page that is both ENABLED and has its bottom-left arrow ENABLED.
+        List<FilterPane.FilterPageState> activeStates = new ArrayList<>();
+        if (fp != null) {
+            for (int i = 0; i < 5; i++) {
+                FilterPane.FilterPageState ps = fp.getPageState(i);
+                if (ps != null && ps.enabled && ps.bottomLeftEnabled) {
+                    activeStates.add(ps);
+                }
+            }
+        }
+
+        if (activeStates.isEmpty()) {
+            // No active page targets the middle pane — clear any existing filter.
+            View.CardTreeCell.setMiddleFilter(null);
+        } else {
+            // A card must satisfy ALL active pages (AND semantics across pages).
+            final List<FilterPane.FilterPageState> captured = activeStates;
+            View.CardTreeCell.setMiddleFilter(card -> {
+                for (FilterPane.FilterPageState ps : captured) {
+                    if (!matchesPageFilter(card, ps)) return false;
+                }
+                return true;
+            });
+        }
+    }
+
+    /**
      * Moves the shared cardsDisplayContainer (with list/mosaic + printed/unique toggle buttons)
      * into the given tab's right-content pane.
      * The FilterPane is already owned by each SharedCollectionTab's rightHeaderPane — no injection needed.
@@ -630,10 +672,7 @@ public class RealMainController {
         FilterPane fp = tab.getFilterPane();
         if (fp != null) {
             fp.setOnRightFilterChange(() -> updateCardsDisplay());
-            fp.setOnLeftFilterChange(() -> {
-                // TODO: trigger the middle-pane display filter for this tab
-                // e.g. refreshDecksAndCollectionsView() / refreshOwnedCollectionView()
-            });
+            fp.setOnLeftFilterChange(() -> updateMiddlePaneDisplay());
         }
 
         // Top bar: List/Mosaic and Printed/Unique toggle buttons above the cards display
@@ -864,6 +903,9 @@ public class RealMainController {
                 int selectedIndex = mainTabPane.getTabs().indexOf(newTab);
                 // Move the shared right panel (filter + cards display) to the newly active tab
                 injectSharedRightPanel(getSharedTabAt(selectedIndex));
+                // Re-evaluate the middle-pane filter for the newly active tab so its pages
+                // (which may differ from the previous tab's) are applied correctly.
+                updateMiddlePaneDisplay();
                 if (selectedIndex == 1) {
                     try {
                         populateDecksAndCollectionsMenu();
@@ -3640,6 +3682,42 @@ public class RealMainController {
                     event.consume();
                 }
                 break;
+            case NUMPAD1:
+                handleNumpadAddFromRightPane(1);
+                event.consume();
+                break;
+            case NUMPAD2:
+                handleNumpadAddFromRightPane(2);
+                event.consume();
+                break;
+            case NUMPAD3:
+                handleNumpadAddFromRightPane(3);
+                event.consume();
+                break;
+            case NUMPAD4:
+                handleNumpadAddFromRightPane(4);
+                event.consume();
+                break;
+            case NUMPAD5:
+                handleNumpadAddFromRightPane(5);
+                event.consume();
+                break;
+            case NUMPAD6:
+                handleNumpadAddFromRightPane(6);
+                event.consume();
+                break;
+            case NUMPAD7:
+                handleNumpadAddFromRightPane(7);
+                event.consume();
+                break;
+            case NUMPAD8:
+                handleNumpadAddFromRightPane(8);
+                event.consume();
+                break;
+            case NUMPAD9:
+                handleNumpadAddFromRightPane(9);
+                event.consume();
+                break;
             default:
                 break;
         }
@@ -4082,6 +4160,139 @@ public class RealMainController {
      * <p>Only the fields that are implemented so far are checked here.
      * Add further field checks as the rest of the filter UI is wired up.
      */
+// ── Numpad add ──────────────────────────────────────────────────────────────
+
+    /**
+     * Numpad 1-9: adds {@code count} copies of each right-pane source card
+     * into the active middle pane at the appropriate insertion point.
+     * <p>
+     * Source: visible right-pane selection if non-empty, or the sole displayed card.
+     * Destination (same priority as paste):
+     * 1. After the last element of the current MIDDLE selection.
+     * 2. After the last explicitly clicked MIDDLE element.
+     * 3. Into the last clicked navigation-menu item.
+     * After insertion the last added element is selected (becomes the next anchor).
+     */
+    private void handleNumpadAddFromRightPane(int count) {
+        int tabIdx = mainTabPane.getSelectionModel().getSelectedIndex();
+        if (tabIdx != 0 && tabIdx != 1) return;
+
+        List<Card> sourceCards = getNumpadSourceCards();
+        if (sourceCards.isEmpty()) return;
+
+        // Build expanded list: each card repeated 'count' times, preserving order
+        List<Card> toInsert = new ArrayList<>();
+        for (Card c : sourceCards)
+            for (int i = 0; i < count; i++)
+                toInsert.add(c);
+        int totalInserted = toInsert.size();
+
+        // Priority 1: after last selected or last clicked MIDDLE element
+        Model.CardsLists.CardElement targetElem = getNumpadTargetMiddleElement();
+        if (targetElem != null) {
+            boolean ok = pasteCardsAfterElement(toInsert, targetElem);
+            if (ok) {
+                // Select the last inserted element so it becomes the next anchor
+                TreeView<String> tv = getActiveMiddleTreeView();
+                if (tv != null) {
+                    List<Model.CardsLists.CardElement> allElems =
+                            View.CardTreeCell.collectAllElementsInTreeOrder(tv.getRoot());
+                    int targetIdx = allElems.indexOf(targetElem);
+                    if (targetIdx >= 0) {
+                        int lastIdx = Math.min(targetIdx + totalInserted, allElems.size() - 1);
+                        Controller.SelectionManager.selectElement(allElems.get(lastIdx));
+                    }
+                }
+                return;
+            }
+        }
+
+        // Fallback: into the last clicked navigation-menu item
+        Object navItem = Controller.SelectionManager.getLastClickedNavigationItem();
+        if (navItem != null) {
+            List<Model.CardsLists.CardElement> backing = getTargetGroupElements(navItem);
+            pasteCardsIntoNavigationItem(toInsert, navItem);
+            if (!backing.isEmpty()) {
+                Controller.SelectionManager.selectElement(backing.get(backing.size() - 1));
+            }
+        }
+    }
+
+    /**
+     * Returns the cards to use as source for a numpad-add operation.
+     * <p>
+     * Priority:
+     * 1. The right-pane selection intersected with the currently displayed cards.
+     * If cards are selected but none are visible (filtered out), this is empty.
+     * 2. The single card currently displayed (if exactly one passes all filters).
+     * Returns empty list if neither applies → nothing happens.
+     */
+    @SuppressWarnings("unchecked")
+    private List<Card> getNumpadSourceCards() {
+        List<Card> displayedCards = getDisplayedRightPaneCards();
+
+        // Priority 1: visible selected cards only
+        java.util.Set<Card> selected = Controller.SelectionManager.getSelectedCards();
+        if (!selected.isEmpty()) {
+            List<Card> visibleSelected = displayedCards.stream()
+                    .filter(selected::contains)
+                    .collect(Collectors.toList());
+            if (!visibleSelected.isEmpty()) return visibleSelected;
+        }
+
+        // Priority 2: the sole card passing the filters
+        if (displayedCards.size() == 1) return new ArrayList<>(displayedCards);
+
+        return Collections.emptyList();
+    }
+
+    /**
+     * Returns all cards currently visible in the right pane (filtered list).
+     */
+    @SuppressWarnings("unchecked")
+    private List<Card> getDisplayedRightPaneCards() {
+        if (cardsDisplayContainer == null) return Collections.emptyList();
+        for (javafx.scene.Node node : cardsDisplayContainer.getChildren()) {
+            if (node instanceof javafx.scene.control.ListView) {
+                if (!isMosaicMode) {
+                    javafx.scene.control.ListView<Card> lv =
+                            (javafx.scene.control.ListView<Card>) node;
+                    return new ArrayList<>(lv.getItems());
+                } else {
+                    javafx.scene.control.ListView<List<Card>> lv =
+                            (javafx.scene.control.ListView<List<Card>>) node;
+                    List<Card> all = new ArrayList<>();
+                    for (List<Card> row : lv.getItems()) all.addAll(row);
+                    return all;
+                }
+            }
+        }
+        return Collections.emptyList();
+    }
+
+    /**
+     * Returns the MIDDLE-pane CardElement after which numpad cards should be
+     * inserted, mirroring the paste priority logic.
+     */
+    private Model.CardsLists.CardElement getNumpadTargetMiddleElement() {
+        // Priority 1: last element of the current MIDDLE selection
+        if ("MIDDLE".equals(Controller.SelectionManager.getActivePart())
+                && !Controller.SelectionManager.getSelectedMiddleElements().isEmpty()) {
+            TreeView<String> tv = getActiveMiddleTreeView();
+            if (tv != null) {
+                List<Model.CardsLists.CardElement> allElems =
+                        View.CardTreeCell.collectAllElementsInTreeOrder(tv.getRoot());
+                java.util.Set<Model.CardsLists.CardElement> sel =
+                        Controller.SelectionManager.getSelectedMiddleElements();
+                for (int i = allElems.size() - 1; i >= 0; i--) {
+                    if (sel.contains(allElems.get(i))) return allElems.get(i);
+                }
+            }
+        }
+        // Priority 2: last explicitly clicked middle element
+        return Controller.SelectionManager.getLastMiddleElement();
+    }
+
     private boolean matchesPageFilter(Card card, FilterPane.FilterPageState ps) {
         if (card == null || ps == null) return true;
 
@@ -4110,17 +4321,124 @@ public class RealMainController {
             if (!matchesCode) return false;
         }
 
+        // ── PassCode filter ──────────────────────────────────────────────
+        String passCodeFilter = ps.passCode.toLowerCase().trim();
+        if (!passCodeFilter.isEmpty()) {
+            boolean matches = card.getPassCode() != null
+                    && card.getPassCode().toLowerCase().contains(passCodeFilter);
+            if (!matches) return false;
+        }
+
+        // ── Konami ID filter ─────────────────────────────────────────────
+        String konamiIdFilter = ps.konamiId.toLowerCase().trim();
+        if (!konamiIdFilter.isEmpty()) {
+            boolean matches = card.getKonamiId() != null
+                    && card.getKonamiId().toLowerCase().contains(konamiIdFilter);
+            if (!matches) return false;
+        }
+
+        // ── Effect / Description filter ──────────────────────────────────
+        String effectFilter = ps.effect.toLowerCase().trim();
+        if (!effectFilter.isEmpty()) {
+            boolean matches = card.getDescription() != null
+                    && card.getDescription().toLowerCase().contains(effectFilter);
+            if (!matches) return false;
+        }
+
+        // ── Category (card type) filter ──────────────────────────────────
+        if (!"(All)".equals(ps.cardType)) {
+            if (card.getCardType() == null
+                    || !card.getCardType().contains(ps.cardType)) return false;
+        }
+
+        // ── Subtype filter ───────────────────────────────────────────────────
+        // cardSubtypes is a Set; empty means "(All)" — no filter applied.
+        // When non-empty, the card must match ALL selected subtypes (AND logic).
+        if (!ps.cardSubtypes.isEmpty()) {
+            if (card.getCardProperties() == null) return false;
+            for (String sub : ps.cardSubtypes) {
+                if (!card.getCardProperties().contains(sub)) return false;
+            }
+        }
+
+        // Monster-only fields: only applied when the category is explicitly "Monster".
+        // When "(All)", Spell, or Trap is selected, these fields are grayed in the UI
+        // and their stored values must be ignored here too.
+        if ("Monster".equals(ps.cardType) || "(All)".equals(ps.cardType)) {
+
+            // ── Attribute filter ─────────────────────────────────────────────
+            if (!"(All)".equals(ps.attribute)) {
+                if (card.getAttribute() == null
+                        || !card.getAttribute().equalsIgnoreCase(ps.attribute)) return false;
+            }
+
+            // ── Type (monster type) filter ─────────────────────────────────────
+            if (!"(All)".equals(ps.type)) {
+                if (card.getCardProperties() == null
+                        || !card.getCardProperties().contains(ps.type)) return false;
+            }
+
+            // ── ATK filter ───────────────────────────────────────────────────
+            if (!matchesIntField(ps.atk, card.getAtk())) return false;
+
+            // ── DEF filter ───────────────────────────────────────────────────
+            if (!matchesIntField(ps.def, card.getDef())) return false;
+
+            // ── Level / Rank / Link filter ───────────────────────────────────
+            if (!ps.level.isEmpty()) {
+                boolean matchesLvRnkLnk =
+                        matchesIntField(ps.level, card.getLevel())
+                                || matchesIntField(ps.level, card.getRank())
+                                || matchesIntField(ps.level, card.getLinkVal());
+                if (!matchesLvRnkLnk) return false;
+            }
+
+            // ── Scale filter (Pendulum subtype only) ─────────────────────────
+            // Apply scale filter when no subtype selected (all monsters) or Pendulum is among selections.
+            if (ps.cardSubtypes.isEmpty() || ps.cardSubtypes.contains("Pendulum")) {
+                if (!matchesIntField(ps.scale, card.getScale())) return false;
+            }
+
+        } // end Monster-only block
+
         // ── TODO: add further field checks as they are implemented ───────
-        // Example stubs (uncomment and implement):
-        //
-        // String passCodeFilter = ps.passCode.toLowerCase().trim();
-        // if (!passCodeFilter.isEmpty()) { ... }
-        //
         // if (!"(All)".equals(ps.attribute)) { ... }
         // if (!"(All)".equals(ps.cardType))  { ... }
         // if (!ps.atk.isEmpty())             { ... }
         // etc.
 
         return true;
+    }
+
+    /**
+     * Matches a single integer card stat against a filter string.
+     * Formats: empty (skip), "?" (unknown=-1), "N" (exact), "A-B" (range inclusive).
+     */
+    private boolean matchesIntField(String filter, int cardVal) {
+        if (filter == null) return true;
+        filter = filter.trim();
+        if (filter.isEmpty()) return true;
+        if (filter.equals("?")) return cardVal == -1;
+        int dashIdx = filter.indexOf('-', 1); // skip index 0 to ignore leading minus
+        if (dashIdx > 0) {
+            try {
+                int lo = Integer.parseInt(filter.substring(0, dashIdx).trim());
+                int hi = Integer.parseInt(filter.substring(dashIdx + 1).trim());
+                if (lo > hi) {
+                    int tmp = lo;
+                    lo = hi;
+                    hi = tmp;
+                }
+                if (cardVal == -1) return false;
+                return cardVal >= lo && cardVal <= hi;
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        try {
+            return cardVal == Integer.parseInt(filter);
+        } catch (NumberFormatException e) {
+            String displayVal = (cardVal == -1) ? "?" : String.valueOf(cardVal);
+            return displayVal.toLowerCase().contains(filter.toLowerCase());
+        }
     }
 }

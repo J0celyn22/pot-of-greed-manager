@@ -72,7 +72,7 @@ public class FilterPane extends VBox {
     private TextField levelField;
     private TextField scaleField;
     private TextField atkField;
-    private TextField defField;
+    private static final double COL3_LABEL_WIDTH = 82;
 
     // ── Column 2 ──────────────────────────────────────────
     private TextField nameTextField;
@@ -82,14 +82,30 @@ public class FilterPane extends VBox {
     private TextField effectTextField;
     private TextField genesysPointsField;
     private Button linkMarkersButton;
+    /**
+     * Updates the Disable/Enable button text to match the current page's state.
+     */
+    // ═══════════════════════════════════════════════════════════════════
+    // Category / Subtype combo helpers
+    // ═══════════════════════════════════════════════════════════════════
+
+    private static final String SEP = "---";
 
     // ── Column 3 ──────────────────────────────────────────
     private TextField yearField;
-    private TextField wordCountField;
+    private static final String[] MONSTER_SUBTYPES = {
+            "Normal", "Effect", "Pendulum", "Ritual",
+            SEP,
+            "Fusion", "Synchro", "Xyz", "Link",
+            SEP,
+            "Tuner", "Union", "Gemini", "Toon", "Flip", "Spirit"
+    };
     private ComboBox<String> packCombo;
     private ComboBox<String> stateCombo;
     private ComboBox<String> rarityCombo;
-    private static final double COL3_LABEL_WIDTH = 82;
+    private static final String[] SPELL_SUBTYPES = {
+            "Normal", "Continuous", "Quick-Play", "Equip", "Field", "Ritual"
+    };
     private Button disableButton;
     private Button disableAllButton;
     private Button activeButton;
@@ -100,16 +116,26 @@ public class FilterPane extends VBox {
     private ImageView bottomLeftIV;
     private ImageView bottomRightIV;
 
+    // ── Multi-select subtype state ─────────────────────────
+    private static final String[] TRAP_SUBTYPES = {
+            "Normal", "Continuous", "Counter"
+    };
+    // ── Column 4 ──────────────────────────────────────────
+    private final Label[] numberSelectors = new Label[5];
+    /**
+     * The live selection set for the subtype multi-select combo.
+     * An empty set means "(All)" — no subtype filter is applied.
+     * Insertion-ordered so the button-cell summary stays stable.
+     */
+    private final java.util.Set<String> selectedSubtypes = new java.util.LinkedHashSet<>();
+
     // ═══════════════════════════════════════════════════════════════════
     // Page state
     // ═══════════════════════════════════════════════════════════════════
-    // ── Column 4 ──────────────────────────────────────────
-    private final Label[] numberSelectors = new Label[5];
+
     private final FilterPageState[] pageStates = new FilterPageState[5];
-    /**
-     * Set to true while loading a page so listeners do not fire.
-     */
-    private boolean suppressListeners = false;
+    private TextField        defField;
+    private LinkMarkerPopup   linkMarkerPopup;
 
     // ═══════════════════════════════════════════════════════════════════
     // External callbacks
@@ -126,7 +152,61 @@ public class FilterPane extends VBox {
      * (i.e. a filter value changed, or a bottom-left state changed).
      */
     private Runnable onLeftFilterChange;
+    private TextField        wordCountField;
+    /**
+     * Reference to the button cell so we can refresh its text without a value change.
+     */
+    private javafx.scene.control.ListCell<String> subtypeButtonCell;
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Constructor
+    // ═══════════════════════════════════════════════════════════════════
+    /**
+     * When true, {@code cardSubtypeCombo.hide()} is a no-op so the popup stays open
+     * during a plain click. Reset via {@code Platform.runLater} so all subsequent
+     * external close requests (click outside, Shift+click) work normally.
+     */
+    private boolean subtypeKeepOpen = false;
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Column builders  (unchanged from original)
+    // ═══════════════════════════════════════════════════════════════════
     private int currentPage = 0;
+
+    /** Col 2: Name / PrintCode / PassCode / Konami ID / Effect / Genesys Points */
+    private VBox buildColumn2() {
+        VBox col = new VBox(6);
+        col.setStyle("-fx-background-color: #100317;");
+
+        nameTextField = makeField(null);
+        HBox line1 = makeRow(makeLabel("Name :"), nameTextField);
+        HBox.setHgrow(nameTextField, Priority.ALWAYS);
+
+        printcodeTextField = makeField(null);
+        HBox line2 = makeRow(makeLabel("PrintCode :"), printcodeTextField);
+        HBox.setHgrow(printcodeTextField, Priority.ALWAYS);
+
+        passCodeTextField = makeField(null);
+        HBox line3 = makeRow(makeLabel("PassCode :"), passCodeTextField);
+        HBox.setHgrow(passCodeTextField, Priority.ALWAYS);
+
+        konamiIdTextField = makeField(null);
+        HBox line4 = makeRow(makeLabel("Konami ID :"), konamiIdTextField);
+        HBox.setHgrow(konamiIdTextField, Priority.ALWAYS);
+
+        effectTextField = makeField(null);
+        HBox line5 = makeRow(makeLabel("Effect :"), effectTextField);
+        HBox.setHgrow(effectTextField, Priority.ALWAYS);
+
+        genesysPointsField = makeNarrowField(null, 65);
+        HBox line6 = makeRow(makeLabel("Genesys Points :"), genesysPointsField);
+
+        col.getChildren().addAll(line1, line2, line3, line4, line5, line6);
+        return col;
+    }
+    /** Set to true while loading a page so listeners do not fire. */
+    private boolean suppressListeners = false;
+
     public FilterPane() {
         this.setStyle("-fx-background-color: #100317;");
         this.getStyleClass().add("filter-pane");
@@ -165,7 +245,7 @@ public class FilterPane extends VBox {
         // Two invisible hit-target Regions, one per corner, anchored inside the
         // StackPane at exactly the size of the images.  They are the ONLY nodes
         // that receive click events for the bottom arrows.
-        Region leftHit = new Region();
+        Region leftHit  = new Region();
         leftHit.setPrefSize(42, 42);
         leftHit.setMaxSize(42, 42);
         leftHit.setStyle("-fx-cursor: hand;");
@@ -191,7 +271,7 @@ public class FilterPane extends VBox {
         StackPane.setAlignment(columnsBox, Pos.TOP_LEFT);
         StackPane.setAlignment(bottomBar, Pos.BOTTOM_CENTER);
         StackPane.setAlignment(leftHit, Pos.BOTTOM_LEFT);
-        StackPane.setAlignment(rightHit, Pos.BOTTOM_RIGHT);
+        StackPane.setAlignment(rightHit,   Pos.BOTTOM_RIGHT);
         VBox.setVgrow(stack, Priority.ALWAYS);
 
         this.getChildren().add(stack);
@@ -202,6 +282,9 @@ public class FilterPane extends VBox {
         // ── Wire all interactive controls ──
         wireControls();
 
+        // ── Apply initial disabled state (no category selected = monster fields gray) ──
+        updateMonsterFieldsDisabled("(All)", "(All)");
+
         // ── Reflect initial state visually (page 0 selected, all disabled) ──
         updateNumberButtonStyles();
         updateDisableButtonText();
@@ -209,7 +292,7 @@ public class FilterPane extends VBox {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // Constructor
+    // Page state initialisation
     // ═══════════════════════════════════════════════════════════════════
 
     private static String text(TextField tf) {
@@ -217,7 +300,7 @@ public class FilterPane extends VBox {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // Column builders  (unchanged from original)
+    // Control wiring
     // ═══════════════════════════════════════════════════════════════════
 
     private static String comboVal(ComboBox<String> cb) {
@@ -239,19 +322,58 @@ public class FilterPane extends VBox {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // Page management
+    // ═══════════════════════════════════════════════════════════════════
+
     /** Col 1: Category / Attribute / Type / Lv+[LinkMkr]+Scale / ATK+DEF */
     private VBox buildColumn1() {
         VBox col = new VBox(6);
         col.setStyle("-fx-background-color: #100317;");
 
         cardTypeCombo = makeCombo();
-        cardSubtypeCombo = makeCombo();
+        cardTypeCombo.getItems().addAll("Monster", "Spell", "Trap");
+
+        // Anonymous subclass so hide() can be blocked during plain clicks.
+        cardSubtypeCombo = new ComboBox<String>() {
+            @Override
+            public void hide() {
+                if (!subtypeKeepOpen) super.hide();
+            }
+        };
+        cardSubtypeCombo.getItems().add("(All)");
+        cardSubtypeCombo.setValue("(All)");
+        cardSubtypeCombo.getStyleClass().add("accent-combo");
+        cardSubtypeCombo.setPrefHeight(24);
+        cardSubtypeCombo.setMaxHeight(24);
+        cardSubtypeCombo.setPrefWidth(150);
+        cardSubtypeCombo.setMinWidth(150);
+        installMultiSelectCellFactory(cardSubtypeCombo);
+        updateSubtypeCombo("(All)");
+
+        // When the category changes: rebuild subtype list, enable/disable fields.
+        cardTypeCombo.valueProperty().addListener((obs, oldVal, newVal) -> {
+            if (suppressListeners) return;
+            updateSubtypeCombo(newVal);
+            updateMonsterFieldsDisabled(newVal, null);
+        });
+
         HBox line1 = makeRow(makeFixedLabel("Category :", COL1_LABEL_WIDTH), cardTypeCombo, cardSubtypeCombo);
 
         attributeCombo = makeCombo();
+        attributeCombo.getItems().addAll(
+                "Fire", "Water", "Wind", "Earth", "Light", "Dark", "Divine"
+        );
         HBox line2 = makeRow(makeFixedLabel("Attribute :", COL1_LABEL_WIDTH), attributeCombo);
 
         typeCombo = makeCombo();
+        typeCombo.getItems().addAll(
+                "Aqua", "Beast", "Beast-Warrior", "Cyberse", "Dinosaur",
+                "Divine-Beast", "Dragon", "Fairy", "Fiend", "Fish",
+                "Illusion", "Insect", "Machine", "Plant", "Psychic",
+                "Pyro", "Reptile", "Rock", "Sea Serpent", "Spellcaster",
+                "Thunder", "Warrior", "Winged Beast", "Wyrm", "Zombie"
+        );
         HBox line3 = makeRow(makeFixedLabel("Type :", COL1_LABEL_WIDTH), typeCombo);
 
         levelField = makeNarrowField(null, 55);
@@ -277,8 +399,8 @@ public class FilterPane extends VBox {
                 scaleField
         );
 
-        atkField = makeNarrowField(null, 55);
-        defField = makeNarrowField(null, 55);
+        atkField = makeNarrowField(null, 90);
+        defField = makeNarrowField(null, 90);
         Region defGap = new Region();
         defGap.setMinWidth(12);
         defGap.setPrefWidth(12);
@@ -286,59 +408,6 @@ public class FilterPane extends VBox {
         HBox line5 = makeRow(makeLabel("ATK :"), atkField, defGap, makeLabel("DEF :"), defField);
 
         col.getChildren().addAll(line1, line2, line3, line4, line5);
-        return col;
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Page state initialisation
-    // ═══════════════════════════════════════════════════════════════════
-
-    private void initPageStates() {
-        // Page 0: bottomLeft DISABLED, bottomRight enabled
-        pageStates[0] = new FilterPageState(false, true);
-        // Page 1: bottomLeft enabled,  bottomRight DISABLED
-        pageStates[1] = new FilterPageState(true, false);
-        // Page 2: both enabled
-        pageStates[2] = new FilterPageState(true, true);
-        // Page 3: both DISABLED
-        pageStates[3] = new FilterPageState(false, false);
-        // Page 4: both DISABLED
-        pageStates[4] = new FilterPageState(false, false);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Control wiring
-    // ═══════════════════════════════════════════════════════════════════
-
-    /** Col 2: Name / PrintCode / PassCode / Konami ID / Effect / Genesys Points */
-    private VBox buildColumn2() {
-        VBox col = new VBox(6);
-        col.setStyle("-fx-background-color: #100317;");
-
-        nameTextField = makeField(null);
-        HBox line1 = makeRow(makeLabel("Name :"), nameTextField);
-        HBox.setHgrow(nameTextField, Priority.ALWAYS);
-
-        printcodeTextField = makeField(null);
-        HBox line2 = makeRow(makeLabel("PrintCode :"), printcodeTextField);
-        HBox.setHgrow(printcodeTextField, Priority.ALWAYS);
-
-        passCodeTextField = makeField(null);
-        HBox line3 = makeRow(makeLabel("PassCode :"), passCodeTextField);
-        HBox.setHgrow(passCodeTextField, Priority.ALWAYS);
-
-        konamiIdTextField = makeField(null);
-        HBox line4 = makeRow(makeLabel("Konami ID :"), konamiIdTextField);
-        HBox.setHgrow(konamiIdTextField, Priority.ALWAYS);
-
-        effectTextField = makeField(null);
-        HBox line5 = makeRow(makeLabel("Effect :"), effectTextField);
-        HBox.setHgrow(effectTextField, Priority.ALWAYS);
-
-        genesysPointsField = makeNarrowField(null, 65);
-        HBox line6 = makeRow(makeLabel("Genesys Points :"), genesysPointsField);
-
-        col.getChildren().addAll(line1, line2, line3, line4, line5, line6);
         return col;
     }
 
@@ -353,134 +422,17 @@ public class FilterPane extends VBox {
         wordCountField = makeNarrowField(null, 115);
         HBox line2 = makeRow(makeFixedLabel("Word Count :", COL3_LABEL_WIDTH), wordCountField);
 
-        packCombo = makeCombo();
+        packCombo   = makeCombo();
         stateCombo = makeCombo();
         rarityCombo = makeCombo();
 
         HBox line3 = makeRightRow(makeLabel("Pack :"), packCombo);
-        HBox line4 = makeRightRow(makeLabel("State :"), stateCombo);
+        HBox line4 = makeRightRow(makeLabel("State :"),  stateCombo);
         HBox line5 = makeRightRow(makeLabel("Rarity :"), rarityCombo);
 
         col.getChildren().addAll(line1, line2, line3, line4, line5);
         return col;
     }
-
-    /**
-     * Same as {@link #wireTextField} but for ComboBoxes.
-     */
-    private void wireComboBox(ComboBox<String> cb) {
-        if (cb == null) return;
-        cb.valueProperty().addListener((obs, oldVal, newVal) -> {
-            if (suppressListeners) return;
-            enableCurrentPage();
-            saveCurrentPageState();
-            fireRightFilterChange();
-        });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Page management
-    // ═══════════════════════════════════════════════════════════════════
-
-    /**
-     * Switches the visible page to {@code page} (0-based).
-     * Saves the current page's state first.
-     */
-    public void selectPage(int page) {
-        if (page < 0 || page >= 5 || page == currentPage) return;
-        saveCurrentPageState();
-        currentPage = page;
-        loadPageState(page);
-        updateNumberButtonStyles();
-        updateDisableButtonText();
-        updateBottomImages();
-    }
-
-    /**
-     * Returns the 0-based index of the currently selected page.
-     */
-    public int getCurrentPage() {
-        return currentPage;
-    }
-
-    /**
-     * Enables the current page and refreshes related UI.
-     * Called automatically when any filter field is modified.
-     */
-    private void enableCurrentPage() {
-        if (!pageStates[currentPage].enabled) {
-            pageStates[currentPage].enabled = true;
-            updateNumberButtonStyles();
-            updateDisableButtonText();
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // State save / load
-    // ═══════════════════════════════════════════════════════════════════
-
-    /**
-     * Copies the current UI field values into {@code pageStates[currentPage]}.
-     * Always call this before switching pages or before reading page data externally.
-     */
-    public void saveCurrentPageState() {
-        FilterPageState ps = pageStates[currentPage];
-        ps.name = text(nameTextField);
-        ps.printCode = text(printcodeTextField);
-        ps.passCode = text(passCodeTextField);
-        ps.konamiId = text(konamiIdTextField);
-        ps.effect = text(effectTextField);
-        ps.genesysPoints = text(genesysPointsField);
-        ps.level = text(levelField);
-        ps.scale = text(scaleField);
-        ps.atk = text(atkField);
-        ps.def = text(defField);
-        ps.year = text(yearField);
-        ps.wordCount = text(wordCountField);
-        ps.cardType = comboVal(cardTypeCombo);
-        ps.cardSubtype = comboVal(cardSubtypeCombo);
-        ps.attribute = comboVal(attributeCombo);
-        ps.type = comboVal(typeCombo);
-        ps.pack = comboVal(packCombo);
-        ps.state = comboVal(stateCombo);
-        ps.rarity = comboVal(rarityCombo);
-    }
-
-    /**
-     * Populates the UI fields from {@code pageStates[page]}.
-     * Suppresses listeners during population to avoid spurious filter-change events.
-     */
-    private void loadPageState(int page) {
-        FilterPageState ps = pageStates[page];
-        suppressListeners = true;
-        try {
-            setTF(nameTextField, ps.name);
-            setTF(printcodeTextField, ps.printCode);
-            setTF(passCodeTextField, ps.passCode);
-            setTF(konamiIdTextField, ps.konamiId);
-            setTF(effectTextField, ps.effect);
-            setTF(genesysPointsField, ps.genesysPoints);
-            setTF(levelField, ps.level);
-            setTF(scaleField, ps.scale);
-            setTF(atkField, ps.atk);
-            setTF(defField, ps.def);
-            setTF(yearField, ps.year);
-            setTF(wordCountField, ps.wordCount);
-            setCB(cardTypeCombo, ps.cardType);
-            setCB(cardSubtypeCombo, ps.cardSubtype);
-            setCB(attributeCombo, ps.attribute);
-            setCB(typeCombo, ps.type);
-            setCB(packCombo, ps.pack);
-            setCB(stateCombo, ps.state);
-            setCB(rarityCombo, ps.rarity);
-        } finally {
-            suppressListeners = false;
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Visual update helpers
-    // ═══════════════════════════════════════════════════════════════════
 
     /** Col 4: [1..5] / Disable / Disable all / Clear / Active+All / Camera */
     private VBox buildColumn4() {
@@ -507,9 +459,9 @@ public class FilterPane extends VBox {
             nb.setFocusTraversable(false);
             nb.setOnMouseClicked(e -> selectPage(idx));
             nb.addEventHandler(MouseEvent.MOUSE_ENTERED, e -> applyNumberSelectorStyle(idx, true));
-            nb.addEventHandler(MouseEvent.MOUSE_EXITED, e -> applyNumberSelectorStyle(idx, false));
+            nb.addEventHandler(MouseEvent.MOUSE_EXITED,  e -> applyNumberSelectorStyle(idx, false));
             nb.addEventHandler(MouseEvent.MOUSE_PRESSED, e -> applyNumberSelectorStyle(idx, true));
-            nb.addEventHandler(MouseEvent.MOUSE_RELEASED, e -> applyNumberSelectorStyle(idx, true));
+            nb.addEventHandler(MouseEvent.MOUSE_RELEASED,e -> applyNumberSelectorStyle(idx, true));
             numberSelectors[i] = nb;
             numbersRow.getChildren().add(nb);
         }
@@ -586,9 +538,50 @@ public class FilterPane extends VBox {
         return col;
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // State save / load
+    // ═══════════════════════════════════════════════════════════════════
+
+    private void initPageStates() {
+        // Page 0: bottomLeft DISABLED, bottomRight enabled
+        pageStates[0] = new FilterPageState(false, true);
+        // Page 1: bottomLeft enabled,  bottomRight DISABLED
+        pageStates[1] = new FilterPageState(true, false);
+        // Page 2: both enabled
+        pageStates[2] = new FilterPageState(true, true);
+        // Page 3: both DISABLED
+        pageStates[3] = new FilterPageState(false, false);
+        // Page 4: both DISABLED
+        pageStates[4] = new FilterPageState(false, false);
+    }
+
     private void wireControls() {
 
         // ── Number selectors 1-5 — wired directly in buildColumn4() ────────
+
+        // ── Link Markers popup ──────────────────────────────────────────────
+        linkMarkerPopup = new LinkMarkerPopup();
+        linkMarkerPopup.setOnMarkersChanged(() -> {
+            enableCurrentPage();
+            saveCurrentPageState();
+            fireRightFilterChange();
+        });
+        linkMarkersButton.setOnAction(e -> {
+            if (linkMarkerPopup.isShowing()) {
+                linkMarkerPopup.hide();
+            } else {
+                // Position popup just above the button
+                javafx.geometry.Bounds b = linkMarkersButton.localToScreen(
+                        linkMarkersButton.getBoundsInLocal());
+                if (b != null) {
+                    linkMarkerPopup.show(
+                            linkMarkersButton,
+                            b.getMinX(),
+                            b.getMinY() - 110   // approx popup height + gap
+                    );
+                }
+            }
+        });
 
         // ── Disable / Enable toggle ──────────────────────────────────────
         disableButton.setOnAction(e -> {
@@ -596,6 +589,7 @@ public class FilterPane extends VBox {
             updateNumberButtonStyles();
             updateDisableButtonText();
             fireRightFilterChange();
+            fireLeftFilterChange();
         });
 
         // ── Disable All — text never changes ────────────────────────────
@@ -604,6 +598,7 @@ public class FilterPane extends VBox {
             updateNumberButtonStyles();
             updateDisableButtonText();
             fireRightFilterChange();
+            fireLeftFilterChange();
         });
 
         // ── Bottom-left / bottom-right click handling ────────────────────
@@ -626,7 +621,7 @@ public class FilterPane extends VBox {
 
         // ── All filter combo boxes ───────────────────────────────────────
         wireComboBox(cardTypeCombo);
-        wireComboBox(cardSubtypeCombo);
+        // cardSubtypeCombo is handled by installMultiSelectCellFactory
         wireComboBox(attributeCombo);
         wireComboBox(typeCombo);
         wireComboBox(packCombo);
@@ -634,9 +629,351 @@ public class FilterPane extends VBox {
         wireComboBox(rarityCombo);
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // Visual update helpers
+    // ═══════════════════════════════════════════════════════════════════
+
     /**
-     * Updates the Disable/Enable button text to match the current page's state.
+     * Attaches a text-change listener that:
+     * 1. Enables the current page.
+     * 2. Saves the page's state snapshot.
+     * 3. Fires the right-filter-change callback.
      */
+    private void wireTextField(TextField tf) {
+        if (tf == null) return;
+        tf.textProperty().addListener((obs, oldVal, newVal) -> {
+            if (suppressListeners) return;
+            enableCurrentPage();
+            saveCurrentPageState();
+            fireRightFilterChange();
+            fireLeftFilterChange();
+        });
+    }
+
+    /**
+     * Same as {@link #wireTextField} but for ComboBoxes.
+     */
+    private void wireComboBox(ComboBox<String> cb) {
+        if (cb == null) return;
+        cb.valueProperty().addListener((obs, oldVal, newVal) -> {
+            if (suppressListeners) return;
+            enableCurrentPage();
+            saveCurrentPageState();
+            fireRightFilterChange();
+            fireLeftFilterChange();
+        });
+    }
+
+    /**
+     * Switches the visible page to {@code page} (0-based).
+     * Saves the current page's state first.
+     */
+    public void selectPage(int page) {
+        if (page < 0 || page >= 5 || page == currentPage) return;
+        saveCurrentPageState();
+        currentPage = page;
+        loadPageState(page);
+        updateNumberButtonStyles();
+        updateDisableButtonText();
+        updateBottomImages();
+    }
+
+    /**
+     * Returns the 0-based index of the currently selected page.
+     */
+    public int getCurrentPage() {
+        return currentPage;
+    }
+
+    /**
+     * Enables the current page and refreshes related UI.
+     * Called automatically when any filter field is modified.
+     */
+    private void enableCurrentPage() {
+        if (!pageStates[currentPage].enabled) {
+            pageStates[currentPage].enabled = true;
+            updateNumberButtonStyles();
+            updateDisableButtonText();
+        }
+    }
+
+    /**
+     * Copies the current UI field values into {@code pageStates[currentPage]}.
+     * Always call this before switching pages or before reading page data externally.
+     */
+    public void saveCurrentPageState() {
+        FilterPageState ps = pageStates[currentPage];
+        ps.name = text(nameTextField);
+        ps.printCode = text(printcodeTextField);
+        ps.passCode = text(passCodeTextField);
+        ps.konamiId = text(konamiIdTextField);
+        ps.effect = text(effectTextField);
+        ps.genesysPoints = text(genesysPointsField);
+        ps.level = text(levelField);
+        ps.scale = text(scaleField);
+        ps.atk = text(atkField);
+        ps.def = text(defField);
+        ps.year = text(yearField);
+        ps.wordCount = text(wordCountField);
+        ps.cardType = comboVal(cardTypeCombo);
+        ps.cardSubtypes = new java.util.LinkedHashSet<>(selectedSubtypes);
+        ps.attribute = comboVal(attributeCombo);
+        ps.type = comboVal(typeCombo);
+        ps.pack = comboVal(packCombo);
+        ps.state = comboVal(stateCombo);
+        ps.rarity = comboVal(rarityCombo);
+        ps.linkMarkers = new java.util.LinkedHashSet<>(linkMarkerPopup.getEnabledMarkers());
+    }
+
+    /**
+     * Populates the UI fields from {@code pageStates[page]}.
+     * Suppresses listeners during population to avoid spurious filter-change events.
+     */
+    private void loadPageState(int page) {
+        FilterPageState ps = pageStates[page];
+        suppressListeners = true;
+        try {
+            setTF(nameTextField, ps.name);
+            setTF(printcodeTextField, ps.printCode);
+            setTF(passCodeTextField, ps.passCode);
+            setTF(konamiIdTextField, ps.konamiId);
+            setTF(effectTextField, ps.effect);
+            setTF(genesysPointsField, ps.genesysPoints);
+            setTF(levelField, ps.level);
+            setTF(scaleField, ps.scale);
+            setTF(atkField, ps.atk);
+            setTF(defField, ps.def);
+            setTF(yearField, ps.year);
+            setTF(wordCountField, ps.wordCount);
+            setCB(cardTypeCombo, ps.cardType);
+            loadSubtypeSelections(ps.cardSubtypes);
+            setCB(attributeCombo, ps.attribute);
+            setCB(typeCombo, ps.type);
+            setCB(packCombo, ps.pack);
+            setCB(stateCombo, ps.state);
+            setCB(rarityCombo, ps.rarity);
+            linkMarkerPopup.setEnabledMarkers(ps.linkMarkers);
+        } finally {
+            suppressListeners = false;
+        }
+    }
+
+    /**
+     * Refreshes all number selector styles (non-hovered state).
+     */
+    private void updateNumberButtonStyles() {
+        for (int i = 0; i < 5; i++) {
+            applyNumberSelectorStyle(i, false);
+        }
+    }
+
+    /**
+     * Applies the correct inline style to number selector {@code i}.
+     * Because these are Labels (no ButtonSkin), setStyle() is authoritative —
+     * no CSS pseudo-state re-pass can override it.
+     *
+     * @param hovered true when the mouse is currently over this selector
+     */
+    private void applyNumberSelectorStyle(int i, boolean hovered) {
+        if (i < 0 || i >= 5 || numberSelectors[i] == null) return;
+        boolean sel = (i == currentPage);
+        boolean enabled = pageStates[i].enabled;
+        Label lbl = numberSelectors[i];
+
+        String bg, fg;
+        if (enabled) {
+            bg = hovered ? "#b5d600" : "#9dc000";   // yellow-green; slightly darker on hover
+            fg = "black";
+        } else {
+            bg = hovered ? "rgba(205,252,4,0.15)" : "black";
+            fg = "#cdfc04";                          // yellow-green text on black bg
+        }
+
+        String borderWidth = sel ? "2.5" : "1.5";
+        String fontWeight = sel ? "bold" : "normal";
+
+        lbl.setStyle(
+                "-fx-background-color: " + bg + ";" +
+                        "-fx-text-fill: " + fg + ";" +
+                        "-fx-font-size: 11px;" +
+                        "-fx-font-weight: " + fontWeight + ";" +
+                        "-fx-border-color: #cdfc04;" +
+                        "-fx-border-width: " + borderWidth + ";" +
+                        "-fx-border-radius: 3;" +
+                        "-fx-background-radius: 3;" +
+                        "-fx-padding: 0;" +
+                        "-fx-alignment: center;" +
+                        "-fx-cursor: hand;"
+        );
+    }
+
+    /**
+     * Rebuilds {@code cardSubtypeCombo} items for the given category.
+     * Always runs under {@code suppressListeners} so it never enables the page.
+     */
+    private void updateSubtypeCombo(String category) {
+        suppressListeners = true;
+        try {
+            selectedSubtypes.clear();
+            cardSubtypeCombo.getItems().clear();
+            cardSubtypeCombo.getItems().add("(All)");
+            String[] extras =
+                    "Monster".equals(category) ? MONSTER_SUBTYPES :
+                            "Spell".equals(category) ? SPELL_SUBTYPES :
+                                    "Trap".equals(category) ? TRAP_SUBTYPES : new String[0];
+            for (String s : extras) cardSubtypeCombo.getItems().add(s);
+            cardSubtypeCombo.setValue("(All)");
+            updateSubtypeButtonCell();
+        } finally {
+            suppressListeners = false;
+        }
+    }
+
+    /**
+     * Enables or disables monster-specific fields based on the selected category
+     * and subcategory.
+     * <p>
+     * Rules:
+     * - category != "Monster"  → Level/Rank/Link, ATK, DEF, Scale, Attribute,
+     * Type, Link Markers all disabled.
+     * - category == "Monster"  → all enabled, except Scale which is only active
+     * when subtype == "Pendulum".
+     */
+    private void updateMonsterFieldsDisabled(String category, String subtype) {
+        boolean notMonster = !("Monster".equals(category) || "(All)".equals(category));
+        if (attributeCombo != null) attributeCombo.setDisable(notMonster);
+        if (typeCombo != null) typeCombo.setDisable(notMonster);
+        if (levelField != null) levelField.setDisable(notMonster);
+        if (atkField != null) atkField.setDisable(notMonster);
+        if (defField != null) defField.setDisable(notMonster);
+        if (linkMarkersButton != null) linkMarkersButton.setDisable(notMonster);
+    }
+
+    /**
+     * Installs the multi-select cell factory on {@code cardSubtypeCombo}.
+     *
+     * <ul>
+     *   <li><b>Plain click</b> — toggles the item in/out of {@link #selectedSubtypes},
+     *       fires filter callbacks, and keeps the popup open.</li>
+     *   <li><b>Shift+click</b> — selects only that item (single-select semantics),
+     *       fires filter callbacks, and lets the popup close normally.</li>
+     *   <li><b>{@value SEP} rows</b> — always non-selectable visual dividers.</li>
+     * </ul>
+     * The button cell always shows a comma-joined summary of the current selection,
+     * or "(All)" when nothing is selected.
+     */
+    private void installMultiSelectCellFactory(ComboBox<String> cb) {
+
+        cb.setCellFactory(lv -> new javafx.scene.control.ListCell<String>() {
+            {
+                addEventFilter(MouseEvent.MOUSE_PRESSED, event -> {
+                    String item = getItem();
+                    if (item == null || SEP.equals(item)) {
+                        event.consume();
+                        return;
+                    }
+                    if (event.isShiftDown()) {
+                        // ── Shift+click: single-select + close ──────────────
+                        // subtypeKeepOpen stays false → hide() runs → popup closes.
+                        selectedSubtypes.clear();
+                        if (!"(All)".equals(item)) selectedSubtypes.add(item);
+                        updateSubtypeButtonCell();
+                        lv.refresh();
+                        if (!suppressListeners) {
+                            enableCurrentPage();
+                            saveCurrentPageState();
+                            fireRightFilterChange();
+                            fireLeftFilterChange();
+                        }
+                    } else {
+                        // ── Plain click: toggle + keep open ─────────────────
+                        // Block hide() for the entire current event cycle.
+                        subtypeKeepOpen = true;
+                        toggleSubtype(item);
+                        updateSubtypeButtonCell();
+                        lv.refresh();
+                        if (!suppressListeners) {
+                            enableCurrentPage();
+                            saveCurrentPageState();
+                            fireRightFilterChange();
+                            fireLeftFilterChange();
+                        }
+                        // Re-enable hide() after the pulse so external closes work.
+                        javafx.application.Platform.runLater(() -> subtypeKeepOpen = false);
+                    }
+                });
+            }
+
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                // Reset all state so recycled cells start clean.
+                setText(null);
+                setGraphic(null);
+                setDisable(false);
+                setMouseTransparent(false);
+                setStyle("");
+
+                if (empty || item == null) {
+                    // nothing to render
+                } else if (SEP.equals(item)) {
+                    // ── Separator row ────────────────────────────────────────
+                    // Use an inline-styled Region graphic: a CSS class would be
+                    // overridden by .accent-combo .list-cell, but inline style wins.
+                    javafx.scene.layout.Region line = new javafx.scene.layout.Region();
+                    line.setPrefHeight(1);
+                    line.setMinHeight(1);
+                    line.setMaxHeight(1);
+                    line.setMaxWidth(Double.MAX_VALUE);
+                    line.setStyle("-fx-background-color: rgba(205,252,4,0.45);");
+                    setGraphic(line);
+                    setDisable(true);
+                    setMouseTransparent(true);
+                    setStyle("-fx-padding: 3 4 3 4; -fx-background-color: #100317;");
+                } else {
+                    // ── Normal item ──────────────────────────────────────────
+                    boolean isSelected = selectedSubtypes.isEmpty()
+                            ? "(All)".equals(item)
+                            : selectedSubtypes.contains(item);
+                    setText(isSelected ? "✔  " + item : item);
+                    setStyle(isSelected
+                            ? "-fx-background-color: #393912; -fx-text-fill: #cdfc04;"
+                            : "");
+                }
+            }
+        });
+
+        subtypeButtonCell = new javafx.scene.control.ListCell<String>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(computeSubtypeButtonText());
+            }
+        };
+        cb.setButtonCell(subtypeButtonCell);
+    }
+
+    /**
+     * Toggles {@code item} in {@link #selectedSubtypes}.
+     * <ul>
+     *   <li>Clicking "(All)" clears all other selections (empty set = no filter).</li>
+     *   <li>Clicking a specific item removes "(All)" semantics and toggles that item.
+     *       If the set becomes empty the result is equivalent to "(All)".</li>
+     * </ul>
+     */
+    private void toggleSubtype(String item) {
+        if ("(All)".equals(item)) {
+            selectedSubtypes.clear();
+        } else {
+            if (selectedSubtypes.contains(item)) {
+                selectedSubtypes.remove(item);
+                // empty set now means "(All)" — that's intentional
+            } else {
+                selectedSubtypes.add(item);
+            }
+        }
+    }
+
     private void updateDisableButtonText() {
         if (disableButton != null) {
             disableButton.setText(pageStates[currentPage].enabled ? "Disable" : "Enable");
@@ -800,72 +1137,54 @@ public class FilterPane extends VBox {
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Attaches a text-change listener that:
-     *  1. Enables the current page.
-     *  2. Saves the page's state snapshot.
-     *  3. Fires the right-filter-change callback.
+     * Forces the button cell to redisplay the current selection summary.
+     * Must be called after every change to {@link #selectedSubtypes}.
      */
-    private void wireTextField(TextField tf) {
-        if (tf == null) return;
-        tf.textProperty().addListener((obs, oldVal, newVal) -> {
-            if (suppressListeners) return;
-            enableCurrentPage();
-            saveCurrentPageState();
-            fireRightFilterChange();
-        });
-    }
-
-    /**
-     * Refreshes all number selector styles (non-hovered state).
-     */
-    private void updateNumberButtonStyles() {
-        for (int i = 0; i < 5; i++) {
-            applyNumberSelectorStyle(i, false);
+    private void updateSubtypeButtonCell() {
+        if (subtypeButtonCell != null) {
+            subtypeButtonCell.setText(computeSubtypeButtonText());
         }
     }
 
     /**
-     * Applies the correct inline style to number selector {@code i}.
-     * Because these are Labels (no ButtonSkin), setStyle() is authoritative —
-     * no CSS pseudo-state re-pass can override it.
+     * Builds the summary text shown in the combo button cell.
      *
-     * @param hovered true when the mouse is currently over this selector
+     * @return "(All)" when nothing is selected, or a comma-joined list of selections
      */
-    private void applyNumberSelectorStyle(int i, boolean hovered) {
-        if (i < 0 || i >= 5 || numberSelectors[i] == null) return;
-        boolean sel = (i == currentPage);
-        boolean enabled = pageStates[i].enabled;
-        Label lbl = numberSelectors[i];
+    private String computeSubtypeButtonText() {
+        if (selectedSubtypes.isEmpty()) return "(All)";
+        String joined = selectedSubtypes.stream()
+                .collect(java.util.stream.Collectors.joining(", "));
+        return joined.isEmpty() ? "(All)" : joined;
+    }
 
-        String bg, fg;
-        if (enabled) {
-            bg = hovered ? "#b5d600" : "#9dc000";   // yellow-green; slightly darker on hover
-            fg = "black";
-        } else {
-            bg = hovered ? "rgba(205,252,4,0.15)" : "black";
-            fg = "#cdfc04";                          // yellow-green text on black bg
+    /**
+     * Loads a saved {@code Set<String>} back into {@link #selectedSubtypes} and
+     * refreshes the button cell.  Called by {@link #loadPageState}.
+     */
+    private void loadSubtypeSelections(java.util.Set<String> saved) {
+        selectedSubtypes.clear();
+        if (saved != null) selectedSubtypes.addAll(saved);
+        updateSubtypeButtonCell();
+        // Refresh popup cells in case the combo is open (rare, but safe)
+        if (cardSubtypeCombo != null) {
+            javafx.application.Platform.runLater(() -> {
+                if (cardSubtypeCombo.getSkin() != null) {
+                    javafx.scene.control.skin.ComboBoxListViewSkin<?> skin =
+                            (javafx.scene.control.skin.ComboBoxListViewSkin<?>)
+                                    cardSubtypeCombo.getSkin();
+                    javafx.scene.Node list = skin.getPopupContent();
+                    if (list instanceof javafx.scene.control.ListView) {
+                        ((javafx.scene.control.ListView<?>) list).refresh();
+                    }
+                }
+            });
         }
-
-        String borderWidth = sel ? "2.5" : "1.5";
-        String fontWeight = sel ? "bold" : "normal";
-
-        lbl.setStyle(
-                "-fx-background-color: " + bg + ";" +
-                        "-fx-text-fill: " + fg + ";" +
-                        "-fx-font-size: 11px;" +
-                        "-fx-font-weight: " + fontWeight + ";" +
-                        "-fx-border-color: #cdfc04;" +
-                        "-fx-border-width: " + borderWidth + ";" +
-                        "-fx-border-radius: 3;" +
-                        "-fx-background-radius: 3;" +
-                        "-fx-padding: 0;" +
-                        "-fx-alignment: center;" +
-                        "-fx-cursor: hand;"
-        );
     }
 
     public TextField getDefField() {
-        return defField; }
+        return defField;
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     // Public accessors
@@ -947,7 +1266,8 @@ public class FilterPane extends VBox {
     }
 
     public Button getLinkMarkersButton() {
-        return linkMarkersButton; }
+        return linkMarkersButton;
+    }
 
     // ── Column 2 ──────────────────────────────────────────────────────
     public TextField getNameTextField() {
@@ -975,7 +1295,8 @@ public class FilterPane extends VBox {
     }
 
     public ComboBox<String> getRarityCombo() {
-        return rarityCombo; }
+        return rarityCombo;
+    }
 
     // ── Column 3 ──────────────────────────────────────────────────────
     public TextField getYearField() {
@@ -994,9 +1315,7 @@ public class FilterPane extends VBox {
         return stateCombo;
     }
 
-    /**
-     * @param index 0-based (0 = button "1", …, 4 = button "5")
-     */
+    /** @param index 0-based (0 = button "1", …, 4 = button "5") */
     public Label getNumberSelector(int index) {
         return numberSelectors[index];
     }
@@ -1004,7 +1323,8 @@ public class FilterPane extends VBox {
     // ── Column 4 ──────────────────────────────────────────────────────
 
     public Button getCameraButton() {
-        return cameraButton; }
+        return cameraButton;
+    }
 
     public Button getDisableButton() {
         return disableButton;
@@ -1037,7 +1357,10 @@ public class FilterPane extends VBox {
 
         // Column 1 fields
         public String cardType = "(All)";
-        public String cardSubtype = "(All)";
+        /**
+         * Selected subtypes for the multi-select combo. Empty set means "(All)".
+         */
+        public java.util.Set<String> cardSubtypes = new java.util.LinkedHashSet<>();
         public String attribute = "(All)";
         public String type = "(All)";
         public String level = "";
@@ -1051,6 +1374,11 @@ public class FilterPane extends VBox {
         public String pack = "(All)";
         public String state = "(All)";
         public String rarity = "(All)";
+
+        /**
+         * Enabled link markers. Empty = no filter.
+         */
+        public java.util.Set<String> linkMarkers = new java.util.LinkedHashSet<>();
 
         FilterPageState(boolean bottomLeftEnabled, boolean bottomRightEnabled) {
             this.bottomLeftEnabled = bottomLeftEnabled;
