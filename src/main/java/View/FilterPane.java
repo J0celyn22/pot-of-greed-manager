@@ -178,10 +178,15 @@ public class FilterPane extends VBox {
     // ═══════════════════════════════════════════════════════════════════
     /**
      * When true, {@code cardSubtypeCombo.hide()} is a no-op so the popup stays open
-     * during a plain click. Reset via {@code Platform.runLater} so all subsequent
-     * external close requests (click outside, Shift+click) work normally.
+     * during a plain click (Monster category only). Reset inside the MOUSE_RELEASED
+     * filter so external closes (click outside) still work normally.
      */
     private boolean subtypeKeepOpen = false;
+    /**
+     * True when the subtype combo is in multi-select mode (Monster category only).
+     * False for Spell, Trap, or no category — standard single-select behaviour.
+     */
+    private boolean subtypeMultiSelectMode = false;
     private int currentPage = 0;
     /** Set to true while loading a page so listeners do not fire. */
     private boolean suppressListeners = false;
@@ -824,22 +829,8 @@ public class FilterPane extends VBox {
                         event.consume();
                         return;
                     }
-                    if (event.isShiftDown()) {
-                        // ── Shift+click: single-select + close ──────────────
-                        // subtypeKeepOpen stays false → hide() runs → popup closes.
-                        selectedSubtypes.clear();
-                        if (!"(All)".equals(item)) selectedSubtypes.add(item);
-                        updateSubtypeButtonCell();
-                        lv.refresh();
-                        if (!suppressListeners) {
-                            enableCurrentPage();
-                            saveCurrentPageState();
-                            fireRightFilterChange();
-                            fireLeftFilterChange();
-                        }
-                    } else {
-                        // ── Plain click: toggle + keep open ─────────────────
-                        // Block hide() for the entire current event cycle.
+                    if (subtypeMultiSelectMode && !event.isShiftDown()) {
+                        // ── Monster, plain click: toggle + keep open ─────────
                         subtypeKeepOpen = true;
                         toggleSubtype(item);
                         updateSubtypeButtonCell();
@@ -850,8 +841,33 @@ public class FilterPane extends VBox {
                             fireRightFilterChange();
                             fireLeftFilterChange();
                         }
-                        // Re-enable hide() after the pulse so external closes work.
-                        javafx.application.Platform.runLater(() -> subtypeKeepOpen = false);
+                        // Flag is reset in the MOUSE_RELEASED filter below.
+                    } else {
+                        // ── Single-select (Spell/Trap, or Shift+click) ───────
+                        // Sync selectedSubtypes to the one chosen item, then let
+                        // the event propagate so the ComboBox closes normally.
+                        selectedSubtypes.clear();
+                        if (!"(All)".equals(item)) selectedSubtypes.add(item);
+                        updateSubtypeButtonCell();
+                        lv.refresh();
+                        if (!suppressListeners) {
+                            enableCurrentPage();
+                            saveCurrentPageState();
+                            fireRightFilterChange();
+                            fireLeftFilterChange();
+                        }
+                        // Do NOT consume → ComboBox closes normally.
+                    }
+                });
+
+                // ── MOUSE_RELEASED: only intercept in multi-select mode ──────
+                // ComboBoxListViewSkin.setOnMouseReleased() calls cb.hide().
+                // Consuming here (filter phase) prevents that handler from firing.
+                // In single-select mode we let it through so the popup closes.
+                addEventFilter(MouseEvent.MOUSE_RELEASED, event -> {
+                    if (subtypeMultiSelectMode && !event.isShiftDown()) {
+                        event.consume();
+                        subtypeKeepOpen = false; // reset now that RELEASED has fired
                     }
                 });
             }
@@ -859,7 +875,7 @@ public class FilterPane extends VBox {
             @Override
             protected void updateItem(String item, boolean empty) {
                 super.updateItem(item, empty);
-                // Reset all state so recycled cells start clean.
+                // Reset all per-cell state so recycled cells are fully clean.
                 setText(null);
                 setGraphic(null);
                 setDisable(false);
@@ -870,8 +886,6 @@ public class FilterPane extends VBox {
                     // nothing to render
                 } else if (SEP.equals(item)) {
                     // ── Separator row ────────────────────────────────────────
-                    // Use an inline-styled Region graphic: a CSS class would be
-                    // overridden by .accent-combo .list-cell, but inline style wins.
                     javafx.scene.layout.Region line = new javafx.scene.layout.Region();
                     line.setPrefHeight(1);
                     line.setMinHeight(1);
@@ -882,8 +896,8 @@ public class FilterPane extends VBox {
                     setDisable(true);
                     setMouseTransparent(true);
                     setStyle("-fx-padding: 3 4 3 4; -fx-background-color: #100317;");
-                } else {
-                    // ── Normal item ──────────────────────────────────────────
+                } else if (subtypeMultiSelectMode) {
+                    // ── Monster multi-select: show checkmark for selections ───
                     boolean isSelected = selectedSubtypes.isEmpty()
                             ? "(All)".equals(item)
                             : selectedSubtypes.contains(item);
@@ -891,6 +905,9 @@ public class FilterPane extends VBox {
                     setStyle(isSelected
                             ? "-fx-background-color: #393912; -fx-text-fill: #cdfc04;"
                             : "");
+                } else {
+                    // ── Spell/Trap single-select: plain text, no checkmarks ───
+                    setText(item);
                 }
             }
         });
@@ -974,6 +991,7 @@ public class FilterPane extends VBox {
         suppressListeners = true;
         try {
             selectedSubtypes.clear();
+            subtypeMultiSelectMode = "Monster".equals(category);
             cardSubtypeCombo.getItems().clear();
             cardSubtypeCombo.getItems().add("(All)");
             String[] extras =
