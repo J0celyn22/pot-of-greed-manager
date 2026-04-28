@@ -66,6 +66,8 @@ public class RealMainController {
 
     private boolean isMosaicMode = true;
     private boolean isPrintedMode = false;
+    private final java.util.Set<FilterPane> wiredEnterPanes = new java.util.HashSet<>();
+    private FilterPane sharedFilterPane;
     private boolean ouicheListLoaded = false;
     private TreeView<String> archetypesTreeView;
     private TreeView<String> decksAndCollectionsTreeView;
@@ -524,10 +526,7 @@ public class RealMainController {
      * or null if no tab is active.
      */
     private FilterPane getActiveFilterPane() {
-        if (mainTabPane == null) return null;
-        int idx = mainTabPane.getSelectionModel().getSelectedIndex();
-        SharedCollectionTab tab = getSharedTabAt(idx);
-        return tab == null ? null : tab.getFilterPane();
+        return sharedFilterPane;
     }
 
     private void updateCardsDisplay() {
@@ -669,10 +668,25 @@ public class RealMainController {
         // Wire the filter-change callbacks on this tab's own FilterPane.
         // onRightFilterChange → refresh the AllExistingCards display (right pane).
         // onLeftFilterChange  → refresh the middle-pane display (stub – implement per tab).
-        FilterPane fp = tab.getFilterPane();
-        if (fp != null) {
-            fp.setOnRightFilterChange(() -> updateCardsDisplay());
-            fp.setOnLeftFilterChange(() -> updateMiddlePaneDisplay());
+        if (sharedFilterPane == null) {
+            sharedFilterPane = new FilterPane();
+            sharedFilterPane.setOnRightFilterChange(() -> updateCardsDisplay());
+            sharedFilterPane.setOnLeftFilterChange(() -> updateMiddlePaneDisplay());
+            sharedFilterPane.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, evt -> {
+                if (evt.getCode() == javafx.scene.input.KeyCode.ENTER) {
+                    handleEnterAddFromRightPane();
+                    evt.consume();
+                }
+            });
+        }
+        AnchorPane rh = tab.getRightHeaderPane();
+        if (!rh.getChildren().contains(sharedFilterPane)) {
+            rh.getChildren().clear();
+            rh.getChildren().add(sharedFilterPane);
+            AnchorPane.setTopAnchor(sharedFilterPane, 0.0);
+            AnchorPane.setBottomAnchor(sharedFilterPane, 0.0);
+            AnchorPane.setLeftAnchor(sharedFilterPane, 0.0);
+            AnchorPane.setRightAnchor(sharedFilterPane, 0.0);
         }
 
         // Top bar: List/Mosaic and Printed/Unique toggle buttons above the cards display
@@ -3682,6 +3696,42 @@ public class RealMainController {
                     event.consume();
                 }
                 break;
+            case NUMPAD1:
+                handleNumpadAddFromRightPane(1);
+                event.consume();
+                break;
+            case NUMPAD2:
+                handleNumpadAddFromRightPane(2);
+                event.consume();
+                break;
+            case NUMPAD3:
+                handleNumpadAddFromRightPane(3);
+                event.consume();
+                break;
+            case NUMPAD4:
+                handleNumpadAddFromRightPane(4);
+                event.consume();
+                break;
+            case NUMPAD5:
+                handleNumpadAddFromRightPane(5);
+                event.consume();
+                break;
+            case NUMPAD6:
+                handleNumpadAddFromRightPane(6);
+                event.consume();
+                break;
+            case NUMPAD7:
+                handleNumpadAddFromRightPane(7);
+                event.consume();
+                break;
+            case NUMPAD8:
+                handleNumpadAddFromRightPane(8);
+                event.consume();
+                break;
+            case NUMPAD9:
+                handleNumpadAddFromRightPane(9);
+                event.consume();
+                break;
             default:
                 break;
         }
@@ -3773,7 +3823,9 @@ public class RealMainController {
             Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
         } else if (activeTabIndex == 1) {
-            Controller.UserInterfaceFunctions.markAllDecksAndCollectionsDirty();
+            // Mark only the deck/collection that owns the last element
+            Object owner = findDeckOrCollectionOwner(lastElement);
+            if (owner != null) Controller.UserInterfaceFunctions.markDirty(owner);
             Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
         }
@@ -3940,7 +3992,9 @@ public class RealMainController {
             Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
         } else if (activeTabIndex == 1) {
-            Controller.UserInterfaceFunctions.markAllDecksAndCollectionsDirty();
+            // Mark only the deck/collection that owns the target element
+            Object owner = findDeckOrCollectionOwner(targetElement);
+            if (owner != null) Controller.UserInterfaceFunctions.markDirty(owner);
             Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
         }
@@ -4017,6 +4071,55 @@ public class RealMainController {
             Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
         }
+    }
+
+    /**
+     * Given a CardElement that lives inside a Deck or ThemeCollection,
+     * returns the owning Deck or ThemeCollection, or null if not found.
+     * Used to mark only the affected object dirty instead of everything.
+     */
+    private Object findDeckOrCollectionOwner(Model.CardsLists.CardElement elem) {
+        if (elem == null) return null;
+        Model.CardsLists.DecksAndCollectionsList dac =
+                Controller.UserInterfaceFunctions.getDecksList();
+        if (dac == null) return null;
+
+        // Search ThemeCollections
+        if (dac.getCollections() != null) {
+            for (Model.CardsLists.ThemeCollection col : dac.getCollections()) {
+                if (col.getCardsList() != null && col.getCardsList().contains(elem))
+                    return col;
+                // Collections can also contain Decks
+                if (col.getLinkedDecks() != null) {
+                    for (List<Model.CardsLists.Deck> ld : col.getLinkedDecks()) {
+                        for (Model.CardsLists.Deck d : ld) {
+                            if (containsElementInDeck(d, elem)) return d;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Search standalone Decks
+        if (dac.getDecks() != null) {
+            for (Model.CardsLists.Deck d : dac.getDecks()) {
+                if (containsElementInDeck(d, elem)) return d;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Returns true if elem is in any card list of this deck.
+     */
+    private boolean containsElementInDeck(Model.CardsLists.Deck d,
+                                          Model.CardsLists.CardElement elem) {
+        if (d == null) return false;
+        if (d.getMainDeck() != null && d.getMainDeck().contains(elem)) return true;
+        if (d.getExtraDeck() != null && d.getExtraDeck().contains(elem)) return true;
+        if (d.getSideDeck() != null && d.getSideDeck().contains(elem)) return true;
+        return false;
     }
 
     private TreeView<String> getActiveMiddleTreeView() {
@@ -4124,6 +4227,168 @@ public class RealMainController {
      * <p>Only the fields that are implemented so far are checked here.
      * Add further field checks as the rest of the filter UI is wired up.
      */
+// ── Numpad / Enter add ──────────────────────────────────────────────────────
+    private void handleNumpadAddFromRightPane(int count) {
+        int tabIdx = mainTabPane.getSelectionModel().getSelectedIndex();
+        if (tabIdx != 0 && tabIdx != 1) return;
+        List<Card> sourceCards = getNumpadSourceCards();
+        if (sourceCards.isEmpty()) return;
+        List<Card> toInsert = new ArrayList<>();
+        for (Card c : sourceCards)
+            for (int i = 0; i < count; i++)
+                toInsert.add(c);
+        insertCardsAtNumpadTarget(toInsert);
+    }
+
+    private void handleEnterAddFromRightPane() {
+        int tabIdx = mainTabPane.getSelectionModel().getSelectedIndex();
+        if (tabIdx != 0 && tabIdx != 1) return;
+        List<Card> displayed = getDisplayedRightPaneCards();
+        if (displayed.size() != 1) return;
+        List<Card> toInsert = new ArrayList<>();
+        toInsert.add(displayed.get(0));
+        insertCardsAtNumpadTarget(toInsert);
+    }
+
+    private boolean navItemBelongsToActiveTab(Object navItem) {
+        if (navItem == null) return false;
+        int tabIdx = mainTabPane.getSelectionModel().getSelectedIndex();
+        if (tabIdx == 0)
+            return navItem instanceof Model.CardsLists.Box
+                    || navItem instanceof Model.CardsLists.CardsGroup;
+        if (tabIdx == 1)
+            return navItem instanceof Model.CardsLists.Deck
+                    || navItem instanceof Model.CardsLists.ThemeCollection;
+        return false;
+    }
+
+    private boolean elemBelongsToActiveTab(Model.CardsLists.CardElement elem) {
+        if (elem == null) return false;
+        TreeView<String> tv = getActiveMiddleTreeView();
+        if (tv == null || tv.getRoot() == null) return false;
+        return View.CardTreeCell.collectAllElementsInTreeOrder(tv.getRoot()).contains(elem);
+    }
+
+    private void insertCardsAtNumpadTarget(List<Card> toInsert) {
+        int totalInserted = toInsert.size();
+
+        Model.CardsLists.CardElement targetElem = getNumpadTargetMiddleElement();
+        if (targetElem != null && pasteCardsAfterElement(toInsert, targetElem)) {
+            selectLastInsertedElement(targetElem, totalInserted);
+            return;
+        }
+
+        Object navItem = Controller.SelectionManager.getLastClickedNavigationItem();
+        if (navItem != null && navItemBelongsToActiveTab(navItem)) {
+            List<Model.CardsLists.CardElement> backing = getTargetGroupElements(navItem);
+            pasteCardsIntoNavigationItem(toInsert, navItem);
+            if (!backing.isEmpty())
+                Controller.SelectionManager.selectElement(backing.get(backing.size() - 1));
+            return;
+        }
+
+        TreeView<String> tv = getActiveMiddleTreeView();
+        if (tv == null || tv.getRoot() == null) return;
+        List<Model.CardsLists.CardElement> allElems =
+                View.CardTreeCell.collectAllElementsInTreeOrder(tv.getRoot());
+        if (!allElems.isEmpty()) {
+            Model.CardsLists.CardElement lastElem = allElems.get(allElems.size() - 1);
+            if (pasteCardsAfterElement(toInsert, lastElem)) {
+                selectLastInsertedElement(lastElem, totalInserted);
+                return;
+            }
+        }
+
+        Object lastNavModel = findLastNavModelInTree(tv);
+        if (lastNavModel != null) {
+            List<Model.CardsLists.CardElement> backing = getTargetGroupElements(lastNavModel);
+            pasteCardsIntoNavigationItem(toInsert, lastNavModel);
+            if (!backing.isEmpty())
+                Controller.SelectionManager.selectElement(backing.get(backing.size() - 1));
+        }
+    }
+
+    private Object findLastNavModelInTree(TreeView<String> tv) {
+        if (tv == null || tv.getRoot() == null) return null;
+        Object candidate = null;
+        java.util.Queue<TreeItem<String>> queue = new java.util.LinkedList<>();
+        queue.add(tv.getRoot());
+        while (!queue.isEmpty()) {
+            TreeItem<String> item = queue.poll();
+            if (item.getGraphic() instanceof NavigationItem) {
+                Object modelObj = ((NavigationItem) item.getGraphic()).getUserData();
+                if (modelObj != null && !getTargetGroupElements(modelObj).isEmpty())
+                    candidate = modelObj;
+            }
+            queue.addAll(item.getChildren());
+        }
+        return candidate;
+    }
+
+    private void selectLastInsertedElement(Model.CardsLists.CardElement anchor, int count) {
+        TreeView<String> tv = getActiveMiddleTreeView();
+        if (tv == null) return;
+        List<Model.CardsLists.CardElement> allElems =
+                View.CardTreeCell.collectAllElementsInTreeOrder(tv.getRoot());
+        int anchorIdx = allElems.indexOf(anchor);
+        if (anchorIdx < 0) return;
+        int lastIdx = Math.min(anchorIdx + count, allElems.size() - 1);
+        Controller.SelectionManager.selectElement(allElems.get(lastIdx));
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Card> getNumpadSourceCards() {
+        List<Card> displayed = getDisplayedRightPaneCards();
+        java.util.Set<Card> selected = Controller.SelectionManager.getSelectedCards();
+        if (!selected.isEmpty()) {
+            List<Card> visible = displayed.stream()
+                    .filter(selected::contains)
+                    .collect(Collectors.toList());
+            if (!visible.isEmpty()) return visible;
+        }
+        if (displayed.size() == 1) return new ArrayList<>(displayed);
+        return Collections.emptyList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Card> getDisplayedRightPaneCards() {
+        if (cardsDisplayContainer == null) return Collections.emptyList();
+        for (javafx.scene.Node node : cardsDisplayContainer.getChildren()) {
+            if (node instanceof javafx.scene.control.ListView) {
+                if (!isMosaicMode) {
+                    javafx.scene.control.ListView<Card> lv =
+                            (javafx.scene.control.ListView<Card>) node;
+                    return new ArrayList<>(lv.getItems());
+                } else {
+                    javafx.scene.control.ListView<List<Card>> lv =
+                            (javafx.scene.control.ListView<List<Card>>) node;
+                    List<Card> all = new ArrayList<>();
+                    for (List<Card> row : lv.getItems()) all.addAll(row);
+                    return all;
+                }
+            }
+        }
+        return Collections.emptyList();
+    }
+
+    private Model.CardsLists.CardElement getNumpadTargetMiddleElement() {
+        if ("MIDDLE".equals(Controller.SelectionManager.getActivePart())
+                && !Controller.SelectionManager.getSelectedMiddleElements().isEmpty()) {
+            TreeView<String> tv = getActiveMiddleTreeView();
+            if (tv != null) {
+                List<Model.CardsLists.CardElement> allElems =
+                        View.CardTreeCell.collectAllElementsInTreeOrder(tv.getRoot());
+                java.util.Set<Model.CardsLists.CardElement> sel =
+                        Controller.SelectionManager.getSelectedMiddleElements();
+                for (int i = allElems.size() - 1; i >= 0; i--)
+                    if (sel.contains(allElems.get(i))) return allElems.get(i);
+            }
+        }
+        Model.CardsLists.CardElement last =
+                Controller.SelectionManager.getLastMiddleElement();
+        return elemBelongsToActiveTab(last) ? last : null;
+    }
+
     private boolean matchesPageFilter(Card card, FilterPane.FilterPageState ps) {
         if (card == null || ps == null) return true;
 
