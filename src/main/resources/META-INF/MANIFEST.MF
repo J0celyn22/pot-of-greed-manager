@@ -1,3 +1,6 @@
 Manifest-Version: 1.0
 Main-Class: Main.Main
+Class-Path: javafx-media-23.0.1.jar controlsfx-11.2.1.jar javafx-fxml-23
+ .0.1.jar jsoup-1.18.3.jar slf4j-api-1.7.36.jar json-20240303.jar javafx
+ -controls-23.0.1.jar logback-classic-1.2.11.jar
 

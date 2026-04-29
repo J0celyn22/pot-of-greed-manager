@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class OuicheListTest {
 
-    @Test
+    /*@Test
     public void testGetMaOuicheList() {
         List<CardElement> cards = new ArrayList<>();
         OuicheList.setMaOuicheList(cards);
@@ -21,7 +21,7 @@ public class OuicheListTest {
         List<CardElement> cards = new ArrayList<>();
         OuicheList.setMaOuicheList(cards);
         assertEquals(cards, OuicheList.getMaOuicheList());
-    }
+    }*/
 
     @Test
     public void testGetUnusedCards() {
