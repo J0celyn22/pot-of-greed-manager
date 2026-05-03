@@ -76,6 +76,33 @@ public class UserInterfaceFunctions {
 
     private static Object pendingDecksRenameTarget = null;
 
+    /**
+     * Set to true when a rename confirm requires a full middle-pane tree rebuild
+     * but must NOT trigger another inline-rename attempt.
+     */
+    private static volatile boolean pendingDecksFullRebuild = false;
+    private static Object pendingDecksExpandTarget = null;
+
+    public static void setPendingDecksFullRebuild() {
+        pendingDecksFullRebuild = true;
+    }
+
+    public static void setPendingDecksExpandTarget(Object target) {
+        pendingDecksExpandTarget = target;
+    }
+
+    public static Object getAndClearPendingDecksExpandTarget() {
+        Object t = pendingDecksExpandTarget;
+        pendingDecksExpandTarget = null;
+        return t;
+    }
+
+    public static boolean getAndClearPendingDecksFullRebuild() {
+        boolean v = pendingDecksFullRebuild;
+        pendingDecksFullRebuild = false;
+        return v;
+    }
+
     private static Object pendingDecksScrollTarget = null;
     // Stores {ThemeCollection, Deck} for the "Create Collection from Deck" flow
     private static Object[] pendingDecksCreateCollectionData = null;
@@ -482,8 +509,6 @@ public class UserInterfaceFunctions {
 
         System.out.println("Generation complete!");
     }
-
-
 
     /**
      * Opens a file chooser dialog to select a collection file and updates
@@ -1009,6 +1034,22 @@ public class UserInterfaceFunctions {
             } catch (Throwable t) {
                 logger.debug("refreshOwnedCollectionStructure: refresher threw", t);
             }
+        }
+    }
+
+    /**
+     * Fires the structural (full tree-rebuild) refreshers for the Decks &amp; Collections tab.
+     * Use this instead of {@code refreshDecksAndCollectionsView()} when a section that was
+     * previously empty has received its first card and its DataTreeItem doesn't exist yet.
+     */
+    public static void triggerDecksStructureRefresh() {
+        // Signal a full structural rebuild so the refresher calls displayDecksAndCollections().
+        setPendingDecksFullRebuild();
+        // Then fire the Decks & Collections refreshers (not the owned-collection ones).
+        if (Platform.isFxApplicationThread()) {
+            doRefreshDecksAndCollectionsView();
+        } else {
+            Platform.runLater(UserInterfaceFunctions::doRefreshDecksAndCollectionsView);
         }
     }
 }

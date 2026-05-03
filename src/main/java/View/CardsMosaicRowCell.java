@@ -648,23 +648,22 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
 
                 // Drag handlers.
                 wrapper.setOnDragDetected(event -> {
-                    // Primary card first, then other selected RIGHT-pane cards in order, cap 5
+                    // Primary card first, then the full selection as payload.
                     java.util.Set<Card> selected = SelectionManager.getSelectedCards();
                     List<Card> dragCards = new ArrayList<>();
                     dragCards.add(card);
                     if ("RIGHT".equals(SelectionManager.getActivePart())
                             && selected.size() > 1 && selected.contains(card)) {
                         for (Card c : selected) {
-                            if (c != card) {
-                                dragCards.add(c);
-                                if (dragCards.size() >= 5) break;
-                            }
+                            if (c != card) dragCards.add(c);
                         }
                     }
 
-                    // Resolve raw images (no selection border)
+                    // Ghost is capped at 5 images — visual only, does not limit the payload.
                     List<Image> ghostImages = new ArrayList<>();
-                    for (Card c : dragCards) {
+                    int ghostCount = Math.min(dragCards.size(), 5);
+                    for (int i = 0; i < ghostCount; i++) {
+                        Card c = dragCards.get(i);
                         String path = getImagePath(c);
                         Image img = path != null ? LruImageCache.getImage(path) : null;
                         if (img == null && path != null) {

@@ -550,25 +550,22 @@ public class CardsListCell extends ListCell<Card> {
             Card card = getItem();
             if (card == null) return;
 
-            // Primary card first, then other selected RIGHT-pane cards in selection order,
-            // capped at 5 total. Only expand to multi-card if this card is part of a
-            // RIGHT-pane multi-selection.
+            // Primary card first, then the full selection as payload.
             java.util.Set<Card> selected = SelectionManager.getSelectedCards();
             List<Card> dragCards = new ArrayList<>();
             dragCards.add(card);
             if ("RIGHT".equals(SelectionManager.getActivePart())
                     && selected.size() > 1 && selected.contains(card)) {
                 for (Card c : selected) {
-                    if (c != card) {
-                        dragCards.add(c);
-                        if (dragCards.size() >= 5) break;
-                    }
+                    if (c != card) dragCards.add(c);
                 }
             }
 
-            // Resolve raw images (no selection border)
+            // Ghost is capped at 5 images — visual only, does not limit the payload.
             List<Image> ghostImages = new ArrayList<>();
-            for (Card c : dragCards) {
+            int ghostCount = Math.min(dragCards.size(), 5);
+            for (int i = 0; i < ghostCount; i++) {
+                Card c = dragCards.get(i);
                 String path = getImagePath(c);
                 Image img = path != null ? LruImageCache.getImage(path) : null;
                 if (img == null && path != null) {

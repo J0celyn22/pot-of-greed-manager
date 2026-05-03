@@ -925,21 +925,24 @@ public class RealMainController {
                         populateDecksAndCollectionsMenu();
                         UserInterfaceFunctions.registerDecksCollectionsRefresher(() -> {
                             try {
-                                // REPLACE the entire inner block (lines 750–813) with:
-
                                 String cardTarget = MenuActionHandler.getAndClearLastDecksAddedTarget();
                                 Object deckMoveTarget = UserInterfaceFunctions.getAndClearPendingDecksScrollTarget();
                                 Object[] createCollData = UserInterfaceFunctions.getAndClearPendingDecksCreateCollectionData();
-// Read rename target early so we know whether a structural rebuild is needed
                                 Object renameTarget = UserInterfaceFunctions.getAndClearPendingDecksRenameTarget();
+                                boolean needsFullRebuild = UserInterfaceFunctions.getAndClearPendingDecksFullRebuild();
+                                Object expandTarget = UserInterfaceFunctions.getAndClearPendingDecksExpandTarget();
 
                                 populateDecksAndCollectionsMenu();
 
-// Structural change: deck/collection added, moved, or created-from-deck → full rebuild.
-// Data-only change: card added/removed/moved/pasted/cut → refresh in-place to keep scroll position.
-                                boolean isStructuralChange = (deckMoveTarget != null) || (createCollData != null) || (renameTarget != null);
+                                boolean isStructuralChange = (deckMoveTarget != null) || (createCollData != null)
+                                        || (renameTarget != null) || needsFullRebuild;
                                 if (isStructuralChange || cardTarget != null) {
+                                    // Snapshot scroll position before the rebuild so we can
+                                    // restore it afterwards (rebuild creates a new TreeView).
+                                    final double savedScroll = getDecksTreeScrollPosition();
                                     displayDecksAndCollections();
+                                    // Restore after the new tree has been laid out.
+                                    Platform.runLater(() -> restoreDecksTreeScrollPosition(savedScroll));
                                 } else {
                                     if (decksAndCollectionsTreeView != null) {
                                         decksAndCollectionsTreeView.refresh();
@@ -947,17 +950,17 @@ public class RealMainController {
                                     }
                                 }
 
-                                // Scroll content tree to where a card was added
+// Scroll content tree to where a card was added
                                 if (cardTarget != null) {
                                     scrollToTargetInDecksTree(cardTarget);
                                 }
 
-                                // Scroll / expand nav to a moved deck
+// Scroll / expand nav to a moved deck
                                 if (deckMoveTarget != null) {
                                     scrollToMovedDeck(deckMoveTarget);
                                 }
 
-                                // "Create Collection from Deck" rename flow
+// "Create Collection from Deck" rename flow
                                 if (createCollData != null && createCollData.length == 2
                                         && createCollData[0] instanceof ThemeCollection
                                         && createCollData[1] instanceof Deck) {
@@ -980,7 +983,7 @@ public class RealMainController {
                                     });
                                 }
 
-                                // Normal add/rename for newly created Deck or Collection
+// Normal add/rename for newly created Deck or Collection
                                 if (renameTarget != null) {
                                     final Object finalTarget = renameTarget;
                                     Platform.runLater(() -> {
@@ -996,7 +999,23 @@ public class RealMainController {
                                         }
                                     });
                                 }
-// Update dirty indicators
+
+                                // Expand the nav item for a collection that was just renamed after creation
+                                if (expandTarget != null) {
+                                    final Object finalExpand = expandTarget;
+                                    Platform.runLater(() -> {
+                                        NavigationItem toExpand = findNavItemInMenuVBox(
+                                                decksTab.getMenuVBox(), finalExpand);
+                                        if (toExpand != null) {
+                                            toExpand.setExpanded(true);
+                                            expandNavAncestors(toExpand);
+                                            scrollNavToItem(decksTab, toExpand);
+                                        }
+                                    });
+                                }
+
+                                updateTabDirtyIndicators();
+                                // Update dirty indicators
                                 updateTabDirtyIndicators();
                             } catch (Exception e) {
                                 logger.debug("Decks refresher failed", e);
@@ -1112,6 +1131,7 @@ public class RealMainController {
                     // The element now has a real name — mark it dirty
                     UserInterfaceFunctions.markDirty(modelObj);
                     UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                    UserInterfaceFunctions.setPendingDecksFullRebuild();
                     UserInterfaceFunctions.refreshDecksAndCollectionsView();
                 },
                 () -> {
@@ -1519,6 +1539,10 @@ public class RealMainController {
                     UserInterfaceFunctions.markDirty(newColl);
                     UserInterfaceFunctions.markDirty(movedDeck);
                     UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                    // Force a full structural rebuild so the new name appears in the tree,
+                    // and queue the collection to be expanded in the nav after the rebuild.
+                    UserInterfaceFunctions.setPendingDecksFullRebuild();
+                    UserInterfaceFunctions.setPendingDecksExpandTarget(newColl);
                     UserInterfaceFunctions.refreshDecksAndCollectionsView();
                 },
                 () -> {
@@ -2036,9 +2060,13 @@ public class RealMainController {
                 NavigationItem collectionNavItem = createNavigationItem(collection.getName(), 0);
                 collectionNavItem.setUserData(collection);
 
-                // navigation wiring: click navigates to the collection node in ouicheTreeView
-                collectionNavItem.setOnLabelClicked(evt -> navigateToTree(ouicheTreeView, collection.getName()));
+                // Loose collections are shown in italic in both the Decks tab and OuicheList tab.
+                if (Boolean.TRUE.equals(collection.getConnectToWholeCollection())) {
+                    String current = collectionNavItem.getLabel().getStyle();
+                    collectionNavItem.getLabel().setStyle(current + " -fx-font-style: italic;");
+                }
 
+                collectionNavItem.setOnLabelClicked(evt -> navigateToTree(ouicheTreeView, collection.getName()));
                 collectionNavItem.setExpanded(false);
                 navigationMenu.addItem(collectionNavItem);
 
@@ -2232,26 +2260,42 @@ public class RealMainController {
         DataTreeItem<Object> deckItem = new DataTreeItem<>(cleanName, deck);
         deckItem.setExpanded(true);
 
-        if (deck.getMainDeck() != null && !deck.getMainDeck().isEmpty()) {
-            CardsGroup mainGroup = new CardsGroup("Main Deck", deck.getMainDeck());
-            DataTreeItem<Object> mainDeckItem = new DataTreeItem<>("Main Deck", mainGroup);
-            mainDeckItem.setExpanded(true);
-            deckItem.getChildren().add(mainDeckItem);
-        }
+        // Helper: wire one deck section (main / extra / side) with the reactive listener.
+        // The section node is created and registered even when the list is empty,
+        // but only inserted into the tree when non-empty. The ListChangeListener
+        // adds / removes it dynamically as cards arrive or depart.
+        java.util.function.BiConsumer<List<CardElement>, String> wireSection =
+                (rawList, sectionLabel) -> {
+                    if (rawList == null) return; // truly absent section — skip
+                    CardsGroup group = new CardsGroup(sectionLabel, rawList);
+                    CardTreeCell.registerDeckSectionGroup(deck,
+                            sectionLabel.toLowerCase(java.util.Locale.ROOT)
+                                    .replace(" deck", "").trim(),
+                            group);
+                    DataTreeItem<Object> sectionItem =
+                            new DataTreeItem<>(sectionLabel, group);
+                    sectionItem.setExpanded(true);
 
-        if (deck.getExtraDeck() != null && !deck.getExtraDeck().isEmpty()) {
-            CardsGroup extraGroup = new CardsGroup("Extra Deck", deck.getExtraDeck());
-            DataTreeItem<Object> extraDeckItem = new DataTreeItem<>("Extra Deck", extraGroup);
-            extraDeckItem.setExpanded(true);
-            deckItem.getChildren().add(extraDeckItem);
-        }
+                    if (!rawList.isEmpty()) {
+                        deckItem.getChildren().add(sectionItem);
+                    }
 
-        if (deck.getSideDeck() != null && !deck.getSideDeck().isEmpty()) {
-            CardsGroup sideGroup = new CardsGroup("Side Deck", deck.getSideDeck());
-            DataTreeItem<Object> sideDeckItem = new DataTreeItem<>("Side Deck", sideGroup);
-            sideDeckItem.setExpanded(true);
-            deckItem.getChildren().add(sideDeckItem);
-        }
+                    javafx.collections.ObservableList<CardElement> obs =
+                            CardTreeCell.observableListFor(group);
+                    obs.addListener(
+                            (javafx.collections.ListChangeListener<CardElement>) change ->
+                                    Platform.runLater(() -> {
+                                        boolean has = !obs.isEmpty();
+                                        boolean shown = deckItem.getChildren().contains(sectionItem);
+                                        if (has && !shown) deckItem.getChildren().add(sectionItem);
+                                        else if (!has && shown) deckItem.getChildren().remove(sectionItem);
+                                    })
+                    );
+                };
+
+        wireSection.accept(deck.getMainDeck(), "Main Deck");
+        wireSection.accept(deck.getExtraDeck(), "Extra Deck");
+        wireSection.accept(deck.getSideDeck(), "Side Deck");
 
         return deckItem;
     }
@@ -2337,16 +2381,44 @@ public class RealMainController {
         DataTreeItem<Object> collectionItem = new DataTreeItem<>(cleanName, collection);
         collectionItem.setExpanded(true);
 
-        if (collection.getCardsList() != null && !collection.getCardsList().isEmpty()) {
-            // Use the model list directly — no copy — so the GridView observes the real list
-            // and any removal from tc.cardsList is immediately reflected in the view.
-            CardsGroup group = new CardsGroup("Cards", collection.getCardsList());
-            DataTreeItem<Object> groupItem = new DataTreeItem<>("Cards", group);
-            groupItem.setExpanded(true);
-            collectionItem.getChildren().add(groupItem);
+        // ── Cards section ────────────────────────────────────────────────────────
+        // Always create the group and register it so that pasteCardsIntoNavigationItem
+        // can mutate through the ObservableList. Only insert the DataTreeItem when
+        // non-empty; the ListChangeListener keeps it in sync afterwards.
+        {
+            List<CardElement> cardsList = collection.getCardsList();
+            if (cardsList == null) {
+                cardsList = new ArrayList<>();
+                collection.setCardsList(cardsList);
+            }
+            CardsGroup cardsGroup = new CardsGroup("Cards", cardsList);
+            CardTreeCell.registerCollectionCardsGroup(collection, cardsGroup);
+
+            DataTreeItem<Object> cardsGroupItem = new DataTreeItem<>("Cards", cardsGroup);
+            cardsGroupItem.setExpanded(true);
+
+            if (!cardsList.isEmpty()) {
+                collectionItem.getChildren().add(cardsGroupItem);
+            }
+
+            javafx.collections.ObservableList<CardElement> obs =
+                    CardTreeCell.observableListFor(cardsGroup);
+            obs.addListener(
+                    (javafx.collections.ListChangeListener<CardElement>) change ->
+                            Platform.runLater(() -> {
+                                boolean has = !obs.isEmpty();
+                                boolean shown = collectionItem.getChildren().contains(cardsGroupItem);
+                                if (has && !shown) {
+                                    // Insert as first child so it stays above Decks / Archetypes.
+                                    collectionItem.getChildren().add(0, cardsGroupItem);
+                                } else if (!has && shown) {
+                                    collectionItem.getChildren().remove(cardsGroupItem);
+                                }
+                            })
+            );
         }
 
-        // --- Decks section: prefer explicit linkedDecks; otherwise use captured linkedDeckNames ---
+        // ── Decks section ────────────────────────────────────────────────────────
         DataTreeItem<Object> decksParent = new DataTreeItem<>("Decks", "DECKS_SECTION");
         decksParent.setExpanded(true);
         boolean decksParentHasChildren = false;
@@ -2355,7 +2427,8 @@ public class RealMainController {
             int unitIndex = 1;
             for (List<Deck> unit : collection.getLinkedDecks()) {
                 if (unit == null || unit.isEmpty()) {
-                    DataTreeItem<Object> emptyUnit = new DataTreeItem<>("Group " + unitIndex, "DECK_GROUP");
+                    DataTreeItem<Object> emptyUnit =
+                            new DataTreeItem<>("Group " + unitIndex, "DECK_GROUP");
                     emptyUnit.setExpanded(false);
                     decksParent.getChildren().add(emptyUnit);
                     unitIndex++;
@@ -2363,7 +2436,8 @@ public class RealMainController {
                 }
 
                 if (unit.size() > 1) {
-                    DataTreeItem<Object> unitNode = new DataTreeItem<>("Group " + unitIndex, "DECK_GROUP");
+                    DataTreeItem<Object> unitNode =
+                            new DataTreeItem<>("Group " + unitIndex, "DECK_GROUP");
                     unitNode.setExpanded(false);
                     for (Deck d : unit) {
                         DataTreeItem<Object> deckItem = createDeckTreeItem(d);
@@ -2385,8 +2459,9 @@ public class RealMainController {
         }
 
         if (tabType != TabType.OUICHE_LIST) {
-            // --- Archetypes parent (expanded by default) ---
-            DataTreeItem<Object> archetypesParent = new DataTreeItem<>("Archetypes", "ARCHETYPES_SECTION");
+            // ── Archetypes section ───────────────────────────────────────────────
+            DataTreeItem<Object> archetypesParent =
+                    new DataTreeItem<>("Archetypes", "ARCHETYPES_SECTION");
             archetypesParent.setExpanded(true);
             boolean archetypesAdded = false;
             boolean hasArchetypesMethod = false;
@@ -2397,20 +2472,25 @@ public class RealMainController {
                 Object res = m.invoke(collection);
                 if (res instanceof List) {
                     List<?> archetypes = (List<?>) res;
-                    logger.debug("Collection '{}' getArchetypes() returned list size={}", collection.getName(), archetypes.size());
+                    logger.debug("Collection '{}' getArchetypes() returned list size={}",
+                            collection.getName(), archetypes.size());
 
                     for (Object archetypeObj : archetypes) {
                         if (archetypeObj == null) continue;
                         if (archetypeObj instanceof String) {
                             String archetypeName = ((String) archetypeObj).trim();
                             if (archetypeName.isEmpty()) continue;
-                            List<CardElement> elements = buildElementsFromGlobalArchetype(archetypeName);
-                            Set<String> missing = computeMissingIdsForElements(collection, elements);
-                            CardsGroup archetypeGroup = new CardsGroup(ARCHETYPE_MARKER + archetypeName, elements);
+                            List<CardElement> elements =
+                                    buildElementsFromGlobalArchetype(archetypeName);
+                            Set<String> missing =
+                                    computeMissingIdsForElements(collection, elements);
+                            CardsGroup archetypeGroup =
+                                    new CardsGroup(ARCHETYPE_MARKER + archetypeName, elements);
                             Map<String, Object> data = new HashMap<>();
                             data.put("group", archetypeGroup);
                             data.put("missing", missing);
-                            DataTreeItem<Object> archetypeNode = new DataTreeItem<>(archetypeName, data);
+                            DataTreeItem<Object> archetypeNode =
+                                    new DataTreeItem<>(archetypeName, data);
                             archetypeNode.setExpanded(false);
                             archetypesParent.getChildren().add(archetypeNode);
                             archetypesAdded = true;
@@ -2418,18 +2498,22 @@ public class RealMainController {
                             String name = null;
                             List<CardElement> elements = new ArrayList<>();
                             try {
-                                Method nameMethod = archetypeObj.getClass().getMethod("getName");
+                                Method nameMethod =
+                                        archetypeObj.getClass().getMethod("getName");
                                 Object nameVal = nameMethod.invoke(archetypeObj);
                                 if (nameVal != null) name = nameVal.toString();
                             } catch (Exception ignored) {
                             }
                             try {
-                                Method cardsMethod = archetypeObj.getClass().getMethod("getCards");
+                                Method cardsMethod =
+                                        archetypeObj.getClass().getMethod("getCards");
                                 Object cardsVal = cardsMethod.invoke(archetypeObj);
                                 if (cardsVal instanceof List) {
                                     for (Object o : (List<?>) cardsVal) {
-                                        if (o instanceof CardElement) elements.add((CardElement) o);
-                                        else if (o instanceof Card) elements.add(new CardElement((Card) o));
+                                        if (o instanceof CardElement)
+                                            elements.add((CardElement) o);
+                                        else if (o instanceof Card)
+                                            elements.add(new CardElement((Card) o));
                                         else if (o instanceof String) {
                                             try {
                                                 elements.add(new CardElement((String) o));
@@ -2444,14 +2528,17 @@ public class RealMainController {
                             if ((elements == null || elements.isEmpty()) && name != null) {
                                 elements = buildElementsFromGlobalArchetype(name);
                             }
-
                             if (name == null) name = "Archetype";
-                            Set<String> missing = computeMissingIdsForElements(collection, elements);
-                            CardsGroup archetypeGroup = new CardsGroup(ARCHETYPE_MARKER + name, elements);
+
+                            Set<String> missing =
+                                    computeMissingIdsForElements(collection, elements);
+                            CardsGroup archetypeGroup =
+                                    new CardsGroup(ARCHETYPE_MARKER + name, elements);
                             Map<String, Object> data = new HashMap<>();
                             data.put("group", archetypeGroup);
                             data.put("missing", missing);
-                            DataTreeItem<Object> archetypeNode = new DataTreeItem<>(name, data);
+                            DataTreeItem<Object> archetypeNode =
+                                    new DataTreeItem<>(name, data);
                             archetypeNode.setExpanded(false);
                             archetypesParent.getChildren().add(archetypeNode);
                             archetypesAdded = true;
@@ -2461,15 +2548,18 @@ public class RealMainController {
             } catch (NoSuchMethodException ignored) {
                 hasArchetypesMethod = false;
             } catch (Exception e) {
-                logger.debug("Archetypes reflection failed for collection " + collection.getName(), e);
+                logger.debug("Archetypes reflection failed for collection "
+                        + collection.getName(), e);
             }
 
-            // Only fallback to global SubListCreator archetypes when the collection does NOT provide getArchetypes()
+            // Fallback: global SubListCreator archetypes (only when collection
+            // does NOT provide getArchetypes()).
             if (!hasArchetypesMethod && !archetypesAdded) {
                 try {
                     List<String> globalNames = SubListCreator.archetypesList;
                     List<List<Card>> globalLists = SubListCreator.archetypesCardsLists;
-                    if (globalNames != null && globalLists != null && globalNames.size() == globalLists.size()) {
+                    if (globalNames != null && globalLists != null
+                            && globalNames.size() == globalLists.size()) {
                         for (int i = 0; i < globalNames.size(); i++) {
                             String archetypeName = globalNames.get(i);
                             if (archetypeName == null) continue;
@@ -2480,12 +2570,15 @@ public class RealMainController {
                                     if (c != null) elements.add(new CardElement(c));
                                 }
                             }
-                            Set<String> missing = computeMissingIdsForElements(collection, elements);
-                            CardsGroup archetypeGroup = new CardsGroup(ARCHETYPE_MARKER + archetypeName, elements);
+                            Set<String> missing =
+                                    computeMissingIdsForElements(collection, elements);
+                            CardsGroup archetypeGroup =
+                                    new CardsGroup(ARCHETYPE_MARKER + archetypeName, elements);
                             Map<String, Object> data = new HashMap<>();
                             data.put("group", archetypeGroup);
                             data.put("missing", missing);
-                            DataTreeItem<Object> archetypeNode = new DataTreeItem<>(archetypeName, data);
+                            DataTreeItem<Object> archetypeNode =
+                                    new DataTreeItem<>(archetypeName, data);
                             archetypeNode.setExpanded(false);
                             archetypesParent.getChildren().add(archetypeNode);
                             archetypesAdded = true;
@@ -2497,17 +2590,44 @@ public class RealMainController {
             }
 
             if (archetypesAdded) {
-                logger.info("Collection '{}' -> added {} archetype group(s)", collection.getName(), archetypesParent.getChildren().size());
+                logger.info("Collection '{}' -> added {} archetype group(s)",
+                        collection.getName(),
+                        archetypesParent.getChildren().size());
                 collectionItem.getChildren().add(archetypesParent);
             }
 
-            // 4) Exceptions / Cards not to add
-            List<CardElement> exceptions = collection.getExceptionsToNotAdd();
-            if (exceptions != null && !exceptions.isEmpty()) {
-                CardsGroup exceptionsGroup = new CardsGroup("Cards not to add", exceptions);
-                DataTreeItem<Object> exceptionsNode = new DataTreeItem<>("Cards not to add", exceptionsGroup);
+            // ── Cards not to add / Exceptions section ────────────────────────────
+            // Same reactive pattern as the "Cards" section above.
+            {
+                List<CardElement> exceptions = collection.getExceptionsToNotAdd();
+                if (exceptions == null) exceptions = new ArrayList<>();
+
+                CardsGroup exceptionsGroup =
+                        new CardsGroup("Cards not to add", exceptions);
+                CardTreeCell.registerCollectionExceptionsGroup(collection, exceptionsGroup);
+
+                DataTreeItem<Object> exceptionsNode =
+                        new DataTreeItem<>("Cards not to add", exceptionsGroup);
                 exceptionsNode.setExpanded(true);
-                collectionItem.getChildren().add(exceptionsNode);
+
+                if (!exceptions.isEmpty()) {
+                    collectionItem.getChildren().add(exceptionsNode);
+                }
+
+                javafx.collections.ObservableList<CardElement> excObs =
+                        CardTreeCell.observableListFor(exceptionsGroup);
+                excObs.addListener(
+                        (javafx.collections.ListChangeListener<CardElement>) change ->
+                                Platform.runLater(() -> {
+                                    boolean has = !excObs.isEmpty();
+                                    boolean shown = collectionItem.getChildren()
+                                            .contains(exceptionsNode);
+                                    if (has && !shown)
+                                        collectionItem.getChildren().add(exceptionsNode);
+                                    else if (!has && shown)
+                                        collectionItem.getChildren().remove(exceptionsNode);
+                                })
+                );
             }
         }
 
@@ -2516,6 +2636,20 @@ public class RealMainController {
 
     private void populateDecksAndCollectionsMenu() throws Exception {
         VBox menuVBox = decksTab.getMenuVBox();
+
+        // Snapshot expanded state of every existing nav item before the rebuild,
+        // keyed by the model object stored in userData.
+        java.util.Map<Object, Boolean> expandedState = new java.util.IdentityHashMap<>();
+        for (javafx.scene.Node node : menuVBox.getChildren()) {
+            if (node instanceof NavigationMenu) {
+                for (NavigationItem item : ((NavigationMenu) node).getItems()) {
+                    captureExpandedState(item, expandedState);
+                }
+            } else if (node instanceof NavigationItem) {
+                captureExpandedState((NavigationItem) node, expandedState);
+            }
+        }
+
         menuVBox.getChildren().clear();
         NavigationMenu navigationMenu = new NavigationMenu();
 
@@ -2530,20 +2664,29 @@ public class RealMainController {
                     NavigationItem collectionNavItem = createNavigationItem(collection.getName(), 0);
                     collectionNavItem.setUserData(collection);
                     attachNavItemDropHandlers(collectionNavItem, collection);
-                    if (UserInterfaceFunctions.isDirty(collection)) {
-                        collectionNavItem.getLabel().setText("* " + sanitize(collection.getName()));
-                        collectionNavItem.getLabel().setStyle(
-                                "-fx-text-fill: #cdfc04; -fx-font-weight: bold;");
-                    }
 
-                    // highlight (unchanged)
+                    boolean isDirty = UserInterfaceFunctions.isDirty(collection);
+                    boolean isLoose = Boolean.TRUE.equals(collection.getConnectToWholeCollection());
+
+                    if (isDirty) {
+                        collectionNavItem.getLabel().setText("* " + sanitize(collection.getName()));
+                    }
+                    // Set base style: bold always, italic for loose collections.
+                    // Color is controlled solely by applyNavigationItemHighlight — no yellow for dirty.
+                    String labelStyle = "-fx-font-weight: bold;";
+                    if (isLoose) labelStyle += " -fx-font-style: italic;";
+                    collectionNavItem.getLabel().setStyle(labelStyle);
+
                     boolean hasMissing = collectionHasMissing(collection);
                     applyNavigationItemHighlight(collectionNavItem, hasMissing);
 
                     // navigation wiring (unchanged)
                     collectionNavItem.setOnLabelClicked(evt -> navigateToTree(decksAndCollectionsTreeView, collection.getName()));
 
-                    collectionNavItem.setExpanded(false);
+                    // Restore expanded state from before the rebuild; default to false
+                    // for items that are new (not previously in the menu).
+                    boolean wasExpanded = expandedState.getOrDefault(collection, false);
+                    collectionNavItem.setExpanded(wasExpanded);
 
                     // --- NEW: context menu for Collection items ---
                     {
@@ -2566,8 +2709,6 @@ public class RealMainController {
                                 attachNavItemDropHandlers(deckSubItem, linkedDeck);
                                 if (UserInterfaceFunctions.isDirty(linkedDeck)) {
                                     deckSubItem.getLabel().setText("* " + sanitize(linkedDeck.getName()));
-                                    deckSubItem.getLabel().setStyle(
-                                            "-fx-text-fill: #cdfc04; -fx-font-weight: bold;");
                                 }
 
                                 // navigation wiring (unchanged)
@@ -2607,8 +2748,6 @@ public class RealMainController {
                     attachNavItemDropHandlers(navItem, deck);
                     if (UserInterfaceFunctions.isDirty(deck)) {
                         navItem.getLabel().setText("* " + sanitize(deck.getName()));
-                        navItem.getLabel().setStyle(
-                                "-fx-text-fill: #cdfc04; -fx-font-weight: bold;");
                     }
 
                     // navigation wiring (unchanged)
@@ -2624,7 +2763,7 @@ public class RealMainController {
                     }
 
                     navigationMenu.addItem(navItem);
-// Standalone deck items
+                    // Standalone deck items
                     navItem.setOnLabelClicked(evt -> {
                         Controller.SelectionManager.setLastClickedNavigationItem(deck);
                         navigateToTree(decksAndCollectionsTreeView, deck.getName());
@@ -2639,11 +2778,25 @@ public class RealMainController {
 
         menuVBox.getChildren().add(navigationMenu);
 
-// --- NEW: empty-area context menu ---
+        // --- empty-area context menu ---
         ContextMenu emptyCm = NavigationContextMenuBuilder.forDecksEmpty();
         menuVBox.setOnContextMenuRequested(e -> {
             emptyCm.show(menuVBox, e.getScreenX(), e.getScreenY());
         });
+    }
+
+    /**
+     * Recursively captures the expanded state of a NavigationItem and all its
+     * sub-items into {@code map}, keyed by {@link NavigationItem#getUserData()}.
+     */
+    private void captureExpandedState(NavigationItem item,
+                                      java.util.Map<Object, Boolean> map) {
+        if (item == null) return;
+        Object key = item.getUserData();
+        if (key != null) map.put(key, item.isExpanded());
+        for (NavigationItem sub : item.getSubItems()) {
+            captureExpandedState(sub, map);
+        }
     }
 
     private Set<String> computeMissingIdsForElements(ThemeCollection collection, List<CardElement> elements) {
@@ -3020,87 +3173,14 @@ public class RealMainController {
 
     private void applyNavigationItemHighlight(NavigationItem navItem, boolean highlight) {
         if (navItem == null) return;
-
-        String highlightCss = "-fx-font-weight: bold; -fx-text-fill: #cdfc04;";
-        String defaultCss = "-fx-font-weight: bold; -fx-text-fill: white;";
-
-        try {
-            Method getLabelMethod = null;
-            try {
-                getLabelMethod = navItem.getClass().getMethod("getLabel");
-            } catch (NoSuchMethodException ignored) {
-            }
-            if (getLabelMethod != null) {
-                Object labelObj = getLabelMethod.invoke(navItem);
-                if (labelObj instanceof javafx.scene.control.Label) {
-                    javafx.scene.control.Label label = (javafx.scene.control.Label) labelObj;
-                    label.setStyle(highlight ? highlightCss : defaultCss);
-                    return;
-                }
-            }
-
-            try {
-                Method setLabelStyle = navItem.getClass().getMethod("setLabelStyle", String.class);
-                setLabelStyle.invoke(navItem, highlight ? highlightCss : defaultCss);
-                return;
-            } catch (NoSuchMethodException ignored) {
-            }
-
-            try {
-                Field labelField = null;
-                try {
-                    labelField = navItem.getClass().getField("label");
-                } catch (NoSuchFieldException ignored) {
-                    try {
-                        labelField = navItem.getClass().getField("titleLabel");
-                    } catch (NoSuchFieldException ignored2) {
-                        labelField = null;
-                    }
-                }
-                if (labelField != null) {
-                    Object labelObj = labelField.get(navItem);
-                    if (labelObj instanceof javafx.scene.control.Label) {
-                        javafx.scene.control.Label label = (javafx.scene.control.Label) labelObj;
-                        label.setStyle(highlight ? highlightCss : defaultCss);
-                        return;
-                    }
-                }
-            } catch (Exception ignored) {
-            }
-
-            try {
-                Field labelField = null;
-                try {
-                    labelField = navItem.getClass().getDeclaredField("label");
-                } catch (NoSuchFieldException ignored) {
-                    try {
-                        labelField = navItem.getClass().getDeclaredField("titleLabel");
-                    } catch (NoSuchFieldException ignored2) {
-                        labelField = null;
-                    }
-                }
-                if (labelField != null) {
-                    labelField.setAccessible(true);
-                    Object labelObj = labelField.get(navItem);
-                    if (labelObj instanceof javafx.scene.control.Label) {
-                        javafx.scene.control.Label label = (javafx.scene.control.Label) labelObj;
-                        label.setStyle(highlight ? highlightCss : defaultCss);
-                        return;
-                    }
-                }
-            } catch (Exception ignored) {
-            }
-
-            try {
-                Method setStyleMethod = navItem.getClass().getMethod("setStyle", String.class);
-                setStyleMethod.invoke(navItem, highlight ? highlightCss : defaultCss);
-                return;
-            } catch (NoSuchMethodException ignored) {
-            }
-
-        } catch (Exception e) {
-            logger.debug("applyNavigationItemHighlight: failed to apply highlight to NavigationItem: {}", e.getMessage());
-        }
+        javafx.scene.control.Label label = navItem.getLabel();
+        if (label == null) return;
+        // Strip any existing -fx-text-fill declaration and append the correct color.
+        // This preserves all other properties already on the label (bold, italic, etc.).
+        String base = label.getStyle() == null ? "" : label.getStyle();
+        base = base.replaceAll("-fx-text-fill\\s*:[^;]*(;|$)", "").trim();
+        String color = highlight ? "#cdfc04" : "white";
+        label.setStyle(base + (base.isEmpty() ? "" : " ") + "-fx-text-fill: " + color + ";");
     }
 
     /**
@@ -3491,6 +3571,40 @@ public class RealMainController {
         } catch (Throwable ignored) {
         }
         return null;
+    }
+
+    /**
+     * Returns the [0..1] scroll position of the Decks & Collections tree,
+     * or -1 if the tree or its VirtualFlow is not yet available.
+     */
+    private double getDecksTreeScrollPosition() {
+        if (decksAndCollectionsTreeView == null) return -1;
+        try {
+            for (Node n : decksAndCollectionsTreeView.lookupAll(".virtual-flow")) {
+                if (n instanceof javafx.scene.control.skin.VirtualFlow) {
+                    return ((javafx.scene.control.skin.VirtualFlow<?>) n).getPosition();
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return -1;
+    }
+
+    /**
+     * Restores a previously captured [0..1] scroll position on the Decks &amp; Collections
+     * tree. Must be called from the FX thread after the new tree has been laid out.
+     */
+    private void restoreDecksTreeScrollPosition(double pos) {
+        if (pos < 0 || decksAndCollectionsTreeView == null) return;
+        try {
+            for (Node n : decksAndCollectionsTreeView.lookupAll(".virtual-flow")) {
+                if (n instanceof javafx.scene.control.skin.VirtualFlow) {
+                    ((javafx.scene.control.skin.VirtualFlow<?>) n).setPosition(pos);
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /**
@@ -4051,25 +4165,76 @@ public class RealMainController {
 
         } else if (navItem instanceof Model.CardsLists.Deck) {
             Model.CardsLists.Deck deck = (Model.CardsLists.Deck) navItem;
-            for (Model.CardsLists.Card card : clipboardCards) {
-                if (card != null) deck.getMainDeck().add(new Model.CardsLists.CardElement(card));
+            if (deck.getMainDeck() == null) deck.setMainDeck(new ArrayList<>());
+
+            // The main-deck CardsGroup is registered during createDeckTreeItem (apply the
+            // same reactive-listener pattern there). Look it up the same way.
+            CardsGroup mainGroup = CardTreeCell.getDeckSectionGroup(deck, "main");
+            if (mainGroup != null) {
+                javafx.collections.ObservableList<Model.CardsLists.CardElement> obs =
+                        CardTreeCell.observableListFor(mainGroup);
+                for (Model.CardsLists.Card card : clipboardCards) {
+                    if (card != null) obs.add(new Model.CardsLists.CardElement(card));
+                }
+                CardTreeCell.triggerHeightAdjustment(mainGroup);
+            } else {
+                for (Model.CardsLists.Card card : clipboardCards) {
+                    if (card != null) deck.getMainDeck().add(new Model.CardsLists.CardElement(card));
+                }
+                Controller.UserInterfaceFunctions.triggerDecksStructureRefresh();
             }
             Controller.UserInterfaceFunctions.markDirty(deck);
             Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-            Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        } else if (navItem instanceof Model.CardsLists.Deck) {
+            Model.CardsLists.Deck deck = (Model.CardsLists.Deck) navItem;
+            if (deck.getMainDeck() == null) deck.setMainDeck(new ArrayList<>());
+
+            CardsGroup mainGroup = CardTreeCell.getDeckSectionGroup(deck, "main");
+            if (mainGroup != null) {
+                javafx.collections.ObservableList<Model.CardsLists.CardElement> obs =
+                        CardTreeCell.observableListFor(mainGroup);
+                for (Model.CardsLists.Card card : clipboardCards) {
+                    if (card != null) obs.add(new Model.CardsLists.CardElement(card));
+                }
+                CardTreeCell.triggerHeightAdjustment(mainGroup);
+            } else {
+                // Tree not built yet for this deck — raw add + structural rebuild.
+                for (Model.CardsLists.Card card : clipboardCards) {
+                    if (card != null)
+                        deck.getMainDeck().add(new Model.CardsLists.CardElement(card));
+                }
+                Controller.UserInterfaceFunctions.triggerDecksStructureRefresh();
+            }
+            Controller.UserInterfaceFunctions.markDirty(deck);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
 
         } else if (navItem instanceof Model.CardsLists.ThemeCollection) {
             Model.CardsLists.ThemeCollection collection =
                     (Model.CardsLists.ThemeCollection) navItem;
             if (collection.getCardsList() == null)
                 collection.setCardsList(new ArrayList<>());
-            for (Model.CardsLists.Card card : clipboardCards) {
-                if (card != null)
-                    collection.getCardsList().add(new Model.CardsLists.CardElement(card));
+
+            CardsGroup cardsGroup = CardTreeCell.getCollectionCardsGroup(collection);
+            if (cardsGroup != null) {
+                javafx.collections.ObservableList<Model.CardsLists.CardElement> obs =
+                        CardTreeCell.observableListFor(cardsGroup);
+                for (Model.CardsLists.Card card : clipboardCards) {
+                    if (card != null) obs.add(new Model.CardsLists.CardElement(card));
+                }
+                CardTreeCell.triggerHeightAdjustment(cardsGroup);
+            } else {
+                // Tree not built yet for this collection — raw add + structural rebuild.
+                for (Model.CardsLists.Card card : clipboardCards) {
+                    if (card != null)
+                        collection.getCardsList().add(new Model.CardsLists.CardElement(card));
+                }
+                Controller.UserInterfaceFunctions.triggerDecksStructureRefresh();
             }
             Controller.UserInterfaceFunctions.markDirty(collection);
             Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-            Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
+            // No refreshDecksAndCollectionsView() call needed: the ObservableList
+            // listener handles the tree-node visibility; triggerHeightAdjustment
+            // handles the GridView size.
         }
     }
 

@@ -31,7 +31,6 @@ public class ThemeCollection {
         Path path = Paths.get(filePath);
         this.name = path.getFileName().toString().replaceFirst("[.][^.]+$", "");
 
-        // Read raw lines and strip any leading BOM / invisible characters from each line
         List<String> rawLines = Files.readAllLines(path);
         List<String> lines = new ArrayList<>(rawLines.size());
         for (String raw : rawLines) {
@@ -39,12 +38,8 @@ public class ThemeCollection {
                 lines.add(null);
                 continue;
             }
-            // Remove BOM and other stray ZERO WIDTH NO-BREAK SPACE if present at start
             String cleaned = raw;
-            if (!cleaned.isEmpty() && cleaned.charAt(0) == '\uFEFF') {
-                cleaned = cleaned.substring(1);
-            }
-            // Also defensively remove any leading ZERO WIDTH NO-BREAK SPACE (U+FEFF) occurrences
+            if (!cleaned.isEmpty() && cleaned.charAt(0) == '\uFEFF') cleaned = cleaned.substring(1);
             cleaned = cleaned.replace("\uFEFF", "");
             lines.add(cleaned);
         }
@@ -54,11 +49,20 @@ public class ThemeCollection {
         this.linkedDecks = new ArrayList<>();
         this.archetypes = new ArrayList<>();
 
-        // Build cards list until a section marker is found
+        // ── Loose flag ────────────────────────────────────────────────────────
+        // "#Loose" as the very first line.
+        if (!lines.isEmpty() && "#Loose".equals(lines.get(0))) {
+            this.connectToWholeCollection = true;
+            lines.remove(0);                        // consume header so card parsing is clean
+        }
+
+        // ── Cards list ────────────────────────────────────────────────────────
+        // Stop at any section marker
         for (String line : lines) {
             if (line == null) continue;
-            if (line.equals("#Not to add") || line.equals("#Link to whole collection")
-                    || line.equals("#Linked decks") || line.equals("#Archetypes"))
+            if (line.equals("#Not to add")
+                    || line.equals("#Linked decks")
+                    || line.equals("#Archetypes"))
                 break;
             if (line.contains(",")) {
                 String[] cardInfo = line.split(",");
@@ -75,23 +79,23 @@ public class ThemeCollection {
             }
         }
 
+        // ── #Not to add ───────────────────────────────────────────────────────
         int index = lines.indexOf("#Not to add");
         if (index != -1) {
             exceptionsToNotAdd = new ArrayList<>();
             for (int i = index + 1; i < lines.size(); i++) {
                 String l = lines.get(i);
                 if (l == null) continue;
-                if (l.equals("#Link to whole collection") || l.equals("#Linked decks") || l.equals("#Archetypes"))
+                if (l.equals("#Linked decks")
+                        || l.equals("#Archetypes"))
                     break;
                 exceptionsToNotAdd.add(new CardElement(l));
             }
         }
 
-        index = lines.indexOf("#Link to whole collection");
-        connectToWholeCollection = index != -1;
-
+        // ── #Linked decks (non-loose only) ───────────────────────────────────
         linkedDecks = new ArrayList<>();
-        if (!connectToWholeCollection) {
+        if (!Boolean.TRUE.equals(connectToWholeCollection)) {
             index = lines.indexOf("#Linked decks");
             if (index != -1) {
                 for (int i = index + 1; i < lines.size(); i++) {
@@ -101,13 +105,15 @@ public class ThemeCollection {
                     if (l.equals("##")) {
                         this.linkedDecks.add(new ArrayList<>());
                     } else {
-                        String deckPath = "%s\\%s.ydk".formatted(path.getParent().toString(), l);
+                        String deckPath = "%s\\%s.ydk".formatted(
+                                path.getParent().toString(), l);
                         this.AddDeck(new Deck(deckPath));
                     }
                 }
             }
         }
 
+        // ── #Archetypes ───────────────────────────────────────────────────────
         index = lines.indexOf("#Archetypes");
         if (index != -1) {
             for (int i = index + 1; i < lines.size(); i++) {
@@ -330,7 +336,15 @@ public class ThemeCollection {
         Path path = Paths.get(dir + this.name + ".ytc");
         try (BufferedWriter writer = Files.newBufferedWriter(path)) {
 
-            // 1. Cards list — use toThemeCollectionString() for correct ID + artwork
+            // 1. Loose flag — always the very first line when present,
+            //    before any card data so the parser knows what kind of
+            //    collection this is without having to scan the whole file.
+            if (Boolean.TRUE.equals(connectToWholeCollection)) {
+                writer.write("#Loose");
+                writer.newLine();
+            }
+
+            // 2. Cards list
             if (cardsList != null) {
                 for (CardElement entry : cardsList) {
                     if (entry == null || entry.getCard() == null) continue;
@@ -339,7 +353,7 @@ public class ThemeCollection {
                 }
             }
 
-            // 2. Exceptions / cards not to add
+            // 3. Exceptions / cards not to add
             if (exceptionsToNotAdd != null && !exceptionsToNotAdd.isEmpty()) {
                 writer.write("#Not to add");
                 writer.newLine();
@@ -350,13 +364,7 @@ public class ThemeCollection {
                 }
             }
 
-            // 3. Link-to-whole-collection flag
-            if (Boolean.TRUE.equals(connectToWholeCollection)) {
-                writer.write("#Link to whole collection");
-                writer.newLine();
-            }
-
-            // 4. Linked decks (only when not connected to whole collection)
+            // 4. Linked decks (non-loose collections only)
             if (!Boolean.TRUE.equals(connectToWholeCollection)
                     && linkedDecks != null && !linkedDecks.isEmpty()) {
                 writer.write("#Linked decks");

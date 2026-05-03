@@ -396,6 +396,7 @@ public final class NavigationContextMenuBuilder {
 
         cm.getItems().addAll(
                 makeDecksAddCollectionAfterItem(collection, dac),
+                makeDecksAddLooseCollectionAfterItem(collection, dac),
                 makeDecksAddLinkedDeckToCollectionItem(collection),
                 makeDecksAddArchetypeMenu(collection),
                 makeDecksRenameItem(collection),
@@ -586,8 +587,8 @@ public final class NavigationContextMenuBuilder {
                                 finalArchName, collection.getName());
                     }
 
-                    // Rebuild the view so the new archetype node appears in the tree
-                    refreshDecksAndCollectionsView();
+                    // Structural rebuild so the new archetype DataTreeItem is created.
+                    Controller.UserInterfaceFunctions.triggerDecksStructureRefresh();
                 });
 
                 menu.getItems().add(mi);
@@ -708,6 +709,7 @@ public final class NavigationContextMenuBuilder {
         List<javafx.scene.control.MenuItem> menuItems = new java.util.ArrayList<>();
         menuItems.add(moveMenu);
         menuItems.add(makeDecksAddCollectionAfterDeckItem(dac));
+        menuItems.add(makeDecksAddLooseCollectionAfterDeckItem(dac));
         menuItems.add(addDeckItem);
         if (!isLinked) {
             menuItems.add(makeDecksCreateCollectionFromDeckItem(deck, dac));
@@ -778,9 +780,72 @@ public final class NavigationContextMenuBuilder {
         ContextMenu cm = styledContextMenu();
         cm.getItems().addAll(
                 makeDecksAddCollectionAtEndItem(),
+                makeDecksAddLooseCollectionAtEndItem(),
                 makeDecksAddStandaloneDeckAtEndItem()
         );
         return cm;
+    }
+
+    /**
+     * "Add Loose Collection" from a Collection context: inserts after {@code reference}.
+     * The new collection has connectToWholeCollection=true.
+     */
+    private static MenuItem makeDecksAddLooseCollectionAfterItem(
+            Model.CardsLists.ThemeCollection reference,
+            Model.CardsLists.DecksAndCollectionsList dac) {
+        return makeActionItem("Add Loose Collection", () -> {
+            Model.CardsLists.ThemeCollection newColl = new Model.CardsLists.ThemeCollection();
+            newColl.setName("New Loose Collection");
+            newColl.setConnectToWholeCollection(true);
+            if (dac.getCollections() == null) dac.setCollections(new java.util.ArrayList<>());
+            int idx = dac.getCollections().indexOf(reference);
+            if (idx >= 0) dac.getCollections().add(idx + 1, newColl);
+            else dac.getCollections().add(newColl);
+            Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newColl);
+            refreshDecksAndCollectionsView();
+            Controller.UserInterfaceFunctions.markDirty(newColl);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+        });
+    }
+
+    /**
+     * "Add Loose Collection" from a Deck context: appends at end of the collections list.
+     * The new collection has connectToWholeCollection=true.
+     */
+    private static MenuItem makeDecksAddLooseCollectionAfterDeckItem(
+            Model.CardsLists.DecksAndCollectionsList dac) {
+        return makeActionItem("Add Loose Collection", () -> {
+            Model.CardsLists.ThemeCollection newColl = new Model.CardsLists.ThemeCollection();
+            newColl.setName("New Loose Collection");
+            newColl.setConnectToWholeCollection(true);
+            if (dac.getCollections() == null) dac.setCollections(new java.util.ArrayList<>());
+            dac.getCollections().add(newColl);
+            Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newColl);
+            refreshDecksAndCollectionsView();
+            Controller.UserInterfaceFunctions.markDirty(newColl);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+        });
+    }
+
+    /**
+     * "Add Loose Collection" from the empty-background context: appends at end.
+     * The new collection has connectToWholeCollection=true.
+     */
+    private static MenuItem makeDecksAddLooseCollectionAtEndItem() {
+        return makeActionItem("Add Loose Collection", () -> {
+            Model.CardsLists.DecksAndCollectionsList dac =
+                    Controller.UserInterfaceFunctions.getDecksList();
+            if (dac == null) return;
+            Model.CardsLists.ThemeCollection newColl = new Model.CardsLists.ThemeCollection();
+            newColl.setName("New Loose Collection");
+            newColl.setConnectToWholeCollection(true);
+            if (dac.getCollections() == null) dac.setCollections(new java.util.ArrayList<>());
+            dac.getCollections().add(newColl);
+            Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newColl);
+            refreshDecksAndCollectionsView();
+            Controller.UserInterfaceFunctions.markDirty(newColl);
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+        });
     }
 
     // ── Decks-tab helpers ─────────────────────────────────────────────────────

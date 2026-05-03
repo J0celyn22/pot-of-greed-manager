@@ -255,13 +255,20 @@ public class OuicheList {
 
         maOuicheList = new LinkedHashMap<>();
         maOuicheListCounts = new LinkedHashMap<>();
+        // Use identity comparison (reference equality) to deduplicate owned instances.
+        // When the same CardElement instance from the owned collection validates slots
+        // in multiple loose collections, it appears multiple times in toList() but
+        // should only be counted once. Separate instances of the same card (different
+        // copies) still each count independently.
+        java.util.Set<CardElement> seenInstances =
+                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+
         for (CardElement card : detailedOuicheList.toList()) {
+            if (!seenInstances.add(card)) continue;   // same instance already processed
             if (!card.getOwned()) {
                 String key = cardKey(card);
                 if (key == null) continue;
                 if (!maOuicheList.containsKey(key)) {
-                    // Fresh copy: downstream generators may call setValues() on these;
-                    // a copy ensures detailedOuicheList instances are never affected.
                     maOuicheList.put(key, new CardElement(card.getCard()));
                     maOuicheListCounts.put(key, 1);
                 } else {
@@ -290,24 +297,21 @@ public class OuicheList {
     public static DecksAndCollectionsList CreateDetailedOuicheList(OwnedCardsCollection ownedCardsCollection, DecksAndCollectionsList decksList) {
         listsIntersection = new ArrayList<>();
 
-        // Build detailedOuicheList as an independent deep copy of decksList.
-        //
-        // The 6-parameter ListDifIntersect marks matched cards by calling setValues() on
-        // CardElement instances IN PLACE, and setMainDeck/setExtraDeck/setSideDeck replaces
-        // the list references inside each Deck. Because those Deck objects are shared between
-        // detailedOuicheList and decksList when we do "detailedOuicheList = decksList", both
-        // mutations propagate back into decksList — corrupting it for any subsequent consumer
-        // (e.g. exportDecksAndCollectionsDirectory) without any reload.
-        //
-        // The fix: each card list is populated with fresh CardElement copies (same Card object,
-        // new CardElement wrapper). setValues() on a copy never touches the original, and
-        // setMainDeck/setExtraDeck/setSideDeck operates on the copy Deck — decksList is untouched.
         detailedOuicheList = new DecksAndCollectionsList();
 
+        // -----------------------------------------------------------------------
+        // Deep-copy phase — non-loose collections first, then standalone decks,
+        // then loose collections. This ordering means detailedOuicheList.toList()
+        // and the UI display already present loose collections last with no extra work.
+        // -----------------------------------------------------------------------
+
         if (decksList.getCollections() != null) {
+            // Non-loose collections first
             for (ThemeCollection originalCollection : decksList.getCollections()) {
+                if (Boolean.TRUE.equals(originalCollection.getConnectToWholeCollection())) continue;
                 ThemeCollection collectionCopy = new ThemeCollection();
                 collectionCopy.setName(originalCollection.getName());
+                collectionCopy.setConnectToWholeCollection(false);
                 for (List<Deck> deckGroup : originalCollection.getLinkedDecks()) {
                     for (Deck originalDeck : deckGroup) {
                         Deck deckCopy = new Deck();
@@ -334,39 +338,67 @@ public class OuicheList {
             }
         }
 
-        // Create list of owned cards as INDEPENDENT COPIES.
-        // exportCollectionFile() (called before OuicheList generation in "Generate All")
-        // runs OwnedCardsCollectionToHtml on myCardsCollection, which marks its CardElement
-        // instances with "O" via setValues(). If we use toList() directly, all those
-        // pre-marked instances land in unusedCards. The 6-param ListDifIntersect guard
-        // !valueB.contains("O") then skips every single owned card, so nothing ever matches
-        // and the entire OuicheList appears unowned. Fresh copies are immune to that.
+        if (decksList.getCollections() != null) {
+            // Loose collections last
+            for (ThemeCollection originalCollection : decksList.getCollections()) {
+                if (!Boolean.TRUE.equals(originalCollection.getConnectToWholeCollection())) continue;
+                ThemeCollection collectionCopy = new ThemeCollection();
+                collectionCopy.setName(originalCollection.getName());
+                collectionCopy.setConnectToWholeCollection(true);
+                for (List<Deck> deckGroup : originalCollection.getLinkedDecks()) {
+                    for (Deck originalDeck : deckGroup) {
+                        Deck deckCopy = new Deck();
+                        deckCopy.setName(originalDeck.getName());
+                        deckCopy.setMainDeck(copyCardElements(originalDeck.getMainDeck()));
+                        deckCopy.setExtraDeck(copyCardElements(originalDeck.getExtraDeck()));
+                        deckCopy.setSideDeck(copyCardElements(originalDeck.getSideDeck()));
+                        collectionCopy.AddDeck(deckCopy);
+                    }
+                }
+                collectionCopy.setCardsList(copyCardElements(originalCollection.getCardsList()));
+                detailedOuicheList.addCollection(collectionCopy);
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Ownership-removal phase.
+        // unusedCards starts as a fresh copy of the entire owned collection.
+        // Each pass consumes from it; later passes get whatever remains.
+        // Order: (1) non-loose collections artwork pass
+        //        (2) standalone decks artwork pass
+        //        (3) non-loose collections KonamiId pass
+        //        (4) standalone decks KonamiId pass
+        //        (5) loose collections artwork pass      ← new
+        //        (6) loose collections KonamiId pass     ← new
+        // -----------------------------------------------------------------------
         unusedCards = copyCardElements(ownedCardsCollection.toList());
 
-        //Remove all cards that are already owned (present in ownedCardsCollection)
+        // --- (1) Non-loose collections — artwork-specific pass ---
         if (detailedOuicheList.getCollections() != null) {
             for (int i = 0; i < detailedOuicheList.getCollections().size(); i++) {
-                //Decks
-                for (int j = 0; j < detailedOuicheList.getCollections().get(i).getLinkedDecks().size(); j++) {
-                    for (int k = 0; k < detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).size(); k++) {
-                        List<List<CardElement>> tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getMainDeck(), unusedCards, "O");
-                        detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).setMainDeck(tempList.get(0));
+                ThemeCollection col = detailedOuicheList.getCollections().get(i);
+                if (Boolean.TRUE.equals(col.getConnectToWholeCollection())) continue;
+
+                for (int j = 0; j < col.getLinkedDecks().size(); j++) {
+                    for (int k = 0; k < col.getLinkedDecks().get(j).size(); k++) {
+                        List<List<CardElement>> tempList = ListDifIntersectArtworkWithExceptions(col.getLinkedDecks().get(j).get(k).getMainDeck(), unusedCards, "O");
+                        col.getLinkedDecks().get(j).get(k).setMainDeck(tempList.get(0));
                         unusedCards = new ArrayList<>(tempList.get(1));
-                        tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getExtraDeck(), unusedCards, "O");
-                        detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).setExtraDeck(tempList.get(0));
+                        tempList = ListDifIntersectArtworkWithExceptions(col.getLinkedDecks().get(j).get(k).getExtraDeck(), unusedCards, "O");
+                        col.getLinkedDecks().get(j).get(k).setExtraDeck(tempList.get(0));
                         unusedCards = new ArrayList<>(tempList.get(1));
-                        tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getSideDeck(), unusedCards, "O");
-                        detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).setSideDeck(tempList.get(0));
+                        tempList = ListDifIntersectArtworkWithExceptions(col.getLinkedDecks().get(j).get(k).getSideDeck(), unusedCards, "O");
+                        col.getLinkedDecks().get(j).get(k).setSideDeck(tempList.get(0));
                         unusedCards = new ArrayList<>(tempList.get(1));
                     }
                 }
-                //Collection
-                List<List<CardElement>> tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getCollections().get(i).getCardsList(), unusedCards, "O");
-                detailedOuicheList.getCollections().get(i).setCardsList(tempList.get(0));
+                List<List<CardElement>> tempList = ListDifIntersectArtworkWithExceptions(col.getCardsList(), unusedCards, "O");
+                col.setCardsList(tempList.get(0));
                 unusedCards = new ArrayList<>(tempList.get(1));
             }
         }
 
+        // --- (2) Standalone decks — artwork-specific pass ---
         if (detailedOuicheList.getDecks() != null) {
             for (int i = 0; i < detailedOuicheList.getDecks().size(); i++) {
                 List<List<CardElement>> tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getDecks().get(i).getMainDeck(), unusedCards, "O");
@@ -381,30 +413,32 @@ public class OuicheList {
             }
         }
 
+        // --- (3) Non-loose collections — KonamiId pass ---
         if (detailedOuicheList.getCollections() != null) {
             for (int i = 0; i < detailedOuicheList.getCollections().size(); i++) {
-                //Decks
-                for (int j = 0; j < detailedOuicheList.getCollections().get(i).getLinkedDecks().size(); j++) {
-                    for (int k = 0; k < detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).size(); k++) {
-                        List<List<CardElement>> tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getMainDeck(), unusedCards, "O");
-                        detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).setMainDeck(tempList.get(0));
+                ThemeCollection col = detailedOuicheList.getCollections().get(i);
+                if (Boolean.TRUE.equals(col.getConnectToWholeCollection())) continue;
+
+                for (int j = 0; j < col.getLinkedDecks().size(); j++) {
+                    for (int k = 0; k < col.getLinkedDecks().get(j).size(); k++) {
+                        List<List<CardElement>> tempList = ListDifIntersectKonamiIdWithExceptions(col.getLinkedDecks().get(j).get(k).getMainDeck(), unusedCards, "O");
+                        col.getLinkedDecks().get(j).get(k).setMainDeck(tempList.get(0));
                         unusedCards = new ArrayList<>(tempList.get(1));
-                        tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getExtraDeck(), unusedCards, "O");
-                        detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).setExtraDeck(tempList.get(0));
+                        tempList = ListDifIntersectKonamiIdWithExceptions(col.getLinkedDecks().get(j).get(k).getExtraDeck(), unusedCards, "O");
+                        col.getLinkedDecks().get(j).get(k).setExtraDeck(tempList.get(0));
                         unusedCards = new ArrayList<>(tempList.get(1));
-                        tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getSideDeck(), unusedCards, "O");
-                        detailedOuicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).setSideDeck(tempList.get(0));
+                        tempList = ListDifIntersectKonamiIdWithExceptions(col.getLinkedDecks().get(j).get(k).getSideDeck(), unusedCards, "O");
+                        col.getLinkedDecks().get(j).get(k).setSideDeck(tempList.get(0));
                         unusedCards = new ArrayList<>(tempList.get(1));
                     }
                 }
-                //Collection
-                List<List<CardElement>> tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getCollections().get(i).getCardsList(), unusedCards, "O");
-                detailedOuicheList.getCollections().get(i).setCardsList(tempList.get(0));
+                List<List<CardElement>> tempList = ListDifIntersectKonamiIdWithExceptions(col.getCardsList(), unusedCards, "O");
+                col.setCardsList(tempList.get(0));
                 unusedCards = new ArrayList<>(tempList.get(1));
             }
         }
 
-
+        // --- (4) Standalone decks — KonamiId pass ---
         if (detailedOuicheList.getDecks() != null) {
             for (int i = 0; i < detailedOuicheList.getDecks().size(); i++) {
                 List<List<CardElement>> tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getDecks().get(i).getMainDeck(), unusedCards, "O");
@@ -419,7 +453,159 @@ public class OuicheList {
             }
         }
 
+        // --- (5) & (6) Loose collections ---
+        // Each loose collection validates against a fresh full-ownership pool first
+        // (looseOwnedPool). Cards still unvalidated after that fall back to the
+        // depleted unusedCards from passes 1–4. Both pools shrink as they are used.
+        //
+        // Unlike non-loose passes, matched slots are REPLACED by the actual owned
+        // CardElement instance from the pool rather than having their copy marked "O".
+        // This preserves the identity link to the original owned card, which lets
+        // CreateOuicheList deduplicate by instance when counting.
+        List<CardElement> looseOwnedPool = copyCardElements(ownedCardsCollection.toList());
+
+        java.util.function.BiPredicate<Card, Card> artworkComparator =
+                (c1, c2) -> c1.getImagePath() != null && c2.getImagePath() != null
+                        && c1.getImagePath().equals(c2.getImagePath());
+        java.util.function.BiPredicate<Card, Card> konamiComparator =
+                (c1, c2) -> c1.getKonamiId() != null && c2.getKonamiId() != null
+                        && c1.getKonamiId().equals(c2.getKonamiId());
+
+        // Artwork pass: only cards whose toString() contains "*" (specific artwork).
+        // KonamiId pass: cards without "*" or "+".
+        List<String> artMustContain = List.of("*");
+        List<String> artMustNotContain = List.of("+");
+        List<String> idMustNotContain = List.of("+", "*");
+
+        if (detailedOuicheList.getCollections() != null) {
+            for (int i = 0; i < detailedOuicheList.getCollections().size(); i++) {
+                ThemeCollection col = detailedOuicheList.getCollections().get(i);
+                if (!Boolean.TRUE.equals(col.getConnectToWholeCollection())) continue;
+
+                for (int j = 0; j < col.getLinkedDecks().size(); j++) {
+                    for (int k = 0; k < col.getLinkedDecks().get(j).size(); k++) {
+
+                        // ── Main deck ────────────────────────────────────────
+                        List<CardElement> section = col.getLinkedDecks().get(j).get(k).getMainDeck();
+                        // artwork pass — looseOwnedPool first, then unusedCards fallback
+                        List<List<CardElement>> t = loosePassReplace(section, looseOwnedPool, artworkComparator, artMustContain, artMustNotContain);
+                        looseOwnedPool = t.get(1);
+                        t = loosePassReplace(t.get(0), unusedCards, artworkComparator, artMustContain, artMustNotContain);
+                        unusedCards = t.get(1);
+                        // KonamiId pass — looseOwnedPool first, then unusedCards fallback
+                        t = loosePassReplace(t.get(0), looseOwnedPool, konamiComparator, null, idMustNotContain);
+                        looseOwnedPool = t.get(1);
+                        t = loosePassReplace(t.get(0), unusedCards, konamiComparator, null, idMustNotContain);
+                        col.getLinkedDecks().get(j).get(k).setMainDeck(t.get(0));
+                        unusedCards = t.get(1);
+
+                        // ── Extra deck ───────────────────────────────────────
+                        section = col.getLinkedDecks().get(j).get(k).getExtraDeck();
+                        t = loosePassReplace(section, looseOwnedPool, artworkComparator, artMustContain, artMustNotContain);
+                        looseOwnedPool = t.get(1);
+                        t = loosePassReplace(t.get(0), unusedCards, artworkComparator, artMustContain, artMustNotContain);
+                        unusedCards = t.get(1);
+                        t = loosePassReplace(t.get(0), looseOwnedPool, konamiComparator, null, idMustNotContain);
+                        looseOwnedPool = t.get(1);
+                        t = loosePassReplace(t.get(0), unusedCards, konamiComparator, null, idMustNotContain);
+                        col.getLinkedDecks().get(j).get(k).setExtraDeck(t.get(0));
+                        unusedCards = t.get(1);
+
+                        // ── Side deck ────────────────────────────────────────
+                        section = col.getLinkedDecks().get(j).get(k).getSideDeck();
+                        t = loosePassReplace(section, looseOwnedPool, artworkComparator, artMustContain, artMustNotContain);
+                        looseOwnedPool = t.get(1);
+                        t = loosePassReplace(t.get(0), unusedCards, artworkComparator, artMustContain, artMustNotContain);
+                        unusedCards = t.get(1);
+                        t = loosePassReplace(t.get(0), looseOwnedPool, konamiComparator, null, idMustNotContain);
+                        looseOwnedPool = t.get(1);
+                        t = loosePassReplace(t.get(0), unusedCards, konamiComparator, null, idMustNotContain);
+                        col.getLinkedDecks().get(j).get(k).setSideDeck(t.get(0));
+                        unusedCards = t.get(1);
+                    }
+                }
+
+                // ── Cards list ───────────────────────────────────────────────
+                List<List<CardElement>> t = loosePassReplace(col.getCardsList(), looseOwnedPool, artworkComparator, artMustContain, artMustNotContain);
+                looseOwnedPool = t.get(1);
+                t = loosePassReplace(t.get(0), unusedCards, artworkComparator, artMustContain, artMustNotContain);
+                unusedCards = t.get(1);
+                t = loosePassReplace(t.get(0), looseOwnedPool, konamiComparator, null, idMustNotContain);
+                looseOwnedPool = t.get(1);
+                t = loosePassReplace(t.get(0), unusedCards, konamiComparator, null, idMustNotContain);
+                col.setCardsList(t.get(0));
+                unusedCards = t.get(1);
+            }
+        }
+
         return detailedOuicheList;
+    }
+
+    /**
+     * Loose-collection pass: for each element in {@code sectionList}, tries to find
+     * a matching element in {@code pool}. On a match the sectionList slot is replaced
+     * by the actual pool instance (marked owned=true) and that instance is removed
+     * from the pool. Unmatched slots are left as-is.
+     * <p>
+     * mustContain / mustNotContain filter which sectionList elements are eligible for
+     * this pass (same semantics as ListDifIntersect). Already-owned elements are always
+     * passed through unchanged so that a previous sub-pass result is never re-processed.
+     *
+     * @return [modified sectionList, remaining pool]
+     */
+    private static List<List<CardElement>> loosePassReplace(
+            List<CardElement> sectionList,
+            List<CardElement> pool,
+            java.util.function.BiPredicate<Card, Card> comparator,
+            List<String> mustContain,
+            List<String> mustNotContain) {
+
+        List<CardElement> result = new ArrayList<>(sectionList.size());
+        List<CardElement> remainingPool = new ArrayList<>(pool);
+
+        for (CardElement sectionCard : sectionList) {
+            // Already validated in a previous sub-pass — keep as-is.
+            if (Boolean.TRUE.equals(sectionCard.getOwned())) {
+                result.add(sectionCard);
+                continue;
+            }
+            if (sectionCard.getCard() == null
+                    || sectionCard.getCard().getKonamiId() == null) {
+                result.add(sectionCard);
+                continue;
+            }
+
+            String valueA = sectionCard.toString();
+            boolean eligible =
+                    (mustContain == null || mustContain.stream().allMatch(valueA::contains))
+                            && (mustNotContain == null || mustNotContain.stream().noneMatch(valueA::contains));
+
+            if (!eligible) {
+                result.add(sectionCard);
+                continue;
+            }
+
+            // Try to find a match in the pool.
+            boolean matched = false;
+            java.util.Iterator<CardElement> it = remainingPool.iterator();
+            while (it.hasNext()) {
+                CardElement poolCard = it.next();
+                if (poolCard.getCard() == null
+                        || poolCard.getCard().getKonamiId() == null) continue;
+                if (comparator.test(sectionCard.getCard(), poolCard.getCard())) {
+                    poolCard.setOwned(true);   // mark the actual owned instance
+                    result.add(poolCard);      // replace the copy with the real instance
+                    it.remove();
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                result.add(sectionCard);       // no match — keep unowned copy
+            }
+        }
+
+        return List.of(result, remainingPool);
     }
 
 
