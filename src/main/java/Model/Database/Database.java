@@ -1,6 +1,7 @@
 package Model.Database;
 
 import Model.CardsLists.Card;
+import Model.CardsLists.CardRarity;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -187,6 +188,21 @@ public class Database {
                 JSONArray dataArray = jsonObject.getJSONArray("data");
                 for (int i = 0; i < dataArray.length(); i++) {
                     JSONObject dataObject = dataArray.getJSONObject(i);
+
+                    // ── Parse available rarities once per card entry (shared by all artworks) ──
+                    List<CardRarity> availableRarities = new ArrayList<>();
+                    if (dataObject.has("card_sets")) {
+                        JSONArray cardSetsArray = dataObject.getJSONArray("card_sets");
+                        for (int s = 0; s < cardSetsArray.length(); s++) {
+                            JSONObject setObj = cardSetsArray.getJSONObject(s);
+                            String rarityCode = setObj.optString("set_rarity_code", "");
+                            CardRarity rarity = CardRarity.fromCode(rarityCode);
+                            if (rarity != null && !availableRarities.contains(rarity)) {
+                                availableRarities.add(rarity);
+                            }
+                        }
+                    }
+
                     for (int j = 0; j < dataObject.getJSONArray("card_images").length(); j++) {
                         try {
                             Card card = new Card();
@@ -221,6 +237,8 @@ public class Database {
 
                             fetchFile(imageId + ".jpg", dataObject.getJSONArray("card_images").getJSONObject(j).getString("image_url"));
                             card.setArtNumber(String.valueOf(j + 1));
+                            if (!availableRarities.isEmpty())
+                                card.setAvailableRarities(new ArrayList<>(availableRarities));
                             if (dataObject.has("archetype")) {
                                 card.setArchetypes(new ArrayList<>(List.of(dataObject.getString("archetype"))));
                             }

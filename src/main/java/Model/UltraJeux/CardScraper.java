@@ -109,7 +109,6 @@ public class CardScraper {
     public static List<ShopResultEntry> getCardNamesFromWebsite(
             List<CardElement> maOuicheList, double maxPrice) throws Exception {
 
-        final double OVERPRICE_THRESHOLD = 0.30;
         Map<String, Integer> ouicheCountMap = buildOuicheCountMap(maOuicheList);
 
         Pattern printCodePattern = Pattern.compile("\\b([A-Z0-9]{2,}(?:-?[A-Z0-9]+)?)\\b");
@@ -200,8 +199,6 @@ public class CardScraper {
 
                                 if (price > maxPrice) {
                                     entry.skipped = true;
-                                } else if (price >= OVERPRICE_THRESHOLD) {
-                                    entry.noMatch = true;
                                 } else {
                                     String konamiId = null;
                                     if (entry.extraNote != null)
@@ -304,8 +301,6 @@ public class CardScraper {
 
                             if (price > maxPrice) {
                                 entry.skipped = true;
-                            } else if (price >= OVERPRICE_THRESHOLD) {
-                                entry.noMatch = true;
                             } else {
                                 String konamiId = null;
                                 if (printCode != null)

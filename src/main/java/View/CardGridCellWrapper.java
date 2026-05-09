@@ -7,15 +7,16 @@ import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
 import javafx.beans.value.ChangeListener;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
-import javafx.scene.control.Tab;
-import javafx.scene.control.TabPane;
+import javafx.scene.control.*;
 import javafx.scene.effect.ColorAdjust;
 import javafx.scene.effect.DropShadow;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import org.controlsfx.control.GridCell;
 import org.controlsfx.control.GridView;
@@ -26,6 +27,11 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
     private ImageView cardImageView;
     private DoubleProperty cardWidthProperty;
     private DoubleProperty cardHeightProperty;
+
+    /**
+     * Single context-menu instance reused across all update cycles of this cell.
+     */
+    private final ContextMenu cellContextMenu;
 
     public CardGridCellWrapper(DoubleProperty cardWidthProperty, DoubleProperty cardHeightProperty) {
         this.cardWidthProperty = cardWidthProperty;
@@ -38,6 +44,22 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
         StackPane pane = new StackPane(cardImageView);
         pane.setPadding(new Insets(5));
         setGraphic(pane);
+
+        // Build the context menu once; items use getItem() at action time so
+        // they always operate on the element currently shown in this cell.
+        cellContextMenu = buildCellContextMenu();
+
+        // Show the context menu on right-click, but only in the right tabs
+        // and never for archetype (immutable) grid views.
+        setOnContextMenuRequested(event -> {
+            CardElement ce = getItem();
+            if (ce == null || !isEditableTab() || isImmutableCell()) {
+                event.consume();
+                return;
+            }
+            cellContextMenu.show(this, event.getScreenX(), event.getScreenY());
+            event.consume();
+        });
     }
 
     @Override
@@ -590,6 +612,87 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
             }
         });
     }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Context-menu helpers
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Builds the single context menu attached to this cell.
+     * Items resolve {@link #getItem()} at action time, so the same menu object
+     * is safe to reuse as the cell is recycled for different elements.
+     */
+    private ContextMenu buildCellContextMenu() {
+        ContextMenu cm = new ContextMenu();
+        cm.setStyle("-fx-background-color: #100317; -fx-background-radius: 6;" +
+                "-fx-border-color: #3a3a3a; -fx-border-radius: 6; -fx-border-width: 1;");
+
+        MenuItem editItem = new MenuItem();
+        Label lbl = new Label("Edit Card");
+        lbl.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 13;");
+        HBox g = new HBox(lbl);
+        g.setAlignment(Pos.CENTER_LEFT);
+        g.setPadding(new Insets(2, 6, 2, 6));
+        editItem.setGraphic(g);
+        editItem.setText("");
+        editItem.setOnAction(e -> {
+            CardElement ce = getItem();
+            if (ce != null) {
+                Controller.MenuActionHandler.handleEditCard(ce, this);
+            }
+        });
+
+        cm.getItems().add(editItem);
+        return cm;
+    }
+
+    /**
+     * Returns {@code true} when the currently selected tab is one where the
+     * middle-pane elements are editable: "My Collection" or "Decks and Collections".
+     */
+    private boolean isEditableTab() {
+        try {
+            TabPane tp = findNearestTabPane();
+            if (tp == null) return false;
+            Tab sel = tp.getSelectionModel().getSelectedItem();
+            if (sel == null || sel.getText() == null) return false;
+            String t = sel.getText().trim();
+            // Strip the "* " dirty marker if present
+            if (t.startsWith("* ")) t = t.substring(2).trim();
+            return t.equalsIgnoreCase("My Collection")
+                    || t.equalsIgnoreCase("Decks and Collections")
+                    || t.equalsIgnoreCase("Decks & Collections");
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    /**
+     * Returns {@code true} when the ancestor {@link GridView} has been tagged
+     * as immutable (e.g. archetype lists).
+     *
+     * <p>The controller marks archetype GridViews by storing a {@code Map} in
+     * {@link GridView#setUserData(Object)} with the key {@code "isImmutable"}
+     * mapped to {@link Boolean#TRUE}.  Any GridView <em>without</em> that
+     * marker is treated as editable.</p>
+     */
+    private boolean isImmutableCell() {
+        try {
+            Node node = this;
+            while (node != null && !(node instanceof GridView)) node = node.getParent();
+            if (node instanceof GridView) {
+                Object ud = ((GridView<?>) node).getUserData();
+                if (ud instanceof java.util.Map) {
+                    Object flag = ((java.util.Map<?, ?>) ud).get("isImmutable");
+                    return Boolean.TRUE.equals(flag);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
 
     private TabPane findNearestTabPane() {
         try {

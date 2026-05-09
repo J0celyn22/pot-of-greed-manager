@@ -582,6 +582,15 @@
 .accent-combo .combo-box-base .arrow-button .arrow {
     -fx-background-color: #cdfc04;
 }
+/* Editable ComboBox: JavaFX re-styles the arrow-button under :editable,
+   so the rules above are not specific enough. Target it explicitly. */
+.accent-combo .combo-box-base:editable .arrow-button {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+.accent-combo .combo-box-base:editable .arrow-button .arrow {
+    -fx-background-color: #cdfc04;
+}
 .accent-combo .list-cell {
     -fx-text-fill: #cdfc04;
     -fx-background-color: black;
@@ -605,6 +614,26 @@
     -fx-background-color: black;
     -fx-border-color: #cdfc04;
     -fx-border-width: 1;
+}
+
+/* ── Editable ComboBox inner TextField (accent-combo) ── */
+/* JavaFX renders the editor as a .text-input child of .combo-box-base.
+   Without this rule the editor keeps the default white-background styling
+   when the popup is in its own Stage (e.g. CardEditPopup). */
+.accent-combo .combo-box-base .text-input {
+    -fx-background-color: black;
+    -fx-background-radius: 3;
+    -fx-border-color: transparent;   /* border already on .combo-box-base */
+    -fx-border-width: 0;
+    -fx-text-fill: #cdfc04;
+    -fx-prompt-text-fill: rgba(205,252,4,0.55);
+    -fx-caret-color: #cdfc04;
+    -fx-padding: 0 2 0 2;
+    -fx-font-size: 13px;
+}
+.accent-combo .combo-box-base .text-input:focused {
+    -fx-background-color: black;
+    -fx-effect: none;   /* glow already handled by .combo-box-base:focused */
 }
 
 /* ── Separator row inside the subtype multi-select combo ── */

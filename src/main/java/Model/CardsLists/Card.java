@@ -39,6 +39,18 @@ public class Card {
 
     private String artNumber;
 
+    /**
+     * All rarities in which this card has been printed, derived from the
+     * {@code card_sets[].set_rarity_code} entries in the YGOProdeck database.
+     * <p>
+     * This list is populated when the card database is loaded and is used as a
+     * priority / suggestion source in the UI when the user picks a rarity for a
+     * {@link CardElement}.  A {@code CardElement} may still carry any
+     * {@link CardRarity}, including ones absent from this list.
+     * </p>
+     */
+    private List<CardRarity> availableRarities;
+
     public Card(String Id, String artNumber) throws Exception {
         this(Id);
         this.artNumber = artNumber;
@@ -75,6 +87,8 @@ public class Card {
             this.name_JA = tempCard.name_JA;
             this.archetypes = tempCard.archetypes;
             this.artNumber = tempCard.artNumber;
+            if (tempCard.availableRarities != null)
+                this.availableRarities = new java.util.ArrayList<>(tempCard.availableRarities);
         }
     }
 
@@ -774,6 +788,39 @@ public class Card {
 
         return returnValue;
     }
+
+    /**
+     * Returns the list of rarities in which this card has been printed.
+     * <p>
+     * The list is populated from the {@code card_sets[].set_rarity_code}
+     * entries in the YGOProdeck database when the card database is loaded.
+     * It may be {@code null} or empty for cards whose database entry does not
+     * include set information.
+     * </p>
+     *
+     * @return a mutable list of {@link CardRarity} values, or {@code null}
+     */
+    public List<CardRarity> getAvailableRarities() {
+        return availableRarities;
+    }
+
+    /**
+     * Sets the list of rarities in which this card has been printed.
+     * <p>
+     * This should be called during database loading, once per card, using the
+     * distinct {@code set_rarity_code} values found in the card's
+     * {@code card_sets} array.  Duplicate rarities are silently ignored by
+     * the database loader (it is expected to deduplicate before calling this
+     * method).
+     * </p>
+     *
+     * @param availableRarities the list of rarities to associate with this card
+     */
+    public void setAvailableRarities(List<CardRarity> availableRarities) {
+        this.availableRarities = availableRarities;
+    }
+
+    // -----------------------------------------------------------------------
 
     /**
      * Returns a hash code for this card.

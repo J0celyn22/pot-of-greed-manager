@@ -1,5 +1,8 @@
 package Model.CardsLists;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class CardElement {
     Card card;
     Boolean specificArtwork;
@@ -10,12 +13,48 @@ public class CardElement {
 
     private String rawCode;
 
+    /**
+     * Computed/transient flag set during OuicheList generation.
+     * {@code true} means the user owns a copy of this card but it does not
+     * satisfy the condition or rarity requirement attached to this wanted slot.
+     * Never persisted to file.
+     */
+    private Boolean isOwnedSubstandard;
+
+    // ── New per-copy fields (collection / owned-cards context only) ─────────
+
+    /**
+     * Physical condition of this specific copy (Mint, Near Mint, …).
+     * {@code null} means the user has not set a condition yet.
+     */
+    private CardCondition condition;
+
+    /**
+     * Rarity of this specific copy (Common, Super Rare, Starlight Rare, …).
+     * {@code null} means the user has not set a rarity yet.
+     * The user may choose any {@link CardRarity}, even one not present in
+     * {@link Card#getAvailableRarities()} — that list is only a suggestion
+     * source.
+     */
+    private CardRarity rarity;
+
+    /**
+     * Free-form tags attached to this specific copy by the user
+     * (e.g. "trade", "signed", "misprint").
+     * Never {@code null}; may be empty.
+     */
+    private List<String> customTags;
+
     public CardElement(Card card, Boolean specificArtwork, Boolean isOwned, Boolean dontRemove, Boolean isInDeck) {
         this.card = card;
         this.specificArtwork = specificArtwork;
         this.isOwned = isOwned;
+        this.isOwnedSubstandard = false;
         this.dontRemove = dontRemove;
         this.isInDeck = isInDeck;
+        this.condition = null;
+        this.rarity = null;
+        this.customTags = new ArrayList<>();
     }
 
     public CardElement(Card card) {
@@ -27,7 +66,55 @@ public class CardElement {
         this.card = card;
     }
 
+    /**
+     * Copy constructor. Creates a new {@code CardElement} from {@code source},
+     * sharing the same {@link Card} reference and copying all artwork flags,
+     * the {@code dontRemove} / {@code isInDeck} flags, the raw code, and the
+     * quality requirements ({@code condition}, {@code rarity}, {@code customTags}).
+     * <p>
+     * {@code isOwned} and {@code isOwnedSubstandard} are always reset to
+     * {@code false}: copied wanted-card slots must start unmatched so that the
+     * OuicheList generation can mark them fresh.
+     * </p>
+     */
+    public CardElement(CardElement source) {
+        this.card = source.card;
+        this.specificArtwork = source.specificArtwork;
+        this.artwork = source.artwork;
+        this.rawCode = source.rawCode;
+        this.isOwned = false;
+        this.isOwnedSubstandard = false;
+        this.dontRemove = source.dontRemove;
+        this.isInDeck = source.isInDeck;
+        this.condition = source.condition;
+        this.rarity = source.rarity;
+        this.customTags = source.customTags != null
+                ? new ArrayList<>(source.customTags) : new ArrayList<>();
+    }
+
     public CardElement(String string) throws Exception {
+        // ── Step 1 : extract the new pipe-delimited fields (condition|rarity|tags)
+        // Format: <existing>,<flags>|<conditionCode>|<rarityCode>|<tag1>;<tag2>...
+        // The pipe section is entirely optional – old files without it are
+        // parsed identically to before.
+        this.customTags = new ArrayList<>();
+        String[] pipeParts = string.split("\\|", -1);
+        string = pipeParts[0];   // restore original string without new fields
+
+        if (pipeParts.length > 1 && !pipeParts[1].isEmpty()) {
+            this.condition = CardCondition.fromCode(pipeParts[1]);
+        }
+        if (pipeParts.length > 2 && !pipeParts[2].isEmpty()) {
+            this.rarity = CardRarity.fromCode(pipeParts[2]);
+        }
+        if (pipeParts.length > 3 && !pipeParts[3].isEmpty()) {
+            for (String tag : pipeParts[3].split(";")) {
+                String t = tag.trim();
+                if (!t.isEmpty()) this.customTags.add(t);
+            }
+        }
+
+        // ── Step 2 : original parsing logic (unchanged) ────────────────────
         if (string.contains(",")) {
             String[] parts = string.split(",", 2);
             String part1 = parts[0];
@@ -258,6 +345,119 @@ public class CardElement {
         }
     }
 
+    // ── New per-copy fields ─────────────────────────────────────────────────
+
+    /**
+     * Returns whether this wanted-card slot is satisfied by a copy that exists
+     * in the owned collection but does not meet the condition or rarity
+     * requirement of this slot.
+     * <p>
+     * This is a transient/computed flag set during OuicheList generation.
+     * It is never persisted to file.
+     * </p>
+     *
+     * @return {@code true} if a substandard copy was matched, {@code false}
+     * otherwise (including when the slot is fully satisfied via
+     * {@link #isOwned})
+     */
+    public Boolean getIsOwnedSubstandard() {
+        return Boolean.TRUE.equals(isOwnedSubstandard);
+    }
+
+    /**
+     * Sets the substandard-ownership flag. Called by the OuicheList generator
+     * during the second (quality-relaxed) ownership pass.
+     *
+     * @param ownedSubstandard {@code true} to mark this slot as matched by a
+     *                         substandard owned copy
+     */
+    public void setIsOwnedSubstandard(Boolean ownedSubstandard) {
+        this.isOwnedSubstandard = ownedSubstandard;
+    }
+
+    /**
+     * Returns the physical condition of this copy, or {@code null} if not set.
+     *
+     * @return the {@link CardCondition}, or {@code null}
+     */
+    public CardCondition getCondition() {
+        return condition;
+    }
+
+    /**
+     * Sets the physical condition of this copy.
+     *
+     * @param condition the {@link CardCondition} to set, or {@code null} to clear
+     */
+    public void setCondition(CardCondition condition) {
+        this.condition = condition;
+    }
+
+    /**
+     * Returns the rarity of this copy, or {@code null} if not set.
+     * <p>
+     * The rarity may differ from the rarities listed in
+     * {@link Card#getAvailableRarities()} — that list is only a suggestion source.
+     * </p>
+     *
+     * @return the {@link CardRarity}, or {@code null}
+     */
+    public CardRarity getRarity() {
+        return rarity;
+    }
+
+    /**
+     * Sets the rarity of this copy.
+     *
+     * @param rarity the {@link CardRarity} to set, or {@code null} to clear
+     */
+    public void setRarity(CardRarity rarity) {
+        this.rarity = rarity;
+    }
+
+    /**
+     * Returns the mutable list of custom tags attached to this copy by the user
+     * (e.g. {@code "trade"}, {@code "signed"}, {@code "misprint"}).
+     * Never {@code null}; may be empty.
+     *
+     * @return the list of custom tags
+     */
+    public List<String> getCustomTags() {
+        return customTags;
+    }
+
+    /**
+     * Replaces the list of custom tags.
+     *
+     * @param customTags the new tag list; passing {@code null} is treated as an
+     *                   empty list
+     */
+    public void setCustomTags(List<String> customTags) {
+        this.customTags = customTags != null ? customTags : new ArrayList<>();
+    }
+
+    /**
+     * Adds a single custom tag if it is not already present.
+     *
+     * @param tag the tag to add; ignored if {@code null} or blank
+     */
+    public void addCustomTag(String tag) {
+        if (tag != null && !tag.isBlank() && !customTags.contains(tag)) {
+            customTags.add(tag);
+        }
+    }
+
+    /**
+     * Removes a single custom tag (no-op if absent).
+     *
+     * @param tag the tag to remove
+     */
+    public void removeCustomTag(String tag) {
+        customTags.remove(tag);
+    }
+
+    // ── End of new fields ───────────────────────────────────────────────────
+
     public String getRawCode() {
         return rawCode;
     }
@@ -309,6 +509,22 @@ public class CardElement {
     /**
      * Serialises this element for the OwnedCardsCollection file.
      * Priority: printCode (edition-specific) > passCode (generic) > rawCode (non-DB fallback)
+     * <p>
+     * Format (all parts after the first are optional and backward-compatible):
+     * <pre>
+     *   &lt;id&gt;[,&lt;flags&gt;][|&lt;conditionCode&gt;|&lt;rarityCode&gt;|&lt;tag1&gt;;&lt;tag2&gt;…]
+     * </pre>
+     * Examples:
+     * <pre>
+     *   12345678                          – basic card, no extras
+     *   12345678,OD                       – owned, in deck
+     *   12345678,O|NM|SR|trade;signed     – owned, Near Mint, Super Rare, two tags
+     *   12345678,O|NM||trade             – owned, Near Mint, no rarity, one tag
+     * </pre>
+     * The pipe section is written only when at least one new field is set,
+     * ensuring round-trip compatibility with older file parsers that do not
+     * know about these fields (they will stop at the first {@code |}).
+     * </p>
      */
     public String toCollectionString() {
         String id = null;
@@ -325,6 +541,22 @@ public class CardElement {
         if (isOwned) id += "O";
         if (isInDeck) id += "D";
         if (dontRemove) id += "+";
+
+        // ── Append new fields ──────────────────────────────────────────────
+        boolean hasCondition = condition != null;
+        boolean hasRarity = rarity != null;
+        boolean hasTags = customTags != null && !customTags.isEmpty();
+
+        if (hasCondition || hasRarity || hasTags) {
+            id += "|";
+            id += hasCondition ? condition.getCode() : "";
+            id += "|";
+            id += hasRarity ? rarity.getCode() : "";
+            if (hasTags) {
+                id += "|" + String.join(";", customTags);
+            }
+        }
+
         return id;
     }
 

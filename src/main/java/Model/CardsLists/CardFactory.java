@@ -49,6 +49,8 @@ public class CardFactory {
                 if (originalCard.getArchetypes() != null)
                     newCard.setArchetypes(new ArrayList<>(originalCard.getArchetypes()));
                 if (originalCard.getArtNumber() != null) newCard.setArtNumber(originalCard.getArtNumber());
+                if (originalCard.getAvailableRarities() != null)
+                    newCard.setAvailableRarities(new ArrayList<>(originalCard.getAvailableRarities()));
             } catch (Exception e) {
                 System.out.println(newCard);
             }
@@ -116,4 +118,3 @@ public class CardFactory {
         }
     }
 }
-

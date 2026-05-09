@@ -531,6 +531,28 @@ public class CardTreeCell extends TreeCell<String> {
      * Helper: determine whether the currently selected Tab is the
      * Decks and Collections tab.
      */
+    /**
+     * Marks the owner of {@code group} dirty (My Collection, or the specific
+     * Deck / ThemeCollection in D&C) and triggers the appropriate view refresh.
+     */
+    static void markDirtyAndRefreshForGroup(CardsGroup group) {
+        if (group == null) return;
+        Object dacOwner = findOwnerForGroup(group);
+        if (dacOwner != null) {
+            Controller.UserInterfaceFunctions.markDirty(dacOwner);
+            // Any card addition, removal or move in any D&C group can affect the
+            // archetype missing-sets inside Collections, so always force a full tree
+            // rebuild so that archetype-card glow states recompute correctly.
+            Controller.UserInterfaceFunctions.setPendingDecksFullRebuild();
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        } else {
+            Controller.UserInterfaceFunctions.markMyCollectionDirty();
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
+        }
+    }
+
     private boolean isDecksAndCollectionsTabSelected() {
         try {
             Node node = getTreeView();
@@ -1574,27 +1596,16 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     /**
-     * Marks the owner of {@code group} dirty (My Collection, or the specific
-     * Deck / ThemeCollection in D&C) and triggers the appropriate view refresh.
+     * Returns true when this cell's TreeView has been tagged as the archetypes
+     * tree view (via {@code getProperties().put("tabType", "ARCHETYPES")}).
      */
-    static void markDirtyAndRefreshForGroup(CardsGroup group) {
-        if (group == null) return;
-        Object dacOwner = findOwnerForGroup(group);
-        if (dacOwner != null) {
-            Controller.UserInterfaceFunctions.markDirty(dacOwner);
-            // When a ThemeCollection's own list changes (cardsList or exceptionsToNotAdd),
-            // archetype missing-sets are stale → force a full tree rebuild so glow states
-            // recompute. Deck-section changes don't affect missing sets, so soft refresh suffices.
-            if (dacOwner instanceof Model.CardsLists.ThemeCollection) {
-                Controller.UserInterfaceFunctions.setPendingDecksFullRebuild();
-            }
-            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-            Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
-        } else {
-            Controller.UserInterfaceFunctions.markMyCollectionDirty();
-            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-            Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
+    private boolean isInArchetypesTreeView() {
+        try {
+            javafx.scene.control.TreeView<?> tv = getTreeView();
+            return tv != null && "ARCHETYPES".equals(tv.getProperties().get("tabType"));
+        } catch (Exception ignored) {
         }
+        return false;
     }
 
     /**
@@ -2657,7 +2668,12 @@ public class CardTreeCell extends TreeCell<String> {
                         Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                         Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();*/
                     } else {
-                        removeCardElementFromDecksList(currentItem);
+                        // Route single-element remove through the same model-modifying
+                        // path as the bulk remove so that the model is updated before
+                        // the view refreshes and the full tree rebuild is requested.
+                        Controller.MenuActionHandler
+                                .handleBulkRemoveElementsFromDecksAndCollections(
+                                        java.util.Collections.singletonList(currentItem));
                     }
                 });
                 decksContextMenu.getItems().add(decksRemoveItem);

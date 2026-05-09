@@ -312,14 +312,14 @@ public class UserInterfaceFunctions {
         tabDirtyIndicatorUpdater = r;
     }
 
-    public static void triggerTabDirtyIndicatorUpdate() {
-        if (tabDirtyIndicatorUpdater != null) {
-            if (javafx.application.Platform.isFxApplicationThread())
-                tabDirtyIndicatorUpdater.run();
-            else
-                javafx.application.Platform.runLater(tabDirtyIndicatorUpdater);
-        }
-    }
+    // ── Archetypes refreshers ──────────────────────────────────────────────────
+    // Called whenever decks/collections or the owned collection change, because
+    // archetype glow states depend on which cards are present in both.
+    private static final CopyOnWriteArrayList<Runnable> explicitArchetypesRefreshers = new CopyOnWriteArrayList<>();
+    // ── Decks tree-view refreshers ────────────────────────────────────────────
+    // A lightweight tree.refresh() (no model rebuild) called on every model
+    // change so that archetype-card glow states inside Collections stay in sync.
+    private static final CopyOnWriteArrayList<Runnable> decksTreeRefreshers = new CopyOnWriteArrayList<>();
 
     // Setter and getter for decksList.
     public static void setDecksList(DecksAndCollectionsList list) {
@@ -884,6 +884,79 @@ public class UserInterfaceFunctions {
 
     // ── Decks and Collections refreshers (mirrors the owned-collection pattern) ──
     private static final CopyOnWriteArrayList<Runnable> explicitDecksRefreshers = new CopyOnWriteArrayList<>();
+    /**
+     * Guard that prevents redundant archetype refreshes within the same FX frame.
+     */
+    private static volatile boolean archetypeRefreshScheduled = false;
+
+    public static void triggerTabDirtyIndicatorUpdate() {
+        if (tabDirtyIndicatorUpdater != null) {
+            if (javafx.application.Platform.isFxApplicationThread())
+                tabDirtyIndicatorUpdater.run();
+            else
+                javafx.application.Platform.runLater(tabDirtyIndicatorUpdater);
+        }
+        // Every model modification calls this method, making it the single correct
+        // place to keep the archetype markings (glow states) in sync.
+        // We schedule via Platform.runLater so that multiple rapid modifications
+        // (e.g. paste N cards) coalesce into one refresh at the end of the frame.
+        if (!archetypeRefreshScheduled) {
+            archetypeRefreshScheduled = true;
+            javafx.application.Platform.runLater(() -> {
+                archetypeRefreshScheduled = false;
+                doRefreshArchetypesView();
+            });
+        }
+    }
+
+    public static void registerDecksTreeRefresher(Runnable refresher) {
+        if (refresher != null) decksTreeRefreshers.addIfAbsent(refresher);
+    }
+
+    public static void unregisterDecksTreeRefresher(Runnable refresher) {
+        if (refresher != null) decksTreeRefreshers.remove(refresher);
+    }
+
+    public static void registerArchetypesRefresher(Runnable refresher) {
+        if (refresher != null) explicitArchetypesRefreshers.addIfAbsent(refresher);
+    }
+
+    public static void unregisterArchetypesRefresher(Runnable refresher) {
+        if (refresher != null) explicitArchetypesRefreshers.remove(refresher);
+    }
+
+    /**
+     * Refreshes the Archetypes tab view.  Safe to call from any thread.
+     * Should be invoked whenever the decks/collections model or the owned
+     * collection changes, so that archetype glow states stay in sync.
+     */
+    public static void refreshArchetypesView() {
+        if (Platform.isFxApplicationThread()) {
+            doRefreshArchetypesView();
+        } else {
+            Platform.runLater(UserInterfaceFunctions::doRefreshArchetypesView);
+        }
+    }
+
+    private static void doRefreshArchetypesView() {
+        // Re-render the D&C tree cells so archetype-card glow states update.
+        // This is a lightweight .refresh() (no model rebuild) and is safe to call
+        // at any time without losing selection or scroll position.
+        for (Runnable r : decksTreeRefreshers) {
+            try {
+                r.run();
+            } catch (Throwable t) {
+                logger.debug("doRefreshArchetypesView: decksTree refresher threw", t);
+            }
+        }
+        for (Runnable r : explicitArchetypesRefreshers) {
+            try {
+                r.run();
+            } catch (Throwable t) {
+                logger.debug("refreshArchetypesView: refresher threw", t);
+            }
+        }
+    }
 
     public static void registerDecksCollectionsRefresher(Runnable refresher) {
         if (refresher != null) explicitDecksRefreshers.addIfAbsent(refresher);
@@ -898,6 +971,10 @@ public class UserInterfaceFunctions {
     }
 
     private static void doRefreshDecksAndCollectionsView() {
+        // Any call to refreshDecksAndCollectionsView() means the D&C model changed.
+        // Always request a full tree rebuild so that archetype missing-sets (and
+        // therefore archetype-card glow states) recompute from the updated model.
+        setPendingDecksFullRebuild();
         for (Runnable r : explicitDecksRefreshers) {
             try {
                 r.run();

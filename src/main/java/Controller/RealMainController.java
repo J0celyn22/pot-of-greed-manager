@@ -774,6 +774,11 @@ public class RealMainController {
         setupZoom(ouicheListTab);
         setupZoom(archetypesTab);
 
+        // Tag the archetypes tree view so cells can identify it without relying
+        // on which tab is currently selected.
+        if (archetypesTreeView != null)
+            archetypesTreeView.getProperties().put("tabType", "ARCHETYPES");
+
         if (mainTabPane != null && mainTabPane.getTabs().size() >= 6) {
             mainTabPane.getTabs().get(0).setContent(myCollectionTab);
             mainTabPane.getTabs().get(1).setContent(decksTab);

@@ -244,4 +244,44 @@ public class CardDatabaseManager {
     }
 
     // Other methods (such as passCodeToId, passCodeToArtNumber, artPassCodeToPassCode, etc.) would be here.
+
+    /**
+     * Returns all {@link Model.CardsLists.Card} aliases for the given passCode —
+     * i.e. every artwork variant of the same card, in the order they appear in
+     * the database (artwork 1 first, artwork 2 second, etc.).
+     *
+     * <p>The result is derived from {@code passCodeToOtherPassCodes}, which maps
+     * every passCode to the full list of passCodes sharing the same card name.
+     * Each passCode in that list corresponds to one artwork entry in
+     * {@code allCardsList}, with {@link Model.CardsLists.Card#getArtNumber()}
+     * already set to its 1-based index.</p>
+     *
+     * <p>If the passCode is unknown or has no siblings, a list containing only
+     * the card itself is returned (single-artwork card).</p>
+     *
+     * @param passCode the passCode of any artwork variant of the card
+     * @return an ordered, non-null list of {@link Model.CardsLists.Card} objects,
+     * one per artwork variant
+     * @throws Exception if the database maps have not been initialised yet
+     */
+    public static List<Model.CardsLists.Card> getAliasCards(int passCode) throws Exception {
+        if (passCodeToOtherPassCodes == null) {
+            createDatabaseMaps();
+        }
+        Map<Integer, Model.CardsLists.Card> allCards = Database.getAllCardsList();
+        List<Integer> siblings = passCodeToOtherPassCodes.get(passCode);
+
+        if (siblings == null || siblings.isEmpty()) {
+            // Single-artwork card or passCode not in the map — return just itself
+            Model.CardsLists.Card self = allCards.get(passCode);
+            return self != null ? List.of(self) : List.of();
+        }
+
+        List<Model.CardsLists.Card> result = new ArrayList<>();
+        for (Integer sibling : siblings) {
+            Model.CardsLists.Card card = allCards.get(sibling);
+            if (card != null) result.add(card);
+        }
+        return result;
+    }
 }

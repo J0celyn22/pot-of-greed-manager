@@ -505,7 +505,21 @@ public class SharedCollectionTab extends HBox {
             // ── SHOPS ─────────────────────────────────────────────────────────────
             case SHOPS: {
                 VBox shopsGroup = new VBox(10);
-                shopsGroup.setAlignment(Pos.CENTER);
+                shopsGroup.setAlignment(Pos.CENTER_LEFT);
+
+                // ── Max-price row ─────────────────────────────────────────────────
+                HBox maxPriceRow = new HBox(8);
+                maxPriceRow.setAlignment(Pos.CENTER_LEFT);
+
+                Label maxPriceLabel = new Label("Max price (€)");
+                maxPriceLabel.setStyle("-fx-text-fill: white; -fx-font-size: 12;");
+
+                TextField maxPriceField = new TextField("0.30");
+                maxPriceField.setPrefColumnCount(5);
+                maxPriceField.getStyleClass().add("accent-text-field");
+
+                maxPriceRow.getChildren().addAll(maxPriceLabel, maxPriceField);
+                shopsGroup.getChildren().add(maxPriceRow);
 
                 Button ultraJeuxButton = new Button("UltraJeux");
                 ultraJeuxButton.getStyleClass().add("small-button");
@@ -526,7 +540,25 @@ public class SharedCollectionTab extends HBox {
 
                         List<Model.CardsLists.CardElement> maOuicheList =
                                 Model.CardsLists.OuicheList.getMaOuicheListAsFlatList();
-                        double maxPrice = 100;
+
+                        double maxPrice;
+                        try {
+                            maxPrice = Double.parseDouble(
+                                    maxPriceField.getText().trim().replace(',', '.'));
+                            if (maxPrice <= 0) throw new NumberFormatException();
+                        } catch (NumberFormatException nfe) {
+                            maxPriceField.setStyle(maxPriceField.getStyle() +
+                                    " -fx-border-color: #ff6666;");
+                            Label errLabel = new Label(
+                                    "Invalid max price — please enter a positive number.");
+                            errLabel.setStyle(
+                                    "-fx-text-fill: #ff6666; -fx-font-size: 12;");
+                            AnchorPane.setTopAnchor(errLabel, 10.0);
+                            AnchorPane.setLeftAnchor(errLabel, 10.0);
+                            contentPane.getChildren().setAll(errLabel);
+                            return;
+                        }
+                        maxPriceField.setStyle("");
 
                         // Show a "Scraping…" placeholder while the (synchronous) call runs
                         Label scraping = new Label("Scraping UltraJeux…");

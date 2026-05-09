@@ -1415,4 +1415,45 @@ public final class MenuActionHandler {
         View.CardTreeCell.triggerHeightAdjustment(hostGroup);
         return true;
     }
+
+    // ── Edit Card ────────────────────────────────────────────────────────────
+
+    /**
+     * Opens the {@link View.CardEditPopup} for {@code element}, then refreshes
+     * all relevant views after the user confirms with OK.
+     *
+     * <p>Safe to call from any thread; the popup is always shown on the
+     * JavaFX Application Thread.</p>
+     *
+     * @param element the {@link CardElement} to edit (must not be {@code null})
+     * @param anchor  any scene node used to centre the popup on the same window;
+     *                may be {@code null} (popup will centre on screen)
+     */
+    public static void handleEditCard(CardElement element, javafx.scene.Node anchor) {
+        if (element == null) return;
+        Runnable show = () -> {
+            try {
+                View.CardEditPopup popup = new View.CardEditPopup(element);
+                popup.setOnOk(() -> {
+                    // Refresh whichever collection is currently loaded
+                    try {
+                        UserInterfaceFunctions.refreshOwnedCollectionView();
+                    } catch (Throwable ignored) {
+                    }
+                    try {
+                        UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                    } catch (Throwable ignored) {
+                    }
+                });
+                popup.showCenteredOn(anchor);
+            } catch (Throwable t) {
+                logger.error("handleEditCard failed", t);
+            }
+        };
+        if (javafx.application.Platform.isFxApplicationThread()) {
+            show.run();
+        } else {
+            javafx.application.Platform.runLater(show);
+        }
+    }
 }
