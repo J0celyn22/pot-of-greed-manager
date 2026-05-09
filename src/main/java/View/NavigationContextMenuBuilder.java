@@ -566,6 +566,8 @@ public final class NavigationContextMenuBuilder {
                 mi.setText("");
 
                 final String finalArchName = archName;
+                final List<Model.CardsLists.Card> finalArchCards =
+                        (allCards != null && idx < allCards.size()) ? allCards.get(idx) : null;
                 mi.setOnAction(e -> {
                     // Ensure the collection has an archetypes list
                     if (collection.getArchetypes() == null)
@@ -589,6 +591,24 @@ public final class NavigationContextMenuBuilder {
 
                     // Structural rebuild so the new archetype DataTreeItem is created.
                     Controller.UserInterfaceFunctions.triggerDecksStructureRefresh();
+
+                    // Open the card-selection popup so the user can decide which
+                    // cards go to the collection list and which go to exceptions.
+                    List<Model.CardsLists.Card> popupCards =
+                            finalArchCards != null ? finalArchCards : java.util.Collections.emptyList();
+                    javafx.application.Platform.runLater(() -> {
+                        View.ArchetypeCardSelectionPopup popup =
+                                new View.ArchetypeCardSelectionPopup(
+                                        finalArchName, popupCards, collection);
+                        popup.setOnOk(() -> {
+                            // Full rebuild so new cards appear in the tree
+                            Controller.UserInterfaceFunctions.setPendingDecksFullRebuild();
+                            Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                        });
+                        // Use the menu item's graphic as the anchor for centring
+                        popup.showCenteredOn(mi.getParentPopup() != null
+                                ? mi.getParentPopup().getOwnerNode() : null);
+                    });
                 });
 
                 menu.getItems().add(mi);
