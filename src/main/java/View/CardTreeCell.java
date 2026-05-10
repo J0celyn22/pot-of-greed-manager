@@ -2471,6 +2471,24 @@ public class CardTreeCell extends TreeCell<String> {
                 }
             });
 
+            // ── Edit Card ────────────────────────────────────────────────────────
+            MenuItem editCardMenuItem = new MenuItem();
+            {
+                Label editLabel = new Label("Edit Card");
+                editLabel.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 13;");
+                HBox editGraphic = new HBox(editLabel);
+                editGraphic.setAlignment(Pos.CENTER_LEFT);
+                editGraphic.setPadding(new Insets(2, 6, 2, 6));
+                editCardMenuItem.setGraphic(editGraphic);
+                editCardMenuItem.setText("");
+                editCardMenuItem.setOnAction(ae -> {
+                    CardElement currentItem = getItem();
+                    if (currentItem != null)
+                        Controller.MenuActionHandler.handleEditCard(currentItem, wrapper);
+                });
+            }
+            contextMenu.getItems().add(editCardMenuItem);
+
             contextMenu.getItems().add(new SeparatorMenuItem());
             contextMenu.getItems().add(removeRootItem);
 
@@ -2479,6 +2497,7 @@ public class CardTreeCell extends TreeCell<String> {
                 CardElement currentItem = getItem();
                 boolean multiSelect = isMiddleMultiSelectActive();
                 sortingMenu.setVisible(!multiSelect);
+                editCardMenuItem.setDisable(currentItem == null || multiSelect);
                 removeRootItem.setDisable(currentItem == null);
                 pasteAfterCardMenuItem.setVisible(!Controller.CardClipboard.isEmpty());
             });
@@ -2593,6 +2612,24 @@ public class CardTreeCell extends TreeCell<String> {
                 }
                 decksContextMenu.getItems().add(decksPasteMenuItem);
 
+                // ── Edit Card (D&C) ──────────────────────────────────────────────
+                MenuItem decksEditCardMenuItem = new MenuItem();
+                {
+                    Label lbl = new Label("Edit Card");
+                    lbl.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 13;");
+                    HBox g = new HBox(lbl);
+                    g.setAlignment(Pos.CENTER_LEFT);
+                    g.setPadding(new Insets(2, 6, 2, 6));
+                    decksEditCardMenuItem.setGraphic(g);
+                    decksEditCardMenuItem.setText("");
+                    decksEditCardMenuItem.setOnAction(ae -> {
+                        CardElement currentItem = getItem();
+                        if (currentItem != null)
+                            Controller.MenuActionHandler.handleEditCard(currentItem, wrapper);
+                    });
+                }
+                decksContextMenu.getItems().add(decksEditCardMenuItem);
+
                 decksContextMenu.getItems().add(new SeparatorMenuItem());
 
                 // "Remove" (red + trash icon)
@@ -2680,6 +2717,7 @@ public class CardTreeCell extends TreeCell<String> {
 
                 decksContextMenu.setOnShowing(ev -> {
                     decksPasteMenuItem.setVisible(!Controller.CardClipboard.isEmpty());
+                    decksEditCardMenuItem.setDisable(getItem() == null);
                 });
             }
 

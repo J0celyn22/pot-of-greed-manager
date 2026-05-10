@@ -779,6 +779,24 @@ public class RealMainController {
         if (archetypesTreeView != null)
             archetypesTreeView.getProperties().put("tabType", "ARCHETYPES");
 
+        // Lightweight D&C tree refresh: re-renders archetype-card glow states
+        // inside Collections without rebuilding the model. Fired on every model
+        // change via triggerTabDirtyIndicatorUpdate().
+        UserInterfaceFunctions.registerDecksTreeRefresher(() -> {
+            if (decksAndCollectionsTreeView != null) {
+                decksAndCollectionsTreeView.refresh();
+                View.CardTreeCell.refreshAllGridViews();
+            }
+        });
+
+        // Refresh the archetype tab tree view whenever the model changes.
+        UserInterfaceFunctions.registerArchetypesRefresher(() -> {
+            if (archetypesTreeView != null) {
+                archetypesTreeView.refresh();
+                View.CardTreeCell.refreshAllGridViews();
+            }
+        });
+
         if (mainTabPane != null && mainTabPane.getTabs().size() >= 6) {
             mainTabPane.getTabs().get(0).setContent(myCollectionTab);
             mainTabPane.getTabs().get(1).setContent(decksTab);

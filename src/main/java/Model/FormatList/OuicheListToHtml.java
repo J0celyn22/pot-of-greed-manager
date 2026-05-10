@@ -46,7 +46,7 @@ public class OuicheListToHtml {
 
                     for (int j = 0; j < ouicheList.getCollections().get(i).getLinkedDecks().size(); j++) {
                         addRectangleBeginning(writer);
-                        for (int k = 0; k < ouicheList.getCollections().get(i).getLinkedDecks().size(); k++) {
+                        for (int k = 0; k < ouicheList.getCollections().get(i).getLinkedDecks().get(j).size(); k++) {
                             addRectangleBeginning(writer);
                             addTitle3(writer, ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getName(), ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getCardCount(), ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getPrice());
                             displayListWithOwned(ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getMainDeck(), "Main.Main deck", writer, dirPath, relativeImagePath);
@@ -115,7 +115,7 @@ public class OuicheListToHtml {
 
                     for (int j = 0; j < ouicheList.getCollections().get(i).getLinkedDecks().size(); j++) {
                         addRectangleBeginning(writer);
-                        for (int k = 0; k < ouicheList.getCollections().get(i).getLinkedDecks().size(); k++) {
+                        for (int k = 0; k < ouicheList.getCollections().get(i).getLinkedDecks().get(j).size(); k++) {
                             addRectangleBeginning(writer);
                             addTitle3(writer, ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getName(), ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getCardCount(), ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getPrice());
                             displayMosaicWithOwned(ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getMainDeck(), "Main.Main deck", writer, dirPath, relativeImagePath);
