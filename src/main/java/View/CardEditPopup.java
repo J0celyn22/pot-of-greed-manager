@@ -492,14 +492,14 @@ public class CardEditPopup extends Stage {
             // solid accent-colour border, no radius (rectangle), same thickness.
             pane.setStyle(
                     "-fx-border-color: " + ACCENT + ";" +
-                            "-fx-border-width: 3;" +
-                            "-fx-border-radius: 0;" +
+                            "-fx-border-width: 1.5;" +
+                            "-fx-border-radius: 4;" +
                             "-fx-background-color: transparent;");
         } else {
             pane.setStyle(
                     "-fx-border-color: transparent;" +
-                            "-fx-border-width: 3;" +
-                            "-fx-border-radius: 0;" +
+                            "-fx-border-width: 1.5;" +
+                            "-fx-border-radius: 4;" +
                             "-fx-background-color: transparent;");
         }
     }

@@ -5,10 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static Model.CardsLists.ListDifferenceIntersection.*;
 
@@ -246,35 +243,178 @@ public class OuicheList {
      * @param ownedCardsCollection the user's owned card collection
      * @param decksList            the decks and collections the user wants to complete
      */
-    public static void CreateOuicheList(OwnedCardsCollection ownedCardsCollection, DecksAndCollectionsList decksList) throws Exception {
+    /**
+     * Builds the compact OuicheList map from the already-computed detailed OuicheList.
+     *
+     * <p>Three counting rules are enforced:
+     * <ol>
+     *   <li><b>Group-max (Rule 1):</b> Cards in the same deck group (List&lt;Deck&gt;) are
+     *       alternative configurations, so for each card key the contribution of a group is
+     *       {@code max} over its decks, not the sum. Independent groups (different entries in
+     *       {@code linkedDecks}) are then summed.</li>
+     *   <li><b>Collection/deck sharing (Rule 2):</b> Non-{@code dontRemove} cards in the
+     *       {@code cardsList} of a ThemeCollection share with the deck groups of the same
+     *       collection. The total needed for such a key is
+     *       {@code max(sum-of-group-maxes, cardsList-count)}, not the sum of both.
+     *       {@code dontRemove} cards are always counted independently (summed on top).</li>
+     *   <li><b>Loose-collection deduplication (Rule 3):</b> Cards in loose collections
+     *       ({@code connectToWholeCollection = true}) are only counted if their key is not
+     *       already present in the map from a non-loose context.  If the key is new, the
+     *       loose collection contributes its unowned count; if already present, the loose
+     *       contribution is silently dropped (you will already buy the card for the other
+     *       context).</li>
+     * </ol>
+     */
+    public static void CreateOuicheList(OwnedCardsCollection ownedCardsCollection,
+                                        DecksAndCollectionsList decksList) throws Exception {
         listsIntersection = new ArrayList<>();
-
         if (detailedOuicheList == null) {
             CreateDetailedOuicheList(ownedCardsCollection, decksList);
         }
 
         maOuicheList = new LinkedHashMap<>();
         maOuicheListCounts = new LinkedHashMap<>();
-        // Use identity comparison (reference equality) to deduplicate owned instances.
-        // When the same CardElement instance from the owned collection validates slots
-        // in multiple loose collections, it appears multiple times in toList() but
-        // should only be counted once. Separate instances of the same card (different
-        // copies) still each count independently.
-        java.util.Set<CardElement> seenInstances =
-                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 
-        for (CardElement card : detailedOuicheList.toList()) {
-            if (!seenInstances.add(card)) continue;   // same instance already processed
-            if (!card.getOwned()) {
-                String key = cardKey(card);
-                if (key == null) continue;
-                if (!maOuicheList.containsKey(key)) {
-                    maOuicheList.put(key, new CardElement(card.getCard()));
-                    maOuicheListCounts.put(key, 1);
-                } else {
-                    maOuicheListCounts.merge(key, 1, Integer::sum);
+        // ── Non-loose collections ─────────────────────────────────────────────────
+        if (detailedOuicheList.getCollections() != null) {
+            for (ThemeCollection col : detailedOuicheList.getCollections()) {
+                if (Boolean.TRUE.equals(col.getConnectToWholeCollection())) continue;
+
+                // Per-key unowned counts from deck groups (Rule 1: max within group, sum across groups)
+                Map<String, Integer> deckNormalContrib = new LinkedHashMap<>();
+                Map<String, Integer> deckDontRemoveContrib = new LinkedHashMap<>();
+                Map<String, CardElement> repCards = new LinkedHashMap<>();
+
+                for (List<Deck> group : col.getLinkedDecks()) {
+                    Map<String, Integer> groupMaxNormal = new HashMap<>();
+                    Map<String, Integer> groupMaxDontRemove = new HashMap<>();
+
+                    for (Deck deck : group) {
+                        Map<String, Integer> deckNormal = new HashMap<>();
+                        Map<String, Integer> deckDontRemove = new HashMap<>();
+
+                        for (CardElement ce : deck.toList()) {
+                            if (Boolean.TRUE.equals(ce.getOwned())) continue;
+                            String key = cardKey(ce);
+                            if (key == null) continue;
+                            repCards.putIfAbsent(key, ce);
+                            if (Boolean.TRUE.equals(ce.getDontRemove()))
+                                deckDontRemove.merge(key, 1, Integer::sum);
+                            else
+                                deckNormal.merge(key, 1, Integer::sum);
+                        }
+                        deckNormal.forEach((k, v) -> groupMaxNormal.merge(k, v, Math::max));
+                        deckDontRemove.forEach((k, v) -> groupMaxDontRemove.merge(k, v, Math::max));
+                    }
+                    // Sum group contributions (groups are independent configurations)
+                    groupMaxNormal.forEach((k, v) -> deckNormalContrib.merge(k, v, Integer::sum));
+                    groupMaxDontRemove.forEach((k, v) -> deckDontRemoveContrib.merge(k, v, Integer::sum));
+                }
+
+                // Per-key unowned counts from cardsList
+                Map<String, Integer> listNormal = new LinkedHashMap<>();
+                Map<String, Integer> listDontRemove = new LinkedHashMap<>();
+                for (CardElement ce : col.getCardsList()) {
+                    if (Boolean.TRUE.equals(ce.getOwned())) continue;
+                    String key = cardKey(ce);
+                    if (key == null) continue;
+                    repCards.putIfAbsent(key, ce);
+                    if (Boolean.TRUE.equals(ce.getDontRemove()))
+                        listDontRemove.merge(key, 1, Integer::sum);
+                    else
+                        listNormal.merge(key, 1, Integer::sum);
+                }
+
+                // Rule 2: non-dontRemove key needs max(deckContrib, cardsListContrib)
+                Set<String> allNormalKeys = new HashSet<>(deckNormalContrib.keySet());
+                allNormalKeys.addAll(listNormal.keySet());
+                for (String key : allNormalKeys) {
+                    int needed = Math.max(
+                            deckNormalContrib.getOrDefault(key, 0),
+                            listNormal.getOrDefault(key, 0));
+                    if (needed <= 0) continue;
+                    addToGlobalMap(key, needed, repCards.get(key));
+                }
+
+                // dontRemove deck slots: group-max already applied; sum across collections
+                deckDontRemoveContrib.forEach((key, needed) ->
+                        addToGlobalMap(key, needed, repCards.get(key)));
+
+                // dontRemove cardsList: always independent
+                listDontRemove.forEach((key, needed) ->
+                        addToGlobalMap(key, needed, repCards.get(key)));
+            }
+        }
+
+        // ── Standalone decks ─────────────────────────────────────────────────────
+        if (detailedOuicheList.getDecks() != null) {
+            for (Deck deck : detailedOuicheList.getDecks()) {
+                for (CardElement ce : deck.toList()) {
+                    if (Boolean.TRUE.equals(ce.getOwned())) continue;
+                    String key = cardKey(ce);
+                    if (key == null) continue;
+                    addToGlobalMap(key, 1, ce);
                 }
             }
+        }
+
+        // ── Loose collections (Rule 3) ────────────────────────────────────────────
+        // Build each loose collection's contribution exactly like a non-loose one
+        // (group-max for decks, max with cardsList), then only add keys that are
+        // NOT already in the map from the non-loose pass above.
+        if (detailedOuicheList.getCollections() != null) {
+            for (ThemeCollection col : detailedOuicheList.getCollections()) {
+                if (!Boolean.TRUE.equals(col.getConnectToWholeCollection())) continue;
+
+                Map<String, Integer> looseContrib = new LinkedHashMap<>();
+                Map<String, CardElement> repCards = new LinkedHashMap<>();
+
+                for (List<Deck> group : col.getLinkedDecks()) {
+                    Map<String, Integer> groupMax = new HashMap<>();
+                    for (Deck deck : group) {
+                        Map<String, Integer> deckCounts = new HashMap<>();
+                        for (CardElement ce : deck.toList()) {
+                            if (Boolean.TRUE.equals(ce.getOwned())) continue;
+                            String key = cardKey(ce);
+                            if (key == null) continue;
+                            repCards.putIfAbsent(key, ce);
+                            deckCounts.merge(key, 1, Integer::sum);
+                        }
+                        deckCounts.forEach((k, v) -> groupMax.merge(k, v, Math::max));
+                    }
+                    groupMax.forEach((k, v) -> looseContrib.merge(k, v, Integer::sum));
+                }
+                for (CardElement ce : col.getCardsList()) {
+                    if (Boolean.TRUE.equals(ce.getOwned())) continue;
+                    String key = cardKey(ce);
+                    if (key == null) continue;
+                    repCards.putIfAbsent(key, ce);
+                    looseContrib.merge(key, 1, Integer::sum);
+                }
+
+                // Rule 3: only contribute keys not already in the map
+                looseContrib.forEach((key, count) -> {
+                    if (!maOuicheList.containsKey(key)) {
+                        maOuicheList.put(key, new CardElement(repCards.get(key).getCard()));
+                        maOuicheListCounts.put(key, count);
+                    }
+                    // else: already needed for a non-loose context — don't add
+                });
+            }
+        }
+    }
+
+    /**
+     * Adds {@code count} copies of the card identified by {@code key} to the global
+     * OuicheList map, creating a fresh representative entry on the first insertion and
+     * accumulating (summing) counts on subsequent ones.
+     */
+    private static void addToGlobalMap(String key, int count, CardElement rep) {
+        if (!maOuicheList.containsKey(key)) {
+            maOuicheList.put(key, new CardElement(rep.getCard()));
+            maOuicheListCounts.put(key, count);
+        } else {
+            maOuicheListCounts.merge(key, count, Integer::sum);
         }
     }
 
@@ -312,14 +452,22 @@ public class OuicheList {
                 ThemeCollection collectionCopy = new ThemeCollection();
                 collectionCopy.setName(originalCollection.getName());
                 collectionCopy.setConnectToWholeCollection(false);
+                // Bug 1 fix: preserve deck-group boundaries so that within-group
+                // propagation (Bug 2) can work correctly on the copy.
                 for (List<Deck> deckGroup : originalCollection.getLinkedDecks()) {
+                    boolean firstInGroup = true;
                     for (Deck originalDeck : deckGroup) {
                         Deck deckCopy = new Deck();
                         deckCopy.setName(originalDeck.getName());
                         deckCopy.setMainDeck(copyCardElements(originalDeck.getMainDeck()));
                         deckCopy.setExtraDeck(copyCardElements(originalDeck.getExtraDeck()));
                         deckCopy.setSideDeck(copyCardElements(originalDeck.getSideDeck()));
-                        collectionCopy.AddDeck(deckCopy);
+                        if (firstInGroup) {
+                            collectionCopy.AddDeck(deckCopy);
+                            firstInGroup = false;
+                        } else {
+                            collectionCopy.AddDeckToExistingUnit(deckCopy, collectionCopy.getLinkedDecks().size() - 1);
+                        }
                     }
                 }
                 collectionCopy.setCardsList(copyCardElements(originalCollection.getCardsList()));
@@ -345,14 +493,21 @@ public class OuicheList {
                 ThemeCollection collectionCopy = new ThemeCollection();
                 collectionCopy.setName(originalCollection.getName());
                 collectionCopy.setConnectToWholeCollection(true);
+                // Bug 1 fix: preserve deck-group boundaries for loose collections too.
                 for (List<Deck> deckGroup : originalCollection.getLinkedDecks()) {
+                    boolean firstInGroup = true;
                     for (Deck originalDeck : deckGroup) {
                         Deck deckCopy = new Deck();
                         deckCopy.setName(originalDeck.getName());
                         deckCopy.setMainDeck(copyCardElements(originalDeck.getMainDeck()));
                         deckCopy.setExtraDeck(copyCardElements(originalDeck.getExtraDeck()));
                         deckCopy.setSideDeck(copyCardElements(originalDeck.getSideDeck()));
-                        collectionCopy.AddDeck(deckCopy);
+                        if (firstInGroup) {
+                            collectionCopy.AddDeck(deckCopy);
+                            firstInGroup = false;
+                        } else {
+                            collectionCopy.AddDeckToExistingUnit(deckCopy, collectionCopy.getLinkedDecks().size() - 1);
+                        }
                     }
                 }
                 collectionCopy.setCardsList(copyCardElements(originalCollection.getCardsList()));
@@ -373,83 +528,145 @@ public class OuicheList {
         // -----------------------------------------------------------------------
         unusedCards = copyCardElements(ownedCardsCollection.toList());
 
-        // --- (1) Non-loose collections — artwork-specific pass ---
+        // --- Non-loose collections — fully process each collection before the next ---
+        // Per collection, per deck group:
+        //   (a) Artwork pass (non-dontRemove)
+        //   (b) KonamiId pass (non-dontRemove)
+        //   (c) Bug 2: within-group propagation (free, no pool consumption)
+        //   (d) Bug 4: artwork pass (dontRemove only — independent per context)
+        //   (e) Bug 4: KonamiId pass (dontRemove only)
+        // Then cardsList:
+        //   (f) Bug 3: free validation from already-validated deck slots
+        //   (g) Artwork pass (non-dontRemove remainder)
+        //   (h) KonamiId pass (non-dontRemove remainder)
+        //   (i) Bug 4: artwork pass (dontRemove — independent from deck dontRemove)
+        //   (j) Bug 4: KonamiId pass (dontRemove)
         if (detailedOuicheList.getCollections() != null) {
-            for (int i = 0; i < detailedOuicheList.getCollections().size(); i++) {
-                ThemeCollection col = detailedOuicheList.getCollections().get(i);
+            for (ThemeCollection col : detailedOuicheList.getCollections()) {
                 if (Boolean.TRUE.equals(col.getConnectToWholeCollection())) continue;
 
-                for (int j = 0; j < col.getLinkedDecks().size(); j++) {
-                    for (int k = 0; k < col.getLinkedDecks().get(j).size(); k++) {
-                        List<List<CardElement>> tempList = ListDifIntersectArtworkWithExceptions(col.getLinkedDecks().get(j).get(k).getMainDeck(), unusedCards, "O");
-                        col.getLinkedDecks().get(j).get(k).setMainDeck(tempList.get(0));
-                        unusedCards = new ArrayList<>(tempList.get(1));
-                        tempList = ListDifIntersectArtworkWithExceptions(col.getLinkedDecks().get(j).get(k).getExtraDeck(), unusedCards, "O");
-                        col.getLinkedDecks().get(j).get(k).setExtraDeck(tempList.get(0));
-                        unusedCards = new ArrayList<>(tempList.get(1));
-                        tempList = ListDifIntersectArtworkWithExceptions(col.getLinkedDecks().get(j).get(k).getSideDeck(), unusedCards, "O");
-                        col.getLinkedDecks().get(j).get(k).setSideDeck(tempList.get(0));
-                        unusedCards = new ArrayList<>(tempList.get(1));
+                for (List<Deck> deckGroup : col.getLinkedDecks()) {
+                    // (a) Artwork pass — non-dontRemove
+                    for (Deck deck : deckGroup) {
+                        List<List<CardElement>> t = ListDifIntersectArtworkWithExceptions(deck.getMainDeck(), unusedCards, "O");
+                        deck.setMainDeck(t.get(0));
+                        unusedCards = new ArrayList<>(t.get(1));
+                        t = ListDifIntersectArtworkWithExceptions(deck.getExtraDeck(), unusedCards, "O");
+                        deck.setExtraDeck(t.get(0));
+                        unusedCards = new ArrayList<>(t.get(1));
+                        t = ListDifIntersectArtworkWithExceptions(deck.getSideDeck(), unusedCards, "O");
+                        deck.setSideDeck(t.get(0));
+                        unusedCards = new ArrayList<>(t.get(1));
+                    }
+                    // (b) KonamiId pass — non-dontRemove
+                    for (Deck deck : deckGroup) {
+                        List<List<CardElement>> t = ListDifIntersectKonamiIdWithExceptions(deck.getMainDeck(), unusedCards, "O");
+                        deck.setMainDeck(t.get(0));
+                        unusedCards = new ArrayList<>(t.get(1));
+                        t = ListDifIntersectKonamiIdWithExceptions(deck.getExtraDeck(), unusedCards, "O");
+                        deck.setExtraDeck(t.get(0));
+                        unusedCards = new ArrayList<>(t.get(1));
+                        t = ListDifIntersectKonamiIdWithExceptions(deck.getSideDeck(), unusedCards, "O");
+                        deck.setSideDeck(t.get(0));
+                        unusedCards = new ArrayList<>(t.get(1));
+                    }
+                    // (c) Bug 2: propagate validations freely within the group.
+                    // A card validated in one deck is auto-validated in every sibling
+                    // deck once (without consuming another owned copy).
+                    if (deckGroup.size() > 1) {
+                        propagateGroupValidation(deckGroup);
+                    }
+                    // (d) Bug 4: artwork pass — dontRemove cards, independent per deck
+                    for (Deck deck : deckGroup) {
+                        List<List<CardElement>> t = ListDifIntersectArtworkDontRemove(deck.getMainDeck(), unusedCards, "O");
+                        deck.setMainDeck(t.get(0));
+                        unusedCards = new ArrayList<>(t.get(1));
+                        t = ListDifIntersectArtworkDontRemove(deck.getExtraDeck(), unusedCards, "O");
+                        deck.setExtraDeck(t.get(0));
+                        unusedCards = new ArrayList<>(t.get(1));
+                        t = ListDifIntersectArtworkDontRemove(deck.getSideDeck(), unusedCards, "O");
+                        deck.setSideDeck(t.get(0));
+                        unusedCards = new ArrayList<>(t.get(1));
+                    }
+                    // (e) Bug 4: KonamiId pass — dontRemove cards, independent per deck
+                    for (Deck deck : deckGroup) {
+                        List<List<CardElement>> t = ListDifIntersectKonamiIdDontRemove(deck.getMainDeck(), unusedCards, "O");
+                        deck.setMainDeck(t.get(0));
+                        unusedCards = new ArrayList<>(t.get(1));
+                        t = ListDifIntersectKonamiIdDontRemove(deck.getExtraDeck(), unusedCards, "O");
+                        deck.setExtraDeck(t.get(0));
+                        unusedCards = new ArrayList<>(t.get(1));
+                        t = ListDifIntersectKonamiIdDontRemove(deck.getSideDeck(), unusedCards, "O");
+                        deck.setSideDeck(t.get(0));
+                        unusedCards = new ArrayList<>(t.get(1));
                     }
                 }
+
+                // (f) Bug 3: satisfy non-dontRemove cardsList entries from already-validated
+                // deck slots for free (one deck-validation covers one cardsList entry).
+                col.setCardsList(satisfyCardsListFromDeckValidations(col.getCardsList(), col));
+                // (g) Artwork pass — non-dontRemove remainder
                 List<List<CardElement>> tempList = ListDifIntersectArtworkWithExceptions(col.getCardsList(), unusedCards, "O");
                 col.setCardsList(tempList.get(0));
                 unusedCards = new ArrayList<>(tempList.get(1));
-            }
-        }
-
-        // --- (2) Standalone decks — artwork-specific pass ---
-        if (detailedOuicheList.getDecks() != null) {
-            for (int i = 0; i < detailedOuicheList.getDecks().size(); i++) {
-                List<List<CardElement>> tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getDecks().get(i).getMainDeck(), unusedCards, "O");
-                detailedOuicheList.getDecks().get(i).setMainDeck(tempList.get(0));
+                // (h) KonamiId pass — non-dontRemove remainder
+                tempList = ListDifIntersectKonamiIdWithExceptions(col.getCardsList(), unusedCards, "O");
+                col.setCardsList(tempList.get(0));
                 unusedCards = new ArrayList<>(tempList.get(1));
-                tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getDecks().get(i).getExtraDeck(), unusedCards, "O");
-                detailedOuicheList.getDecks().get(i).setExtraDeck(tempList.get(0));
+                // (i) Bug 4: artwork pass — dontRemove cardsList entries (independent from deck dontRemove)
+                tempList = ListDifIntersectArtworkDontRemove(col.getCardsList(), unusedCards, "O");
+                col.setCardsList(tempList.get(0));
                 unusedCards = new ArrayList<>(tempList.get(1));
-                tempList = ListDifIntersectArtworkWithExceptions(detailedOuicheList.getDecks().get(i).getSideDeck(), unusedCards, "O");
-                detailedOuicheList.getDecks().get(i).setSideDeck(tempList.get(0));
-                unusedCards = new ArrayList<>(tempList.get(1));
-            }
-        }
-
-        // --- (3) Non-loose collections — KonamiId pass ---
-        if (detailedOuicheList.getCollections() != null) {
-            for (int i = 0; i < detailedOuicheList.getCollections().size(); i++) {
-                ThemeCollection col = detailedOuicheList.getCollections().get(i);
-                if (Boolean.TRUE.equals(col.getConnectToWholeCollection())) continue;
-
-                for (int j = 0; j < col.getLinkedDecks().size(); j++) {
-                    for (int k = 0; k < col.getLinkedDecks().get(j).size(); k++) {
-                        List<List<CardElement>> tempList = ListDifIntersectKonamiIdWithExceptions(col.getLinkedDecks().get(j).get(k).getMainDeck(), unusedCards, "O");
-                        col.getLinkedDecks().get(j).get(k).setMainDeck(tempList.get(0));
-                        unusedCards = new ArrayList<>(tempList.get(1));
-                        tempList = ListDifIntersectKonamiIdWithExceptions(col.getLinkedDecks().get(j).get(k).getExtraDeck(), unusedCards, "O");
-                        col.getLinkedDecks().get(j).get(k).setExtraDeck(tempList.get(0));
-                        unusedCards = new ArrayList<>(tempList.get(1));
-                        tempList = ListDifIntersectKonamiIdWithExceptions(col.getLinkedDecks().get(j).get(k).getSideDeck(), unusedCards, "O");
-                        col.getLinkedDecks().get(j).get(k).setSideDeck(tempList.get(0));
-                        unusedCards = new ArrayList<>(tempList.get(1));
-                    }
-                }
-                List<List<CardElement>> tempList = ListDifIntersectKonamiIdWithExceptions(col.getCardsList(), unusedCards, "O");
+                // (j) Bug 4: KonamiId pass — dontRemove cardsList entries
+                tempList = ListDifIntersectKonamiIdDontRemove(col.getCardsList(), unusedCards, "O");
                 col.setCardsList(tempList.get(0));
                 unusedCards = new ArrayList<>(tempList.get(1));
             }
         }
 
-        // --- (4) Standalone decks — KonamiId pass ---
+        // --- Standalone decks — artwork then KonamiId, including dontRemove (Bug 4) ---
         if (detailedOuicheList.getDecks() != null) {
-            for (int i = 0; i < detailedOuicheList.getDecks().size(); i++) {
-                List<List<CardElement>> tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getDecks().get(i).getMainDeck(), unusedCards, "O");
-                detailedOuicheList.getDecks().get(i).setMainDeck(tempList.get(0));
-                unusedCards = new ArrayList<>(tempList.get(1));
-                tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getDecks().get(i).getExtraDeck(), unusedCards, "O");
-                detailedOuicheList.getDecks().get(i).setExtraDeck(tempList.get(0));
-                unusedCards = new ArrayList<>(tempList.get(1));
-                tempList = ListDifIntersectKonamiIdWithExceptions(detailedOuicheList.getDecks().get(i).getSideDeck(), unusedCards, "O");
-                detailedOuicheList.getDecks().get(i).setSideDeck(tempList.get(0));
-                unusedCards = new ArrayList<>(tempList.get(1));
+            for (Deck deck : detailedOuicheList.getDecks()) {
+                // Non-dontRemove artwork pass
+                List<List<CardElement>> t = ListDifIntersectArtworkWithExceptions(deck.getMainDeck(), unusedCards, "O");
+                deck.setMainDeck(t.get(0));
+                unusedCards = new ArrayList<>(t.get(1));
+                t = ListDifIntersectArtworkWithExceptions(deck.getExtraDeck(), unusedCards, "O");
+                deck.setExtraDeck(t.get(0));
+                unusedCards = new ArrayList<>(t.get(1));
+                t = ListDifIntersectArtworkWithExceptions(deck.getSideDeck(), unusedCards, "O");
+                deck.setSideDeck(t.get(0));
+                unusedCards = new ArrayList<>(t.get(1));
+                // Non-dontRemove KonamiId pass
+                t = ListDifIntersectKonamiIdWithExceptions(deck.getMainDeck(), unusedCards, "O");
+                deck.setMainDeck(t.get(0));
+                unusedCards = new ArrayList<>(t.get(1));
+                t = ListDifIntersectKonamiIdWithExceptions(deck.getExtraDeck(), unusedCards, "O");
+                deck.setExtraDeck(t.get(0));
+                unusedCards = new ArrayList<>(t.get(1));
+                t = ListDifIntersectKonamiIdWithExceptions(deck.getSideDeck(), unusedCards, "O");
+                deck.setSideDeck(t.get(0));
+                unusedCards = new ArrayList<>(t.get(1));
+                // Bug 4: dontRemove artwork pass
+                t = ListDifIntersectArtworkDontRemove(deck.getMainDeck(), unusedCards, "O");
+                deck.setMainDeck(t.get(0));
+                unusedCards = new ArrayList<>(t.get(1));
+                t = ListDifIntersectArtworkDontRemove(deck.getExtraDeck(), unusedCards, "O");
+                deck.setExtraDeck(t.get(0));
+                unusedCards = new ArrayList<>(t.get(1));
+                t = ListDifIntersectArtworkDontRemove(deck.getSideDeck(), unusedCards, "O");
+                deck.setSideDeck(t.get(0));
+                unusedCards = new ArrayList<>(t.get(1));
+                // Bug 4: dontRemove KonamiId pass
+                t = ListDifIntersectKonamiIdDontRemove(deck.getMainDeck(), unusedCards, "O");
+                deck.setMainDeck(t.get(0));
+                unusedCards = new ArrayList<>(t.get(1));
+                t = ListDifIntersectKonamiIdDontRemove(deck.getExtraDeck(), unusedCards, "O");
+                deck.setExtraDeck(t.get(0));
+                unusedCards = new ArrayList<>(t.get(1));
+                t = ListDifIntersectKonamiIdDontRemove(deck.getSideDeck(), unusedCards, "O");
+                deck.setSideDeck(t.get(0));
+                unusedCards = new ArrayList<>(t.get(1));
             }
         }
 
@@ -539,6 +756,120 @@ public class OuicheList {
         }
 
         return detailedOuicheList;
+    }
+
+    /**
+     * Bug 2 fix — within-group propagation for non-loose collections.
+     * <p>
+     * After ownership passes have validated some cards (owned=true, dontRemove=false)
+     * in the decks of a group, propagates those validations for free to the sibling
+     * decks in the same group. One validated card in deck D1 satisfies one slot of the
+     * same KonamiId in every sibling deck Dk (without consuming an additional owned copy).
+     * <p>
+     * Only cards that were validated before this call (snapshot) are propagated;
+     * cards that become owned as a result of propagation are never re-propagated, so
+     * there is no risk of cascading or double-counting.
+     */
+    private static void propagateGroupValidation(List<Deck> deckGroup) {
+        // Snapshot the originally-validated (non-dontRemove) cards per deck.
+        // We propagate only from the snapshot, not from subsequently propagated slots.
+        List<List<String>> validatedKonamiIdsPerDeck = new ArrayList<>();
+        for (Deck deck : deckGroup) {
+            List<String> ids = new ArrayList<>();
+            collectValidatedKonamiIds(deck.getMainDeck(), ids);
+            collectValidatedKonamiIds(deck.getExtraDeck(), ids);
+            collectValidatedKonamiIds(deck.getSideDeck(), ids);
+            validatedKonamiIdsPerDeck.add(ids);
+        }
+
+        for (int srcIdx = 0; srcIdx < deckGroup.size(); srcIdx++) {
+            List<String> toPropagate = validatedKonamiIdsPerDeck.get(srcIdx);
+            for (int dstIdx = 0; dstIdx < deckGroup.size(); dstIdx++) {
+                if (dstIdx == srcIdx) continue;
+                Deck dst = deckGroup.get(dstIdx);
+                // Each validated KonamiId from srcDeck propagates to one slot in dstDeck.
+                // Use a mutable copy so we can track how many propagations remain.
+                List<String> remaining = new ArrayList<>(toPropagate);
+                propagateToSections(dst, remaining);
+            }
+        }
+    }
+
+    /**
+     * Collects KonamiIds of owned, non-dontRemove cards from a section into {@code out}.
+     */
+    private static void collectValidatedKonamiIds(List<CardElement> section, List<String> out) {
+        for (CardElement ce : section) {
+            if (Boolean.TRUE.equals(ce.getOwned())
+                    && !Boolean.TRUE.equals(ce.getDontRemove())
+                    && ce.getCard() != null
+                    && ce.getCard().getKonamiId() != null) {
+                out.add(ce.getCard().getKonamiId());
+            }
+        }
+    }
+
+    /**
+     * For each KonamiId still in {@code remaining}, finds the first matching
+     * unowned, non-dontRemove slot across the deck's three sections and marks it
+     * owned (removing that KonamiId from {@code remaining}).
+     */
+    private static void propagateToSections(Deck dst, List<String> remaining) {
+        propagateSectionPass(dst.getMainDeck(), remaining);
+        propagateSectionPass(dst.getExtraDeck(), remaining);
+        propagateSectionPass(dst.getSideDeck(), remaining);
+    }
+
+    private static void propagateSectionPass(List<CardElement> section, List<String> remaining) {
+        for (CardElement ce : section) {
+            if (remaining.isEmpty()) return;
+            if (Boolean.TRUE.equals(ce.getOwned()) || Boolean.TRUE.equals(ce.getDontRemove())) continue;
+            if (ce.getCard() == null || ce.getCard().getKonamiId() == null) continue;
+            String konamiId = ce.getCard().getKonamiId();
+            int idx = remaining.indexOf(konamiId);
+            if (idx >= 0) {
+                ce.setOwned(true);
+                remaining.remove(idx);
+            }
+        }
+    }
+
+    /**
+     * Bug 3 fix — free cardsList satisfaction from deck validations.
+     * <p>
+     * For each non-dontRemove entry in {@code cardsList} that has not yet been
+     * validated, checks whether a matching card (by KonamiId) was already validated
+     * in any deck of {@code col}. If so, that deck-validation satisfies the
+     * cardsList entry for free (one deck-validated copy → one cardsList entry,
+     * consumed so it cannot satisfy a second cardsList entry).
+     * <p>
+     * dontRemove cards are intentionally skipped: they must be validated
+     * independently in each context (Bug 4).
+     *
+     * @return the updated cardsList (same list, mutated in place; also returned for chaining)
+     */
+    private static List<CardElement> satisfyCardsListFromDeckValidations(
+            List<CardElement> cardsList, ThemeCollection col) {
+        // Build a consumable pool of KonamiIds from all validated non-dontRemove deck slots.
+        List<String> deckValidatedPool = new ArrayList<>();
+        for (List<Deck> group : col.getLinkedDecks()) {
+            for (Deck deck : group) {
+                collectValidatedKonamiIds(deck.getMainDeck(), deckValidatedPool);
+                collectValidatedKonamiIds(deck.getExtraDeck(), deckValidatedPool);
+                collectValidatedKonamiIds(deck.getSideDeck(), deckValidatedPool);
+            }
+        }
+        for (CardElement colCard : cardsList) {
+            if (colCard.getCard() == null || colCard.getCard().getKonamiId() == null) continue;
+            if (Boolean.TRUE.equals(colCard.getOwned())) continue;
+            if (Boolean.TRUE.equals(colCard.getDontRemove())) continue;  // handled separately
+            int idx = deckValidatedPool.indexOf(colCard.getCard().getKonamiId());
+            if (idx >= 0) {
+                colCard.setOwned(true);
+                deckValidatedPool.remove(idx);
+            }
+        }
+        return cardsList;
     }
 
     /**

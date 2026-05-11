@@ -213,6 +213,48 @@ public class ListDifferenceIntersection {
     }
 
     /**
+     * Bug 4 fix — artwork pass for dontRemove ("+") cards, with the character marker.
+     * <p>
+     * Targets only cards whose string contains both "*" (specific artwork) and "+"
+     * (dontRemove). These cards are validated independently in each context
+     * (deck slot and cardsList entry each require their own owned copy).
+     *
+     * @param listA     The deck/collection card list
+     * @param listB     The pool of remaining owned cards
+     * @param character The marker appended to matched cards (typically "O")
+     * @return [modified listA, remaining listB]
+     */
+    public static List<List<CardElement>> ListDifIntersectArtworkDontRemove(
+            List<CardElement> listA, List<CardElement> listB, String character) {
+        return ListDifIntersect(listA, listB,
+                (card1, card2) -> card1.getImagePath() != null
+                        && card2.getImagePath() != null
+                        && card1.getImagePath().equals(card2.getImagePath()),
+                Arrays.asList("*", "+"), List.of(), character);
+    }
+
+    /**
+     * Bug 4 fix — KonamiId pass for dontRemove ("+") cards, with the character marker.
+     * <p>
+     * Targets cards whose string contains "+" (dontRemove) but not "*" (already
+     * handled by the artwork pass). These cards are validated independently in each
+     * context (deck slot and cardsList entry each require their own owned copy).
+     *
+     * @param listA     The deck/collection card list
+     * @param listB     The pool of remaining owned cards
+     * @param character The marker appended to matched cards (typically "O")
+     * @return [modified listA, remaining listB]
+     */
+    public static List<List<CardElement>> ListDifIntersectKonamiIdDontRemove(
+            List<CardElement> listA, List<CardElement> listB, String character) {
+        return ListDifIntersect(listA, listB,
+                (card1, card2) -> card1.getKonamiId() != null
+                        && card2.getKonamiId() != null
+                        && card1.getKonamiId().equals(card2.getKonamiId()),
+                List.of("+"), List.of("*"), character);
+    }
+
+    /**
      * Computes the difference and intersection of two lists of {@link CardElement}s,
      * based on a given comparison function.
      *
