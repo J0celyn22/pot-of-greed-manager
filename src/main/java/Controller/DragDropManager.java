@@ -52,6 +52,13 @@ public final class DragDropManager {
     // ── Legacy single-card field (kept for callers that only need one card) ──
     private static volatile Card currentlyDraggedCard = null;
 
+    /**
+     * NAV-pane drag: the model object (Box, CardsGroup, Deck, ThemeCollection)
+     * being reordered within the navigation menu.  Null when the drag did not
+     * originate from the navigation menu.
+     */
+    private static volatile Object draggedNavObject = null;
+
     private DragDropManager() {
     }
 
@@ -76,6 +83,21 @@ public final class DragDropManager {
         draggedCards = Collections.emptyList();
         currentlyDraggedCard = draggedElements.isEmpty() || draggedElements.get(0).getCard() == null
                 ? null : draggedElements.get(0).getCard();
+        draggedNavObject = null;
+    }
+
+    /**
+     * Called when a NAV-pane drag starts (reordering navigation items).
+     *
+     * @param modelObject the model object attached to the dragged NavigationItem
+     *                    (Box, CardsGroup, Deck, ThemeCollection, etc.)
+     */
+    public static void startNavDrag(Object modelObject) {
+        dragSourcePane = "NAV";
+        draggedNavObject = modelObject;
+        draggedCards = Collections.emptyList();
+        draggedElements = Collections.emptyList();
+        currentlyDraggedCard = null;
     }
 
     /** Clears all drag state. Call in onDragDone. */
@@ -84,6 +106,7 @@ public final class DragDropManager {
         draggedCards = Collections.emptyList();
         draggedElements = Collections.emptyList();
         currentlyDraggedCard = null;
+        draggedNavObject = null;
     }
 
     public static String getDragSourcePane() {
@@ -111,6 +134,14 @@ public final class DragDropManager {
      */
     public static Card getCurrentlyDraggedCard() {
         return currentlyDraggedCard;
+    }
+
+    /**
+     * The model object being dragged from the navigation menu.
+     * Non-null only when {@link #getDragSourcePane()} returns {@code "NAV"}.
+     */
+    public static Object getDraggedNavObject() {
+        return draggedNavObject;
     }
 
     /** Legacy API – sets the single dragged card (RIGHT pane, no multi-select). */

@@ -71,6 +71,8 @@ public class FilterPane extends VBox {
     private TextField levelField;
     private TextField scaleField;
     private TextField atkField;
+    private ComboBox<String> archetypeCombo;
+    private List<String> allArchetypeNames = new java.util.ArrayList<>();
     private static final double COL3_LABEL_WIDTH = 82;
 
     // ── Column 2 ──────────────────────────────────────────
@@ -93,6 +95,7 @@ public class FilterPane extends VBox {
 
     // ── Column 3 ──────────────────────────────────────────
     private TextField yearField;
+    private TextField priceField;
     /**
      * Updates the Disable/Enable button text to match the current page's state.
      */
@@ -545,7 +548,27 @@ public class FilterPane extends VBox {
         defGap.setMaxWidth(12);
         HBox line5 = makeRow(makeLabel("ATK :"), atkField, defGap, makeLabel("DEF :"), defField);
 
-        col.getChildren().addAll(line1, line2, line3, line4, line5);
+        archetypeCombo = makeCombo();
+        archetypeCombo.setEditable(true);
+        archetypeCombo.getEditor().getStyleClass().add("accent-text-field");
+
+        // ── Style the drop-down arrow once the skin is built ──────────────
+        archetypeCombo.skinProperty().addListener((obs, oldSkin, newSkin) -> {
+            if (newSkin != null) {
+                javafx.application.Platform.runLater(() -> {
+                    javafx.scene.Node arrowBtn = archetypeCombo.lookup(".arrow-button");
+                    if (arrowBtn != null)
+                        arrowBtn.setStyle("-fx-background-color: transparent; -fx-border-color: transparent;");
+                    javafx.scene.Node arrow = archetypeCombo.lookup(".arrow");
+                    if (arrow != null)
+                        arrow.setStyle("-fx-background-color: #cdfc04;");
+                });
+            }
+        });
+
+        HBox line6 = makeRightRow(makeLabel("Archetype :"), archetypeCombo);
+
+        col.getChildren().addAll(line1, line2, line3, line4, line5, line6);
         return col;
     }
 
@@ -611,15 +634,18 @@ public class FilterPane extends VBox {
         wordCountField = makeNarrowField(null, 115);
         HBox line2 = makeRow(makeFixedLabel("Word Count :", COL3_LABEL_WIDTH), wordCountField);
 
+        priceField = makeNarrowField(null, 115);
+        HBox line3 = makeRow(makeFixedLabel("Price :", COL3_LABEL_WIDTH), priceField);
+
         packCombo   = makeCombo();
         stateCombo = makeCombo();
         rarityCombo = makeCombo();
 
-        HBox line3 = makeRightRow(makeLabel("Pack :"),   packCombo);
-        HBox line4 = makeRightRow(makeLabel("State :"),  stateCombo);
-        HBox line5 = makeRightRow(makeLabel("Rarity :"), rarityCombo);
+        HBox line4 = makeRightRow(makeLabel("Pack :"), packCombo);
+        HBox line5 = makeRightRow(makeLabel("State :"), stateCombo);
+        HBox line6 = makeRightRow(makeLabel("Rarity :"), rarityCombo);
 
-        col.getChildren().addAll(line1, line2, line3, line4, line5);
+        col.getChildren().addAll(line1, line2, line3, line4, line5, line6);
         return col;
     }
 
@@ -726,6 +752,87 @@ public class FilterPane extends VBox {
         wireComboBox(packCombo);
         wireComboBox(stateCombo);
         wireComboBox(rarityCombo);
+
+        // ── Price field ──────────────────────────────────────────────────────────
+        wireTextField(priceField);
+
+        // ── Archetype combo (editable: wire both value selection and typed text) ─
+        archetypeCombo.setOnShowing(e -> ensureArchetypeNamesLoaded());
+
+        // Editable combo: valueProperty fires BEFORE the editor text is synced,
+        // so saveCurrentPageState() would read the stale typed text.
+        // Capture newVal directly from the change event and override ps.archetype.
+        archetypeCombo.valueProperty().addListener((obs, oldVal, newVal) -> {
+            if (suppressListeners) return;
+            enableCurrentPage();
+            // Defer: the editor text is updated by JavaFX *after* valueProperty fires.
+            // Saving synchronously here would capture the stale editor text.
+            javafx.application.Platform.runLater(() -> {
+                if (suppressListeners) return;
+                saveCurrentPageState();   // editor is now correct
+                fireRightFilterChange();
+                fireLeftFilterChange();
+            });
+        });
+        archetypeCombo.getEditor().textProperty().addListener((obs, oldVal, newVal) -> {
+            if (suppressListeners) return;
+            // Skip if this text change was caused by a list selection (value == text)
+            String selected = archetypeCombo.getSelectionModel().getSelectedItem();
+            if (selected != null && selected.equals(newVal)) return;
+            // Narrow the dropdown while typing
+            filterArchetypeItems(newVal);
+            // Treat typed text as a live filter change
+            enableCurrentPage();
+            saveCurrentPageState();
+            fireRightFilterChange();
+            fireLeftFilterChange();
+        });
+    }
+
+    /**
+     * Narrows the archetype combo's drop-down to entries containing {@code typed}
+     * (case-insensitive). Shows the full list when the field is blank or "(All)".
+     */
+    private void filterArchetypeItems(String typed) {
+        ensureArchetypeNamesLoaded();
+        // Wrap setItems() in suppressListeners: the items change resets the editor
+        // text and may fire spurious valueProperty events.
+        suppressListeners = true;
+        try {
+            if (typed == null || typed.isBlank() || "(All)".equalsIgnoreCase(typed.trim())) {
+                archetypeCombo.setItems(
+                        javafx.collections.FXCollections.observableArrayList(allArchetypeNames));
+            } else {
+                String lower = typed.toLowerCase();
+                java.util.List<String> filtered = new java.util.ArrayList<>();
+                for (String s : allArchetypeNames)
+                    if (s.toLowerCase().contains(lower)) filtered.add(s);
+                archetypeCombo.setItems(
+                        javafx.collections.FXCollections.observableArrayList(filtered));
+            }
+        } finally {
+            suppressListeners = false;
+        }
+        // Restore typed text: setItems() resets the editor to the combo's current value.
+        if (archetypeCombo.getEditor() != null) {
+            archetypeCombo.getEditor().setText(typed != null ? typed : "");
+            archetypeCombo.getEditor().positionCaret(typed != null ? typed.length() : 0);
+        }
+        if (!archetypeCombo.isShowing()) archetypeCombo.show();
+    }
+
+    /**
+     * Populates {@link #allArchetypeNames} from {@link Model.CardsLists.SubListCreator#archetypesList}
+     * if it has not yet been filled by an explicit {@link #setArchetypeNames} call.
+     * Safe to call repeatedly — no-op once the list is already loaded.
+     */
+    private void ensureArchetypeNamesLoaded() {
+        if (allArchetypeNames.size() <= 1) {   // still only "(All)"
+            List<String> fromModel = Model.CardsLists.SubListCreator.archetypesList;
+            if (fromModel != null && !fromModel.isEmpty()) {
+                setArchetypeNames(fromModel);
+            }
+        }
     }
 
     /**
@@ -763,6 +870,11 @@ public class FilterPane extends VBox {
         ps.def = text(defField);
         ps.year = text(yearField);
         ps.wordCount = text(wordCountField);
+        ps.price = text(priceField);
+        ps.archetype = (archetypeCombo != null && archetypeCombo.getEditor() != null)
+                ? (archetypeCombo.getEditor().getText() != null
+                ? archetypeCombo.getEditor().getText() : "(All)")
+                : comboVal(archetypeCombo);
         ps.cardType = comboVal(cardTypeCombo);
         ps.cardSubtypes = new java.util.LinkedHashSet<>(selectedSubtypes);
         ps.attribute = comboVal(attributeCombo);
@@ -793,6 +905,15 @@ public class FilterPane extends VBox {
             setTF(defField, ps.def);
             setTF(yearField, ps.year);
             setTF(wordCountField, ps.wordCount);
+            setTF(priceField, ps.price);
+            if (archetypeCombo != null) {
+                // Editable combo: set both the value and the editor text
+                archetypeCombo.setValue(ps.archetype);
+                if (archetypeCombo.getEditor() != null)
+                    archetypeCombo.getEditor().setText(
+                            ps.archetype != null ? ps.archetype : "(All)");
+            }
+            setCB(packCombo, ps.pack);
             setCB(cardTypeCombo, ps.cardType);
             loadSubtypeSelections(ps.cardSubtypes);
             setCB(attributeCombo, ps.attribute);
@@ -1374,6 +1495,26 @@ public class FilterPane extends VBox {
 
     public Button getLinkMarkersButton()          { return linkMarkersButton; }
 
+    public ComboBox<String> getArchetypeCombo() {
+        return archetypeCombo;
+    }
+
+    /**
+     * Populates the archetype filter combo with the given archetype names.
+     * Call this from the controller once archetypes are known (or whenever
+     * the list changes).  Always prepends "(All)" automatically.
+     */
+    public void setArchetypeNames(List<String> names) {
+        allArchetypeNames = new java.util.ArrayList<>();
+        allArchetypeNames.add("(All)");
+        if (names != null) allArchetypeNames.addAll(names);
+        archetypeCombo.setItems(
+                javafx.collections.FXCollections.observableArrayList(allArchetypeNames));
+        if (archetypeCombo.getValue() == null
+                || archetypeCombo.getValue().isBlank())
+            archetypeCombo.setValue("(All)");
+    }
+
     // ── Column 2 ──────────────────────────────────────────────────────
     public TextField getNameTextField() {
         return nameTextField;
@@ -1410,6 +1551,10 @@ public class FilterPane extends VBox {
 
     public TextField getWordCountField() {
         return wordCountField;
+    }
+
+    public TextField getPriceField() {
+        return priceField;
     }
 
     public ComboBox<String> getPackCombo() {
@@ -1462,6 +1607,7 @@ public class FilterPane extends VBox {
 
         // Column 1 fields
         public String cardType = "(All)";
+        public String archetype = "(All)";
         /**
          * Selected subtypes for the multi-select combo. Empty set means "(All)".
          */
@@ -1476,6 +1622,7 @@ public class FilterPane extends VBox {
         // Column 3 fields
         public String year = "";
         public String wordCount = "";
+        public String price = "";
         public String pack = "(All)";
         public String state = "(All)";
         public String rarity = "(All)";

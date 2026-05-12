@@ -12,25 +12,136 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.Semaphore;
 
 import static Model.Database.Database.getAllCardsList;
 import static Model.Database.PrintCodeToKonamiId.getPrintCodeToKonamiId;
+import static Model.FilePaths.databaseDir;
 
 public class FileFetcher {
 
-    public static final Set<String> invalidatedPaths = new HashSet<>();
+    // -------------------------------------------------------------------------
+    // Invalidated-paths set: persisted to disk so it survives restarts.
+    // Files in this set are known to be stale; they are re-fetched on next use
+    // (or eagerly via refetchInvalidatedFiles). The old local copy is kept
+    // intact until the new version has been successfully downloaded, so the
+    // application continues to work when offline.
+    // -------------------------------------------------------------------------
+    private static final Set<String> invalidatedPaths = new HashSet<>();
+
+    static {
+        loadInvalidatedPaths();
+    }
+
+    /**
+     * Marks a local path as stale and persists the updated set to disk.
+     */
+    public static void addInvalidatedPath(String path) {
+        invalidatedPaths.add(path);
+        persistInvalidatedPaths();
+    }
+
+    /**
+     * Removes a local path from the stale set (called after a successful
+     * re-fetch) and persists the updated set to disk.
+     */
+    public static void removeInvalidatedPath(String path) {
+        invalidatedPaths.remove(path);
+        persistInvalidatedPaths();
+    }
+
+    /**
+     * Read-only view of the current stale-path set (used by DataBaseUpdate).
+     */
+    public static Set<String> getInvalidatedPaths() {
+        return Collections.unmodifiableSet(invalidatedPaths);
+    }
+
+    // -------------------------------------------------------------------------
+
     private static final int MAX_CALLS_PER_SECOND = 20;
     private static final Semaphore semaphore = new Semaphore(MAX_CALLS_PER_SECOND);
 
+    // ------------------------------------------------------------------
+    // Persistence helpers
+    // ------------------------------------------------------------------
+
+    private static Path getInvalidatedPathsFile() {
+        return databaseDir.resolve(Paths.get("ygoresources", "invalidated_paths.txt"));
+    }
+
+    /**
+     * Loads the persisted stale-path set from disk into memory.
+     * Called once in the static initialiser. A missing file is silently ignored
+     * (it simply means there are no previously-known stale files).
+     */
+    private static void loadInvalidatedPaths() {
+        Path file = getInvalidatedPathsFile();
+        if (!Files.exists(file)) return;
+        try {
+            Files.readAllLines(file, StandardCharsets.UTF_8).stream()
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .forEach(invalidatedPaths::add);
+            if (!invalidatedPaths.isEmpty()) {
+                System.out.println("Restored " + invalidatedPaths.size()
+                        + " stale file(s) from previous session.");
+            }
+        } catch (IOException e) {
+            System.out.println("Could not load invalidated paths: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Writes the current stale-path set to disk so it survives restarts.
+     * An empty set clears the file, which is correct — there is nothing left to
+     * retry.
+     */
+    private static void persistInvalidatedPaths() {
+        Path file = getInvalidatedPathsFile();
+        try {
+            Files.createDirectories(file.getParent());
+            Files.write(file, invalidatedPaths, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            System.out.println("Could not persist invalidated paths: " + e.getMessage());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Re-fetch helpers
+    // ------------------------------------------------------------------
+
+    /**
+     * Tries to re-fetch every file that is currently marked stale.
+     * This is called eagerly from {@link DataBaseUpdate#updateCache()} right
+     * after invalidation so that fresh data is available without waiting for the
+     * next lazy access. If the application is offline the fetch will fail
+     * silently, the old file remains usable, and the path stays in the persisted
+     * set so that the next startup retries automatically.
+     */
+    public static void refetchInvalidatedFiles() {
+        // Snapshot to avoid ConcurrentModificationException (successful fetches
+        // call removeInvalidatedPath which modifies the live set).
+        List<String> snapshot = new ArrayList<>(invalidatedPaths);
+        for (String localPath : snapshot) {
+            // Derive the element name (e.g. "en.json", "LOB-EN.json", "12345.jpg")
+            // from the stored local path — this is what getAddresses() expects.
+            String element = Paths.get(localPath).getFileName().toString();
+            fetchFile(element);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Core fetch methods
+    // ------------------------------------------------------------------
+
     /**
      * Fetches a file specified by the given element from the remote location.
-     * It first checks if the file exists locally and is valid.
-     * If not, it fetches the file and saves it locally.
+     * If the local file exists and is not stale, nothing is done.
+     * If it is stale or absent, a download is attempted. On failure the old file
+     * (if any) is left untouched so the application can keep working offline;
+     * the path stays in {@code invalidatedPaths} for the next retry.
      */
     public static void fetchFile(String element) {
         String[] addresses = DataBaseUpdate.getAddresses(element);
@@ -38,34 +149,42 @@ public class FileFetcher {
             System.out.println("Element not found in addresses.json: " + element);
             return;
         }
-        String localPath = addresses[0];
+        String localPath  = addresses[0];
         String remotePath = addresses[1];
         Path localFilePath = Paths.get(localPath);
+
         if (Files.exists(localFilePath) && !invalidatedPaths.contains(localPath)) {
-            // File exists and is valid; do nothing.
-        } else {
+            // File exists and is not stale — nothing to do.
+            return;
+        }
+
+        try {
+            semaphore.acquire();
             try {
-                semaphore.acquire();
                 if (!Files.exists(localFilePath.getParent())) {
                     Files.createDirectories(localFilePath.getParent());
                 }
                 byte[] fileBytes = fetchRemoteFile(remotePath);
                 Files.write(localFilePath, fileBytes);
                 System.out.println("File fetched and saved locally: " + localPath);
-                invalidatedPaths.remove(localPath);
-            } catch (Exception e) {
-                System.out.println("Error fetching file (" + element + "): " + e.getMessage());
+                // Remove from stale set only after a confirmed successful write.
+                removeInvalidatedPath(localPath);
             } finally {
                 semaphore.release();
             }
+        } catch (Exception e) {
+            // Network or I/O error — keep the old file as-is and leave the path
+            // in invalidatedPaths so the next call retries.
+            System.out.println("Error fetching file (" + element + "): " + e.getMessage());
         }
     }
 
     /**
-     * Fetches a file from the remote location and saves it locally.
+     * Fetches a file from the remote location, using a caller-supplied remote
+     * URL instead of the one stored in addresses.json.
      *
-     * @param element    the element to search for in the addresses.json file
-     * @param remotePath the remote path of the file to fetch
+     * @param element    the element name (used to resolve the local path)
+     * @param remotePath the remote URL to download from
      */
     public static void fetchFile(String element, String remotePath) {
         String[] addresses = DataBaseUpdate.getAddresses(element);
@@ -74,28 +193,31 @@ public class FileFetcher {
             return;
         }
 
-        String localPath = addresses[0];
+        String localPath   = addresses[0];
         Path localFilePath = Paths.get(localPath);
 
         if (Files.exists(localFilePath) && !invalidatedPaths.contains(localPath)) {
-            //System.out.println("File already exists and is valid locally: " + localPath);
-        } else {
-            try {
-                semaphore.acquire();
+            return;
+        }
 
-                // Create the directory if it does not exist
+        try {
+            semaphore.acquire();
+            try {
                 if (!Files.exists(localFilePath.getParent())) {
                     Files.createDirectories(localFilePath.getParent());
                 }
-
                 byte[] fileBytes = fetchRemoteFile(remotePath);
                 Files.write(localFilePath, fileBytes);
                 System.out.println("File fetched and saved locally: " + localPath);
-                invalidatedPaths.remove(localPath);
+                removeInvalidatedPath(localPath);
+            } finally {
+                // FIX: release moved to finally so it is always called, even on
+                // exception. Previously the release() was inside the try block,
+                // causing a semaphore leak on any I/O failure.
                 semaphore.release();
-            } catch (Exception e) {
-                e.printStackTrace();
             }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
@@ -121,8 +243,6 @@ public class FileFetcher {
         }
     }
 
-    // The overloaded fetchFile(String element, String remotePath) version would be similarly updated.
-
     /**
      * Recursively fetches files from a JSON object.
      */
@@ -131,7 +251,9 @@ public class FileFetcher {
             Object value = json.get(key);
             if (value instanceof JSONObject) {
                 fetchFilesFromJson((JSONObject) value);
-            } else if (!key.equals("<passcode>.jpg") && !key.equals("<printcode>.json") && !key.equals("<konamiId>.json")) {
+            } else if (!key.equals("<passcode>.jpg")
+                    && !key.equals("<printcode>.json")
+                    && !key.equals("<konamiId>.json")) {
                 fetchFile(key);
             }
         }
@@ -166,9 +288,11 @@ public class FileFetcher {
         try {
             byte[] encoded;
             try {
-                encoded = Files.readAllBytes(Paths.get(Paths.get("./src/main/java/Model/Database/addresses.json").toUri()));
+                encoded = Files.readAllBytes(Paths.get(
+                        Paths.get("./src/main/java/Model/Database/addresses.json").toUri()));
             } catch (Exception e) {
-                encoded = Files.readAllBytes(Paths.get(Paths.get("resources/addresses.json").toUri()));
+                encoded = Files.readAllBytes(Paths.get(
+                        Paths.get("resources/addresses.json").toUri()));
             }
             String content = new String(encoded, StandardCharsets.UTF_8);
             JSONObject json = new JSONObject(content);

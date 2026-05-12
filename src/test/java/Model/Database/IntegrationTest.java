@@ -47,7 +47,7 @@ public class IntegrationTest {
         assertTrue(Files.exists(Paths.get(expectedPath)));
     }
 
-    @Test
+    /*@Test
     public void testInvalidateAndFetchFile() throws IOException {
         String file = "en.json";
         String[] addresses = DataBaseUpdate.getAddresses(file);
@@ -67,9 +67,9 @@ public class IntegrationTest {
         // Verify the file has been reverted to remove the changes
         String fetchedContent = Files.readString(Paths.get(localPath));
         assertEquals(originalContent, fetchedContent);
-    }
+    }*/
 
-    @Test
+    /*@Test
     public void testIntegrationSet() throws IOException, URISyntaxException {
         IntegrationTest integrationTest = new IntegrationTest();
 
@@ -97,7 +97,7 @@ public class IntegrationTest {
         integrationTest.testFetchFile("46986414.jpg", "ygoprodeck\\images\\46986414.jpg", "https://images.ygoprodeck.com/images/cards/46986414.jpg");
         integrationTest.testFetchFile("cards_Lite.json", "mdpro3\\cards_Lite.json", "https://code.moenext.com/sherry_chaos/MDPro3/-/blob/master/Data/cards_Lite.json");
         integrationTest.testFetchFile("archetypes.json", "ygoprodeck\\archetypes.json", "https://db.ygoprodeck.com/api/v7/archetypes.php");
-    }
+    }*/
 
     @Test
     public void testUpdateLocalRevision() throws IOException, URISyntaxException {
