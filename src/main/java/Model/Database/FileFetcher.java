@@ -51,9 +51,7 @@ public class FileFetcher {
         persistInvalidatedPaths();
     }
 
-    /**
-     * Read-only view of the current stale-path set (used by DataBaseUpdate).
-     */
+    /** Read-only view of the current stale-path set (used by DataBaseUpdate). */
     public static Set<String> getInvalidatedPaths() {
         return Collections.unmodifiableSet(invalidatedPaths);
     }
@@ -172,6 +170,11 @@ public class FileFetcher {
             } finally {
                 semaphore.release();
             }
+        } catch (java.io.FileNotFoundException e) {
+            // 4xx from the server — re-throw so callers (e.g.
+            // completeKonamiIdToPassCode) can record this in NotFoundCache.
+            // Do NOT keep the old file as valid; it simply doesn't exist.
+            throw new RuntimeException(e);
         } catch (Exception e) {
             // Network or I/O error — keep the old file as-is and leave the path
             // in invalidatedPaths so the next call retries.
@@ -226,12 +229,26 @@ public class FileFetcher {
      *
      * @param remotePath the remote URL of the file
      * @return the file's contents as a byte array
-     * @throws IOException if an error occurs during the fetch
+     * @throws java.io.FileNotFoundException if the server returns a 4xx status
+     *         code (card/resource genuinely absent from the database) — callers
+     *         should catch this specifically and record the ID in
+     *         {@link NotFoundCache} so the request is not retried too soon
+     * @throws IOException for any other network or I/O error
      */
     private static byte[] fetchRemoteFile(String remotePath) throws IOException {
         URL url = new URL(remotePath);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setRequestMethod("GET");
+
+        int responseCode = connection.getResponseCode();
+        if (responseCode >= 400 && responseCode < 500) {
+            // 4xx — the resource does not exist on the server.
+            // Throw FileNotFoundException (a subclass of IOException) so the
+            // caller can catch it separately from transient network failures.
+            throw new java.io.FileNotFoundException(
+                    "Server returned HTTP " + responseCode + " for URL: " + remotePath);
+        }
+
         try (InputStream inputStream = connection.getInputStream();
              ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[1024];

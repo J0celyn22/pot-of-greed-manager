@@ -25,6 +25,30 @@ public class NavigationItem extends VBox {
     private boolean isExpanded = true; // Start as expanded by default for most items
     private Label label;
     private Label triangleLabel; // For the triangle indicator
+    /**
+     * Optional footer drop-zone node appended after all sub-items.
+     */
+    private HBox footerZone = null;
+    private javafx.event.EventHandler<? super MouseEvent> onLabelClicked;
+    // Highlight state (true => accent color)
+    private boolean highlighted = false;
+    // Add field:
+    private Object userData;
+
+    public NavigationItem(String name, int depth) {
+        this.name = name;
+        this.depth = depth;
+        initialize();
+    }
+
+    public Object getUserData() {
+        return this.userData;
+    }
+
+    // Add getter/setter:
+    public void setUserData(Object data) {
+        this.userData = data;
+    }
 
     private void initialize() {
         // Create a horizontal box to hold the triangle and label
@@ -67,41 +91,14 @@ public class NavigationItem extends VBox {
         });
 
         hbox.getChildren().addAll(triangleLabel, label);
-        this.rowHBox = hbox;           // keep a direct reference for indicator styling
+        this.rowHBox = hbox;
+        // Pre-allocate a 2 px top + 2 px bottom transparent border so that showing
+        // drop indicators only changes colour — never size — avoiding layout reflow.
+        this.rowHBox.setStyle("-fx-border-color: transparent; -fx-border-width: 2 0 2 0;");
         this.getChildren().add(hbox);
 
         // Initially show sub-items according to isExpanded
         updateSubItemsVisibility();
-    }
-    private javafx.event.EventHandler<? super MouseEvent> onLabelClicked;
-
-    // Highlight state (true => accent color)
-    private boolean highlighted = false;
-
-    // Add field:
-    private Object userData;
-
-    public Object getUserData() {
-        return this.userData;
-    }
-
-    // Add getter/setter:
-    public void setUserData(Object data) {
-        this.userData = data;
-    }
-
-    public NavigationItem(String name, int depth) {
-        this.name = name;
-        this.depth = depth;
-        initialize();
-    }
-
-    /**
-     * Returns the single header row HBox (triangle + label).
-     * Used by external code to measure the row height for DnD drop-zone detection.
-     */
-    public HBox getRowHBox() {
-        return rowHBox;
     }
 
     // ADD: Public getter for the internal label.
@@ -123,26 +120,65 @@ public class NavigationItem extends VBox {
             case BEFORE:
                 rowHBox.setStyle(
                         "-fx-border-color: #cdfc04 transparent transparent transparent;" +
-                                "-fx-border-width: 2 0 0 0;");
+                                "-fx-border-width: 2 0 2 0;");
                 break;
             case AFTER:
                 rowHBox.setStyle(
                         "-fx-border-color: transparent transparent #cdfc04 transparent;" +
-                                "-fx-border-width: 0 0 2 0;");
+                                "-fx-border-width: 2 0 2 0;");
                 break;
             case INTO:
-                rowHBox.setStyle("-fx-background-color: #2a1050;");
+                rowHBox.setStyle(
+                        "-fx-border-color: transparent;" +
+                                "-fx-border-width: 2 0 2 0;" +
+                                "-fx-background-color: #2a1050;");
                 break;
         }
     }
 
     /**
-     * Removes any active drop indicator from the header row.
+     * Returns the single header row HBox (triangle + label).
+     * Used by external code to measure the row height for DnD drop-zone detection.
      */
-    public void clearDropIndicator() {
-        if (rowHBox != null) rowHBox.setStyle("");
+    public HBox getRowHBox() {
+        return rowHBox;
     }
 
+    /** Removes any active drop indicator from the header row. */
+    public void clearDropIndicator() {
+        if (rowHBox != null)
+            rowHBox.setStyle("-fx-border-color: transparent; -fx-border-width: 2 0 2 0;");
+    }
+
+    private void updateTriangle() {
+        if (subItems.isEmpty()) {
+            triangleLabel.setText(" "); // Empty space when there are no sub-items
+        } else {
+            String triangle = isExpanded ? "\u25BC" : "\u25B6"; // ▼ or ▶
+            triangleLabel.setText(triangle);
+        }
+    }
+
+    public void addSubItem(NavigationItem subItem) {
+        subItems.add(subItem);
+        this.getChildren().add(subItem);
+        updateTriangle();
+        // Ensure the newly added subItem visibility matches current expanded state
+        subItem.setVisible(isExpanded);
+        subItem.setManaged(isExpanded);
+    }
+
+    public List<NavigationItem> getSubItems() {
+        return subItems;
+    }
+
+    /**
+     * Inserts a thin horizontal separator line between two deck lists.
+     * The separator is indented at the same level as the deck sub-items and
+     * participates in the expand/collapse visibility cycle just like they do.
+     * Call this once between consecutive non-empty deck-list groups when
+     * building the navigation menu for a collection.
+     */
     /**
      * Inserts a thin horizontal separator line between two deck lists and returns
      * the separator node so the caller can attach drag-drop handlers to it.
@@ -169,31 +205,31 @@ public class NavigationItem extends VBox {
         return sep;
     }
 
-    private void updateTriangle() {
-        if (subItems.isEmpty()) {
-            triangleLabel.setText(" "); // Empty space when there are no sub-items
-        } else {
-            String triangle = isExpanded ? "\u25BC" : "\u25B6"; // ▼ or ▶
-            triangleLabel.setText(triangle);
-        }
-    }
-
-    public void addSubItem(NavigationItem subItem) {
-        subItems.add(subItem);
-        this.getChildren().add(subItem);
-        updateTriangle();
-        // Ensure the newly added subItem visibility matches current expanded state
-        subItem.setVisible(isExpanded);
-        subItem.setManaged(isExpanded);
-    }
-
     /**
-     * Inserts a thin horizontal separator line between two deck lists.
-     * The separator is indented at the same level as the deck sub-items and
-     * participates in the expand/collapse visibility cycle just like they do.
-     * Call this once between consecutive non-empty deck-list groups when
-     * building the navigation menu for a collection.
+     * Appends a transparent footer drop-zone below all sub-items and returns it.
+     * The caller attaches drag-over/drop handlers to the returned node.
+     *
+     * <p>The footer is 8 px tall — tall enough to be a reliable hit target but
+     * visually invisible when no drag is in progress.  It collapses along with
+     * the rest of the sub-items when the item is collapsed.
+     *
+     * <p>Must be called <em>after</em> all sub-items have been added so it stays
+     * at the bottom of the VBox.  Calling it a second time replaces the previous
+     * footer.
      */
+    public HBox addFooterZone() {
+        if (footerZone != null) this.getChildren().remove(footerZone);
+        footerZone = new HBox();
+        footerZone.setPrefHeight(8);
+        footerZone.setMinHeight(8);
+        footerZone.setMaxHeight(8);
+        // Pre-allocate border space so indicator changes are colour-only.
+        footerZone.setStyle("-fx-background-color: transparent; -fx-border-color: transparent; -fx-border-width: 2 0 2 0;");
+        this.getChildren().add(footerZone);
+        footerZone.setVisible(isExpanded);
+        footerZone.setManaged(isExpanded);
+        return footerZone;
+    }
 
     private void updateSubItemsVisibility() {
         for (NavigationItem subItem : subItems) {
@@ -204,10 +240,10 @@ public class NavigationItem extends VBox {
             sep.setVisible(isExpanded);
             sep.setManaged(isExpanded);
         }
-    }
-
-    public List<NavigationItem> getSubItems() {
-        return subItems;
+        if (footerZone != null) {
+            footerZone.setVisible(isExpanded);
+            footerZone.setManaged(isExpanded);
+        }
     }
 
     /**

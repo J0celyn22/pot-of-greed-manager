@@ -1645,25 +1645,28 @@ public class RealMainController {
      * Determines the {@link View.NavigationItem.DropPosition} from the cursor's Y
      * coordinate relative to {@code navItem}.
      *
+     * <p>Two zone profiles:
      * <ul>
-     *   <li>Top 30 % of the header row → BEFORE</li>
-     *   <li>Bottom 30 % of the header row → AFTER</li>
-     *   <li>Middle 40 % → INTO</li>
+     *   <li><b>Container target</b> (Box) – INTO dominates: top/bottom 15 % → BEFORE/AFTER,
+     *       middle 70 % → INTO.  Nesting is the primary operation for containers.</li>
+     *   <li><b>Non-container target</b> (Deck, CardsGroup) – reorder dominates:
+     *       top/bottom 30 % → BEFORE/AFTER, middle 40 % → INTO.</li>
      * </ul>
-     * <p>
-     * When the cursor is over a sub-item, that sub-item's handler has already
-     * consumed the event, so Y here is always within the header row range.
+     *
+     * @param isContainerTarget true when the drop target can contain children (i.e. is a Box)
      */
     private static View.NavigationItem.DropPosition resolveDropPosition(
-            View.NavigationItem navItem, double y) {
+            View.NavigationItem navItem, double y, boolean isContainerTarget) {
         double rowH = 30; // sensible default
         javafx.scene.layout.HBox row = navItem.getRowHBox();
         if (row != null) {
             double h = row.getBoundsInParent().getHeight();
             if (h > 0) rowH = h;
         }
-        if (y < rowH * 0.30) return View.NavigationItem.DropPosition.BEFORE;
-        if (y > rowH * 0.70) return View.NavigationItem.DropPosition.AFTER;
+        double beforeThreshold = isContainerTarget ? rowH * 0.15 : rowH * 0.30;
+        double afterThreshold = isContainerTarget ? rowH * 0.85 : rowH * 0.70;
+        if (y < beforeThreshold) return View.NavigationItem.DropPosition.BEFORE;
+        if (y > afterThreshold) return View.NavigationItem.DropPosition.AFTER;
         return View.NavigationItem.DropPosition.INTO;
     }
 
@@ -1701,8 +1704,14 @@ public class RealMainController {
                             changed = Controller.NavigationDragDrop.moveBoxAfter(draggedBox, targetBox, collection);
                     case INTO -> changed = Controller.NavigationDragDrop.nestBoxInto(draggedBox, targetBox, collection);
                 }
+            } else if (target instanceof Model.CardsLists.CardsGroup targetGroup) {
+                // Dropping a Box onto a category: nest the box into the category's parent box.
+                Model.CardsLists.Box parentBox =
+                        Controller.NavigationDragDrop.findCategoryParent(targetGroup, collection);
+                if (parentBox != null) {
+                    changed = Controller.NavigationDragDrop.nestBoxInto(draggedBox, parentBox, collection);
+                }
             }
-            // Dropping a Box onto a CardsGroup is a no-op (makes no structural sense)
 
         } else if (dragged instanceof Model.CardsLists.CardsGroup draggedGroup) {
             if (target instanceof Model.CardsLists.CardsGroup targetGroup) {
@@ -1724,6 +1733,93 @@ public class RealMainController {
             Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
         }
+    }
+
+    /**
+     * Adds and wires a footer drop-zone to {@code boxItem}.
+     *
+     * <p>The footer is an 8 px strip below all of the box's sub-items.  It splits
+     * 50/50 vertically:
+     * <ul>
+     *   <li>Top half → INTO: append the dragged object inside {@code box}.</li>
+     *   <li>Bottom half → AFTER: place the dragged object after {@code box} at
+     *       the same hierarchy level.</li>
+     * </ul>
+     *
+     * <p>A Box dragged onto the top half is nested into {@code box}.
+     * A CardsGroup dragged onto the top half is moved into {@code box}.
+     * Dropping onto the bottom half calls {@link Controller.NavigationDragDrop#moveBoxAfter}
+     * or {@link Controller.NavigationDragDrop#moveCategoryAfter} accordingly.
+     * Bottom-half drops of a CardsGroup use {@link #handleMyCollectionNavDrop} with
+     * AFTER so the normal category-after logic applies.
+     */
+    private void enableBoxFooterDropZone(NavigationItem boxItem, Model.CardsLists.Box box,
+                                         Model.CardsLists.OwnedCardsCollection collection) {
+        HBox footer = boxItem.addFooterZone();
+
+        footer.setOnDragOver(event -> {
+            if ("NAV".equals(Controller.DragDropManager.getDragSourcePane())
+                    && event.getDragboard().hasString()) {
+                event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
+                boolean into = event.getY() < footer.getHeight() / 2.0;
+                if (into) {
+                    footer.setStyle(
+                            "-fx-background-color: transparent;" +
+                                    "-fx-border-color: #cdfc04 transparent transparent transparent;" +
+                                    "-fx-border-width: 2 0 2 0;");
+                } else {
+                    footer.setStyle(
+                            "-fx-background-color: transparent;" +
+                                    "-fx-border-color: transparent transparent #cdfc04 transparent;" +
+                                    "-fx-border-width: 2 0 2 0;");
+                }
+            }
+            event.consume();
+        });
+
+        footer.setOnDragExited(event -> {
+            footer.setStyle("-fx-background-color: transparent; -fx-border-color: transparent; -fx-border-width: 2 0 2 0;");
+            event.consume();
+        });
+
+        footer.setOnDragDropped(event -> {
+            Object dragged = Controller.DragDropManager.getDraggedNavObject();
+            boolean into = event.getY() < footer.getHeight() / 2.0;
+            boolean changed = false;
+
+            if (dragged instanceof Model.CardsLists.Box draggedBox && dragged != box) {
+                if (into) {
+                    changed = Controller.NavigationDragDrop.nestBoxInto(draggedBox, box, collection);
+                } else {
+                    changed = Controller.NavigationDragDrop.moveBoxAfter(draggedBox, box, collection);
+                }
+            } else if (dragged instanceof Model.CardsLists.CardsGroup draggedGroup) {
+                if (into) {
+                    changed = Controller.NavigationDragDrop.moveCategoryIntoBox(draggedGroup, box, collection);
+                } else {
+                    // AFTER: find the last category in this box and insert after it,
+                    // or fall back to moving into box when there are no categories.
+                    java.util.List<Model.CardsLists.CardsGroup> content = box.getContent();
+                    if (content != null && !content.isEmpty()) {
+                        Model.CardsLists.CardsGroup last = content.get(content.size() - 1);
+                        if (last != draggedGroup) {
+                            changed = Controller.NavigationDragDrop.moveCategoryAfter(draggedGroup, last, collection);
+                        }
+                    } else {
+                        changed = Controller.NavigationDragDrop.moveCategoryIntoBox(draggedGroup, box, collection);
+                    }
+                }
+            }
+
+            footer.setStyle("-fx-background-color: transparent; -fx-border-color: transparent; -fx-border-width: 2 0 2 0;");
+            if (changed) {
+                Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                Controller.UserInterfaceFunctions.refreshOwnedCollectionStructure();
+            }
+            event.setDropCompleted(true);
+            event.consume();
+        });
     }
 
     /**
@@ -2135,9 +2231,13 @@ public class RealMainController {
                             }
                         }
                         boxItem.addSubItem(subBoxItem);
+                        // Wire the footer drop-zone AFTER all sub-items of subBoxItem are added
+                        enableBoxFooterDropZone(subBoxItem, subBox, finalCollection);
                     }
                 }
 
+                // Wire the footer drop-zone AFTER all sub-items of boxItem are added
+                enableBoxFooterDropZone(boxItem, box, finalCollection);
                 navigationMenu.addItem(boxItem);
             }
         } else {
@@ -2777,19 +2877,34 @@ public class RealMainController {
         if (dragged == null || target == null || dragged == target) return;
         if (!(dragged instanceof Model.CardsLists.Deck draggedDeck)) return;
 
+        // Snapshot source collection BEFORE the move — removeDeckFromModel will shift
+        // the model and findDeckLocation would return a wrong result afterwards.
+        Controller.NavigationDragDrop.DeckLocation srcLoc =
+                Controller.NavigationDragDrop.findDeckLocation(draggedDeck, dcl);
+        Model.CardsLists.ThemeCollection srcCollection = srcLoc.collection; // null if standalone
+
         boolean changed = false;
+        Model.CardsLists.ThemeCollection destCollection = null;
 
         if (target instanceof Model.CardsLists.Deck targetDeck) {
+            Controller.NavigationDragDrop.DeckLocation targetLoc =
+                    Controller.NavigationDragDrop.findDeckLocation(targetDeck, dcl);
+            destCollection = targetLoc.collection; // null if standalone
             switch (pos) {
                 case BEFORE -> changed = Controller.NavigationDragDrop.moveDeckBefore(draggedDeck, targetDeck, dcl);
                 case AFTER, INTO -> changed = Controller.NavigationDragDrop.moveDeckAfter(draggedDeck, targetDeck, dcl);
             }
         } else if (target instanceof Model.CardsLists.ThemeCollection targetColl) {
+            destCollection = targetColl;
             changed = Controller.NavigationDragDrop.moveDeckToCollection(draggedDeck, targetColl, dcl);
         }
 
         if (changed) {
-            Controller.UserInterfaceFunctions.markDirty(draggedDeck);
+            // Mark the affected collection(s) dirty — NOT the deck itself, which is
+            // structurally unchanged; only its position in the collection file changes.
+            if (srcCollection != null) Controller.UserInterfaceFunctions.markDirty(srcCollection);
+            if (destCollection != null && destCollection != srcCollection)
+                Controller.UserInterfaceFunctions.markDirty(destCollection);
             Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
         }
     }
@@ -2799,10 +2914,10 @@ public class RealMainController {
      * Dropping a Deck onto the separator creates a new unit between the two
      * surrounding deck lists of {@code collection}.
      *
-     * @param sepNode      the HBox returned by {@link View.NavigationItem#addDeckListSeparator()}
-     * @param collection   the ThemeCollection the separator belongs to
-     * @param afterUnitIdx the 0-based index of the unit immediately ABOVE this separator
-     * @param dcl          the live DecksAndCollectionsList
+     * @param sepNode       the HBox returned by {@link View.NavigationItem#addDeckListSeparator()}
+     * @param collection    the ThemeCollection the separator belongs to
+     * @param afterUnitIdx  the 0-based index of the unit immediately ABOVE this separator
+     * @param dcl           the live DecksAndCollectionsList
      */
     private void wireSeparatorAsDropTarget(javafx.scene.layout.HBox sepNode,
                                            Model.CardsLists.ThemeCollection collection,
@@ -2814,7 +2929,7 @@ public class RealMainController {
                 event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
                 sepNode.setStyle(
                         "-fx-background-color: #cdfc04;" +
-                                "-fx-min-height: 3; -fx-pref-height: 3; -fx-max-height: 3;");
+                                "-fx-min-height: 1; -fx-pref-height: 1; -fx-max-height: 1;");
             }
             event.consume();
         });
@@ -2828,15 +2943,26 @@ public class RealMainController {
             Object dragged = Controller.DragDropManager.getDraggedNavObject();
             boolean changed = false;
             if (dragged instanceof Model.CardsLists.Deck draggedDeck) {
+                // Snapshot source collection BEFORE the move
+                Controller.NavigationDragDrop.DeckLocation srcLoc =
+                        Controller.NavigationDragDrop.findDeckLocation(draggedDeck, dcl);
+                Model.CardsLists.ThemeCollection srcCollection = srcLoc.collection;
+
                 changed = Controller.NavigationDragDrop.moveDeckToNewUnit(
                         draggedDeck, collection, afterUnitIdx, dcl);
+
+                if (changed) {
+                    // Mark source collection dirty if it differs from the target
+                    if (srcCollection != null && srcCollection != collection)
+                        Controller.UserInterfaceFunctions.markDirty(srcCollection);
+                    // Always mark the target collection dirty (new unit was added to it)
+                    Controller.UserInterfaceFunctions.markDirty(collection);
+                }
             }
             sepNode.setStyle(
                     "-fx-background-color: #555577;" +
                             "-fx-min-height: 1; -fx-pref-height: 1; -fx-max-height: 1;");
             if (changed) {
-                Object dragged2 = dragged;
-                Controller.UserInterfaceFunctions.markDirty((Model.CardsLists.Deck) dragged2);
                 Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
             }
             event.setDropCompleted(true);
@@ -4077,6 +4203,102 @@ public class RealMainController {
         return Collections.emptyList();
     }
 
+    /**
+     * Attaches drag-over and drag-dropped handlers to a NavigationItem.
+     *
+     * <p>RIGHT → nav: add copies of the dragged Cards into the model object.
+     * <p>MIDDLE → nav: move the dragged CardElements (remove from source, add to target).
+     *
+     * @param navItem  the NavigationItem node
+     * @param modelObj the model object stored as userData (Box, CardsGroup, Deck, ThemeCollection)
+     */
+    private void attachNavItemDropHandlers(NavigationItem navItem, Object modelObj) {
+        navItem.setOnDragOver(event -> {
+            if (event.getDragboard().hasString()
+                    && Controller.DragDropManager.getDragSourcePane() != null) {
+                event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
+            }
+            event.consume();
+        });
+
+        navItem.setOnDragDropped(event -> {
+            String srcPane = Controller.DragDropManager.getDragSourcePane();
+            if (srcPane == null) {
+                event.setDropCompleted(false);
+                event.consume();
+                return;
+            }
+            doCardPasteOnNavItem(modelObj, srcPane, event);
+            event.setDropCompleted(true);
+            event.consume();
+        });
+    }
+
+    /**
+     * Shared card-paste logic (RIGHT / MIDDLE pane drops).
+     * Extracted so both {@link #attachNavItemDropHandlers} and the nav-DnD combined
+     * handler can call it without duplication.
+     */
+    private void doCardPasteOnNavItem(Object modelObj, String srcPane,
+                                      javafx.scene.input.DragEvent event) {
+        if ("RIGHT".equals(srcPane)) {
+            java.util.List<Model.CardsLists.Card> cards =
+                    new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
+            if (!cards.isEmpty()) pasteCardsIntoNavigationItem(cards, modelObj);
+
+        } else if ("MIDDLE".equals(srcPane)) {
+            java.util.List<Model.CardsLists.CardElement> elements =
+                    new java.util.ArrayList<>(Controller.DragDropManager.getDraggedElements());
+            if (elements.isEmpty()) {
+                event.setDropCompleted(false);
+                return;
+            }
+            java.util.List<Model.CardsLists.Card> cards = new java.util.ArrayList<>();
+            for (Model.CardsLists.CardElement ce : elements) {
+                if (ce.getCard() != null) cards.add(ce.getCard());
+            }
+            Controller.MenuActionHandler.handleBulkRemoveElementsFromDecksAndCollections(elements);
+            Controller.MenuActionHandler.handleBulkRemoveFromOwnedCollection(elements);
+            if (!cards.isEmpty()) {
+                final int n = cards.size();
+                pasteCardsIntoNavigationItem(cards, modelObj);
+                Platform.runLater(() -> {
+                    List<Model.CardsLists.CardElement> targetElements =
+                            getTargetGroupElements(modelObj);
+                    int startIdx = Math.max(0, targetElements.size() - n);
+                    Controller.SelectionManager.clearSelection();
+                    for (int i = startIdx; i < targetElements.size(); i++) {
+                        Controller.SelectionManager.toggleElementSelection(targetElements.get(i));
+                    }
+                    View.CardTreeCell.refreshAllGridViews();
+                });
+            }
+        }
+    }
+
+    /**
+     * Makes {@code navItem} a drag SOURCE for navigation-menu reordering.
+     * Attaches {@code onDragDetected} (on the label) and {@code onDragDone}.
+     * Call this for every nav item that should be draggable.
+     */
+    private void enableNavDragSource(NavigationItem navItem, Object modelObj) {
+        javafx.scene.control.Label lbl = navItem.getLabel();
+        lbl.setOnDragDetected(event -> {
+            javafx.scene.input.Dragboard db =
+                    lbl.startDragAndDrop(javafx.scene.input.TransferMode.MOVE);
+            javafx.scene.input.ClipboardContent cc = new javafx.scene.input.ClipboardContent();
+            cc.putString("NAV");
+            db.setContent(cc);
+            Controller.DragDropManager.startNavDrag(modelObj);
+            event.consume();
+        });
+        lbl.setOnDragDone(event -> {
+            Controller.DragDropManager.clearCurrentlyDraggedCard();
+            navItem.clearDropIndicator();
+            event.consume();
+        });
+    }
+
     private void populateDecksAndCollectionsMenu() throws Exception {
         VBox menuVBox = decksTab.getMenuVBox();
 
@@ -4245,102 +4467,6 @@ public class RealMainController {
     }
 
     /**
-     * Attaches drag-over and drag-dropped handlers to a NavigationItem.
-     *
-     * <p>RIGHT → nav: add copies of the dragged Cards into the model object.
-     * <p>MIDDLE → nav: move the dragged CardElements (remove from source, add to target).
-     *
-     * @param navItem  the NavigationItem node
-     * @param modelObj the model object stored as userData (Box, CardsGroup, Deck, ThemeCollection)
-     */
-    private void attachNavItemDropHandlers(NavigationItem navItem, Object modelObj) {
-        navItem.setOnDragOver(event -> {
-            if (event.getDragboard().hasString()
-                    && Controller.DragDropManager.getDragSourcePane() != null) {
-                event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
-            }
-            event.consume();
-        });
-
-        navItem.setOnDragDropped(event -> {
-            String srcPane = Controller.DragDropManager.getDragSourcePane();
-            if (srcPane == null) {
-                event.setDropCompleted(false);
-                event.consume();
-                return;
-            }
-            doCardPasteOnNavItem(modelObj, srcPane, event);
-            event.setDropCompleted(true);
-            event.consume();
-        });
-    }
-
-    /**
-     * Shared card-paste logic (RIGHT / MIDDLE pane drops).
-     * Extracted so both {@link #attachNavItemDropHandlers} and the nav-DnD combined
-     * handler can call it without duplication.
-     */
-    private void doCardPasteOnNavItem(Object modelObj, String srcPane,
-                                      javafx.scene.input.DragEvent event) {
-        if ("RIGHT".equals(srcPane)) {
-            java.util.List<Model.CardsLists.Card> cards =
-                    new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
-            if (!cards.isEmpty()) pasteCardsIntoNavigationItem(cards, modelObj);
-
-        } else if ("MIDDLE".equals(srcPane)) {
-            java.util.List<Model.CardsLists.CardElement> elements =
-                    new java.util.ArrayList<>(Controller.DragDropManager.getDraggedElements());
-            if (elements.isEmpty()) {
-                event.setDropCompleted(false);
-                return;
-            }
-            java.util.List<Model.CardsLists.Card> cards = new java.util.ArrayList<>();
-            for (Model.CardsLists.CardElement ce : elements) {
-                if (ce.getCard() != null) cards.add(ce.getCard());
-            }
-            Controller.MenuActionHandler.handleBulkRemoveElementsFromDecksAndCollections(elements);
-            Controller.MenuActionHandler.handleBulkRemoveFromOwnedCollection(elements);
-            if (!cards.isEmpty()) {
-                final int n = cards.size();
-                pasteCardsIntoNavigationItem(cards, modelObj);
-                Platform.runLater(() -> {
-                    List<Model.CardsLists.CardElement> targetElements =
-                            getTargetGroupElements(modelObj);
-                    int startIdx = Math.max(0, targetElements.size() - n);
-                    Controller.SelectionManager.clearSelection();
-                    for (int i = startIdx; i < targetElements.size(); i++) {
-                        Controller.SelectionManager.toggleElementSelection(targetElements.get(i));
-                    }
-                    View.CardTreeCell.refreshAllGridViews();
-                });
-            }
-        }
-    }
-
-    /**
-     * Makes {@code navItem} a drag SOURCE for navigation-menu reordering.
-     * Attaches {@code onDragDetected} (on the label) and {@code onDragDone}.
-     * Call this for every nav item that should be draggable.
-     */
-    private void enableNavDragSource(NavigationItem navItem, Object modelObj) {
-        javafx.scene.control.Label lbl = navItem.getLabel();
-        lbl.setOnDragDetected(event -> {
-            javafx.scene.input.Dragboard db =
-                    lbl.startDragAndDrop(javafx.scene.input.TransferMode.MOVE);
-            javafx.scene.input.ClipboardContent cc = new javafx.scene.input.ClipboardContent();
-            cc.putString("NAV");
-            db.setContent(cc);
-            Controller.DragDropManager.startNavDrag(modelObj);
-            event.consume();
-        });
-        lbl.setOnDragDone(event -> {
-            Controller.DragDropManager.clearCurrentlyDraggedCard();
-            navItem.clearDropIndicator();
-            event.consume();
-        });
-    }
-
-    /**
      * Replaces the drag-over / drag-dropped handlers on {@code navItem} with a
      * combined handler that accepts both card drops (RIGHT / MIDDLE pane) AND
      * navigation-menu reordering drops (NAV pane).
@@ -4352,9 +4478,9 @@ public class RealMainController {
      * <p>Must be called <em>after</em> {@link #attachNavItemDropHandlers} because it
      * overrides the handlers that method sets.
      *
-     * @param navItem   the navigation item to configure as a drop target
-     * @param modelObj  the model object attached to {@code navItem} (for card drops)
-     * @param onNavDrop callback for NAV drops: {@code (draggedObject, dropPosition)}
+     * @param navItem    the navigation item to configure as a drop target
+     * @param modelObj   the model object attached to {@code navItem} (for card drops)
+     * @param onNavDrop  callback for NAV drops: {@code (draggedObject, dropPosition)}
      */
     private void enableNavItemAsNavDndTarget(
             NavigationItem navItem,
@@ -4366,8 +4492,11 @@ public class RealMainController {
             if (event.getDragboard().hasString() && src != null) {
                 event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
                 if ("NAV".equals(src)) {
-                    // Show drop indicator based on cursor Y within the header row
-                    View.NavigationItem.DropPosition pos = resolveDropPosition(navItem, event.getY());
+                    // Show drop indicator based on cursor Y within the header row.
+                    // Use a wide INTO zone when the target can contain children (Box).
+                    boolean isContainer = modelObj instanceof Model.CardsLists.Box;
+                    View.NavigationItem.DropPosition pos =
+                            resolveDropPosition(navItem, event.getY(), isContainer);
                     navItem.showDropIndicator(pos);
                 }
             }
@@ -4389,7 +4518,9 @@ public class RealMainController {
             if ("NAV".equals(srcPane)) {
                 Object dragged = Controller.DragDropManager.getDraggedNavObject();
                 if (dragged != null && dragged != modelObj) {
-                    View.NavigationItem.DropPosition pos = resolveDropPosition(navItem, event.getY());
+                    boolean isContainer = modelObj instanceof Model.CardsLists.Box;
+                    View.NavigationItem.DropPosition pos =
+                            resolveDropPosition(navItem, event.getY(), isContainer);
                     navItem.clearDropIndicator();
                     onNavDrop.accept(dragged, pos);
                 }

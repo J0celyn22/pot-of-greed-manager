@@ -241,7 +241,7 @@ public class DataBaseUpdate {
             } else if (element.matches("\\d+\\.json")) {
                 key = "<konamiId>.json";
                 replacement = element.split("\\.")[0];
-            } else if (element.contains("-")) {
+            } else if (element.contains("-") && !element.startsWith("-")) {
                 key = "<printcode>.json";
                 replacement = element.split("\\.")[0];
             }

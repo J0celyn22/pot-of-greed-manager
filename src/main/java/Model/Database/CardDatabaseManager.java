@@ -160,15 +160,26 @@ public class CardDatabaseManager {
     /**
      * Completes the mapping of a given Konami ID to its corresponding passcode.
      *
-     * This method uses the new file type (<konamiId>.json) to fetch the card info from YGOProDeck.
-     * It delegates the download to the FileFetcher, then opens the file locally and extracts the card passcode
-     * from the JSON (assuming the structure is similar to the cardinfo.json response). Finally, it adds the mapping.
+     * Before attempting any network access, the ID is checked against
+     * {@link NotFoundCache}.  If it was previously returned a 4xx response and
+     * the retry window has not expired, the method returns immediately without
+     * making a request.
      *
-     * If the file for the given Konami ID is not found, it logs that the file was not loaded.
+     * When the server returns a 4xx response (card genuinely absent from the
+     * database), the ID is recorded in {@link NotFoundCache} so that it is not
+     * retried until the configured retry window ({@link NotFoundCache#RETRY_DAYS}
+     * days) has elapsed.  Transient network errors are still logged normally and
+     * are retried on the next startup.
      *
      * @param konamiId the Konami ID that needs its passcode mapping completed
      */
     public static void completeKonamiIdToPassCode(Integer konamiId) {
+        // Skip IDs that are known to be absent from the database until their
+        // retry window expires.
+        if (NotFoundCache.isKnownNotFound(konamiId)) {
+            return;
+        }
+
         String fileName = konamiId + ".json";
         try {
             FileFetcher.fetchFile(fileName);
@@ -181,12 +192,31 @@ public class CardDatabaseManager {
                     konamiIdToPassCode.put(konamiId, passcode);
                 } else {
                     System.out.println("No card data found for Konami ID " + konamiId);
+                    // Empty data array = the server knows of no such card.
+                    NotFoundCache.markAsNotFound(konamiId);
                 }
             } else {
                 System.out.println("Failed to load JSON for Konami ID " + konamiId);
             }
+        } catch (RuntimeException e) {
+            // RuntimeException wraps a FileNotFoundException thrown by fetchFile
+            // when the server returns 4xx — the card does not exist remotely.
+            Throwable cause = (e instanceof RuntimeException && e.getCause() != null)
+                    ? e.getCause() : e;
+            if (cause instanceof java.io.FileNotFoundException) {
+                System.out.println("Konami ID " + konamiId
+                        + " not found in remote database (HTTP 4xx) — caching.");
+                NotFoundCache.markAsNotFound(konamiId);
+            } else {
+                // Genuine RuntimeException unrelated to 4xx — log but don't cache.
+                System.out.println("Error loading file for Konami ID " + konamiId
+                        + ": " + e.getMessage());
+            }
         } catch (Exception e) {
-            System.out.println("Error loading file for Konami ID " + konamiId + ": " + e.getMessage());
+            // Transient error (network down, timeout, etc.) — do NOT cache,
+            // so the next startup retries automatically.
+            System.out.println("Error loading file for Konami ID " + konamiId
+                    + ": " + e.getMessage());
         }
     }
 
