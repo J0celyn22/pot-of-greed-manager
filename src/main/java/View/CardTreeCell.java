@@ -63,10 +63,55 @@ public class CardTreeCell extends TreeCell<String> {
 
     private static final String ARCHETYPE_MARKER = "[ARCHETYPE]";
 
+    // Shared hover popup — one instance per CardTreeCell.
+    // CardGridCell instances access it via CardTreeCell.this.
+    final javafx.stage.Popup hoverPopup = new javafx.stage.Popup();
+    final Label hoverLabel = new Label();
+    /**
+     * Orange warning line shown below the main info when a card is glowing.
+     */
+    final Label hoverWarningLabel = new Label();
     public CardTreeCell(DoubleProperty cardWidthProperty, DoubleProperty cardHeightProperty) {
         this.cardWidthProperty = cardWidthProperty;
         this.cardHeightProperty = cardHeightProperty;
         getStyleClass().add("card-tree-cell");
+
+        // One popup per CardTreeCell, shared across all CardGridCell instances
+        // inside this tree cell. Mouse handlers are wired in CardGridCell().
+        hoverLabel.setWrapText(true);
+        hoverLabel.setMaxWidth(260);
+        hoverLabel.setStyle(CardHoverPopup.LABEL_STYLE);
+
+        hoverWarningLabel.setWrapText(true);
+        hoverWarningLabel.setMaxWidth(260);
+        hoverWarningLabel.setStyle(
+                "-fx-text-fill: #EB9E34; " +       // RGB(235, 158, 52)
+                        "-fx-font-size: 12; " +
+                        "-fx-font-weight: bold; " +
+                        "-fx-padding: 4 10 6 10;"
+        );
+        hoverWarningLabel.setVisible(false);
+        hoverWarningLabel.setManaged(false);
+
+        // Wrap both labels in a styled VBox so they share one rounded border.
+        javafx.scene.layout.VBox popupBox = new javafx.scene.layout.VBox(0, hoverLabel, hoverWarningLabel);
+        popupBox.setStyle(
+                "-fx-background-color: #1a0428; " +
+                        "-fx-background-radius: 6; " +
+                        "-fx-border-color: #cdfc04; " +
+                        "-fx-border-width: 1; " +
+                        "-fx-border-radius: 6;"
+        );
+        // Remove the border/background from the individual label now that the VBox carries it.
+        hoverLabel.setStyle(
+                "-fx-text-fill: white; " +
+                        "-fx-font-size: 12; " +
+                        "-fx-padding: 8 10 4 10;"
+        );
+
+        hoverPopup.getContent().add(popupBox);
+        hoverPopup.setAutoFix(true);
+        hoverPopup.setAutoHide(false);
     }
 
     /**
@@ -2078,6 +2123,10 @@ public class CardTreeCell extends TreeCell<String> {
         private final StackPane wrapper;
         private Future<?> imageLoadFuture;
         private String currentImageKey;
+        /**
+         * Tracks whether this cell is currently glowing; read in the hover handler.
+         */
+        private boolean currentNeedsSorting = false;
 
         public CardGridCell() {
             cardImageView = new ImageView();
@@ -2906,6 +2955,40 @@ public class CardTreeCell extends TreeCell<String> {
                 event.consume();
             });
 
+            // ── Hover popup ───────────────────────────────────────────────────────────────
+            // Attached to wrapper (not the outer GridCell) so it fires even when the
+            // graphic intercepts all mouse events before they reach the Control.
+            // Uses getItem() at event time so the text always matches the current card.
+            wrapper.setOnMouseEntered(e -> {
+                CardElement item = getItem();
+                if (item == null) return;
+                CardTreeCell.this.hoverLabel.setText(
+                        CardHoverPopup.buildTooltipText(item));
+
+                // Orange warning line — shown only for glowing cards.
+                if (currentNeedsSorting) {
+                    String warning;
+                    if (isInArchetypeGroup()) {
+                        warning = "This card is missing in the collection.";
+                    } else {
+                        warning = "This card should be sorted.";
+                    }
+                    CardTreeCell.this.hoverWarningLabel.setText(warning);
+                    CardTreeCell.this.hoverWarningLabel.setVisible(true);
+                    CardTreeCell.this.hoverWarningLabel.setManaged(true);
+                } else {
+                    CardTreeCell.this.hoverWarningLabel.setVisible(false);
+                    CardTreeCell.this.hoverWarningLabel.setManaged(false);
+                }
+
+                CardTreeCell.this.hoverPopup.show(wrapper, e.getScreenX() + 14, e.getScreenY() + 14);
+            });
+            wrapper.setOnMouseMoved(e -> {
+                if (CardTreeCell.this.hoverPopup.isShowing())
+                    CardTreeCell.this.hoverPopup.show(wrapper, e.getScreenX() + 14, e.getScreenY() + 14);
+            });
+            wrapper.setOnMouseExited(e -> CardTreeCell.this.hoverPopup.hide());
+
             // ── Drop target: card-level (left half = before, right half = after) ────────
             wrapper.setOnDragOver(event -> {
                 if (!isInArchetypeGroup()
@@ -3191,6 +3274,7 @@ public class CardTreeCell extends TreeCell<String> {
                 cardImageView.setEffect(null);
                 wrapper.setEffect(null);
                 wrapper.setStyle("-fx-background-color: transparent;");
+                currentNeedsSorting = false;
                 setGraphic(wrapper);
                 return;
             }
@@ -3346,6 +3430,9 @@ public class CardTreeCell extends TreeCell<String> {
             } else {
                 wrapper.setStyle("-fx-background-color: transparent;");
             }
+
+            // Store for the hover handler
+            currentNeedsSorting = needsSorting;
 
             // Finalize graphic
             setGraphic(wrapper);

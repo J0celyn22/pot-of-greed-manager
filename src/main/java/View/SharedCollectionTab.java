@@ -52,6 +52,7 @@ public class SharedCollectionTab extends HBox {
     private ScrollPane menuScrollPane;
     @FXML
     private VBox menuVBox;
+    private CardDetailPane cardDetailPane;
     @FXML
     private VBox displayVBox;
     @FXML
@@ -156,8 +157,23 @@ public class SharedCollectionTab extends HBox {
         displayVBox.getChildren().addAll(headerRow, sepHoriz, contentRow);
         HBox.setHgrow(displayVBox, Priority.ALWAYS);
 
-        // ── Final assembly: nav | middle+right block ──────────────────────────
-        this.getChildren().addAll(menuScrollPane, sepLeft, displayVBox);
+        // ── Card-detail pane (collapsible, sits above the nav menu) ───────────
+        cardDetailPane = new CardDetailPane();
+
+        Separator detailNavSep = new Separator();
+        detailNavSep.setStyle("-fx-background-color: #333333;");
+        detailNavSep.setPrefHeight(1);
+
+        // menuScrollPane must grow to fill whatever height remains after the
+        // detail pane (which has a variable / collapsible height).
+        VBox.setVgrow(menuScrollPane, Priority.ALWAYS);
+
+        VBox leftColumnVBox = new VBox(0, cardDetailPane, detailNavSep, menuScrollPane);
+        leftColumnVBox.setPrefWidth(375);
+        leftColumnVBox.setStyle("-fx-background-color: #100317;");
+
+        // ── Final assembly: [detail+nav column] | middle+right block ──────────
+        this.getChildren().addAll(leftColumnVBox, sepLeft, displayVBox);
 
         // Programmatic styling for the navigation menu scrollbars remains
         styleScrollBarsIn(menuScrollPane);
@@ -635,6 +651,10 @@ public class SharedCollectionTab extends HBox {
 
     public VBox getMenuVBox() {
         return menuVBox;
+    }
+
+    public CardDetailPane getCardDetailPane() {
+        return cardDetailPane;
     }
 
     public AnchorPane getContentPane() {

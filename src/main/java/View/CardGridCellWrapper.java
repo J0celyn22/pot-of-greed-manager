@@ -1,5 +1,6 @@
 package View;
 
+import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
 import Model.Database.DataBaseUpdate;
 import Utils.LruImageCache;
@@ -33,6 +34,12 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
      */
     private final ContextMenu cellContextMenu;
 
+    // Hover popup — one instance per cell, shared across update cycles.
+    // Mouse handlers are attached to finalPane in updateItem so the popup
+    // always shows the text for the currently-displayed card.
+    private final javafx.stage.Popup hoverPopup = new javafx.stage.Popup();
+    private final Label hoverLabel = new Label();
+
     public CardGridCellWrapper(DoubleProperty cardWidthProperty, DoubleProperty cardHeightProperty) {
         this.cardWidthProperty = cardWidthProperty;
         this.cardHeightProperty = cardHeightProperty;
@@ -44,6 +51,14 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
         StackPane pane = new StackPane(cardImageView);
         pane.setPadding(new Insets(5));
         setGraphic(pane);
+
+        // Initialise hover popup
+        hoverLabel.setWrapText(true);
+        hoverLabel.setMaxWidth(260);
+        hoverLabel.setStyle(CardHoverPopup.LABEL_STYLE);
+        hoverPopup.getContent().add(hoverLabel);
+        hoverPopup.setAutoFix(true);
+        hoverPopup.setAutoHide(false);
 
         // Build the context menu once; items use getItem() at action time so
         // they always operate on the element currently shown in this cell.
@@ -72,6 +87,14 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
         // Clear state for empty cells
         if (empty || cardElement == null) {
             logger.debug("Clearing graphic for empty cell");
+            setTooltip(null);
+            hoverPopup.hide();
+            Node g = getGraphic();
+            if (g != null) {
+                g.setOnMouseEntered(null);
+                g.setOnMouseMoved(null);
+                g.setOnMouseExited(null);
+            }
 
             // Remove any per-pane strong listener we stored previously (cleanup)
             try {
@@ -112,6 +135,21 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
         // final references for lambdas to avoid cell-reuse issues
         final StackPane finalPane = pane;
         final CardElement finalCardElement = cardElement;
+
+        // Hover popup — attach directly to finalPane (the graphic StackPane)
+        // rather than using setTooltip() on the GridCell, because the graphic
+        // covers the entire cell and consumes mouse events before they reach
+        // the cell Control, which would prevent Tooltip from ever triggering.
+        Card tooltipCard = (cardElement.getCard() != null) ? cardElement.getCard() : new Card();
+        final String tooltipText = CardHoverPopup.buildTooltipText(cardElement);
+        finalPane.setOnMouseEntered(e -> {
+            hoverLabel.setText(tooltipText);
+            hoverPopup.show(finalPane, e.getScreenX() + 14, e.getScreenY() + 14);
+        });
+        finalPane.setOnMouseMoved(e ->
+                hoverPopup.show(finalPane, e.getScreenX() + 14, e.getScreenY() + 14)
+        );
+        finalPane.setOnMouseExited(e -> hoverPopup.hide());
 
         // --- Helpers --------------------------------------------------------
 

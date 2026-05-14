@@ -26,6 +26,10 @@ public class NavigationItem extends VBox {
     private Label label;
     private Label triangleLabel; // For the triangle indicator
     /**
+     * Optional icon prepended before the label — never modifies label.getText().
+     */
+    private Label iconLabel;
+    /**
      * Optional footer drop-zone node appended after all sub-items.
      */
     private HBox footerZone = null;
@@ -34,6 +38,10 @@ public class NavigationItem extends VBox {
     private boolean highlighted = false;
     // Add field:
     private Object userData;
+
+    // ── Hover warning popup (lazy) ─────────────────────────────────────────────
+    private javafx.stage.Popup warningPopup;
+    private Label warningPopupLabel;
 
     public NavigationItem(String name, int depth) {
         this.name = name;
@@ -90,7 +98,15 @@ public class NavigationItem extends VBox {
             event.consume();
         });
 
-        hbox.getChildren().addAll(triangleLabel, label);
+        // Icon label — prepended before the text label; hidden by default.
+        // Using a separate node ensures label.getText() is never modified,
+        // which keeps startInlineRename and navigateToTree safe.
+        iconLabel = new Label("");
+        iconLabel.setStyle("-fx-text-fill: white;");
+        iconLabel.setVisible(false);
+        iconLabel.setManaged(false);
+
+        hbox.getChildren().addAll(triangleLabel, iconLabel, label);
         this.rowHBox = hbox;
         // Pre-allocate a 2 px top + 2 px bottom transparent border so that showing
         // drop indicators only changes colour — never size — avoiding layout reflow.
@@ -252,6 +268,23 @@ public class NavigationItem extends VBox {
      */
     public enum DropPosition {BEFORE, INTO, AFTER}
 
+    /**
+     * Prepends the icon for the given {@link ItemType} before the text label.
+     * The main {@code label} text is never modified, so inline rename and
+     * tree navigation code that reads {@code label.getText()} are unaffected.
+     */
+    public void setItemType(ItemType type) {
+        if (type == null) {
+            iconLabel.setText("");
+            iconLabel.setVisible(false);
+            iconLabel.setManaged(false);
+        } else {
+            iconLabel.setText(type.icon);
+            iconLabel.setVisible(true);
+            iconLabel.setManaged(true);
+        }
+    }
+
     // Set the click handler for the label.
     public void setOnLabelClicked(javafx.event.EventHandler<? super MouseEvent> handler) {
         this.onLabelClicked = handler;
@@ -408,5 +441,82 @@ public class NavigationItem extends VBox {
             // Re-insert after the triangle
             hbox.getChildren().add(label);
         }
+    }
+
+    // ── Item type / icon ───────────────────────────────────────────────────────
+
+    /**
+     * Attaches a hover popup to this item's header row that shows {@code message}
+     * in orange (RGB 235,158,52) when the cursor is over the row.
+     * Safe to call multiple times — subsequent calls update the message in-place.
+     * Call {@link #clearWarningTooltip()} to remove the popup.
+     */
+    public void setWarningTooltip(String message) {
+        if (warningPopup == null) {
+            warningPopupLabel = new Label();
+            warningPopupLabel.setWrapText(true);
+            warningPopupLabel.setMaxWidth(280);
+            warningPopupLabel.setStyle(
+                    "-fx-background-color: #1a0428; " +
+                            "-fx-background-radius: 6; " +
+                            "-fx-border-color: #EB9E34; " +
+                            "-fx-border-width: 1; " +
+                            "-fx-border-radius: 6; " +
+                            "-fx-text-fill: #EB9E34; " +
+                            "-fx-font-size: 12; " +
+                            "-fx-font-weight: bold; " +
+                            "-fx-padding: 7 10 7 10;"
+            );
+            warningPopup = new javafx.stage.Popup();
+            warningPopup.getContent().add(warningPopupLabel);
+            warningPopup.setAutoFix(true);
+            warningPopup.setAutoHide(false);
+
+            rowHBox.setOnMouseEntered(e -> {
+                if (warningPopup != null && warningPopupLabel != null) {
+                    warningPopup.show(rowHBox, e.getScreenX() + 14, e.getScreenY() + 14);
+                }
+            });
+            rowHBox.setOnMouseMoved(e -> {
+                if (warningPopup != null && warningPopup.isShowing()) {
+                    warningPopup.show(rowHBox, e.getScreenX() + 14, e.getScreenY() + 14);
+                }
+            });
+            rowHBox.setOnMouseExited(e -> {
+                if (warningPopup != null) warningPopup.hide();
+            });
+        }
+        warningPopupLabel.setText(message);
+    }
+
+    // ── Hover warning popup ────────────────────────────────────────────────────
+
+    /**
+     * Removes the hover warning popup from this item's header row.
+     */
+    public void clearWarningTooltip() {
+        if (warningPopup != null) {
+            warningPopup.hide();
+            warningPopup = null;
+            warningPopupLabel = null;
+        }
+        if (rowHBox != null) {
+            rowHBox.setOnMouseEntered(null);
+            rowHBox.setOnMouseMoved(null);
+            rowHBox.setOnMouseExited(null);
+        }
+    }
+
+    /**
+     * Visual type of a navigation item, used to prepend an icon to the row.
+     */
+    public enum ItemType {
+        BOX("📦 "),
+        CATEGORY("📁 ");
+
+        public final String icon;
+
+        ItemType(String icon) {
+            this.icon = icon; }
     }
 }

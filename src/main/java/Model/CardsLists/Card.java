@@ -89,6 +89,7 @@ public class Card {
             this.artNumber = tempCard.artNumber;
             if (tempCard.availableRarities != null)
                 this.availableRarities = new java.util.ArrayList<>(tempCard.availableRarities);
+            this.description = tempCard.description;
         }
     }
 

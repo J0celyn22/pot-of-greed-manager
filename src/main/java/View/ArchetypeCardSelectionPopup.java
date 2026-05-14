@@ -4,7 +4,6 @@ import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
 import Model.CardsLists.ThemeCollection;
 import Model.Database.DataBaseUpdate;
-import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -17,7 +16,6 @@ import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.scene.paint.Color;
 import javafx.scene.text.Text;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
@@ -60,6 +58,10 @@ public class ArchetypeCardSelectionPopup extends Stage {
     // ── Model ────────────────────────────────────────────────────────────────
     private final ThemeCollection collection;
     private final List<Card> archetypeCards;
+    /**
+     * The popup content VBox, built once in the constructor.
+     */
+    private final VBox content;
 
     /**
      * Cards currently selected (will go to cardsList on OK).
@@ -88,28 +90,15 @@ public class ArchetypeCardSelectionPopup extends Stage {
         // All cards selected by default
         selected.addAll(this.archetypeCards);
 
-        initStyle(StageStyle.UNDECORATED);
+        initStyle(StageStyle.TRANSPARENT);
         setResizable(false);
         // Do NOT close on focus-loss (user must use a button)
 
-        Scene scene = new Scene(buildRoot(archetypeName), Color.TRANSPARENT);
-        scene.setOnKeyPressed(e -> {
-            if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) close();
-        });
-
-        // Load stylesheet so accent-combo / accent-text-field classes apply
-        try {
-            java.net.URL cssUrl = getClass().getResource("/styles.css");
-            if (cssUrl == null) {
-                java.io.File f = new java.io.File("src/main/resources/styles.css");
-                if (f.exists()) cssUrl = f.toURI().toURL();
-            }
-            if (cssUrl != null) scene.getStylesheets().add(cssUrl.toExternalForm());
-        } catch (Exception ignored) {
-        }
-
-        setScene(scene);
-        sizeToScene();
+        // Build popup content now; defer scene construction to showCenteredOn
+        // where the owner window's bounds are known.
+        content = buildRoot(archetypeName);
+        // Consume clicks inside the content so they don't reach the overlay.
+        content.setOnMouseClicked(javafx.event.Event::consume);
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -141,23 +130,64 @@ public class ArchetypeCardSelectionPopup extends Stage {
      * Shows the popup centred on the window that owns {@code anchor}.
      */
     public void showCenteredOn(javafx.scene.Node anchor) {
-        show();
-        Platform.runLater(() -> {
-            try {
-                if (anchor != null && anchor.getScene() != null
-                        && anchor.getScene().getWindow() != null) {
-                    javafx.stage.Window w = anchor.getScene().getWindow();
-                    setX(w.getX() + (w.getWidth() - getWidth()) / 2.0);
-                    setY(w.getY() + (w.getHeight() - getHeight()) / 2.0);
-                    return;
-                }
-            } catch (Exception ignored) {
+        // Resolve the owner window — must be set before show().
+        javafx.stage.Window ownerWindow = null;
+        try {
+            if (anchor != null && anchor.getScene() != null
+                    && anchor.getScene().getWindow() instanceof javafx.stage.Stage) {
+                ownerWindow = anchor.getScene().getWindow();
+                initOwner(ownerWindow);
             }
-            javafx.stage.Screen s = javafx.stage.Screen.getPrimary();
-            javafx.geometry.Rectangle2D b = s.getVisualBounds();
-            setX(b.getMinX() + (b.getWidth() - getWidth()) / 2.0);
-            setY(b.getMinY() + (b.getHeight() - getHeight()) / 2.0);
+        } catch (Exception ignored) {
+        }
+
+        // Build the overlay sized to the main window only.
+        double overlayX, overlayY, overlayW, overlayH;
+        if (ownerWindow != null) {
+            overlayX = ownerWindow.getX();
+            overlayY = ownerWindow.getY();
+            overlayW = ownerWindow.getWidth();
+            overlayH = ownerWindow.getHeight();
+        } else {
+            javafx.geometry.Rectangle2D screen =
+                    javafx.stage.Screen.getPrimary().getVisualBounds();
+            overlayX = screen.getMinX();
+            overlayY = screen.getMinY();
+            overlayW = screen.getWidth();
+            overlayH = screen.getHeight();
+        }
+
+        // Semi-transparent overlay covers exactly the main window area.
+        // Clicking outside the popup content does NOT close (buttons only).
+        // Group prevents StackPane from stretching the popup content to fill
+        // the overlay — a Group is never resized by its parent layout.
+        javafx.scene.Group contentGroup = new javafx.scene.Group(content);
+        StackPane overlay = new StackPane(contentGroup);
+        overlay.setPrefSize(overlayW, overlayH);
+        overlay.setAlignment(javafx.geometry.Pos.CENTER);
+        overlay.setStyle("-fx-background-color: rgba(0, 0, 0, 0.45);");
+        overlay.setOnMouseClicked(javafx.event.Event::consume); // block but don't close
+
+        Scene scene = new Scene(overlay, overlayW, overlayH);
+        scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
+        scene.setOnKeyPressed(e -> {
+            if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) close();
         });
+
+        try {
+            java.net.URL cssUrl = getClass().getResource("/styles.css");
+            if (cssUrl == null) {
+                java.io.File f = new java.io.File("src/main/resources/styles.css");
+                if (f.exists()) cssUrl = f.toURI().toURL();
+            }
+            if (cssUrl != null) scene.getStylesheets().add(cssUrl.toExternalForm());
+        } catch (Exception ignored) {
+        }
+
+        setScene(scene);
+        setX(overlayX);
+        setY(overlayY);
+        show();
     }
 
     // ── Card grid ─────────────────────────────────────────────────────────────

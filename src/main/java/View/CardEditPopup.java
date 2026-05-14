@@ -14,7 +14,6 @@ import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.*;
-import javafx.scene.paint.Color;
 import javafx.scene.text.Text;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
@@ -59,10 +58,13 @@ public class CardEditPopup extends Stage {
     private CheckBox specificArtworkCheck;
     /**
      * All artwork-variant Cards for this card, in database order (index 0 = artwork 1).
-     * Populated once in {@link #buildArtworkSelector()} via
-     * {@link Model.Database.CardDatabaseManager#getAliasCards(int)}.
      */
     private List<Model.CardsLists.Card> artworkAliases;
+
+    /**
+     * The popup content VBox, built once in the constructor.
+     */
+    private VBox content;
 
     // ── Controls ─────────────────────────────────────────────────────────────
     private ComboBox<String> conditionCombo;
@@ -92,33 +94,16 @@ public class CardEditPopup extends Stage {
                 && element.getArtwork() > 0)
                 ? element.getArtwork() : 1;
 
-        initStyle(StageStyle.UNDECORATED);
+        initStyle(StageStyle.TRANSPARENT);
         setResizable(false);
 
-        Scene scene = new Scene(buildRoot(), Color.TRANSPARENT);
-        scene.setOnKeyPressed(e -> {
-            if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) close();
-        });
-
-        // The popup is a separate Stage with its own Scene, so it gets no
-        // stylesheet by default — load the same styles.css as the main window.
-        try {
-            java.net.URL cssUrl = getClass().getResource("/styles.css");
-            if (cssUrl == null) {
-                java.io.File f = new java.io.File("src/main/resources/styles.css");
-                if (f.exists()) cssUrl = f.toURI().toURL();
-            }
-            if (cssUrl != null) scene.getStylesheets().add(cssUrl.toExternalForm());
-        } catch (Exception ignored) {
-        }
-
-        setScene(scene);
-        sizeToScene();
-
-        // Close whenever this Stage loses focus (user clicked outside)
-        focusedProperty().addListener((obs, wasFocused, isFocused) -> {
-            if (!isFocused) Platform.runLater(this::close);
-        });
+        // Build the popup content now (fields like conditionCombo are wired here),
+        // but defer scene construction to showCenteredOn where the owner window's
+        // position and size are known.
+        content = buildRoot();
+        // Consume clicks inside the content so they don't reach the overlay's
+        // close-on-click handler.
+        content.setOnMouseClicked(javafx.event.Event::consume);
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -150,27 +135,66 @@ public class CardEditPopup extends Stage {
     }
 
     public void showCenteredOn(javafx.scene.Node anchor) {
-        show();
-        // Style the editable-combo arrows programmatically — CSS selectors for
-        // :editable .arrow-button are overridden by JavaFX's internal stylesheet
-        // regardless of specificity, so inline styles are the only reliable fix.
-        Platform.runLater(this::applyArrowStyles);
-        Platform.runLater(() -> {
-            try {
-                if (anchor != null && anchor.getScene() != null
-                        && anchor.getScene().getWindow() != null) {
-                    javafx.stage.Window w = anchor.getScene().getWindow();
-                    setX(w.getX() + (w.getWidth() - getWidth()) / 2.0);
-                    setY(w.getY() + (w.getHeight() - getHeight()) / 2.0);
-                    return;
-                }
-            } catch (Exception ignored) {
+        // Resolve the owner window — must be set before show().
+        javafx.stage.Window ownerWindow = null;
+        try {
+            if (anchor != null && anchor.getScene() != null
+                    && anchor.getScene().getWindow() instanceof javafx.stage.Stage) {
+                ownerWindow = anchor.getScene().getWindow();
+                initOwner(ownerWindow);
             }
-            javafx.stage.Screen s = javafx.stage.Screen.getPrimary();
-            javafx.geometry.Rectangle2D b = s.getVisualBounds();
-            setX(b.getMinX() + (b.getWidth() - getWidth()) / 2.0);
-            setY(b.getMinY() + (b.getHeight() - getHeight()) / 2.0);
+        } catch (Exception ignored) {
+        }
+
+        // Build the overlay sized to the main window.
+        // Falls back to the primary screen if the owner is unknown.
+        double overlayX, overlayY, overlayW, overlayH;
+        if (ownerWindow != null) {
+            overlayX = ownerWindow.getX();
+            overlayY = ownerWindow.getY();
+            overlayW = ownerWindow.getWidth();
+            overlayH = ownerWindow.getHeight();
+        } else {
+            javafx.geometry.Rectangle2D screen =
+                    javafx.stage.Screen.getPrimary().getVisualBounds();
+            overlayX = screen.getMinX();
+            overlayY = screen.getMinY();
+            overlayW = screen.getWidth();
+            overlayH = screen.getHeight();
+        }
+
+        // Semi-transparent overlay covers exactly the main window area.
+        // Clicking outside the popup content closes it (click-outside behaviour).
+        // Group prevents StackPane from stretching the popup content to fill
+        // the overlay — a Group is never resized by its parent layout.
+        javafx.scene.Group contentGroup = new javafx.scene.Group(content);
+        StackPane overlay = new StackPane(contentGroup);
+        overlay.setPrefSize(overlayW, overlayH);
+        overlay.setAlignment(Pos.CENTER);
+        overlay.setStyle("-fx-background-color: rgba(0, 0, 0, 0.45);");
+        overlay.setOnMouseClicked(e -> close());
+
+        Scene scene = new Scene(overlay, overlayW, overlayH);
+        scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
+        scene.setOnKeyPressed(e -> {
+            if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) close();
         });
+
+        try {
+            java.net.URL cssUrl = getClass().getResource("/styles.css");
+            if (cssUrl == null) {
+                java.io.File f = new java.io.File("src/main/resources/styles.css");
+                if (f.exists()) cssUrl = f.toURI().toURL();
+            }
+            if (cssUrl != null) scene.getStylesheets().add(cssUrl.toExternalForm());
+        } catch (Exception ignored) {
+        }
+
+        setScene(scene);
+        setX(overlayX);
+        setY(overlayY);
+        show();
+        Platform.runLater(this::applyArrowStyles);
     }
 
     // ════════════════════════════════════════════════════════════════════════

@@ -30,6 +30,11 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
     private double imageWidth;
     private double imageHeight;
 
+    // Shared hover popup for all cards in this row cell.
+    // One instance per ListCell; shown/hidden via per-wrapper mouse handlers.
+    private final javafx.stage.Popup hoverPopup = new javafx.stage.Popup();
+    private final Label hoverLabel = new Label();
+
     public CardsMosaicRowCell(double imageWidth, double imageHeight) {
         this.imageWidth = imageWidth;
         this.imageHeight = imageHeight;
@@ -41,6 +46,13 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
         setGraphic(hbox);
         setFocusTraversable(true);
         setupDropTarget();
+
+        hoverLabel.setWrapText(true);
+        hoverLabel.setMaxWidth(260);
+        hoverLabel.setStyle(CardHoverPopup.LABEL_STYLE);
+        hoverPopup.getContent().add(hoverLabel);
+        hoverPopup.setAutoFix(true);
+        hoverPopup.setAutoHide(false);
     }
 
     /**
@@ -727,6 +739,17 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
                     // Any other tab: consume without showing
                     event.consume();
                 });
+
+                // Hover popup — shows all known identifiers and names.
+                final String tooltipText = CardHoverPopup.buildTooltipText(card);
+                wrapper.setOnMouseEntered(e -> {
+                    hoverLabel.setText(tooltipText);
+                    hoverPopup.show(wrapper, e.getScreenX() + 14, e.getScreenY() + 14);
+                });
+                wrapper.setOnMouseMoved(e ->
+                        hoverPopup.show(wrapper, e.getScreenX() + 14, e.getScreenY() + 14)
+                );
+                wrapper.setOnMouseExited(e -> hoverPopup.hide());
 
                 hbox.getChildren().add(wrapper);
             }

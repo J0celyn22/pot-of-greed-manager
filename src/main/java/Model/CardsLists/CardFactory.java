@@ -108,6 +108,8 @@ public class CardFactory {
             if (originalCard.getArtNumber() != null) newCard.setArtNumber(originalCard.getArtNumber());
             if (originalCard.getAvailableRarities() != null)
                 newCard.setAvailableRarities(new ArrayList<>(originalCard.getAvailableRarities()));
+            if (originalCard.getDescription() != null)
+                newCard.setDescription(originalCard.getDescription());
         } catch (Exception e) {
             // Partial copy — at least the passcode is already set on newCard.
             System.out.println("CreateCardFromPassCode: partial copy for passcode "

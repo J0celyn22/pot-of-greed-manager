@@ -18,6 +18,8 @@ import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import javafx.stage.Stage;
+import javafx.stage.WindowEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -774,6 +776,26 @@ public class RealMainController {
         setupZoom(ouicheListTab);
         setupZoom(archetypesTab);
 
+        // ── Wire CardDetailPane action buttons ───────────────────────────────
+        for (View.SharedCollectionTab tab :
+                java.util.List.of(myCollectionTab, decksTab, ouicheListTab)) {
+            View.CardDetailPane cdp = tab.getCardDetailPane();
+            cdp.setOnMinusOne(this::handleDeleteMiddleSelection);
+            cdp.setOnPlusOne(this::handleDuplicateMiddleSelection);
+            cdp.setOnEdit(() -> {
+                java.util.Set<Model.CardsLists.CardElement> sel =
+                        Controller.SelectionManager.getSelectedMiddleElements();
+                if (sel.isEmpty()) return;
+                Model.CardsLists.CardElement element = sel.iterator().next();
+                View.CardEditPopup popup = new View.CardEditPopup(element);
+                popup.setOnOk(() -> {
+                    Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
+                    Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                });
+                popup.showCenteredOn(cdp);
+            });
+        }
+
         // Tag the archetypes tree view so cells can identify it without relying
         // on which tab is currently selected.
         if (archetypesTreeView != null)
@@ -978,12 +1000,12 @@ public class RealMainController {
                                     scrollToTargetInDecksTree(cardTarget);
                                 }
 
-// Scroll / expand nav to a moved deck
+                                // Scroll / expand nav to a moved deck
                                 if (deckMoveTarget != null) {
                                     scrollToMovedDeck(deckMoveTarget);
                                 }
 
-// "Create Collection from Deck" rename flow
+                                // "Create Collection from Deck" rename flow
                                 if (createCollData != null && createCollData.length == 2
                                         && createCollData[0] instanceof ThemeCollection
                                         && createCollData[1] instanceof Deck) {
@@ -1006,7 +1028,7 @@ public class RealMainController {
                                     });
                                 }
 
-// Normal add/rename for newly created Deck or Collection
+                                // Normal add/rename for newly created Deck or Collection
                                 if (renameTarget != null) {
                                     final Object finalTarget = renameTarget;
                                     Platform.runLater(() -> {
@@ -1138,6 +1160,101 @@ public class RealMainController {
                 }
             });
         }*/
+
+        // ── Close-request interception ────────────────────────────────────────
+        // Platform.runLater defers the lookup until after start() has called
+        // stage.show(), so the Stage is guaranteed to be present.
+        Platform.runLater(() -> {
+            if (mainTabPane != null
+                    && mainTabPane.getScene() != null
+                    && mainTabPane.getScene().getWindow() instanceof Stage) {
+                ((Stage) mainTabPane.getScene().getWindow())
+                        .setOnCloseRequest(this::handleWindowCloseRequest);
+            }
+        });
+    }
+
+    /**
+     * Intercepts the window's close (X) button.
+     * Dirty state is read directly from the tab titles (a "*" prefix means unsaved).
+     * Three outcomes:
+     * Save       – persists all dirty data, then exits.
+     * Don't Save – exits immediately.
+     * Cancel     – aborts the close; the app keeps running.
+     */
+    private void handleWindowCloseRequest(WindowEvent event) {
+
+        // Collect which tabs are dirty from their titles (already maintained elsewhere)
+        List<String> dirtyTabs = new ArrayList<>();
+        if (myCollectionTabHandle != null && myCollectionTabHandle.getText().startsWith("*"))
+            dirtyTabs.add("My Collection");
+        if (decksTabHandle != null && decksTabHandle.getText().startsWith("*"))
+            dirtyTabs.add("Decks & Collections");
+        if (ouicheListTabHandle != null && ouicheListTabHandle.getText().startsWith("*"))
+            dirtyTabs.add("OuicheList");
+
+        if (dirtyTabs.isEmpty()) {
+            return; // nothing unsaved — let JavaFX close normally
+        }
+
+        // Prevent the window from closing while we ask the user
+        event.consume();
+
+        Alert alert = new Alert(Alert.AlertType.NONE);
+        alert.setTitle("Unsaved Changes");
+        alert.setHeaderText("The following tabs have unsaved changes:");
+        alert.setContentText(String.join("\n", dirtyTabs));
+
+        ButtonType saveBtn = new ButtonType("Save", ButtonBar.ButtonData.YES);
+        ButtonType noSaveBtn = new ButtonType("Don't Save", ButtonBar.ButtonData.NO);
+        ButtonType cancelBtn = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(saveBtn, noSaveBtn, cancelBtn);
+
+        // Dark-theme styling
+        DialogPane pane = alert.getDialogPane();
+        pane.setStyle("-fx-background-color: #100317; -fx-border-color: #5a2a7a; -fx-border-width: 1;");
+        pane.applyCss();
+        pane.layout();
+        pane.lookupAll(".header-panel").forEach(n -> n.setStyle("-fx-background-color: #100317;"));
+        pane.lookupAll(".label").forEach(n -> n.setStyle("-fx-text-fill: white;"));
+        pane.lookupAll(".button").forEach(n -> n.setStyle(
+                "-fx-background-color: #2a0a3e; -fx-text-fill: white; "
+                        + "-fx-border-color: #7a3aaa; -fx-border-width: 1; "
+                        + "-fx-border-radius: 3; -fx-background-radius: 3; -fx-cursor: hand;"));
+
+        Optional<ButtonType> result = alert.showAndWait();
+
+        if (result.isEmpty() || result.get() == cancelBtn) {
+            return; // stay open
+        }
+
+        if (result.get() == saveBtn) {
+            try {
+                if (myCollectionTabHandle != null && myCollectionTabHandle.getText().startsWith("*"))
+                    UserInterfaceFunctions.saveMyCollection();
+                if (decksTabHandle != null && decksTabHandle.getText().startsWith("*"))
+                    UserInterfaceFunctions.saveAllDecksAndCollections();
+                if (ouicheListTabHandle != null && ouicheListTabHandle.getText().startsWith("*"))
+                    UserInterfaceFunctions.saveOuicheList();
+                updateTabDirtyIndicators();
+            } catch (Exception ex) {
+                logger.error("Save-on-close failed", ex);
+                Alert errAlert = new Alert(Alert.AlertType.ERROR);
+                errAlert.setTitle("Save Error");
+                errAlert.setHeaderText("Could not save all changes.");
+                errAlert.setContentText(ex.getMessage());
+                errAlert.getDialogPane().setStyle("-fx-background-color: #100317;");
+                errAlert.getDialogPane().applyCss();
+                errAlert.getDialogPane().layout();
+                errAlert.getDialogPane().lookupAll(".label")
+                        .forEach(n -> n.setStyle("-fx-text-fill: white;"));
+                errAlert.showAndWait();
+                return; // keep app open so the user can retry
+            }
+        }
+
+        // "Don't Save" or successful save → exit
+        Platform.exit();
     }
 
     /**
@@ -2099,6 +2216,7 @@ public class RealMainController {
                 String boxName = Model.CardsLists.OwnedCardsCollection.extractName(rawBoxName, '=');
                 NavigationItem boxItem = createNavigationItem(boxName, 0);
                 boxItem.setUserData(box);
+                boxItem.setItemType(NavigationItem.ItemType.BOX);
                 attachNavItemDropHandlers(boxItem, box);
                 enableNavDragSource(boxItem, box);
                 enableNavItemAsNavDndTarget(boxItem, box,
@@ -2110,7 +2228,7 @@ public class RealMainController {
 
                 // --- highlight logic (unchanged) ---
                 boolean boxHasUnsorted = boxHasUnsortedCards(box, boxName);
-                applyNavigationItemHighlight(boxItem, boxHasUnsorted);
+                applyNavigationItemHighlight(boxItem, boxHasUnsorted, "This box contains unsorted cards.");
 
                 // --- NEW: context menu for Box items ---
                 {
@@ -2129,6 +2247,7 @@ public class RealMainController {
                         if (groupName.isEmpty()) continue; // skip unnamed groups (boxes with cards directly)
                         NavigationItem groupItem = createNavigationItem(groupName, 1);
                         groupItem.setUserData(group);
+                        groupItem.setItemType(NavigationItem.ItemType.CATEGORY);
                         attachNavItemDropHandlers(groupItem, group);
                         enableNavDragSource(groupItem, group);
                         enableNavItemAsNavDndTarget(groupItem, group,
@@ -2140,9 +2259,9 @@ public class RealMainController {
 
                         // highlight (unchanged)
                         boolean groupHasUnsorted = groupHasUnsortedCards(group, groupName);
-                        applyNavigationItemHighlight(groupItem, groupHasUnsorted);
+                        applyNavigationItemHighlight(groupItem, groupHasUnsorted, "This category contains unsorted cards.");
                         if (groupHasUnsorted && !boxHasUnsorted) {
-                            applyNavigationItemHighlight(boxItem, true);
+                            applyNavigationItemHighlight(boxItem, true, "This box contains unsorted cards.");
                             boxHasUnsorted = true;
                         }
 
@@ -2166,6 +2285,7 @@ public class RealMainController {
                         String subBoxName = Model.CardsLists.OwnedCardsCollection.extractName(rawSubBoxName, '=');
                         NavigationItem subBoxItem = createNavigationItem(subBoxName, 1);
                         subBoxItem.setUserData(subBox);
+                        subBoxItem.setItemType(NavigationItem.ItemType.BOX);
                         attachNavItemDropHandlers(subBoxItem, subBox);
                         enableNavDragSource(subBoxItem, subBox);
                         enableNavItemAsNavDndTarget(subBoxItem, subBox,
@@ -2176,9 +2296,9 @@ public class RealMainController {
                         });
 
                         boolean subBoxHasUnsorted = boxHasUnsortedCards(subBox, subBoxName);
-                        applyNavigationItemHighlight(subBoxItem, subBoxHasUnsorted);
+                        applyNavigationItemHighlight(subBoxItem, subBoxHasUnsorted, "This box contains unsorted cards.");
                         if (subBoxHasUnsorted && !boxHasUnsorted) {
-                            applyNavigationItemHighlight(boxItem, true);
+                            applyNavigationItemHighlight(boxItem, true, "This box contains unsorted cards.");
                             boxHasUnsorted = true;
                         }
 
@@ -2198,6 +2318,7 @@ public class RealMainController {
                                 if (gName.isEmpty()) continue; // skip unnamed groups
                                 NavigationItem gItem = createNavigationItem(gName, 2);
                                 gItem.setUserData(group);
+                                gItem.setItemType(NavigationItem.ItemType.CATEGORY);
                                 attachNavItemDropHandlers(gItem, group);
                                 enableNavDragSource(gItem, group);
                                 enableNavItemAsNavDndTarget(gItem, group,
@@ -2208,12 +2329,12 @@ public class RealMainController {
                                 });
 
                                 boolean gHasUnsorted = groupHasUnsortedCards(group, gName);
-                                applyNavigationItemHighlight(gItem, gHasUnsorted);
+                                applyNavigationItemHighlight(gItem, gHasUnsorted, "This category contains unsorted cards.");
                                 if (gHasUnsorted && !subBoxHasUnsorted) {
-                                    applyNavigationItemHighlight(subBoxItem, true);
+                                    applyNavigationItemHighlight(subBoxItem, true, "This box contains unsorted cards.");
                                     subBoxHasUnsorted = true;
                                     if (!boxHasUnsorted) {
-                                        applyNavigationItemHighlight(boxItem, true);
+                                        applyNavigationItemHighlight(boxItem, true, "This box contains unsorted cards.");
                                         boxHasUnsorted = true;
                                     }
                                 }
@@ -3357,6 +3478,10 @@ public class RealMainController {
     }
 
     private void applyNavigationItemHighlight(NavigationItem navItem, boolean highlight) {
+        applyNavigationItemHighlight(navItem, highlight, null);
+    }
+
+    private void applyNavigationItemHighlight(NavigationItem navItem, boolean highlight, String warningMessage) {
         if (navItem == null) return;
         javafx.scene.control.Label label = navItem.getLabel();
         if (label == null) return;
@@ -3366,6 +3491,12 @@ public class RealMainController {
         base = base.replaceAll("-fx-text-fill\\s*:[^;]*(;|$)", "").trim();
         String color = highlight ? "#cdfc04" : "white";
         label.setStyle(base + (base.isEmpty() ? "" : " ") + "-fx-text-fill: " + color + ";");
+
+        if (highlight && warningMessage != null) {
+            navItem.setWarningTooltip(warningMessage);
+        } else {
+            navItem.clearWarningTooltip();
+        }
     }
 
     /**
@@ -4038,7 +4169,7 @@ public class RealMainController {
 
 // ── CTRL+C ─────────────────────────────────────────────────────────────────────
 
-    private void handleDeleteMiddleSelection() {
+    public void handleDeleteMiddleSelection() {
         java.util.Set<Model.CardsLists.CardElement> selectedElements =
                 Controller.SelectionManager.getSelectedMiddleElements();
         if (selectedElements.isEmpty()) return;
@@ -4047,6 +4178,15 @@ public class RealMainController {
             boolean confirmed = View.NavigationContextMenuBuilder.confirmWithCustomMessage(
                     "Delete " + selectedElements.size() + " cards?");
             if (!confirmed) return;
+        }
+
+        // When exactly one element is removed, try to find another element for the
+        // same card in the tree so we can re-select it after the refresh.
+        Model.CardsLists.Card cardToReselect = null;
+        Model.CardsLists.CardElement elementBeingRemoved = null;
+        if (selectedElements.size() == 1) {
+            elementBeingRemoved = selectedElements.iterator().next();
+            cardToReselect = elementBeingRemoved != null ? elementBeingRemoved.getCard() : null;
         }
 
         int activeTabIndex = mainTabPane.getSelectionModel().getSelectedIndex();
@@ -4058,6 +4198,50 @@ public class RealMainController {
                     new ArrayList<>(Controller.SelectionManager.getSelectedMiddleElements()));
         }
         Controller.SelectionManager.clearSelection();
+
+        // After the view refreshes, select the last remaining element for the
+        // same card (if any).
+        if (cardToReselect != null) {
+            final Model.CardsLists.Card targetCard = cardToReselect;
+            final Model.CardsLists.CardElement removedElement = elementBeingRemoved;
+            javafx.application.Platform.runLater(() -> {
+                TreeView<String> tv = getActiveMiddleTreeView();
+                if (tv == null) return;
+                List<Model.CardsLists.CardElement> allElements =
+                        View.CardTreeCell.collectAllElementsInTreeOrder(tv.getRoot());
+                // Find the last element (in display order) whose card matches,
+                // excluding the removed element itself (it may still be in the
+                // list momentarily if the model hasn't flushed yet).
+                Model.CardsLists.CardElement candidate = null;
+                for (Model.CardsLists.CardElement ce : allElements) {
+                    if (ce == removedElement) continue;
+                    Model.CardsLists.Card c = ce.getCard();
+                    if (c == null) continue;
+                    if (c == targetCard) {
+                        candidate = ce;
+                        continue;
+                    }
+                    // Fall back to identifier matching
+                    if (targetCard.getPassCode() != null
+                            && targetCard.getPassCode().equals(c.getPassCode())) {
+                        candidate = ce;
+                        continue;
+                    }
+                    if (targetCard.getPrintCode() != null
+                            && targetCard.getPrintCode().equals(c.getPrintCode())) {
+                        candidate = ce;
+                        continue;
+                    }
+                    if (targetCard.getKonamiId() != null
+                            && targetCard.getKonamiId().equals(c.getKonamiId())) {
+                        candidate = ce;
+                    }
+                }
+                if (candidate != null) {
+                    Controller.SelectionManager.selectElement(candidate);
+                }
+            });
+        }
     }
 
 // ── CTRL+X ─────────────────────────────────────────────────────────────────────
@@ -4087,7 +4271,7 @@ public class RealMainController {
 
 // ── CTRL+V ─────────────────────────────────────────────────────────────────────
 
-    private void handleDuplicateMiddleSelection() {
+    public void handleDuplicateMiddleSelection() {
         TreeView<String> activeTreeView = getActiveMiddleTreeView();
         if (activeTreeView == null) return;
 
@@ -4346,7 +4530,7 @@ public class RealMainController {
                     collectionNavItem.getLabel().setStyle(labelStyle);
 
                     boolean hasMissing = collectionHasMissing(collection);
-                    applyNavigationItemHighlight(collectionNavItem, hasMissing);
+                    applyNavigationItemHighlight(collectionNavItem, hasMissing, "This collection contains missing archetype cards.");
 
                     // navigation wiring (unchanged)
                     collectionNavItem.setOnLabelClicked(evt -> navigateToTree(decksAndCollectionsTreeView, collection.getName()));

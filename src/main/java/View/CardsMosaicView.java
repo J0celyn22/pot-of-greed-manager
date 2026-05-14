@@ -13,6 +13,7 @@ import javafx.scene.image.ImageView;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.StackPane;
 import javafx.scene.text.TextAlignment;
+import javafx.stage.Popup;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,8 +24,16 @@ import java.util.Set;
  * Cards with a known image are displayed as a plain image.
  * Cards whose image is unavailable show a placeholder with all known
  * identifiers (print code, passcode, Konami ID) overlaid at the bottom.
+ * Every card shows a hover popup with all available identifiers and names.
  */
 public class CardsMosaicView extends FlowPane {
+
+    // Single shared popup for the whole view — shown/hidden per-cell via
+    // direct mouse event handlers on each StackPane cell.
+    // Using a raw Popup (not Tooltip) guarantees it works on any Node inside
+    // any container, regardless of CSS skin availability.
+    private final Popup hoverPopup = new Popup();
+    private final Label hoverLabel = new Label();
 
     /**
      * Constructs a mosaic view.
@@ -39,6 +48,8 @@ public class CardsMosaicView extends FlowPane {
         setPadding(new Insets(5));
         this.getStyleClass().add("cards-mosaic-view");
 
+        initHoverPopup();
+
         for (Card card : cards) {
             getChildren().add(createCardCell(card, cellWidth, cellHeight));
         }
@@ -47,13 +58,12 @@ public class CardsMosaicView extends FlowPane {
     }
 
     // ------------------------------------------------------------------
-    // Cell builder
+    // Hover popup
     // ------------------------------------------------------------------
 
     /**
-     * Returns all known identifiers for the card as a single string, one per
-     * line, in priority order: print code -> passcode -> Konami ID.
-     * At least one line is always produced (falls back to "(unknown)").
+     * Identifier text for the placeholder overlay (print code / passcode /
+     * Konami ID only, one per line).
      */
     private static String buildIdentifierText(Card card) {
         List<String> lines = new ArrayList<>();
@@ -66,18 +76,55 @@ public class CardsMosaicView extends FlowPane {
         return lines.isEmpty() ? "(unknown)" : String.join("\n", lines);
     }
 
+    // ------------------------------------------------------------------
+    // Cell builder
+    // ------------------------------------------------------------------
+
     /**
-     * Builds the visual cell for one card.
-     *
-     * <p>When the card's image is in the cache a plain {@link ImageView} is
-     * returned (no extra wrapper overhead).
-     *
-     * <p>When the image is unavailable the placeholder is shown inside a
-     * {@link StackPane} sized to exactly {@code cellWidth x cellHeight}, with
-     * a semi-transparent label overlaid at the bottom that lists every known
-     * identifier in priority order (print code first, then passcode, then
-     * Konami ID), one per line.
+     * Full tooltip text: all known identifiers and names, labeled, one per line.
      */
+    private static String buildTooltipText(Card card) {
+        StringBuilder sb = new StringBuilder();
+        if (card.getPrintCode() != null && !card.getPrintCode().isEmpty())
+            sb.append("Print code : ").append(card.getPrintCode()).append("\n");
+        if (card.getPassCode() != null && !card.getPassCode().isEmpty())
+            sb.append("Passcode   : ").append(card.getPassCode()).append("\n");
+        if (card.getKonamiId() != null && !card.getKonamiId().isEmpty())
+            sb.append("Konami ID  : ").append(card.getKonamiId()).append("\n");
+        if (card.getName_EN() != null && !card.getName_EN().isEmpty())
+            sb.append("EN : ").append(card.getName_EN()).append("\n");
+        if (card.getName_FR() != null && !card.getName_FR().isEmpty())
+            sb.append("FR : ").append(card.getName_FR()).append("\n");
+        if (card.getName_JA() != null && !card.getName_JA().isEmpty())
+            sb.append("JA : ").append(card.getName_JA()).append("\n");
+        if (sb.length() > 0 && sb.charAt(sb.length() - 1) == '\n')
+            sb.deleteCharAt(sb.length() - 1);
+        return sb.length() > 0 ? sb.toString() : "(no data)";
+    }
+
+    // ------------------------------------------------------------------
+    // Text helpers
+    // ------------------------------------------------------------------
+
+    private void initHoverPopup() {
+        hoverLabel.setWrapText(true);
+        hoverLabel.setMaxWidth(260);
+        hoverLabel.setTextAlignment(TextAlignment.LEFT);
+        hoverLabel.setStyle(
+                "-fx-background-color: #1a0428; " +
+                        "-fx-background-radius: 6; " +
+                        "-fx-border-color: #cdfc04; " +
+                        "-fx-border-width: 1; " +
+                        "-fx-border-radius: 6; " +
+                        "-fx-text-fill: white; " +
+                        "-fx-font-size: 12; " +
+                        "-fx-padding: 8 10 8 10;"
+        );
+        hoverPopup.getContent().add(hoverLabel);
+        hoverPopup.setAutoFix(true);   // nudges back on-screen near edges
+        hoverPopup.setAutoHide(false); // we control hide ourselves
+    }
+
     private Node createCardCell(Card card, double cellWidth, double cellHeight) {
         Image image = LruImageCache.getImage(card.getImagePath());
         boolean usedPlaceholder = (image == null || image.isError());
@@ -91,40 +138,47 @@ public class CardsMosaicView extends FlowPane {
         iv.setFitHeight(cellHeight);
         iv.setPreserveRatio(true);
 
-        if (!usedPlaceholder) {
-            return iv;
-        }
-
-        // Build the identifier text: one line per known identifier.
-        String identifierText = buildIdentifierText(card);
-
-        Label label = new Label(identifierText);
-        label.setWrapText(true);
-        label.setTextAlignment(TextAlignment.CENTER);
-        label.setMaxWidth(cellWidth - 8);
-        label.setStyle(
-                "-fx-text-fill: white; " +
-                        "-fx-font-size: 10; " +
-                        "-fx-font-weight: bold; " +
-                        "-fx-background-color: rgba(0,0,0,0.65); " +
-                        "-fx-background-radius: 3; " +
-                        "-fx-padding: 3 4 3 4;"
-        );
-
-        // Fix: give the StackPane an explicit fixed size so the label is
-        // positioned relative to the full cell area, not just the rendered
-        // (possibly smaller, due to preserveRatio) ImageView bounds.
-        StackPane cell = new StackPane(iv, label);
+        StackPane cell = new StackPane(iv);
         cell.setMinSize(cellWidth, cellHeight);
         cell.setPrefSize(cellWidth, cellHeight);
         cell.setMaxSize(cellWidth, cellHeight);
-        StackPane.setAlignment(label, Pos.BOTTOM_CENTER);
-        StackPane.setMargin(label, new Insets(0, 4, 4, 4));
+
+        if (usedPlaceholder) {
+            Label idLabel = new Label(buildIdentifierText(card));
+            idLabel.setWrapText(true);
+            idLabel.setTextAlignment(TextAlignment.CENTER);
+            idLabel.setMaxWidth(cellWidth - 8);
+            idLabel.setStyle(
+                    "-fx-text-fill: white; " +
+                            "-fx-font-size: 10; " +
+                            "-fx-font-weight: bold; " +
+                            "-fx-background-color: rgba(0,0,0,0.65); " +
+                            "-fx-background-radius: 3; " +
+                            "-fx-padding: 3 4 3 4;"
+            );
+            StackPane.setAlignment(idLabel, Pos.BOTTOM_CENTER);
+            StackPane.setMargin(idLabel, new Insets(0, 4, 4, 4));
+            cell.getChildren().add(idLabel);
+        }
+
+        // Hover popup: pre-build the text so the lambda captures a String,
+        // not the Card object, avoiding any closure retention issues.
+        String tooltipText = buildTooltipText(card);
+
+        cell.setOnMouseEntered(e -> {
+            hoverLabel.setText(tooltipText);
+            hoverPopup.show(cell, e.getScreenX() + 14, e.getScreenY() + 14);
+        });
+        cell.setOnMouseMoved(e ->
+                hoverPopup.show(cell, e.getScreenX() + 14, e.getScreenY() + 14)
+        );
+        cell.setOnMouseExited(e -> hoverPopup.hide());
+
         return cell;
     }
 
     // ------------------------------------------------------------------
-    // ScrollPane styling (applied once after the scene is attached)
+    // ScrollPane styling
     // ------------------------------------------------------------------
 
     private void styleAncestorScrollPane() {

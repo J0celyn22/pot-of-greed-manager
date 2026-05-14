@@ -1,0 +1,83 @@
+package View;
+
+import Model.CardsLists.Card;
+
+/**
+ * Shared utility for building card hover text used by
+ * {@link CardGridCellWrapper} and {@link CardsMosaicRowCell}.
+ */
+public final class CardHoverPopup {
+
+    /**
+     * Style string for the hover label / tooltip, matching the app theme.
+     */
+    public static final String LABEL_STYLE =
+            "-fx-background-color: #1a0428; " +
+                    "-fx-background-radius: 6; " +
+                    "-fx-border-color: #cdfc04; " +
+                    "-fx-border-width: 1; " +
+                    "-fx-border-radius: 6; " +
+                    "-fx-text-fill: white; " +
+                    "-fx-font-size: 12; " +
+                    "-fx-padding: 8 10 8 10;";
+
+    private CardHoverPopup() {
+    }
+
+    /**
+     * Builds the hover text for a card: all known identifiers and names,
+     * labeled, one per line.  Returns {@code "(no data)"} when nothing is known.
+     */
+    public static String buildTooltipText(Card card) {
+        if (card == null) return "(no data)";
+        StringBuilder sb = new StringBuilder();
+        if (notEmpty(card.getPrintCode()))
+            sb.append("Print code : ").append(card.getPrintCode()).append("\n");
+        if (notEmpty(card.getPassCode()))
+            sb.append("Passcode   : ").append(card.getPassCode()).append("\n");
+        if (notEmpty(card.getKonamiId()))
+            sb.append("Konami ID  : ").append(card.getKonamiId()).append("\n");
+        if (notEmpty(card.getName_EN()))
+            sb.append("EN : ").append(card.getName_EN()).append("\n");
+        if (notEmpty(card.getName_FR()))
+            sb.append("FR : ").append(card.getName_FR()).append("\n");
+        if (notEmpty(card.getName_JA()))
+            sb.append("JA : ").append(card.getName_JA()).append("\n");
+        if (sb.length() > 0 && sb.charAt(sb.length() - 1) == '\n')
+            sb.deleteCharAt(sb.length() - 1);
+        return sb.length() > 0 ? sb.toString() : "(no data)";
+    }
+
+    /**
+     * Builds the hover text for a {@link Model.CardsLists.CardElement}.
+     *
+     * <p>Starts with the same identifiers and names as
+     * {@link #buildTooltipText(Card)}, then appends Condition and Rarity when
+     * they are set on this specific copy.
+     */
+    public static String buildTooltipText(Model.CardsLists.CardElement element) {
+        if (element == null) return "(no data)";
+        StringBuilder sb = new StringBuilder(buildTooltipText(element.getCard()));
+
+        Model.CardsLists.CardCondition condition = element.getCondition();
+        Model.CardsLists.CardRarity rarity = element.getRarity();
+
+        if (condition != null || rarity != null) {
+            // Ensure the preceding block ended with a newline before appending.
+            if (sb.length() > 0) sb.append("\n");
+            if (condition != null)
+                sb.append("Condition  : ").append(condition).append("\n");
+            if (rarity != null)
+                sb.append("Rarity     : ").append(rarity).append("\n");
+            // Trim trailing newline.
+            if (sb.charAt(sb.length() - 1) == '\n')
+                sb.deleteCharAt(sb.length() - 1);
+        }
+
+        return sb.length() > 0 ? sb.toString() : "(no data)";
+    }
+
+    private static boolean notEmpty(String s) {
+        return s != null && !s.isEmpty();
+    }
+}
