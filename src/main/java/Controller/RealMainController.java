@@ -2937,6 +2937,7 @@ public class RealMainController {
             for (ThemeCollection collection : ouicheDetailed.getCollections()) {
                 NavigationItem collectionNavItem = createNavigationItem(collection.getName(), 0);
                 collectionNavItem.setUserData(collection);
+                collectionNavItem.setItemType(NavigationItem.ItemType.COLLECTION);
 
                 // Loose collections are shown in italic in both the Decks tab and OuicheList tab.
                 if (Boolean.TRUE.equals(collection.getConnectToWholeCollection())) {
@@ -2961,6 +2962,7 @@ public class RealMainController {
                             if (linkedDeck == null) continue;
                             NavigationItem deckSubItem = createNavigationItem(linkedDeck.getName(), 1);
                             deckSubItem.setUserData(linkedDeck);
+                            deckSubItem.setItemType(NavigationItem.ItemType.DECK);
                             // navigate to collection -> Decks -> deckName
                             deckSubItem.setOnLabelClicked(evt -> navigateToTree(ouicheTreeView, collection.getName(), "Decks", linkedDeck.getName()));
                             collectionNavItem.addSubItem(deckSubItem);
@@ -2974,6 +2976,7 @@ public class RealMainController {
             for (Deck deck : ouicheDetailed.getDecks()) {
                 NavigationItem navItem = createNavigationItem(deck.getName(), 0);
                 navItem.setUserData(deck);
+                navItem.setItemType(NavigationItem.ItemType.DECK);
                 navItem.setOnLabelClicked(evt -> navigateToTree(ouicheTreeView, deck.getName()));
                 navigationMenu.addItem(navItem);
             }
@@ -4080,6 +4083,29 @@ public class RealMainController {
 // ── ESC / Delete ───────────────────────────────────────────────────────────────
 
     private void handleGlobalKeyShortcut(javafx.scene.input.KeyEvent event) {
+        // CTRL+S and CTRL+SHIFT+S must work even when a text field has focus.
+        if (event.getCode() == javafx.scene.input.KeyCode.S && event.isControlDown()) {
+            handleSaveShortcut(event.isShiftDown());
+            event.consume();
+            return;
+        }
+
+        // CTRL+Tab (next tab) and CTRL+SHIFT+Tab (previous tab).
+        if (event.getCode() == javafx.scene.input.KeyCode.TAB && event.isControlDown()) {
+            if (mainTabPane != null) {
+                int total = mainTabPane.getTabs().size();
+                if (total > 1) {
+                    int current = mainTabPane.getSelectionModel().getSelectedIndex();
+                    int next = event.isShiftDown()
+                            ? (current - 1 + total) % total   // CTRL+SHIFT+Tab → previous
+                            : (current + 1) % total;           // CTRL+Tab        → next
+                    mainTabPane.getSelectionModel().select(next);
+                }
+            }
+            event.consume();
+            return;
+        }
+
         if (event.getTarget() instanceof javafx.scene.control.TextInputControl) return;
 
         boolean middleSelectionActive =
@@ -4164,6 +4190,84 @@ public class RealMainController {
                 break;
             default:
                 break;
+        }
+    }
+
+// ── CTRL+S / CTRL+SHIFT+S ──────────────────────────────────────────────────────
+
+    /**
+     * Handles the CTRL+S (save active tab) and CTRL+SHIFT+S (save all tabs) shortcuts.
+     * Each tab is only saved when it is actually dirty, to avoid unnecessary writes.
+     *
+     * @param saveAll {@code true} for CTRL+SHIFT+S (save every dirty tab),
+     *                {@code false} for CTRL+S (save only the currently active tab).
+     */
+    private void handleSaveShortcut(boolean saveAll) {
+        if (saveAll) {
+            // ── CTRL+SHIFT+S: save every dirty tab ──────────────────────────
+            boolean savedAny = false;
+            try {
+                if (UserInterfaceFunctions.isMyCollectionDirty()) {
+                    UserInterfaceFunctions.saveMyCollection();
+                    populateMyCollectionMenu();
+                    savedAny = true;
+                }
+            } catch (Exception ex) {
+                logger.error("CTRL+SHIFT+S: error saving My Collection", ex);
+            }
+            try {
+                if (UserInterfaceFunctions.isAnyDeckOrCollectionDirty()) {
+                    UserInterfaceFunctions.saveAllDecksAndCollections();
+                    populateDecksAndCollectionsMenu();
+                    savedAny = true;
+                }
+            } catch (Exception ex) {
+                logger.error("CTRL+SHIFT+S: error saving Decks and Collections", ex);
+            }
+            try {
+                if (UserInterfaceFunctions.isOuicheListDirty()) {
+                    UserInterfaceFunctions.saveOuicheList();
+                    savedAny = true;
+                }
+            } catch (Exception ex) {
+                logger.error("CTRL+SHIFT+S: error saving OuicheList", ex);
+            }
+            if (savedAny) {
+                updateTabDirtyIndicators();
+            }
+        } else {
+            // ── CTRL+S: save only the active tab ────────────────────────────
+            if (mainTabPane == null) return;
+            int activeIndex = mainTabPane.getSelectionModel().getSelectedIndex();
+            try {
+                switch (activeIndex) {
+                    case 0: // My Collection
+                        if (UserInterfaceFunctions.isMyCollectionDirty()) {
+                            UserInterfaceFunctions.saveMyCollection();
+                            updateTabDirtyIndicators();
+                            populateMyCollectionMenu();
+                        }
+                        break;
+                    case 1: // Decks and Collections
+                        if (UserInterfaceFunctions.isAnyDeckOrCollectionDirty()) {
+                            UserInterfaceFunctions.saveAllDecksAndCollections();
+                            updateTabDirtyIndicators();
+                            populateDecksAndCollectionsMenu();
+                        }
+                        break;
+                    case 2: // OuicheList
+                        if (UserInterfaceFunctions.isOuicheListDirty()) {
+                            UserInterfaceFunctions.saveOuicheList();
+                            updateTabDirtyIndicators();
+                        }
+                        break;
+                    default:
+                        // Other tabs (Archetypes, Friends, Shops) have no save logic.
+                        break;
+                }
+            } catch (Exception ex) {
+                logger.error("CTRL+S: error saving tab {}", activeIndex, ex);
+            }
         }
     }
 
@@ -4512,6 +4616,7 @@ public class RealMainController {
                 for (ThemeCollection collection : decksCollection.getCollections()) {
                     NavigationItem collectionNavItem = createNavigationItem(collection.getName(), 0);
                     collectionNavItem.setUserData(collection);
+                    collectionNavItem.setItemType(NavigationItem.ItemType.COLLECTION);
                     attachNavItemDropHandlers(collectionNavItem, collection);
                     enableNavItemAsNavDndTarget(collectionNavItem, collection,
                             (dragged, pos) -> handleDecksNavDrop(dragged, collection, pos, decksCollection));
@@ -4568,6 +4673,7 @@ public class RealMainController {
                                 if (linkedDeck == null) continue;
                                 NavigationItem deckSubItem = createNavigationItem(linkedDeck.getName(), 1);
                                 deckSubItem.setUserData(linkedDeck);
+                                deckSubItem.setItemType(NavigationItem.ItemType.DECK);
                                 attachNavItemDropHandlers(deckSubItem, linkedDeck);
                                 enableNavDragSource(deckSubItem, linkedDeck);
                                 enableNavItemAsNavDndTarget(deckSubItem, linkedDeck,
@@ -4607,6 +4713,7 @@ public class RealMainController {
                 for (Deck deck : decksCollection.getDecks()) {
                     NavigationItem navItem = createNavigationItem(deck.getName(), 0);
                     navItem.setUserData(deck);
+                    navItem.setItemType(NavigationItem.ItemType.DECK);
                     attachNavItemDropHandlers(navItem, deck);
                     enableNavDragSource(navItem, deck);
                     enableNavItemAsNavDndTarget(navItem, deck,

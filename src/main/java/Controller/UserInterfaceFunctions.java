@@ -1129,4 +1129,57 @@ public class UserInterfaceFunctions {
             Platform.runLater(UserInterfaceFunctions::doRefreshDecksAndCollectionsView);
         }
     }
+
+    /**
+     * Saves a single {@link Model.CardsLists.Deck} or {@link Model.CardsLists.ThemeCollection}
+     * (plus any dirty linked decks when saving a collection) to disk, then clears their dirty
+     * flags and updates the tab title indicator.
+     * <p>
+     * Unlike {@link #saveAllDecksAndCollections()}, this method always writes the target object
+     * regardless of its current dirty state, making it suitable for an explicit per-item Save button.
+     * </p>
+     *
+     * @param obj the {@code Deck} or {@code ThemeCollection} to save
+     * @throws Exception if the underlying file-write fails
+     */
+    public static void saveSingleDeckOrCollection(Object obj) throws Exception {
+        if (folderPath == null) {
+            logger.warn("saveSingleDeckOrCollection: no folder path configured");
+            return;
+        }
+        String dir = folderPath.getAbsolutePath();
+
+        if (obj instanceof Model.CardsLists.Deck) {
+            Model.CardsLists.Deck deck = (Model.CardsLists.Deck) obj;
+            deck.saveDeck(dir);
+            clearDirty(deck);
+            triggerTabDirtyIndicatorUpdate();
+            // Rebuild the nav menu so the "* name" asterisk is cleared there too.
+            refreshDecksAndCollectionsView();
+            logger.info("Saved deck '{}'", deck.getName());
+
+        } else if (obj instanceof Model.CardsLists.ThemeCollection) {
+            Model.CardsLists.ThemeCollection tc = (Model.CardsLists.ThemeCollection) obj;
+            tc.SaveToFile(dir);
+            clearDirty(tc);
+            // Also flush any dirty linked decks so the whole collection is consistent on disk.
+            if (tc.getLinkedDecks() != null) {
+                for (java.util.List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                    if (unit == null) continue;
+                    for (Model.CardsLists.Deck d : unit) {
+                        if (d != null && isDirty(d)) {
+                            d.saveDeck(dir);
+                            clearDirty(d);
+                            logger.info("Saved linked deck '{}' while saving collection '{}'",
+                                    d.getName(), tc.getName());
+                        }
+                    }
+                }
+            }
+            triggerTabDirtyIndicatorUpdate();
+            // Rebuild the nav menu so the "* name" asterisk is cleared there too.
+            refreshDecksAndCollectionsView();
+            logger.info("Saved collection '{}'", tc.getName());
+        }
+    }
 }

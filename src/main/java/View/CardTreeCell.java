@@ -7,6 +7,7 @@ import Model.Database.DataBaseUpdate;
 import Utils.LruImageCache;
 import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
+import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -15,6 +16,7 @@ import javafx.scene.effect.DropShadow;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.*;
+import javafx.stage.Popup;
 import org.controlsfx.control.GridCell;
 import org.controlsfx.control.GridView;
 import org.slf4j.Logger;
@@ -63,14 +65,6 @@ public class CardTreeCell extends TreeCell<String> {
 
     private static final String ARCHETYPE_MARKER = "[ARCHETYPE]";
 
-    // Shared hover popup — one instance per CardTreeCell.
-    // CardGridCell instances access it via CardTreeCell.this.
-    final javafx.stage.Popup hoverPopup = new javafx.stage.Popup();
-    final Label hoverLabel = new Label();
-    /**
-     * Orange warning line shown below the main info when a card is glowing.
-     */
-    final Label hoverWarningLabel = new Label();
     public CardTreeCell(DoubleProperty cardWidthProperty, DoubleProperty cardHeightProperty) {
         this.cardWidthProperty = cardWidthProperty;
         this.cardHeightProperty = cardHeightProperty;
@@ -113,6 +107,15 @@ public class CardTreeCell extends TreeCell<String> {
         hoverPopup.setAutoFix(true);
         hoverPopup.setAutoHide(false);
     }
+
+    // Shared hover popup — one instance per CardTreeCell.
+    // CardGridCell instances access it via CardTreeCell.this.
+    final javafx.stage.Popup hoverPopup = new javafx.stage.Popup();
+    final Label hoverLabel = new Label();
+    /**
+     * Orange warning line shown below the main info when a card is glowing.
+     */
+    final Label hoverWarningLabel = new Label();
 
     /**
      * Legacy global set kept for compatibility; preferred flow is per-group missing sets.
@@ -247,6 +250,298 @@ public class CardTreeCell extends TreeCell<String> {
             int numItems = group.getCardList() == null ? 0 : group.getCardList().size();
             adjustGridViewHeightStatic(grid, numItems);
         });
+    }
+
+    /**
+     * Creates a small styled action button for tree-cell title rows.
+     */
+    private static Button makeInlineActionButton(String text) {
+        Button btn = new Button(text);
+        btn.setStyle(
+                "-fx-background-color: transparent;" +
+                        "-fx-text-fill: #cdfc04;" +
+                        "-fx-border-color: #cdfc04;" +
+                        "-fx-border-width: 1;" +
+                        "-fx-border-radius: 4;" +
+                        "-fx-background-radius: 4;" +
+                        "-fx-font-size: 11px;" +
+                        "-fx-padding: 2 6 2 6;" +
+                        "-fx-cursor: hand;"
+        );
+        return btn;
+    }
+
+    /**
+     * Helper: determine whether the currently selected Tab is the first tab in the TabPane ancestor.
+     * Uses the TreeView ancestor to find a TabPane and checks the selected index.
+     * Returns true only when the selected tab index is 0.
+     */
+    private boolean isFirstTabSelected() {
+        try {
+            Node node = getTreeView();
+            while (node != null && !(node instanceof TabPane)) {
+                node = node.getParent();
+            }
+            if (node instanceof TabPane) {
+                TabPane tp = (TabPane) node;
+                SingleSelectionModel<Tab> sm = tp.getSelectionModel();
+                if (sm != null) {
+                    int idx = sm.getSelectedIndex();
+                    return idx == 0;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+
+    /**
+     * Removes the leading "* " dirty marker from a tab label if present.
+     */
+    private static String stripDirtyPrefix(String tabText) {
+        if (tabText == null) return "";
+        String trimmed = tabText.trim();
+        return trimmed.startsWith("* ") ? trimmed.substring(2).trim() : trimmed;
+    }
+
+    /**
+     * Helper: determine whether the currently selected Tab is the My Collection tab.
+     * Uses the TreeView ancestor to find a TabPane and checks the selected Tab text.
+     * Returns true only when the selected tab's text equals "My Collection" (case-insensitive).
+     */
+    private boolean isMyCollectionTabSelected() {
+        try {
+            Node node = getTreeView();
+            while (node != null && !(node instanceof TabPane))
+                node = node.getParent();
+            if (node instanceof TabPane) {
+                Tab sel = ((TabPane) node).getSelectionModel().getSelectedItem();
+                if (sel != null) {
+                    String cleanText = stripDirtyPrefix(sel.getText());
+                    return cleanText.equalsIgnoreCase("My Collection");
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    /**
+     * Helper: determine whether the currently selected Tab is the OuicheList tab.
+     * Uses the TreeView ancestor to find a TabPane and checks the selected Tab text.
+     * Returns true only when the selected tab's text equals "OuicheList" (case-insensitive).
+     */
+    private boolean isOuicheListTabSelected() {
+        try {
+            Node node = getTreeView();
+            while (node != null && !(node instanceof TabPane))
+                node = node.getParent();
+            if (node instanceof TabPane) {
+                Tab sel = ((TabPane) node).getSelectionModel().getSelectedItem();
+                if (sel != null) {
+                    String cleanText = stripDirtyPrefix(sel.getText());
+                    return cleanText.equalsIgnoreCase("OuicheList");
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    /**
+     * Helper: determine whether the currently selected Tab is the
+     * Decks and Collections tab.
+     */
+    /**
+     * Marks the owner of {@code group} dirty (My Collection, or the specific
+     * Deck / ThemeCollection in D&C) and triggers the appropriate view refresh.
+     */
+    static void markDirtyAndRefreshForGroup(CardsGroup group) {
+        if (group == null) return;
+        Object dacOwner = findOwnerForGroup(group);
+        if (dacOwner != null) {
+            Controller.UserInterfaceFunctions.markDirty(dacOwner);
+            // Any card addition, removal or move in any D&C group can affect the
+            // archetype missing-sets inside Collections, so always force a full tree
+            // rebuild so that archetype-card glow states recompute correctly.
+            Controller.UserInterfaceFunctions.setPendingDecksFullRebuild();
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        } else {
+            Controller.UserInterfaceFunctions.markMyCollectionDirty();
+            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
+        }
+    }
+
+    private boolean isDecksAndCollectionsTabSelected() {
+        try {
+            Node node = getTreeView();
+            while (node != null && !(node instanceof TabPane))
+                node = node.getParent();
+            if (node instanceof TabPane) {
+                Tab sel = ((TabPane) node).getSelectionModel().getSelectedItem();
+                if (sel != null) {
+                    String cleanText = stripDirtyPrefix(sel.getText());
+                    return cleanText.equalsIgnoreCase("Decks and Collections")
+                            || cleanText.equalsIgnoreCase("Decks & Collections");
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    // ── Inline-rename helpers ─────────────────────────────────────────────────
+
+    /**
+     * Rebuilds a decorated name (e.g. {@code "===OldName==="}) replacing only
+     * the inner text while preserving leading/trailing decorator characters.
+     * Returns {@code newDisplayName} as-is if no decoration is present.
+     */
+    private static String rebuildDecoratedName(String raw, String newDisplayName, char decorator) {
+        if (raw == null || raw.isEmpty()) return newDisplayName;
+        int leading = 0;
+        while (leading < raw.length() && raw.charAt(leading) == decorator) leading++;
+        int trailing = 0;
+        while (trailing < raw.length() && raw.charAt(raw.length() - 1 - trailing) == decorator) trailing++;
+        if (leading == 0 && trailing == 0) return newDisplayName;
+        return raw.substring(0, leading) + newDisplayName + raw.substring(raw.length() - trailing);
+    }
+
+    /**
+     * Shows a floating rename {@link Popup} overlaid on top of {@code labelAnchor}.
+     *
+     * <p>The popup is completely independent of the {@code TreeCell} lifecycle:
+     * {@code updateItem} rebuilds cannot touch it, so there is no risk of the
+     * editor being destroyed by a selection change or a view refresh triggered
+     * between {@code MOUSE_PRESSED} and {@code MOUSE_RELEASED}.</p>
+     *
+     * @param labelAnchor the label whose position and width the popup should match
+     * @param seedName    the current display name to pre-fill the text field
+     * @param onConfirm   called with the trimmed non-empty new name on confirm
+     */
+    private static void showRenamePopup(Label labelAnchor, String seedName,
+                                        java.util.function.Consumer<String> onConfirm) {
+        showRenamePopup(labelAnchor, seedName, 0, onConfirm);
+    }
+
+    /**
+     * Shows a floating rename {@link Popup} anchored below {@code anchor}.
+     *
+     * <p>The popup is completely independent of the {@code TreeCell} lifecycle:
+     * {@code updateItem} rebuilds cannot touch it, so there is no risk of the
+     * editor being destroyed by a selection change or a view refresh triggered
+     * between {@code MOUSE_PRESSED} and {@code MOUSE_RELEASED}.</p>
+     *
+     * <p>The popup is dismissed on ✓ / Enter (confirm), ✗ / Escape (cancel), or
+     * when it auto-hides because the user clicks outside it.</p>
+     *
+     * @param anchor     the button that triggered the rename; the popup is
+     *                   positioned just below it
+     * @param seedName   the current (display) name to pre-fill the text field
+     * @param onConfirm  called with the trimmed non-empty new name on confirm
+     */
+
+    private static void showRenamePopup(Label labelAnchor, String seedName, double extraOffsetY,
+                                        java.util.function.Consumer<String> onConfirm) {
+        Popup popup = new Popup();
+        popup.setAutoHide(true);
+        popup.setAutoFix(true);
+
+        String seed = seedName == null ? "" : seedName.trim();
+        if (seed.startsWith("* ")) seed = seed.substring(2).trim();
+
+        // Match the text field width to the label so the popup feels "in place".
+        double labelWidth = labelAnchor.getWidth();
+        double tfWidth = Math.max(labelWidth, 180);
+
+        TextField tf = new TextField(seed);
+        tf.setPrefWidth(tfWidth);
+        tf.setStyle(
+                "-fx-background-color: #1a0428;" +
+                        "-fx-text-fill: #cdfc04;" +
+                        "-fx-border-color: #cdfc04;" +
+                        "-fx-border-width: 1.5;" +
+                        "-fx-border-radius: 4 0 0 4;" +
+                        "-fx-background-radius: 4 0 0 4;" +
+                        "-fx-font-size: 13px;" +
+                        "-fx-padding: 4 8 4 8;"
+        );
+
+        Button confirmBtn = new Button("✓");
+        confirmBtn.setStyle(
+                "-fx-background-color: #1a0428;" +
+                        "-fx-text-fill: #00cc44;" +
+                        "-fx-border-color: #00cc44;" +
+                        "-fx-border-width: 1.5;" +
+                        "-fx-border-radius: 0;" +
+                        "-fx-background-radius: 0;" +
+                        "-fx-font-size: 13px;" +
+                        "-fx-padding: 4 8 4 8;" +
+                        "-fx-cursor: hand;"
+        );
+        Button cancelBtn = new Button("✗");
+        cancelBtn.setStyle(
+                "-fx-background-color: #1a0428;" +
+                        "-fx-text-fill: #ff4040;" +
+                        "-fx-border-color: #ff4040;" +
+                        "-fx-border-width: 1.5;" +
+                        "-fx-border-radius: 0 4 4 0;" +
+                        "-fx-background-radius: 0 4 4 0;" +
+                        "-fx-font-size: 13px;" +
+                        "-fx-padding: 4 8 4 8;" +
+                        "-fx-cursor: hand;"
+        );
+
+        HBox row = new HBox(0, tf, confirmBtn, cancelBtn);
+        row.setStyle(
+                "-fx-background-color: #1a0428;" +
+                        "-fx-border-color: #cdfc04;" +
+                        "-fx-border-width: 1.5;" +
+                        "-fx-border-radius: 4;" +
+                        "-fx-background-radius: 4;" +
+                        "-fx-padding: 0;" +
+                        "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.7), 8, 0, 0, 2);"
+        );
+
+        Runnable doConfirm = () -> {
+            String newName = tf.getText() == null ? "" : tf.getText().trim();
+            if (!newName.isEmpty()) {
+                popup.hide();
+                onConfirm.accept(newName);
+            }
+        };
+        Runnable doCancel = () -> popup.hide();
+
+        tf.setOnKeyPressed(e -> {
+            if (e.getCode() == javafx.scene.input.KeyCode.ENTER) {
+                e.consume();
+                doConfirm.run();
+            } else if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) {
+                e.consume();
+                doCancel.run();
+            }
+        });
+        confirmBtn.setOnAction(e -> doConfirm.run());
+        cancelBtn.setOnAction(e -> doCancel.run());
+
+        popup.getContent().add(row);
+
+        // Align the popup's top-left with the label's top-left so it sits
+        // directly on top of the title it is replacing.
+        Bounds screenBounds = labelAnchor.localToScreen(labelAnchor.getBoundsInLocal());
+        if (screenBounds != null) {
+            popup.show(labelAnchor.getScene().getWindow(),
+                    screenBounds.getMinX() - 20,
+                    screenBounds.getMinY() - 15 + extraOffsetY);
+        } else {
+            popup.show(labelAnchor.getScene().getWindow(), 100, 100);
+        }
+
+        tf.requestFocus();
+        tf.selectAll();
     }
 
     @Override
@@ -446,20 +741,108 @@ public class CardTreeCell extends TreeCell<String> {
                     // ── Collection header row ──────────────────────────────────
                     // Shown in the Decks & Collections and OuicheList tree.
                     // Right-click: "Add Deck" + "Add Archetype"
+                    Model.CardsLists.ThemeCollection tc =
+                            (Model.CardsLists.ThemeCollection) dataObject;
                     Label label = new Label(itemName);
                     label.getStyleClass().add("tree-item-label");
-                    setGraphic(label);
 
                     if (isDecksAndCollectionsTabSelected()) {
+                        HBox titleRow = new HBox(6, label);
+                        titleRow.setAlignment(Pos.CENTER_LEFT);
+                        HBox spring = new HBox();
+                        HBox.setHgrow(spring, Priority.ALWAYS);
+                        Button renameBtn = makeInlineActionButton("✎ Rename");
+                        Button saveBtn = makeInlineActionButton("💾 Save");
+                        titleRow.getChildren().addAll(spring, renameBtn, saveBtn);
+
+                        renameBtn.setOnAction(e -> showRenamePopup(label, label.getText(),
+                                newName -> {
+                                    tc.setName(newName);
+                                    label.setText(newName);
+                                    UserInterfaceFunctions.markDirty(tc);
+                                    UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                                }));
+
+                        saveBtn.setOnAction(e -> {
+                            try {
+                                UserInterfaceFunctions.saveSingleDeckOrCollection(tc);
+                            } catch (Exception ex) {
+                                logger.error("Failed to save collection '{}'", tc.getName(), ex);
+                            }
+                        });
+
                         ContextMenu collectionCm = NavigationContextMenuBuilder.styledContextMenu();
                         collectionCm.getItems().addAll(
                                 NavigationContextMenuBuilder.makeItem("Add Deck"),
                                 NavigationContextMenuBuilder.makeItem("Add archetype")
                         );
-                        label.setOnContextMenuRequested(e -> {
-                            collectionCm.show(label, e.getScreenX(), e.getScreenY());
+                        titleRow.setOnContextMenuRequested(e -> {
+                            collectionCm.show(titleRow, e.getScreenX(), e.getScreenY());
                             e.consume();
                         });
+                        setGraphic(titleRow);
+                    } else {
+                        setGraphic(label);
+                    }
+
+                } else if (dataObject instanceof Model.CardsLists.Box) {
+                    // ── Box header — My Collection tab ────────────────────────
+                    Model.CardsLists.Box box = (Model.CardsLists.Box) dataObject;
+                    Label label = new Label(itemName);
+                    label.getStyleClass().add("tree-item-label");
+                    if (isMyCollectionTabSelected()) {
+                        HBox titleRow = new HBox(6, label);
+                        titleRow.setAlignment(Pos.CENTER_LEFT);
+                        HBox spring = new HBox();
+                        HBox.setHgrow(spring, Priority.ALWAYS);
+                        Button renameBtn = makeInlineActionButton("✎ Rename");
+                        titleRow.getChildren().addAll(spring, renameBtn);
+                        renameBtn.setOnAction(e -> showRenamePopup(label, label.getText(),
+                                newName -> {
+                                    String raw = box.getName() == null ? "" : box.getName();
+                                    box.setName(rebuildDecoratedName(raw, newName, '='));
+                                    label.setText(newName);
+                                    UserInterfaceFunctions.markMyCollectionDirty();
+                                    UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                                    UserInterfaceFunctions.refreshOwnedCollectionStructure();
+                                }));
+                        setGraphic(titleRow);
+                    } else {
+                        setGraphic(label);
+                    }
+
+                } else if (dataObject instanceof Model.CardsLists.Deck) {
+                    // ── Deck header — Decks & Collections tab ─────────────────
+                    Model.CardsLists.Deck deck = (Model.CardsLists.Deck) dataObject;
+                    Label label = new Label(itemName);
+                    label.getStyleClass().add("tree-item-label");
+                    if (isDecksAndCollectionsTabSelected()) {
+                        HBox titleRow = new HBox(6, label);
+                        titleRow.setAlignment(Pos.CENTER_LEFT);
+                        HBox spring = new HBox();
+                        HBox.setHgrow(spring, Priority.ALWAYS);
+                        Button renameBtn = makeInlineActionButton("✎ Rename");
+                        Button saveBtn = makeInlineActionButton("💾 Save");
+                        titleRow.getChildren().addAll(spring, renameBtn, saveBtn);
+                        renameBtn.setOnAction(e -> showRenamePopup(label, label.getText(),
+                                newName -> {
+                                    deck.setName(newName);
+                                    label.setText(newName);
+                                    UserInterfaceFunctions.markDirty(deck);
+                                    UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                                }));
+                        saveBtn.setOnAction(e -> {
+                            try {
+                                UserInterfaceFunctions.saveSingleDeckOrCollection(deck);
+                            } catch (Exception ex) {
+                                logger.error("Failed to save deck '{}'", deck.getName(), ex);
+                            }
+                        });
+                        setGraphic(titleRow);
+                    } else {
+                        setGraphic(label);
                     }
 
                 } else if ("ARCHETYPES_SECTION".equals(dataObject)) {
@@ -492,128 +875,6 @@ public class CardTreeCell extends TreeCell<String> {
                 setGraphic(label);
             }
         }
-    }
-
-    /**
-     * Helper: determine whether the currently selected Tab is the first tab in the TabPane ancestor.
-     * Uses the TreeView ancestor to find a TabPane and checks the selected index.
-     * Returns true only when the selected tab index is 0.
-     */
-    private boolean isFirstTabSelected() {
-        try {
-            Node node = getTreeView();
-            while (node != null && !(node instanceof TabPane)) {
-                node = node.getParent();
-            }
-            if (node instanceof TabPane) {
-                TabPane tp = (TabPane) node;
-                SingleSelectionModel<Tab> sm = tp.getSelectionModel();
-                if (sm != null) {
-                    int idx = sm.getSelectedIndex();
-                    return idx == 0;
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return false;
-    }
-
-
-    /**
-     * Removes the leading "* " dirty marker from a tab label if present.
-     */
-    private static String stripDirtyPrefix(String tabText) {
-        if (tabText == null) return "";
-        String trimmed = tabText.trim();
-        return trimmed.startsWith("* ") ? trimmed.substring(2).trim() : trimmed;
-    }
-
-    /**
-     * Helper: determine whether the currently selected Tab is the My Collection tab.
-     * Uses the TreeView ancestor to find a TabPane and checks the selected Tab text.
-     * Returns true only when the selected tab's text equals "My Collection" (case-insensitive).
-     */
-    private boolean isMyCollectionTabSelected() {
-        try {
-            Node node = getTreeView();
-            while (node != null && !(node instanceof TabPane))
-                node = node.getParent();
-            if (node instanceof TabPane) {
-                Tab sel = ((TabPane) node).getSelectionModel().getSelectedItem();
-                if (sel != null) {
-                    String cleanText = stripDirtyPrefix(sel.getText());
-                    return cleanText.equalsIgnoreCase("My Collection");
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return false;
-    }
-
-    /**
-     * Helper: determine whether the currently selected Tab is the OuicheList tab.
-     * Uses the TreeView ancestor to find a TabPane and checks the selected Tab text.
-     * Returns true only when the selected tab's text equals "OuicheList" (case-insensitive).
-     */
-    private boolean isOuicheListTabSelected() {
-        try {
-            Node node = getTreeView();
-            while (node != null && !(node instanceof TabPane))
-                node = node.getParent();
-            if (node instanceof TabPane) {
-                Tab sel = ((TabPane) node).getSelectionModel().getSelectedItem();
-                if (sel != null) {
-                    String cleanText = stripDirtyPrefix(sel.getText());
-                    return cleanText.equalsIgnoreCase("OuicheList");
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return false;
-    }
-
-    /**
-     * Helper: determine whether the currently selected Tab is the
-     * Decks and Collections tab.
-     */
-    /**
-     * Marks the owner of {@code group} dirty (My Collection, or the specific
-     * Deck / ThemeCollection in D&C) and triggers the appropriate view refresh.
-     */
-    static void markDirtyAndRefreshForGroup(CardsGroup group) {
-        if (group == null) return;
-        Object dacOwner = findOwnerForGroup(group);
-        if (dacOwner != null) {
-            Controller.UserInterfaceFunctions.markDirty(dacOwner);
-            // Any card addition, removal or move in any D&C group can affect the
-            // archetype missing-sets inside Collections, so always force a full tree
-            // rebuild so that archetype-card glow states recompute correctly.
-            Controller.UserInterfaceFunctions.setPendingDecksFullRebuild();
-            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-            Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
-        } else {
-            Controller.UserInterfaceFunctions.markMyCollectionDirty();
-            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-            Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
-        }
-    }
-
-    private boolean isDecksAndCollectionsTabSelected() {
-        try {
-            Node node = getTreeView();
-            while (node != null && !(node instanceof TabPane))
-                node = node.getParent();
-            if (node instanceof TabPane) {
-                Tab sel = ((TabPane) node).getSelectionModel().getSelectedItem();
-                if (sel != null) {
-                    String cleanText = stripDirtyPrefix(sel.getText());
-                    return cleanText.equalsIgnoreCase("Decks and Collections")
-                            || cleanText.equalsIgnoreCase("Decks & Collections");
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return false;
     }
 
     /**
@@ -1950,6 +2211,24 @@ public class CardTreeCell extends TreeCell<String> {
 
         hbox.getChildren().addAll(customTriangleLabel, label);
 
+        // ── Rename button for CardsGroup titles in the My Collection tab ──────
+        if (!isArchetype && isMyCollectionTabSelected()) {
+            HBox spring = new HBox();
+            HBox.setHgrow(spring, Priority.ALWAYS);
+            Button renameBtn = makeInlineActionButton("✎ Rename");
+            final CardsGroup capturedGroup = group;
+            renameBtn.setOnAction(e -> showRenamePopup(label, label.getText(), 4,
+                    newName -> {
+                        String raw = capturedGroup.getName() == null ? "" : capturedGroup.getName();
+                        capturedGroup.setName(rebuildDecoratedName(raw, newName, '-'));
+                        label.setText(newName);
+                        UserInterfaceFunctions.markMyCollectionDirty();
+                        UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                        UserInterfaceFunctions.refreshOwnedCollectionStructure();
+                    }));
+            hbox.getChildren().addAll(spring, renameBtn);
+        }
+
         VBox vBox = new VBox();
         vBox.getStyleClass().add("card-group-vbox");
         vBox.getChildren().add(hbox);
@@ -2123,9 +2402,7 @@ public class CardTreeCell extends TreeCell<String> {
         private final StackPane wrapper;
         private Future<?> imageLoadFuture;
         private String currentImageKey;
-        /**
-         * Tracks whether this cell is currently glowing; read in the hover handler.
-         */
+        /** Tracks whether this cell is currently glowing; read in the hover handler. */
         private boolean currentNeedsSorting = false;
 
         public CardGridCell() {
@@ -2971,7 +3248,7 @@ public class CardTreeCell extends TreeCell<String> {
                     if (isInArchetypeGroup()) {
                         warning = "This card is missing in the collection.";
                     } else {
-                        warning = "This card should be sorted.";
+                        warning = "This card can be sorted to a deck or collection it is needed in.";
                     }
                     CardTreeCell.this.hoverWarningLabel.setText(warning);
                     CardTreeCell.this.hoverWarningLabel.setVisible(true);

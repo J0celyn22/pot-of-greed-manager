@@ -4,6 +4,8 @@ package View;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
@@ -27,6 +29,10 @@ public class NavigationItem extends VBox {
     private Label triangleLabel; // For the triangle indicator
     /**
      * Optional icon prepended before the label — never modifies label.getText().
+     */
+    private ImageView iconView;
+    /**
+     * Emoji fallback shown when the image file cannot be loaded.
      */
     private Label iconLabel;
     /**
@@ -98,15 +104,24 @@ public class NavigationItem extends VBox {
             event.consume();
         });
 
-        // Icon label — prepended before the text label; hidden by default.
+        // Icon view — prepended before the text label; hidden until setItemType() is called.
         // Using a separate node ensures label.getText() is never modified,
         // which keeps startInlineRename and navigateToTree safe.
+        iconView = new ImageView();
+        iconView.setFitWidth(16);
+        iconView.setFitHeight(16);
+        iconView.setPreserveRatio(true);
+        iconView.setSmooth(true);
+        iconView.setVisible(false);
+        iconView.setManaged(false);
+
+        // Fallback label shown only when the image file cannot be loaded.
         iconLabel = new Label("");
         iconLabel.setStyle("-fx-text-fill: white;");
         iconLabel.setVisible(false);
         iconLabel.setManaged(false);
 
-        hbox.getChildren().addAll(triangleLabel, iconLabel, label);
+        hbox.getChildren().addAll(triangleLabel, iconView, iconLabel, label);
         this.rowHBox = hbox;
         // Pre-allocate a 2 px top + 2 px bottom transparent border so that showing
         // drop indicators only changes colour — never size — avoiding layout reflow.
@@ -275,13 +290,23 @@ public class NavigationItem extends VBox {
      */
     public void setItemType(ItemType type) {
         if (type == null) {
-            iconLabel.setText("");
-            iconLabel.setVisible(false);
-            iconLabel.setManaged(false);
+            iconView.setImage(null);
+            iconView.setVisible(false);
+            iconView.setManaged(false);
         } else {
-            iconLabel.setText(type.icon);
-            iconLabel.setVisible(true);
-            iconLabel.setManaged(true);
+            Image img = type.loadImage();
+            if (img != null) {
+                iconView.setImage(img);
+                iconView.setVisible(true);
+                iconView.setManaged(true);
+            } else {
+                // Image file not found — fall back to the original emoji via the icon label.
+                iconView.setVisible(false);
+                iconView.setManaged(false);
+                iconLabel.setText(type.getFallbackEmoji() + " ");
+                iconLabel.setVisible(true);
+                iconLabel.setManaged(true);
+            }
         }
     }
 
@@ -508,15 +533,52 @@ public class NavigationItem extends VBox {
     }
 
     /**
-     * Visual type of a navigation item, used to prepend an icon to the row.
+     * Visual type of a navigation item, used to prepend an icon image to the row.
+     * Each constant names the PNG file that must be present on the classpath root
+     * (i.e. in {@code src/main/resources/}), 16×16 or 20×20 px recommended.
      */
     public enum ItemType {
-        BOX("📦 "),
-        CATEGORY("📁 ");
+        BOX("icon_box.png", "📦"),
+        CATEGORY("icon_category.png", "📁"),
+        COLLECTION("icon_collection.png", "📦"),
+        DECK("icon_deck.png", "🃏");
 
-        public final String icon;
+        private final String filename;
+        private final String fallbackEmoji;
 
-        ItemType(String icon) {
-            this.icon = icon; }
+        ItemType(String filename, String fallbackEmoji) {
+            this.filename = filename;
+            this.fallbackEmoji = fallbackEmoji;
+        }
+
+        /**
+         * Loads the icon image, mirroring RealMain.resolveResource:
+         * classpath first (JAR), then filesystem fallback (IntelliJ dev runs).
+         * Returns {@code null} if the file cannot be found.
+         */
+        public Image loadImage() {
+            // Classpath lookup — works in JAR and when resources are on the build output path
+            java.net.URL url = NavigationItem.class.getResource("/" + filename);
+            if (url == null) {
+                // Filesystem fallback — works in IntelliJ when resources aren't on classpath yet
+                java.io.File f = new java.io.File("src/main/resources/" + filename);
+                if (f.exists()) {
+                    try {
+                        url = f.toURI().toURL();
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+            if (url == null) return null;
+            try {
+                return new Image(url.toExternalForm());
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+
+        public String getFallbackEmoji() {
+            return fallbackEmoji;
+        }
     }
 }
