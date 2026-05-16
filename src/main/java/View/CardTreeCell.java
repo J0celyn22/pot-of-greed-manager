@@ -822,9 +822,33 @@ public class CardTreeCell extends TreeCell<String> {
                         titleRow.setAlignment(Pos.CENTER_LEFT);
                         HBox spring = new HBox();
                         HBox.setHgrow(spring, Priority.ALWAYS);
+                        Button sortBtn = makeInlineActionButton("⇅ Sort");
                         Button renameBtn = makeInlineActionButton("✎ Rename");
                         Button saveBtn = makeInlineActionButton("💾 Save");
-                        titleRow.getChildren().addAll(spring, renameBtn, saveBtn);
+                        titleRow.getChildren().addAll(spring, sortBtn, renameBtn, saveBtn);
+
+                        // Sort: sorts Main Deck, Extra Deck and Side Deck using the
+                        // standard middle-pane ordering (CardElementSorter).
+                        sortBtn.setOnAction(e -> {
+                            boolean changed = false;
+                            for (String section : new String[]{"main", "extra", "side"}) {
+                                CardsGroup sg = getDeckSectionGroup(deck, section);
+                                if (sg == null) continue;
+                                javafx.collections.ObservableList<CardElement> obs =
+                                        observableListFor(sg);
+                                java.util.List<CardElement> sorted =
+                                        Utils.CardElementSorter.sorted(
+                                                new java.util.ArrayList<>(obs));
+                                obs.setAll(sorted);
+                                changed = true;
+                            }
+                            if (changed) {
+                                UserInterfaceFunctions.markDirty(deck);
+                                UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                                UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                            }
+                        });
+
                         renameBtn.setOnAction(e -> showRenamePopup(label, label.getText(),
                                 newName -> {
                                     deck.setName(newName);
@@ -2227,6 +2251,29 @@ public class CardTreeCell extends TreeCell<String> {
                         UserInterfaceFunctions.refreshOwnedCollectionStructure();
                     }));
             hbox.getChildren().addAll(spring, renameBtn);
+        }
+
+        // ── Sort button for "Cards" and "Cards not to add" in the D&C tab ─────
+        // Placed to the far right of the group title; only shown for those two
+        // group names — not for archetype groups (read-only) or deck sections
+        // (sorted via the Deck header Sort button instead).
+        if (!isArchetype
+                && isDecksAndCollectionsTabSelected()
+                && ("Cards".equals(displayName) || "Cards not to add".equals(displayName))) {
+            HBox sortSpring = new HBox();
+            HBox.setHgrow(sortSpring, Priority.ALWAYS);
+            Button sortBtn = makeInlineActionButton("⇅ Sort");
+            final CardsGroup capturedGroup = group;
+            sortBtn.setOnAction(e -> {
+                javafx.collections.ObservableList<CardElement> obs =
+                        observableListFor(capturedGroup);
+                java.util.List<CardElement> sorted =
+                        Utils.CardElementSorter.sorted(
+                                new java.util.ArrayList<>(obs));
+                obs.setAll(sorted);
+                markDirtyAndRefreshForGroup(capturedGroup);
+            });
+            hbox.getChildren().addAll(sortSpring, sortBtn);
         }
 
         VBox vBox = new VBox();
