@@ -245,27 +245,24 @@
 }
 
 /* ---------------------------
-   Small buttons (preserve the original small size)
+   Small buttons (List/Mosaic, Printed/Unique)
    --------------------------- */
 
-/* Small buttons keep a compact width so labels fit and hover bolding doesn't change layout.
-   These are applied via the "small-button" style class on the specific Button nodes. */
+/* Width only — padding is set via inline style in Java (highest priority, beats all CSS). */
 .small-button {
-    -fx-min-width: 110px;
-    -fx-pref-width: 130px;
-    -fx-max-width: 160px;
-
-    /* keep same height as other buttons */
+    -fx-min-width: 66px;
+    -fx-pref-width: 78px;
+    -fx-max-width: 96px;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
 }
-
 .small-button:hover {
     -fx-background-color: #a4c904;
     -fx-text-fill: black;
     -fx-border-color: #cdfc04;
-    -fx-min-width: 110px;
-    -fx-pref-width: 130px;
+    -fx-min-width: 66px;
+    -fx-pref-width: 78px;
+    -fx-max-width: 96px;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
     -fx-font-weight: bold;
@@ -274,8 +271,44 @@
     -fx-background-color: derive(#cdfc04, -12%);
     -fx-text-fill: black;
     -fx-border-color: #cdfc04;
-    -fx-min-width: 110px;
-    -fx-pref-width: 130px;
+    -fx-min-width: 66px;
+    -fx-pref-width: 78px;
+    -fx-max-width: 96px;
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+}
+
+/* ---------------------------
+   Sort buttons (AZ/ZA, ATK↓/↑, DEF↓/↑, LVL↓/↑)
+   --------------------------- */
+
+/* Width and font only — padding is set via inline style in Java. */
+.sort-button {
+    -fx-min-width:  42px;
+    -fx-pref-width: 42px;
+    -fx-max-width:  42px;
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+    -fx-font-size: 12px;
+}
+.sort-button:hover {
+    -fx-background-color: #a4c904;
+    -fx-text-fill: black;
+    -fx-border-color: #cdfc04;
+    -fx-min-width:  42px;
+    -fx-pref-width: 42px;
+    -fx-max-width:  42px;
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+    -fx-font-weight: bold;
+}
+.sort-button:pressed {
+    -fx-background-color: derive(#cdfc04, -12%);
+    -fx-text-fill: black;
+    -fx-border-color: #cdfc04;
+    -fx-min-width:  42px;
+    -fx-pref-width: 42px;
+    -fx-max-width:  42px;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
 }

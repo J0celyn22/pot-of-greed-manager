@@ -54,6 +54,28 @@ public class RealMainController {
     private Button listMosaicButton;
 
     private Button printedUniqueButton;
+
+    /**
+     * Applies the "selected" visual to a sort toggle button:
+     * yellow-green background (#cdfc04) with black text.
+     * The inline style takes precedence over the CSS class so the button
+     * always looks selected regardless of hover state.
+     */
+    // Padding kept in a constant so it is never accidentally dropped when the
+    // button switches between selected / unselected via setStyle().
+    private static final String SORT_BTN_PADDING =
+            "-fx-font-size: 11px; "
+                    + "-fx-padding: 1 3 3 3; "
+                    + "-fx-min-width: 36px; "
+                    + "-fx-pref-width: 36px; "
+                    + "-fx-max-width: 36px;";
+    // ── Sort toggle buttons ────────────────────────────────────────────────────
+    // Exactly one is always "selected" (yellow-green fill, black text).
+    // Clicking the selected one toggles its label; clicking another selects it.
+    private Button sortAzButton;   // "AZ"  ↔ "ZA"
+    private Button sortAtkButton;  // "ATK↓" ↔ "ATK↑"
+    private Button sortDefButton;  // "DEF↓" ↔ "DEF↑"
+    private Button sortLvlButton;  // "LVL↓" ↔ "LVL↑"
     private SharedCollectionTab myCollectionTab;
     private SharedCollectionTab decksTab;
     private SharedCollectionTab ouicheListTab;
@@ -530,91 +552,8 @@ public class RealMainController {
     private FilterPane getActiveFilterPane() {
         return sharedFilterPane;
     }
-
-    private void updateCardsDisplay() {
-        FilterPane fp = getActiveFilterPane();
-
-        // Ensure the currently-visible page's field values are flushed to pageStates
-        // before we read them (handles the case where the user typed without switching).
-        if (fp != null) {
-            fp.saveCurrentPageState();
-        }
-
-        // Collect every page that is both ENABLED and has its bottom-right arrow ENABLED.
-        // Only those pages contribute to the AllExistingCards filter.
-        List<FilterPane.FilterPageState> activeStates = new ArrayList<>();
-        if (fp != null) {
-            for (int i = 0; i < 5; i++) {
-                FilterPane.FilterPageState ps = fp.getPageState(i);
-                if (ps != null && ps.enabled && ps.bottomRightEnabled) {
-                    activeStates.add(ps);
-                }
-            }
-        }
-
-        List<Card> allCards;
-        try {
-            allCards = isPrintedMode
-                    ? Model.Database.Database.getAllPrintedCardsList().values()
-                    .stream().collect(Collectors.toList())
-                    : Model.Database.Database.getAllCardsList().values()
-                    .stream().collect(Collectors.toList());
-        } catch (URISyntaxException e) {
-            throw new RuntimeException(e);
-        }
-
-        // A card must satisfy ALL active pages' filters (AND semantics across pages).
-        List<Card> filteredCards = allCards.stream()
-                .filter(card -> {
-                    for (FilterPane.FilterPageState ps : activeStates) {
-                        if (!matchesPageFilter(card, ps)) return false;
-                    }
-                    return true;
-                })
-                .collect(Collectors.toList());
-
-        Node view;
-        double mosaicImageWidth = 100, mosaicImageHeight = 146;
-        double listImageWidth = 80, listImageHeight = 116;
-        if (isMosaicMode) {
-            double availableWidth =
-                    (cardsDisplayContainer == null ? 375 : cardsDisplayContainer.getWidth());
-            if (availableWidth <= 0) availableWidth = 375;
-            double gap = 5;
-            List<List<Card>> rows =
-                    groupCardsIntoRows(filteredCards, availableWidth, mosaicImageWidth, gap);
-            ListView<List<Card>> mosaicListView =
-                    new ListView<>(FXCollections.observableArrayList(rows));
-            mosaicListView.setCellFactory(
-                    param -> new CardsMosaicRowCell(mosaicImageWidth, mosaicImageHeight));
-            mosaicListView.setStyle(
-                    "-fx-background-color: #100317; -fx-control-inner-background: #100317;");
-            mosaicListView.addEventHandler(
-                    javafx.scene.input.MouseEvent.MOUSE_CLICKED,
-                    buildRightPaneEmptySpaceClearHandler());
-            view = mosaicListView;
-        } else {
-            ListView<Card> listView =
-                    new ListView<>(FXCollections.observableArrayList(filteredCards));
-            listView.setCellFactory(
-                    param -> new CardsListCell(isPrintedMode, listImageWidth, listImageHeight));
-            listView.setStyle(
-                    "-fx-background-color: #100317; -fx-control-inner-background: #100317;");
-            listView.addEventHandler(
-                    javafx.scene.input.MouseEvent.MOUSE_CLICKED,
-                    buildRightPaneEmptySpaceClearHandler());
-            view = listView;
-        }
-
-        if (cardsDisplayContainer != null) {
-            cardsDisplayContainer.getChildren().clear();
-            cardsDisplayContainer.getChildren().add(view);
-            AnchorPane.setTopAnchor(view, 0.0);
-            AnchorPane.setBottomAnchor(view, 0.0);
-            AnchorPane.setLeftAnchor(view, 0.0);
-            AnchorPane.setRightAnchor(view, 0.0);
-        }
-    }
+    // 0 = AZ/ZA  |  1 = ATK  |  2 = DEF  |  3 = LVL
+    private int activeSortButtonIndex = 1; // ATK↓ selected by default
 
 
     /**
@@ -659,55 +598,92 @@ public class RealMainController {
         }
     }
 
-    /**
-     * Moves the shared cardsDisplayContainer (with list/mosaic + printed/unique toggle buttons)
-     * into the given tab's right-content pane.
-     * The FilterPane is already owned by each SharedCollectionTab's rightHeaderPane — no injection needed.
-     */
-    private void injectSharedRightPanel(SharedCollectionTab tab) {
-        if (tab == null) return;
+    private void updateCardsDisplay() {
+        FilterPane fp = getActiveFilterPane();
 
-        // Wire the filter-change callbacks on this tab's own FilterPane.
-        // onRightFilterChange → refresh the AllExistingCards display (right pane).
-        // onLeftFilterChange  → refresh the middle-pane display (stub – implement per tab).
-        if (sharedFilterPane == null) {
-            sharedFilterPane = new FilterPane();
-            sharedFilterPane.setOnRightFilterChange(() -> updateCardsDisplay());
-            sharedFilterPane.setOnLeftFilterChange(() -> updateMiddlePaneDisplay());
-            sharedFilterPane.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, evt -> {
-                if (evt.getCode() == javafx.scene.input.KeyCode.ENTER) {
-                    handleEnterAddFromRightPane();
-                    evt.consume();
+        // Ensure the currently-visible page's field values are flushed to pageStates
+        // before we read them (handles the case where the user typed without switching).
+        if (fp != null) {
+            fp.saveCurrentPageState();
+        }
+
+        // Collect every page that is both ENABLED and has its bottom-right arrow ENABLED.
+        // Only those pages contribute to the AllExistingCards filter.
+        List<FilterPane.FilterPageState> activeStates = new ArrayList<>();
+        if (fp != null) {
+            for (int i = 0; i < 5; i++) {
+                FilterPane.FilterPageState ps = fp.getPageState(i);
+                if (ps != null && ps.enabled && ps.bottomRightEnabled) {
+                    activeStates.add(ps);
                 }
-            });
-        }
-        AnchorPane rh = tab.getRightHeaderPane();
-        if (!rh.getChildren().contains(sharedFilterPane)) {
-            rh.getChildren().clear();
-            rh.getChildren().add(sharedFilterPane);
-            AnchorPane.setTopAnchor(sharedFilterPane, 0.0);
-            AnchorPane.setBottomAnchor(sharedFilterPane, 0.0);
-            AnchorPane.setLeftAnchor(sharedFilterPane, 0.0);
-            AnchorPane.setRightAnchor(sharedFilterPane, 0.0);
+            }
         }
 
-        // Top bar: List/Mosaic and Printed/Unique toggle buttons above the cards display
-        HBox cardsTopBar = new HBox(10, listMosaicButton, printedUniqueButton);
-        cardsTopBar.setPadding(new Insets(5, 10, 5, 10));
-        cardsTopBar.setStyle("-fx-background-color: #100317;");
+        List<Card> allCards;
+        try {
+            allCards = isPrintedMode
+                    ? Model.Database.Database.getAllPrintedCardsList().values()
+                    .stream().collect(Collectors.toList())
+                    : Model.Database.Database.getAllCardsList().values()
+                    .stream().collect(Collectors.toList());
+        } catch (URISyntaxException e) {
+            throw new RuntimeException(e);
+        }
 
-        // Cards display → right content pane
-        VBox.setVgrow(cardsDisplayContainer, Priority.ALWAYS);
-        VBox rightContentVBox = new VBox(0, cardsTopBar, cardsDisplayContainer);
-        rightContentVBox.setStyle("-fx-background-color: #100317;");
+        // A card must satisfy ALL active pages' filters (AND semantics across pages).
+        List<Card> filteredCards = allCards.stream()
+                .filter(card -> {
+                    for (FilterPane.FilterPageState ps : activeStates) {
+                        if (!matchesPageFilter(card, ps)) return false;
+                    }
+                    return true;
+                })
+                .collect(Collectors.toList());
 
-        AnchorPane rc = tab.getRightContentPane();
-        rc.getChildren().clear();
-        rc.getChildren().add(rightContentVBox);
-        AnchorPane.setTopAnchor(rightContentVBox, 0.0);
-        AnchorPane.setBottomAnchor(rightContentVBox, 0.0);
-        AnchorPane.setLeftAnchor(rightContentVBox, 0.0);
-        AnchorPane.setRightAnchor(rightContentVBox, 0.0);
+        // Apply the active sort (main type → subcategory → stat/alpha).
+        filteredCards = Utils.CardSorter.sort(filteredCards, getCurrentSortMode());
+
+        Node view;
+        double mosaicImageWidth = 100, mosaicImageHeight = 146;
+        double listImageWidth = 80, listImageHeight = 116;
+        if (isMosaicMode) {
+            double availableWidth =
+                    (cardsDisplayContainer == null ? 375 : cardsDisplayContainer.getWidth());
+            if (availableWidth <= 0) availableWidth = 375;
+            double gap = 5;
+            List<List<Card>> rows =
+                    groupCardsIntoRows(filteredCards, availableWidth, mosaicImageWidth, gap);
+            ListView<List<Card>> mosaicListView =
+                    new ListView<>(FXCollections.observableArrayList(rows));
+            mosaicListView.setCellFactory(
+                    param -> new CardsMosaicRowCell(mosaicImageWidth, mosaicImageHeight));
+            mosaicListView.setStyle(
+                    "-fx-background-color: #100317; -fx-control-inner-background: #100317;");
+            mosaicListView.addEventHandler(
+                    javafx.scene.input.MouseEvent.MOUSE_CLICKED,
+                    buildRightPaneEmptySpaceClearHandler());
+            view = mosaicListView;
+        } else {
+            ListView<Card> listView =
+                    new ListView<>(FXCollections.observableArrayList(filteredCards));
+            listView.setCellFactory(
+                    param -> new CardsListCell(isPrintedMode, listImageWidth, listImageHeight));
+            listView.setStyle(
+                    "-fx-background-color: #100317; -fx-control-inner-background: #100317;");
+            listView.addEventHandler(
+                    javafx.scene.input.MouseEvent.MOUSE_CLICKED,
+                    buildRightPaneEmptySpaceClearHandler());
+            view = listView;
+        }
+
+        if (cardsDisplayContainer != null) {
+            cardsDisplayContainer.getChildren().clear();
+            cardsDisplayContainer.getChildren().add(view);
+            AnchorPane.setTopAnchor(view, 0.0);
+            AnchorPane.setBottomAnchor(view, 0.0);
+            AnchorPane.setLeftAnchor(view, 0.0);
+            AnchorPane.setRightAnchor(view, 0.0);
+        }
     }
 
     /**
@@ -743,435 +719,62 @@ public class RealMainController {
         return rows;
     }
 
-    @FXML
-    private void initialize() {
-        UserInterfaceFunctions.readPathsFromFile();
+    /**
+     * Moves the shared cardsDisplayContainer (with list/mosaic + printed/unique toggle buttons)
+     * into the given tab's right-content pane.
+     * The FilterPane is already owned by each SharedCollectionTab's rightHeaderPane — no injection needed.
+     */
+    private void injectSharedRightPanel(SharedCollectionTab tab) {
+        if (tab == null) return;
 
-        try {
-            Map<Integer, Card> allCards = Model.Database.Database.getAllCardsList();
-            if (allCards != null && !allCards.isEmpty()) {
-                SubListCreator.CreateArchetypeLists(allCards);
-                // Enrich every card's archetype list with ALL archetypes it belongs to,
-                // fixing the bug where secondary archetypes hid the primary one.
-                SubListCreator.UpdateCardArchetypes();
-                logger.info("SubListCreator archetypes loaded: names={}, lists={}",
-                        SubListCreator.archetypesList == null ? 0 : SubListCreator.archetypesList.size(),
-                        SubListCreator.archetypesCardsLists == null ? 0 : SubListCreator.archetypesCardsLists.size());
-            } else {
-                logger.info("Database.getAllCardsList() returned empty or null; archetypes not initialized now.");
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to initialize SubListCreator archetypes at startup", e);
-        }
-
-        myCollectionTab = new SharedCollectionTab(TabType.MY_COLLECTION);
-        decksTab = new SharedCollectionTab(TabType.DECKS);
-        ouicheListTab = new SharedCollectionTab(TabType.OUICHE_LIST);
-        archetypesTab = new SharedCollectionTab(TabType.ARCHETYPES);
-        friendsTab = new SharedCollectionTab(TabType.FRIENDS);
-        shopsTab = new SharedCollectionTab(TabType.SHOPS);
-
-        setupZoom(myCollectionTab);
-        setupZoom(decksTab);
-        setupZoom(ouicheListTab);
-        setupZoom(archetypesTab);
-
-        // ── Wire CardDetailPane action buttons ───────────────────────────────
-        for (View.SharedCollectionTab tab :
-                java.util.List.of(myCollectionTab, decksTab, ouicheListTab)) {
-            View.CardDetailPane cdp = tab.getCardDetailPane();
-            cdp.setOnMinusOne(this::handleDeleteMiddleSelection);
-            cdp.setOnPlusOne(this::handleDuplicateMiddleSelection);
-            cdp.setOnEdit(() -> {
-                java.util.Set<Model.CardsLists.CardElement> sel =
-                        Controller.SelectionManager.getSelectedMiddleElements();
-                if (sel.isEmpty()) return;
-                Model.CardsLists.CardElement element = sel.iterator().next();
-                View.CardEditPopup popup = new View.CardEditPopup(element);
-                popup.setOnOk(() -> {
-                    Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
-                    Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
-                });
-                popup.showCenteredOn(cdp);
-            });
-        }
-
-        // Tag the archetypes tree view so cells can identify it without relying
-        // on which tab is currently selected.
-        if (archetypesTreeView != null)
-            archetypesTreeView.getProperties().put("tabType", "ARCHETYPES");
-
-        // Lightweight D&C tree refresh: re-renders archetype-card glow states
-        // inside Collections without rebuilding the model. Fired on every model
-        // change via triggerTabDirtyIndicatorUpdate().
-        UserInterfaceFunctions.registerDecksTreeRefresher(() -> {
-            if (decksAndCollectionsTreeView != null) {
-                decksAndCollectionsTreeView.refresh();
-                View.CardTreeCell.refreshAllGridViews();
-            }
-        });
-
-        // Refresh the archetype tab tree view whenever the model changes.
-        UserInterfaceFunctions.registerArchetypesRefresher(() -> {
-            if (archetypesTreeView != null) {
-                archetypesTreeView.refresh();
-                View.CardTreeCell.refreshAllGridViews();
-            }
-        });
-
-        if (mainTabPane != null && mainTabPane.getTabs().size() >= 6) {
-            mainTabPane.getTabs().get(0).setContent(myCollectionTab);
-            mainTabPane.getTabs().get(1).setContent(decksTab);
-            mainTabPane.getTabs().get(2).setContent(ouicheListTab);
-            mainTabPane.getTabs().get(3).setContent(archetypesTab);
-            mainTabPane.getTabs().get(4).setContent(friendsTab);
-            mainTabPane.getTabs().get(5).setContent(shopsTab);
-
-            // cardsDisplayContainer holds the live cards list/mosaic view (shared across tabs)
-            cardsDisplayContainer = new AnchorPane();
-            cardsDisplayContainer.setStyle("-fx-background-color: #100317;");
-
-            // List/Mosaic and Printed/Unique toggle buttons — shown above the cards display
-            listMosaicButton = new Button("List");
-            listMosaicButton.getStyleClass().add("small-button");
-            listMosaicButton.setOnAction(e -> {
-                isMosaicMode = !isMosaicMode;
-                listMosaicButton.setText(isMosaicMode ? "List" : "Mosaic");
-                updateCardsDisplay();
-            });
-            printedUniqueButton = new Button("Printed");
-            printedUniqueButton.getStyleClass().add("small-button");
-            printedUniqueButton.setOnAction(e -> {
-                isPrintedMode = !isPrintedMode;
-                printedUniqueButton.setText(isPrintedMode ? "Unique" : "Printed");
-                updateCardsDisplay();
-            });
-            injectSharedRightPanel(myCollectionTab);
-            // Pre-wire the remaining tabs so their FilterPanes have listeners attached
-            injectSharedRightPanel(decksTab);
-            injectSharedRightPanel(ouicheListTab);
-            injectSharedRightPanel(archetypesTab);
-            injectSharedRightPanel(friendsTab);
-            injectSharedRightPanel(shopsTab);
-            // Re-inject myCollectionTab so its cards container is placed back correctly
-            injectSharedRightPanel(myCollectionTab);
-
-            // Store tab handles for dirty-indicator updates
-            if (mainTabPane != null && mainTabPane.getTabs().size() >= 2) {
-                myCollectionTabHandle = mainTabPane.getTabs().get(0);
-                decksTabHandle = mainTabPane.getTabs().get(1);
-                ouicheListTabHandle = mainTabPane.getTabs().get(2);
-            }
-            UserInterfaceFunctions.registerTabDirtyIndicatorUpdater(this::updateTabDirtyIndicators);
-        }
-
-        // Wire My Collection save button
-        if (myCollectionTab.getSaveButton() != null) {
-            myCollectionTab.getSaveButton().setOnAction(e -> {
-                try {
-                    UserInterfaceFunctions.saveMyCollection();
-                    updateTabDirtyIndicators();
-                    populateMyCollectionMenu();         // refresh nav to remove "*" markers
-                } catch (Exception ex) {
-                    logger.error("Error saving My Collection", ex);
+        // Wire the filter-change callbacks on this tab's own FilterPane.
+        // onRightFilterChange → refresh the AllExistingCards display (right pane).
+        // onLeftFilterChange  → refresh the middle-pane display (stub – implement per tab).
+        if (sharedFilterPane == null) {
+            sharedFilterPane = new FilterPane();
+            sharedFilterPane.setOnRightFilterChange(() -> updateCardsDisplay());
+            sharedFilterPane.setOnLeftFilterChange(() -> updateMiddlePaneDisplay());
+            sharedFilterPane.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, evt -> {
+                if (evt.getCode() == javafx.scene.input.KeyCode.ENTER) {
+                    handleEnterAddFromRightPane();
+                    evt.consume();
                 }
             });
         }
-
-        // Wire Decks and Collections save button
-        if (decksTab.getSaveButton() != null) {
-            decksTab.getSaveButton().setOnAction(e -> {
-                try {
-                    UserInterfaceFunctions.saveAllDecksAndCollections();
-                    updateTabDirtyIndicators();
-                    populateDecksAndCollectionsMenu();  // refresh nav to remove "*" markers
-                } catch (Exception ex) {
-                    logger.error("Error saving Decks and Collections", ex);
-                }
-            });
+        AnchorPane rh = tab.getRightHeaderPane();
+        if (!rh.getChildren().contains(sharedFilterPane)) {
+            rh.getChildren().clear();
+            rh.getChildren().add(sharedFilterPane);
+            AnchorPane.setTopAnchor(sharedFilterPane, 0.0);
+            AnchorPane.setBottomAnchor(sharedFilterPane, 0.0);
+            AnchorPane.setLeftAnchor(sharedFilterPane, 0.0);
+            AnchorPane.setRightAnchor(sharedFilterPane, 0.0);
         }
 
-        // Wire OuicheList save button
-        if (ouicheListTab.getSaveButton() != null) {
-            ouicheListTab.getSaveButton().setOnAction(e -> {
-                try {
-                    UserInterfaceFunctions.saveOuicheList();
-                    updateTabDirtyIndicators();
-                } catch (Exception ex) {
-                    logger.error("Error saving OuicheList", ex);
-                }
-            });
-        }
+        // Top bar: two button groups with tight inner spacing (4 px),
+        // separated by a normal 10 px gap between the two groups.
+        HBox viewModeGroup = new HBox(4, listMosaicButton, printedUniqueButton);
+        viewModeGroup.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
-        try {
-            displayMyCollection();
-            populateMyCollectionMenu();
-            UserInterfaceFunctions.registerOwnedCollectionRefresher(() -> {
-                try {
-                    String target = MenuActionHandler.getAndClearLastAddedTarget();
-                    populateMyCollectionMenu();
-                    // Refresh cells in-place: preserves scroll position and does NOT rebuild the tree.
-                    // "Move to..." goes through here with target == null → no scroll ever triggered.
-                    if (myCollectionTreeView != null) {
-                        myCollectionTreeView.refresh();
-                    }
-                    // Scroll to the newly added card only for "Add to..." actions.
-                    if (target != null) {
-                        scrollToNewCardInGroup(target);
-                    }
-                    // ── Dirty indicator ──
-                    updateTabDirtyIndicators();
-                } catch (Exception e) {
-                    logger.debug("My Collection refresher failed", e);
-                }
-            });
-            UserInterfaceFunctions.registerOwnedCollectionStructureRefresher(() -> {
-                try {
-                    displayMyCollection();
-                    populateMyCollectionMenu();
-                    Object renameTarget = UserInterfaceFunctions.getAndClearPendingRenameTarget();
-                    if (renameTarget != null) {
-                        final Object finalTarget = renameTarget;
-                        Platform.runLater(() -> {
-                            logger.debug("Pending rename: searching nav for target={}", finalTarget);
-                            NavigationItem toRename = findNavItemInMenuVBox(
-                                    myCollectionTab.getMenuVBox(), finalTarget);
-                            if (toRename != null) {
-                                logger.debug("Pending rename: found NavigationItem '{}', starting inline rename",
-                                        toRename.getLabel().getText());
-                                // Expand parent (e.g. Box that contains the new Category)
-                                expandNavAncestors(toRename);
-                                // Scroll nav menu so the rename field is visible
-                                scrollNavToItem(myCollectionTab, toRename);
-                                startAddRename(toRename, finalTarget);
-                            } else {
-                                logger.warn("Pending rename: NavigationItem not found for target={}", finalTarget);
-                            }
-                        });
-                    }
-                } catch (Exception e) {
-                    logger.debug("My Collection structure refresher failed", e);
-                }
-            });
-        } catch (Exception ex) {
-            logger.error("Error displaying My Collection", ex);
-        }
+        HBox sortGroup = new HBox(4, sortAzButton, sortAtkButton, sortDefButton, sortLvlButton);
+        sortGroup.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
-        if (mainTabPane != null) {
-            mainTabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
-                int selectedIndex = mainTabPane.getTabs().indexOf(newTab);
-                // Move the shared right panel (filter + cards display) to the newly active tab
-                injectSharedRightPanel(getSharedTabAt(selectedIndex));
-                // Re-evaluate the middle-pane filter for the newly active tab so its pages
-                // (which may differ from the previous tab's) are applied correctly.
-                updateMiddlePaneDisplay();
-                if (selectedIndex == 1) {
-                    try {
-                        populateDecksAndCollectionsMenu();
-                        UserInterfaceFunctions.registerDecksCollectionsRefresher(() -> {
-                            try {
-                                String cardTarget = MenuActionHandler.getAndClearLastDecksAddedTarget();
-                                Object deckMoveTarget = UserInterfaceFunctions.getAndClearPendingDecksScrollTarget();
-                                Object[] createCollData = UserInterfaceFunctions.getAndClearPendingDecksCreateCollectionData();
-                                Object renameTarget = UserInterfaceFunctions.getAndClearPendingDecksRenameTarget();
-                                boolean needsFullRebuild = UserInterfaceFunctions.getAndClearPendingDecksFullRebuild();
-                                Object expandTarget = UserInterfaceFunctions.getAndClearPendingDecksExpandTarget();
+        HBox cardsTopBar = new HBox(10, viewModeGroup, sortGroup);
+        cardsTopBar.setPadding(new Insets(5, 10, 5, 10));
+        cardsTopBar.setStyle("-fx-background-color: #100317;");
 
-                                populateDecksAndCollectionsMenu();
+        // Cards display → right content pane
+        VBox.setVgrow(cardsDisplayContainer, Priority.ALWAYS);
+        VBox rightContentVBox = new VBox(0, cardsTopBar, cardsDisplayContainer);
+        rightContentVBox.setStyle("-fx-background-color: #100317;");
 
-                                boolean isStructuralChange = (deckMoveTarget != null) || (createCollData != null)
-                                        || (renameTarget != null) || needsFullRebuild;
-                                if (isStructuralChange || cardTarget != null) {
-                                    // Snapshot scroll position before the rebuild so we can
-                                    // restore it afterwards (rebuild creates a new TreeView).
-                                    final double savedScroll = getDecksTreeScrollPosition();
-                                    displayDecksAndCollections();
-                                    // Restore after the new tree has been laid out.
-                                    Platform.runLater(() -> restoreDecksTreeScrollPosition(savedScroll));
-                                } else {
-                                    if (decksAndCollectionsTreeView != null) {
-                                        decksAndCollectionsTreeView.refresh();
-                                        View.CardTreeCell.refreshAllGridViews();
-                                    }
-                                }
-
-// Scroll content tree to where a card was added
-                                if (cardTarget != null) {
-                                    scrollToTargetInDecksTree(cardTarget);
-                                }
-
-                                // Scroll / expand nav to a moved deck
-                                if (deckMoveTarget != null) {
-                                    scrollToMovedDeck(deckMoveTarget);
-                                }
-
-                                // "Create Collection from Deck" rename flow
-                                if (createCollData != null && createCollData.length == 2
-                                        && createCollData[0] instanceof ThemeCollection
-                                        && createCollData[1] instanceof Deck) {
-
-                                    final ThemeCollection newColl = (ThemeCollection) createCollData[0];
-                                    final Deck movedDeck = (Deck) createCollData[1];
-
-                                    Platform.runLater(() -> {
-                                        NavigationItem toRename = findNavItemInMenuVBox(
-                                                decksTab.getMenuVBox(), newColl);
-                                        if (toRename != null) {
-                                            toRename.setExpanded(true);
-                                            expandNavAncestors(toRename);
-                                            scrollNavToItem(decksTab, toRename);
-                                            startDecksCreateCollectionRename(toRename, newColl, movedDeck);
-                                        } else {
-                                            logger.warn("Create-Collection rename: NavigationItem not found for {}",
-                                                    newColl.getName());
-                                        }
-                                    });
-                                }
-
-                                // Normal add/rename for newly created Deck or Collection
-                                if (renameTarget != null) {
-                                    final Object finalTarget = renameTarget;
-                                    Platform.runLater(() -> {
-                                        NavigationItem toRename = findNavItemInMenuVBox(
-                                                decksTab.getMenuVBox(), finalTarget);
-                                        if (toRename != null) {
-                                            expandNavAncestors(toRename);
-                                            scrollNavToItem(decksTab, toRename);
-                                            startDecksAddRename(toRename, finalTarget);
-                                        } else {
-                                            logger.warn("Pending decks rename: NavigationItem not found for target={}",
-                                                    finalTarget);
-                                        }
-                                    });
-                                }
-
-                                // Expand the nav item for a collection that was just renamed after creation
-                                if (expandTarget != null) {
-                                    final Object finalExpand = expandTarget;
-                                    Platform.runLater(() -> {
-                                        NavigationItem toExpand = findNavItemInMenuVBox(
-                                                decksTab.getMenuVBox(), finalExpand);
-                                        if (toExpand != null) {
-                                            toExpand.setExpanded(true);
-                                            expandNavAncestors(toExpand);
-                                            scrollNavToItem(decksTab, toExpand);
-                                        }
-                                    });
-                                }
-
-                                updateTabDirtyIndicators();
-                                // Update dirty indicators
-                                updateTabDirtyIndicators();
-                            } catch (Exception e) {
-                                logger.debug("Decks refresher failed", e);
-                            }
-                        });
-                        displayDecksAndCollections();
-                    } catch (Exception e) {
-                        logger.error("Error displaying decks and collections", e);
-                    }
-                } else if (selectedIndex == 2 && !ouicheListLoaded) {
-                    try {
-                        UserInterfaceFunctions.generateOuicheList();
-                        displayOuicheListUnified();
-                        populateOuicheListMenu();
-                        ouicheListLoaded = true;
-                    } catch (Exception ex) {
-                        logger.error("Error displaying OuicheList", ex);
-                    }
-                } else if (selectedIndex == 3) {
-                    try {
-                        displayArchetypes();
-                        populateArchetypesMenu();
-                    } catch (Exception ex) {
-                        logger.error("Error displaying Archetypes", ex);
-                    }
-                }
-            });
-        }
-
-        // Wire OuicheList compact/detailed toggle buttons
-        setupOuicheListButtons();
-
-        decksTab.setOnDecksLoad(() -> {
-            try {
-                displayDecksAndCollections();
-            } catch (Exception e) {
-                logger.error("Error displaying decks and collections", e);
-            }
-        });
-
-        // Button/field wiring is done per-tab inside injectSharedRightPanel()
-
-        updateCardsDisplay();
-
-        // Refresh both the middle-pane tree views and the right-pane cards display
-        // whenever the selection changes, so the visual selection border stays in sync.
-        // CHANGE in initialize(), the SelectionManager.addSelectionChangeListener block:
-
-        Controller.SelectionManager.addSelectionChangeListener(() -> {
-            Platform.runLater(() -> {
-                if (myCollectionTreeView != null) myCollectionTreeView.refresh();
-                if (decksAndCollectionsTreeView != null) decksAndCollectionsTreeView.refresh();
-                if (ouicheTreeView != null) ouicheTreeView.refresh();
-                if (archetypesTreeView != null) archetypesTreeView.refresh();
-
-                // Also refresh all live GridViews — TreeView.refresh() does not
-                // propagate into nested ControlsFX GridViews, so cells off-screen
-                // keep a stale selection border until explicitly refreshed here.
-                View.CardTreeCell.refreshAllGridViews();
-
-                if (cardsDisplayContainer != null) {
-                    for (javafx.scene.Node node : cardsDisplayContainer.getChildren()) {
-                        if (node instanceof javafx.scene.control.ListView) {
-                            ((javafx.scene.control.ListView<?>) node).refresh();
-                        }
-                    }
-                }
-            });
-        });
-
-        UserInterfaceFunctions.registerOwnedCollectionRefresher(this::refreshFromModel);
-        setupGlobalKeyShortcuts();
-
-        // Put this in RealMainController.initialize() or equivalent setup method
-        final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(Controller.RealMainController.class);
-
-        /*if (mainTabPane != null) {
-            mainTabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
-                String tabName = newTab == null ? "<null>" : newTab.getText();
-                logger.debug("mainTabPane selection changed -> {}", tabName);
-
-                // When OuicheList is selected, run the marking/refresh logic that previously ran for Decks and Collections.
-                if (tabName != null && tabName.trim().equalsIgnoreCase("OuicheList")) {
-                    logger.debug("OuicheList selected: running marking/refresh for OuicheList");
-                    try {
-                        // --- Replace the next line with your existing marking/refresh method(s) ---
-                        // Example: recompute archetypes / mark missing for the OuicheList collection(s)
-                        // markMissingForAllCollections(); // <-- your real method here
-                        // Or call the same method you call when Decks and Collections is selected,
-                        // but pass the OuicheList context/collection name if needed.
-                    } catch (Throwable t) {
-                        logger.warn("Error while running OuicheList marking/refresh", t);
-                    }
-                } else {
-                    // Optional: if you need to clear or refresh visuals when leaving OuicheList
-                    logger.debug("Non-OuicheList tab selected: {}", tabName);
-                }
-            });
-        }*/
-
-        // ── Close-request interception ────────────────────────────────────────
-        // Platform.runLater defers the lookup until after start() has called
-        // stage.show(), so the Stage is guaranteed to be present.
-        Platform.runLater(() -> {
-            if (mainTabPane != null
-                    && mainTabPane.getScene() != null
-                    && mainTabPane.getScene().getWindow() instanceof Stage) {
-                ((Stage) mainTabPane.getScene().getWindow())
-                        .setOnCloseRequest(this::handleWindowCloseRequest);
-            }
-        });
+        AnchorPane rc = tab.getRightContentPane();
+        rc.getChildren().clear();
+        rc.getChildren().add(rightContentVBox);
+        AnchorPane.setTopAnchor(rightContentVBox, 0.0);
+        AnchorPane.setBottomAnchor(rightContentVBox, 0.0);
+        AnchorPane.setLeftAnchor(rightContentVBox, 0.0);
+        AnchorPane.setRightAnchor(rightContentVBox, 0.0);
     }
 
     /**
@@ -5567,6 +5170,553 @@ public class RealMainController {
             // Partial-string fallback (e.g. user typed "0.5" while price is "0.50")
             String display = (cardPriceStr == null) ? "" : cardPriceStr.trim();
             return display.toLowerCase().contains(filter.toLowerCase());
+        }
+    }
+
+    @FXML
+    private void initialize() {
+        UserInterfaceFunctions.readPathsFromFile();
+
+        try {
+            Map<Integer, Card> allCards = Model.Database.Database.getAllCardsList();
+            if (allCards != null && !allCards.isEmpty()) {
+                SubListCreator.CreateArchetypeLists(allCards);
+                // Enrich every card's archetype list with ALL archetypes it belongs to,
+                // fixing the bug where secondary archetypes hid the primary one.
+                SubListCreator.UpdateCardArchetypes();
+                logger.info("SubListCreator archetypes loaded: names={}, lists={}",
+                        SubListCreator.archetypesList == null ? 0 : SubListCreator.archetypesList.size(),
+                        SubListCreator.archetypesCardsLists == null ? 0 : SubListCreator.archetypesCardsLists.size());
+            } else {
+                logger.info("Database.getAllCardsList() returned empty or null; archetypes not initialized now.");
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to initialize SubListCreator archetypes at startup", e);
+        }
+
+        myCollectionTab = new SharedCollectionTab(TabType.MY_COLLECTION);
+        decksTab = new SharedCollectionTab(TabType.DECKS);
+        ouicheListTab = new SharedCollectionTab(TabType.OUICHE_LIST);
+        archetypesTab = new SharedCollectionTab(TabType.ARCHETYPES);
+        friendsTab = new SharedCollectionTab(TabType.FRIENDS);
+        shopsTab = new SharedCollectionTab(TabType.SHOPS);
+
+        setupZoom(myCollectionTab);
+        setupZoom(decksTab);
+        setupZoom(ouicheListTab);
+        setupZoom(archetypesTab);
+
+        // ── Wire CardDetailPane action buttons ───────────────────────────────
+        for (View.SharedCollectionTab tab :
+                java.util.List.of(myCollectionTab, decksTab, ouicheListTab)) {
+            View.CardDetailPane cdp = tab.getCardDetailPane();
+            cdp.setOnMinusOne(this::handleDeleteMiddleSelection);
+            cdp.setOnPlusOne(this::handleDuplicateMiddleSelection);
+            cdp.setOnEdit(() -> {
+                java.util.Set<Model.CardsLists.CardElement> sel =
+                        Controller.SelectionManager.getSelectedMiddleElements();
+                if (sel.isEmpty()) return;
+                Model.CardsLists.CardElement element = sel.iterator().next();
+                View.CardEditPopup popup = new View.CardEditPopup(element);
+                popup.setOnOk(() -> {
+                    Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
+                    Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                });
+                popup.showCenteredOn(cdp);
+            });
+        }
+
+        // Tag the archetypes tree view so cells can identify it without relying
+        // on which tab is currently selected.
+        if (archetypesTreeView != null)
+            archetypesTreeView.getProperties().put("tabType", "ARCHETYPES");
+
+        // Lightweight D&C tree refresh: re-renders archetype-card glow states
+        // inside Collections without rebuilding the model. Fired on every model
+        // change via triggerTabDirtyIndicatorUpdate().
+        UserInterfaceFunctions.registerDecksTreeRefresher(() -> {
+            if (decksAndCollectionsTreeView != null) {
+                decksAndCollectionsTreeView.refresh();
+                View.CardTreeCell.refreshAllGridViews();
+            }
+        });
+
+        // Refresh the archetype tab tree view whenever the model changes.
+        UserInterfaceFunctions.registerArchetypesRefresher(() -> {
+            if (archetypesTreeView != null) {
+                archetypesTreeView.refresh();
+                View.CardTreeCell.refreshAllGridViews();
+            }
+        });
+
+        if (mainTabPane != null && mainTabPane.getTabs().size() >= 6) {
+            mainTabPane.getTabs().get(0).setContent(myCollectionTab);
+            mainTabPane.getTabs().get(1).setContent(decksTab);
+            mainTabPane.getTabs().get(2).setContent(ouicheListTab);
+            mainTabPane.getTabs().get(3).setContent(archetypesTab);
+            mainTabPane.getTabs().get(4).setContent(friendsTab);
+            mainTabPane.getTabs().get(5).setContent(shopsTab);
+
+            // cardsDisplayContainer holds the live cards list/mosaic view (shared across tabs)
+            cardsDisplayContainer = new AnchorPane();
+            cardsDisplayContainer.setStyle("-fx-background-color: #100317;");
+
+            // List/Mosaic and Printed/Unique toggle buttons — shown above the cards display
+            listMosaicButton = new Button("List");
+            listMosaicButton.getStyleClass().add("small-button");
+            // Inline style wins over all CSS rules regardless of specificity.
+            // top=4 bottom=8 shifts the label up so "q" in "Unique" is never clipped.
+            listMosaicButton.setStyle("-fx-font-size: 12px; -fx-padding: 3 3 7 3;");
+            listMosaicButton.setOnAction(e -> {
+                isMosaicMode = !isMosaicMode;
+                listMosaicButton.setText(isMosaicMode ? "List" : "Mosaic");
+                updateCardsDisplay();
+            });
+            printedUniqueButton = new Button("Printed");
+            printedUniqueButton.getStyleClass().add("small-button");
+            printedUniqueButton.setStyle("-fx-font-size: 12px; -fx-padding: 3 3 7 3;");
+            printedUniqueButton.setOnAction(e -> {
+                isPrintedMode = !isPrintedMode;
+                printedUniqueButton.setText(isPrintedMode ? "Unique" : "Printed");
+                updateCardsDisplay();
+            });
+
+            // ── Sort toggle buttons ────────────────────────────────────────────
+            sortAzButton = new Button("AZ");
+            sortAtkButton = new Button("ATK↓");
+            sortDefButton = new Button("DEF↓");
+            sortLvlButton = new Button("LVL↓");
+            sortAzButton.getStyleClass().add("sort-button");
+            sortAtkButton.getStyleClass().add("sort-button");
+            sortDefButton.getStyleClass().add("sort-button");
+            sortLvlButton.getStyleClass().add("sort-button");
+
+            // ATK↓ is selected by default
+            applySortButtonSelectedStyle(sortAtkButton);
+            applySortButtonUnselectedStyle(sortAzButton);
+            applySortButtonUnselectedStyle(sortDefButton);
+            applySortButtonUnselectedStyle(sortLvlButton);
+
+            sortAzButton.setOnAction(e -> {
+                if (activeSortButtonIndex == 0) {
+                    // Already selected → toggle AZ ↔ ZA
+                    sortAzButton.setText("AZ".equals(sortAzButton.getText()) ? "ZA" : "AZ");
+                } else {
+                    activeSortButtonIndex = 0;
+                    applySortButtonSelectedStyle(sortAzButton);
+                    applySortButtonUnselectedStyle(sortAtkButton);
+                    applySortButtonUnselectedStyle(sortDefButton);
+                    applySortButtonUnselectedStyle(sortLvlButton);
+                }
+                updateCardsDisplay();
+            });
+
+            sortAtkButton.setOnAction(e -> {
+                if (activeSortButtonIndex == 1) {
+                    // Already selected → toggle ATK↓ ↔ ATK↑
+                    sortAtkButton.setText("ATK↓".equals(sortAtkButton.getText()) ? "ATK↑" : "ATK↓");
+                } else {
+                    activeSortButtonIndex = 1;
+                    applySortButtonSelectedStyle(sortAtkButton);
+                    applySortButtonUnselectedStyle(sortAzButton);
+                    applySortButtonUnselectedStyle(sortDefButton);
+                    applySortButtonUnselectedStyle(sortLvlButton);
+                }
+                updateCardsDisplay();
+            });
+
+            sortDefButton.setOnAction(e -> {
+                if (activeSortButtonIndex == 2) {
+                    // Already selected → toggle DEF↓ ↔ DEF↑
+                    sortDefButton.setText("DEF↓".equals(sortDefButton.getText()) ? "DEF↑" : "DEF↓");
+                } else {
+                    activeSortButtonIndex = 2;
+                    applySortButtonSelectedStyle(sortDefButton);
+                    applySortButtonUnselectedStyle(sortAzButton);
+                    applySortButtonUnselectedStyle(sortAtkButton);
+                    applySortButtonUnselectedStyle(sortLvlButton);
+                }
+                updateCardsDisplay();
+            });
+
+            sortLvlButton.setOnAction(e -> {
+                if (activeSortButtonIndex == 3) {
+                    // Already selected → toggle LVL↓ ↔ LVL↑
+                    sortLvlButton.setText("LVL↓".equals(sortLvlButton.getText()) ? "LVL↑" : "LVL↓");
+                } else {
+                    activeSortButtonIndex = 3;
+                    applySortButtonSelectedStyle(sortLvlButton);
+                    applySortButtonUnselectedStyle(sortAzButton);
+                    applySortButtonUnselectedStyle(sortAtkButton);
+                    applySortButtonUnselectedStyle(sortDefButton);
+                }
+                updateCardsDisplay();
+            });
+            injectSharedRightPanel(myCollectionTab);
+            // Pre-wire the remaining tabs so their FilterPanes have listeners attached
+            injectSharedRightPanel(decksTab);
+            injectSharedRightPanel(ouicheListTab);
+            injectSharedRightPanel(archetypesTab);
+            injectSharedRightPanel(friendsTab);
+            injectSharedRightPanel(shopsTab);
+            // Re-inject myCollectionTab so its cards container is placed back correctly
+            injectSharedRightPanel(myCollectionTab);
+
+            // Store tab handles for dirty-indicator updates
+            if (mainTabPane != null && mainTabPane.getTabs().size() >= 2) {
+                myCollectionTabHandle = mainTabPane.getTabs().get(0);
+                decksTabHandle = mainTabPane.getTabs().get(1);
+                ouicheListTabHandle = mainTabPane.getTabs().get(2);
+            }
+            UserInterfaceFunctions.registerTabDirtyIndicatorUpdater(this::updateTabDirtyIndicators);
+        }
+
+        // Wire My Collection save button
+        if (myCollectionTab.getSaveButton() != null) {
+            myCollectionTab.getSaveButton().setOnAction(e -> {
+                try {
+                    UserInterfaceFunctions.saveMyCollection();
+                    updateTabDirtyIndicators();
+                    populateMyCollectionMenu();         // refresh nav to remove "*" markers
+                } catch (Exception ex) {
+                    logger.error("Error saving My Collection", ex);
+                }
+            });
+        }
+
+        // Wire Decks and Collections save button
+        if (decksTab.getSaveButton() != null) {
+            decksTab.getSaveButton().setOnAction(e -> {
+                try {
+                    UserInterfaceFunctions.saveAllDecksAndCollections();
+                    updateTabDirtyIndicators();
+                    populateDecksAndCollectionsMenu();  // refresh nav to remove "*" markers
+                } catch (Exception ex) {
+                    logger.error("Error saving Decks and Collections", ex);
+                }
+            });
+        }
+
+        // Wire OuicheList save button
+        if (ouicheListTab.getSaveButton() != null) {
+            ouicheListTab.getSaveButton().setOnAction(e -> {
+                try {
+                    UserInterfaceFunctions.saveOuicheList();
+                    updateTabDirtyIndicators();
+                } catch (Exception ex) {
+                    logger.error("Error saving OuicheList", ex);
+                }
+            });
+        }
+
+        try {
+            displayMyCollection();
+            populateMyCollectionMenu();
+            UserInterfaceFunctions.registerOwnedCollectionRefresher(() -> {
+                try {
+                    String target = MenuActionHandler.getAndClearLastAddedTarget();
+                    populateMyCollectionMenu();
+                    // Refresh cells in-place: preserves scroll position and does NOT rebuild the tree.
+                    // "Move to..." goes through here with target == null → no scroll ever triggered.
+                    if (myCollectionTreeView != null) {
+                        myCollectionTreeView.refresh();
+                    }
+                    // Scroll to the newly added card only for "Add to..." actions.
+                    if (target != null) {
+                        scrollToNewCardInGroup(target);
+                    }
+                    // ── Dirty indicator ──
+                    updateTabDirtyIndicators();
+                } catch (Exception e) {
+                    logger.debug("My Collection refresher failed", e);
+                }
+            });
+            UserInterfaceFunctions.registerOwnedCollectionStructureRefresher(() -> {
+                try {
+                    displayMyCollection();
+                    populateMyCollectionMenu();
+                    Object renameTarget = UserInterfaceFunctions.getAndClearPendingRenameTarget();
+                    if (renameTarget != null) {
+                        final Object finalTarget = renameTarget;
+                        Platform.runLater(() -> {
+                            logger.debug("Pending rename: searching nav for target={}", finalTarget);
+                            NavigationItem toRename = findNavItemInMenuVBox(
+                                    myCollectionTab.getMenuVBox(), finalTarget);
+                            if (toRename != null) {
+                                logger.debug("Pending rename: found NavigationItem '{}', starting inline rename",
+                                        toRename.getLabel().getText());
+                                // Expand parent (e.g. Box that contains the new Category)
+                                expandNavAncestors(toRename);
+                                // Scroll nav menu so the rename field is visible
+                                scrollNavToItem(myCollectionTab, toRename);
+                                startAddRename(toRename, finalTarget);
+                            } else {
+                                logger.warn("Pending rename: NavigationItem not found for target={}", finalTarget);
+                            }
+                        });
+                    }
+                } catch (Exception e) {
+                    logger.debug("My Collection structure refresher failed", e);
+                }
+            });
+        } catch (Exception ex) {
+            logger.error("Error displaying My Collection", ex);
+        }
+
+        if (mainTabPane != null) {
+            mainTabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
+                int selectedIndex = mainTabPane.getTabs().indexOf(newTab);
+                // Move the shared right panel (filter + cards display) to the newly active tab
+                injectSharedRightPanel(getSharedTabAt(selectedIndex));
+                // Re-evaluate the middle-pane filter for the newly active tab so its pages
+                // (which may differ from the previous tab's) are applied correctly.
+                updateMiddlePaneDisplay();
+                if (selectedIndex == 1) {
+                    try {
+                        populateDecksAndCollectionsMenu();
+                        UserInterfaceFunctions.registerDecksCollectionsRefresher(() -> {
+                            try {
+                                String cardTarget = MenuActionHandler.getAndClearLastDecksAddedTarget();
+                                Object deckMoveTarget = UserInterfaceFunctions.getAndClearPendingDecksScrollTarget();
+                                Object[] createCollData = UserInterfaceFunctions.getAndClearPendingDecksCreateCollectionData();
+                                Object renameTarget = UserInterfaceFunctions.getAndClearPendingDecksRenameTarget();
+                                boolean needsFullRebuild = UserInterfaceFunctions.getAndClearPendingDecksFullRebuild();
+                                Object expandTarget = UserInterfaceFunctions.getAndClearPendingDecksExpandTarget();
+
+                                populateDecksAndCollectionsMenu();
+
+                                boolean isStructuralChange = (deckMoveTarget != null) || (createCollData != null)
+                                        || (renameTarget != null) || needsFullRebuild;
+                                if (isStructuralChange || cardTarget != null) {
+                                    // Snapshot scroll position before the rebuild so we can
+                                    // restore it afterwards (rebuild creates a new TreeView).
+                                    final double savedScroll = getDecksTreeScrollPosition();
+                                    displayDecksAndCollections();
+                                    // Restore after the new tree has been laid out.
+                                    Platform.runLater(() -> restoreDecksTreeScrollPosition(savedScroll));
+                                } else {
+                                    if (decksAndCollectionsTreeView != null) {
+                                        decksAndCollectionsTreeView.refresh();
+                                        View.CardTreeCell.refreshAllGridViews();
+                                    }
+                                }
+
+// Scroll content tree to where a card was added
+                                if (cardTarget != null) {
+                                    scrollToTargetInDecksTree(cardTarget);
+                                }
+
+                                // Scroll / expand nav to a moved deck
+                                if (deckMoveTarget != null) {
+                                    scrollToMovedDeck(deckMoveTarget);
+                                }
+
+                                // "Create Collection from Deck" rename flow
+                                if (createCollData != null && createCollData.length == 2
+                                        && createCollData[0] instanceof ThemeCollection
+                                        && createCollData[1] instanceof Deck) {
+
+                                    final ThemeCollection newColl = (ThemeCollection) createCollData[0];
+                                    final Deck movedDeck = (Deck) createCollData[1];
+
+                                    Platform.runLater(() -> {
+                                        NavigationItem toRename = findNavItemInMenuVBox(
+                                                decksTab.getMenuVBox(), newColl);
+                                        if (toRename != null) {
+                                            toRename.setExpanded(true);
+                                            expandNavAncestors(toRename);
+                                            scrollNavToItem(decksTab, toRename);
+                                            startDecksCreateCollectionRename(toRename, newColl, movedDeck);
+                                        } else {
+                                            logger.warn("Create-Collection rename: NavigationItem not found for {}",
+                                                    newColl.getName());
+                                        }
+                                    });
+                                }
+
+                                // Normal add/rename for newly created Deck or Collection
+                                if (renameTarget != null) {
+                                    final Object finalTarget = renameTarget;
+                                    Platform.runLater(() -> {
+                                        NavigationItem toRename = findNavItemInMenuVBox(
+                                                decksTab.getMenuVBox(), finalTarget);
+                                        if (toRename != null) {
+                                            expandNavAncestors(toRename);
+                                            scrollNavToItem(decksTab, toRename);
+                                            startDecksAddRename(toRename, finalTarget);
+                                        } else {
+                                            logger.warn("Pending decks rename: NavigationItem not found for target={}",
+                                                    finalTarget);
+                                        }
+                                    });
+                                }
+
+                                // Expand the nav item for a collection that was just renamed after creation
+                                if (expandTarget != null) {
+                                    final Object finalExpand = expandTarget;
+                                    Platform.runLater(() -> {
+                                        NavigationItem toExpand = findNavItemInMenuVBox(
+                                                decksTab.getMenuVBox(), finalExpand);
+                                        if (toExpand != null) {
+                                            toExpand.setExpanded(true);
+                                            expandNavAncestors(toExpand);
+                                            scrollNavToItem(decksTab, toExpand);
+                                        }
+                                    });
+                                }
+
+                                updateTabDirtyIndicators();
+                                // Update dirty indicators
+                                updateTabDirtyIndicators();
+                            } catch (Exception e) {
+                                logger.debug("Decks refresher failed", e);
+                            }
+                        });
+                        displayDecksAndCollections();
+                    } catch (Exception e) {
+                        logger.error("Error displaying decks and collections", e);
+                    }
+                } else if (selectedIndex == 2 && !ouicheListLoaded) {
+                    try {
+                        UserInterfaceFunctions.generateOuicheList();
+                        displayOuicheListUnified();
+                        populateOuicheListMenu();
+                        ouicheListLoaded = true;
+                    } catch (Exception ex) {
+                        logger.error("Error displaying OuicheList", ex);
+                    }
+                } else if (selectedIndex == 3) {
+                    try {
+                        displayArchetypes();
+                        populateArchetypesMenu();
+                    } catch (Exception ex) {
+                        logger.error("Error displaying Archetypes", ex);
+                    }
+                }
+            });
+        }
+
+        // Wire OuicheList compact/detailed toggle buttons
+        setupOuicheListButtons();
+
+        decksTab.setOnDecksLoad(() -> {
+            try {
+                displayDecksAndCollections();
+            } catch (Exception e) {
+                logger.error("Error displaying decks and collections", e);
+            }
+        });
+
+        // Button/field wiring is done per-tab inside injectSharedRightPanel()
+
+        updateCardsDisplay();
+
+        // Refresh both the middle-pane tree views and the right-pane cards display
+        // whenever the selection changes, so the visual selection border stays in sync.
+        // CHANGE in initialize(), the SelectionManager.addSelectionChangeListener block:
+
+        Controller.SelectionManager.addSelectionChangeListener(() -> {
+            Platform.runLater(() -> {
+                if (myCollectionTreeView != null) myCollectionTreeView.refresh();
+                if (decksAndCollectionsTreeView != null) decksAndCollectionsTreeView.refresh();
+                if (ouicheTreeView != null) ouicheTreeView.refresh();
+                if (archetypesTreeView != null) archetypesTreeView.refresh();
+
+                // Also refresh all live GridViews — TreeView.refresh() does not
+                // propagate into nested ControlsFX GridViews, so cells off-screen
+                // keep a stale selection border until explicitly refreshed here.
+                View.CardTreeCell.refreshAllGridViews();
+
+                if (cardsDisplayContainer != null) {
+                    for (javafx.scene.Node node : cardsDisplayContainer.getChildren()) {
+                        if (node instanceof javafx.scene.control.ListView) {
+                            ((javafx.scene.control.ListView<?>) node).refresh();
+                        }
+                    }
+                }
+            });
+        });
+
+        UserInterfaceFunctions.registerOwnedCollectionRefresher(this::refreshFromModel);
+        setupGlobalKeyShortcuts();
+
+        // Put this in RealMainController.initialize() or equivalent setup method
+        final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(Controller.RealMainController.class);
+
+        /*if (mainTabPane != null) {
+            mainTabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
+                String tabName = newTab == null ? "<null>" : newTab.getText();
+                logger.debug("mainTabPane selection changed -> {}", tabName);
+
+                // When OuicheList is selected, run the marking/refresh logic that previously ran for Decks and Collections.
+                if (tabName != null && tabName.trim().equalsIgnoreCase("OuicheList")) {
+                    logger.debug("OuicheList selected: running marking/refresh for OuicheList");
+                    try {
+                        // --- Replace the next line with your existing marking/refresh method(s) ---
+                        // Example: recompute archetypes / mark missing for the OuicheList collection(s)
+                        // markMissingForAllCollections(); // <-- your real method here
+                        // Or call the same method you call when Decks and Collections is selected,
+                        // but pass the OuicheList context/collection name if needed.
+                    } catch (Throwable t) {
+                        logger.warn("Error while running OuicheList marking/refresh", t);
+                    }
+                } else {
+                    // Optional: if you need to clear or refresh visuals when leaving OuicheList
+                    logger.debug("Non-OuicheList tab selected: {}", tabName);
+                }
+            });
+        }*/
+
+        // ── Close-request interception ────────────────────────────────────────
+        // Platform.runLater defers the lookup until after start() has called
+        // stage.show(), so the Stage is guaranteed to be present.
+        Platform.runLater(() -> {
+            if (mainTabPane != null
+                    && mainTabPane.getScene() != null
+                    && mainTabPane.getScene().getWindow() instanceof Stage) {
+                ((Stage) mainTabPane.getScene().getWindow())
+                        .setOnCloseRequest(this::handleWindowCloseRequest);
+            }
+        });
+    }
+
+    private void applySortButtonSelectedStyle(Button btn) {
+        btn.setStyle("-fx-background-color: #cdfc04; -fx-text-fill: black; " + SORT_BTN_PADDING);
+    }
+
+    /**
+     * Clears the inline style from a sort toggle button so it falls back
+     * to the normal "small-button" CSS appearance.
+     */
+    private void applySortButtonUnselectedStyle(Button btn) {
+        btn.setStyle(SORT_BTN_PADDING);
+    }
+
+    /**
+     * Translates the current state of the four sort toggle buttons into a
+     * {@link Utils.CardSorter.SortMode} value consumed by
+     * {@link Utils.CardSorter#sort}.
+     */
+    private Utils.CardSorter.SortMode getCurrentSortMode() {
+        switch (activeSortButtonIndex) {
+            case 0: // AZ / ZA
+                return "ZA".equals(sortAzButton.getText())
+                        ? Utils.CardSorter.SortMode.ZA
+                        : Utils.CardSorter.SortMode.AZ;
+            case 1: // ATK
+                return "ATK↑".equals(sortAtkButton.getText())
+                        ? Utils.CardSorter.SortMode.ATK_ASC
+                        : Utils.CardSorter.SortMode.ATK_DESC;
+            case 2: // DEF
+                return "DEF↑".equals(sortDefButton.getText())
+                        ? Utils.CardSorter.SortMode.DEF_ASC
+                        : Utils.CardSorter.SortMode.DEF_DESC;
+            case 3: // LVL
+                return "LVL↑".equals(sortLvlButton.getText())
+                        ? Utils.CardSorter.SortMode.LVL_ASC
+                        : Utils.CardSorter.SortMode.LVL_DESC;
+            default:
+                return Utils.CardSorter.SortMode.ATK_DESC;
         }
     }
 }
