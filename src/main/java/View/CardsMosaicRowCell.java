@@ -219,6 +219,13 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
             java.util.Collection<Model.CardsLists.Card> cards) {
         List<MenuItem> items = new ArrayList<>();
         if (cards == null || cards.isEmpty()) return items;
+
+        // Show "Main Deck" only when ALL cards can go there.
+        // Show "Extra Deck" only when ALL cards can go there.
+        // Side Deck always accepts every card.
+        boolean allowMain = Utils.DeckCompatibility.allCompatibleWith(cards, "Main Deck");
+        boolean allowExtra = Utils.DeckCompatibility.allCompatibleWith(cards, "Extra Deck");
+
         try {
             Model.CardsLists.DecksAndCollectionsList dac =
                     Controller.UserInterfaceFunctions.getDecksList();
@@ -242,8 +249,10 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
                             for (Model.CardsLists.Deck deck : unit) {
                                 if (deck == null) continue;
                                 String base = coll + " / " + sanitize(deck.getName());
-                                items.add(makeDecksDestItem(base + " / Main Deck", cards));
-                                items.add(makeDecksDestItem(base + " / Extra Deck", cards));
+                                if (allowMain)
+                                    items.add(makeDecksDestItem(base + " / Main Deck", cards));
+                                if (allowExtra)
+                                    items.add(makeDecksDestItem(base + " / Extra Deck", cards));
                                 items.add(makeDecksDestItem(base + " / Side Deck", cards));
                             }
                         }
@@ -255,8 +264,10 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
                 for (Model.CardsLists.Deck deck : dac.getDecks()) {
                     if (deck == null) continue;
                     String d = sanitize(deck.getName());
-                    items.add(makeDecksDestItem(d + " / Main Deck", cards));
-                    items.add(makeDecksDestItem(d + " / Extra Deck", cards));
+                    if (allowMain)
+                        items.add(makeDecksDestItem(d + " / Main Deck", cards));
+                    if (allowExtra)
+                        items.add(makeDecksDestItem(d + " / Extra Deck", cards));
                     items.add(makeDecksDestItem(d + " / Side Deck", cards));
                 }
             }

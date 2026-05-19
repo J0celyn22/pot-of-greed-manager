@@ -440,6 +440,14 @@ public class CardsListCell extends ListCell<Card> {
             java.util.Collection<Model.CardsLists.Card> cards) {
         java.util.List<MenuItem> items = new java.util.ArrayList<>();
         if (cards == null || cards.isEmpty()) return items;
+
+        // Pre-compute compatibility once for the whole collection.
+        // "Main Deck" slot is shown only when ALL cards can go in the main deck.
+        // "Extra Deck" slot is shown only when ALL cards can go in the extra deck.
+        // Side Deck always accepts every card — no check needed.
+        boolean allowMain = Utils.DeckCompatibility.allCompatibleWith(cards, "Main Deck");
+        boolean allowExtra = Utils.DeckCompatibility.allCompatibleWith(cards, "Extra Deck");
+
         try {
             Model.CardsLists.DecksAndCollectionsList dac =
                     Controller.UserInterfaceFunctions.getDecksList();
@@ -465,8 +473,10 @@ public class CardsListCell extends ListCell<Card> {
                             for (Model.CardsLists.Deck deck : unit) {
                                 if (deck == null) continue;
                                 String base = coll + " / " + sanitize(deck.getName());
-                                items.add(makeDecksDestItemForCards(base + " / Main Deck", finalCards));
-                                items.add(makeDecksDestItemForCards(base + " / Extra Deck", finalCards));
+                                if (allowMain)
+                                    items.add(makeDecksDestItemForCards(base + " / Main Deck", finalCards));
+                                if (allowExtra)
+                                    items.add(makeDecksDestItemForCards(base + " / Extra Deck", finalCards));
                                 items.add(makeDecksDestItemForCards(base + " / Side Deck", finalCards));
                             }
                         }
@@ -478,8 +488,10 @@ public class CardsListCell extends ListCell<Card> {
                 for (Model.CardsLists.Deck deck : dac.getDecks()) {
                     if (deck == null) continue;
                     String d = sanitize(deck.getName());
-                    items.add(makeDecksDestItemForCards(d + " / Main Deck", finalCards));
-                    items.add(makeDecksDestItemForCards(d + " / Extra Deck", finalCards));
+                    if (allowMain)
+                        items.add(makeDecksDestItemForCards(d + " / Main Deck", finalCards));
+                    if (allowExtra)
+                        items.add(makeDecksDestItemForCards(d + " / Extra Deck", finalCards));
                     items.add(makeDecksDestItemForCards(d + " / Side Deck", finalCards));
                 }
             }

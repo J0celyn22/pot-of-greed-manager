@@ -65,57 +65,25 @@ public class CardTreeCell extends TreeCell<String> {
 
     private static final String ARCHETYPE_MARKER = "[ARCHETYPE]";
 
-    public CardTreeCell(DoubleProperty cardWidthProperty, DoubleProperty cardHeightProperty) {
-        this.cardWidthProperty = cardWidthProperty;
-        this.cardHeightProperty = cardHeightProperty;
-        getStyleClass().add("card-tree-cell");
-
-        // One popup per CardTreeCell, shared across all CardGridCell instances
-        // inside this tree cell. Mouse handlers are wired in CardGridCell().
-        hoverLabel.setWrapText(true);
-        hoverLabel.setMaxWidth(260);
-        hoverLabel.setStyle(CardHoverPopup.LABEL_STYLE);
-
-        hoverWarningLabel.setWrapText(true);
-        hoverWarningLabel.setMaxWidth(260);
-        hoverWarningLabel.setStyle(
-                "-fx-text-fill: #EB9E34; " +       // RGB(235, 158, 52)
-                        "-fx-font-size: 12; " +
-                        "-fx-font-weight: bold; " +
-                        "-fx-padding: 4 10 6 10;"
-        );
-        hoverWarningLabel.setVisible(false);
-        hoverWarningLabel.setManaged(false);
-
-        // Wrap both labels in a styled VBox so they share one rounded border.
-        javafx.scene.layout.VBox popupBox = new javafx.scene.layout.VBox(0, hoverLabel, hoverWarningLabel);
-        popupBox.setStyle(
-                "-fx-background-color: #1a0428; " +
-                        "-fx-background-radius: 6; " +
-                        "-fx-border-color: #cdfc04; " +
-                        "-fx-border-width: 1; " +
-                        "-fx-border-radius: 6;"
-        );
-        // Remove the border/background from the individual label now that the VBox carries it.
-        hoverLabel.setStyle(
-                "-fx-text-fill: white; " +
-                        "-fx-font-size: 12; " +
-                        "-fx-padding: 8 10 4 10;"
-        );
-
-        hoverPopup.getContent().add(popupBox);
-        hoverPopup.setAutoFix(true);
-        hoverPopup.setAutoHide(false);
-    }
+    /**
+     * Maps each Deck to a sub-map keyed "main" / "extra" / "side".
+     * Strong HashMap so GC never drops a Deck key mid-operation.
+     */
+    private static final java.util.HashMap<Model.CardsLists.Deck, java.util.Map<String, CardsGroup>>
+            DECK_SECTION_GROUPS = new java.util.HashMap<>();
 
     // Shared hover popup — one instance per CardTreeCell.
     // CardGridCell instances access it via CardTreeCell.this.
     final javafx.stage.Popup hoverPopup = new javafx.stage.Popup();
     final Label hoverLabel = new Label();
     /**
-     * Orange warning line shown below the main info when a card is glowing.
+     * Maps each CardsGroup to the set of passCodes that belong to a
+     * multi-artwork card whose collection is missing at least one artwork.
+     * Populated by RealMainController when building the D&C / OuicheList tree.
+     * WeakHashMap: entries are GC'd when the CardsGroup is no longer referenced.
      */
-    final Label hoverWarningLabel = new Label();
+    private static final java.util.WeakHashMap<CardsGroup, Set<String>>
+            MISSING_ARTWORK_SETS = new java.util.WeakHashMap<>();
 
     /**
      * Legacy global set kept for compatibility; preferred flow is per-group missing sets.
@@ -153,11 +121,84 @@ public class CardTreeCell extends TreeCell<String> {
     private static final java.util.WeakHashMap<Model.CardsLists.ThemeCollection, CardsGroup>
             COLLECTION_EXCEPTIONS_GROUPS = new java.util.WeakHashMap<>();
     /**
-     * Maps each Deck to a sub-map keyed "main" / "extra" / "side",
-     * holding the CardsGroup for each section.
+     * Set to true by wrapper.setOnDragDropped when it handles a drop, so
+     * grid.setOnDragDropped can detect the double-fire and bail out.
+     * Always reset to false at the start of wrapper.setOnDragDropped so it
+     * is never stale across drag sessions.
+     * Both handlers run on the FX thread — no synchronisation needed.
      */
-    private static final java.util.WeakHashMap<Model.CardsLists.Deck, java.util.Map<String, CardsGroup>>
-            DECK_SECTION_GROUPS = new java.util.WeakHashMap<>();
+    private static boolean dropHandledByCell = false;
+    /**
+     * When {@code true}, cards in the My Collection tab that have a missing
+     * printCode glow red, and cards missing condition or rarity glow orange.
+     * Toggled by the "Mark incomplete cards" button in the header.
+     */
+    private static volatile boolean incompleteMarkingEnabled = true;
+    /**
+     * Container for per-warning labels shown below the main info in the hover
+     * popup. Each applicable warning gets its own coloured Label added at
+     * hover time, so multiple warnings can appear simultaneously.
+     */
+    final javafx.scene.layout.VBox warningsBox = new javafx.scene.layout.VBox(2);
+
+    public CardTreeCell(DoubleProperty cardWidthProperty, DoubleProperty cardHeightProperty) {
+        this.cardWidthProperty = cardWidthProperty;
+        this.cardHeightProperty = cardHeightProperty;
+        getStyleClass().add("card-tree-cell");
+
+        // One popup per CardTreeCell, shared across all CardGridCell instances
+        // inside this tree cell. Mouse handlers are wired in CardGridCell().
+        hoverLabel.setWrapText(true);
+        hoverLabel.setMaxWidth(260);
+        hoverLabel.setStyle(CardHoverPopup.LABEL_STYLE);
+
+        warningsBox.setVisible(false);
+        warningsBox.setManaged(false);
+        warningsBox.setStyle("-fx-padding: 0 0 4 0;");
+
+        // Wrap both labels in a styled VBox so they share one rounded border.
+        javafx.scene.layout.VBox popupBox = new javafx.scene.layout.VBox(0, hoverLabel, warningsBox);
+        popupBox.setStyle(
+                "-fx-background-color: #1a0428; " +
+                        "-fx-background-radius: 6; " +
+                        "-fx-border-color: #cdfc04; " +
+                        "-fx-border-width: 1; " +
+                        "-fx-border-radius: 6;"
+        );
+        // Remove the border/background from the individual label now that the VBox carries it.
+        hoverLabel.setStyle(
+                "-fx-text-fill: white; " +
+                        "-fx-font-size: 12; " +
+                        "-fx-padding: 8 10 4 10;"
+        );
+
+        hoverPopup.getContent().add(popupBox);
+        hoverPopup.setAutoFix(true);
+        hoverPopup.setAutoHide(false);
+    }
+
+    /**
+     * Registers (or replaces) the missing-artwork set for {@code group}.
+     * Called by RealMainController after computing which cards in a Collection
+     * are missing at least one of their alternate artworks.
+     */
+    public static void setMissingArtworkSetForGroup(CardsGroup group, Set<String> artworks) {
+        if (group != null) MISSING_ARTWORK_SETS.put(group, artworks);
+    }
+
+    /**
+     * Returns whether the incomplete-card marking overlay is currently active.
+     */
+    public static boolean isIncompleteMarkingEnabled() {
+        return incompleteMarkingEnabled;
+    }
+
+    /**
+     * Enables or disables the incomplete-card marking overlay for My Collection.
+     */
+    public static void setIncompleteMarkingEnabled(boolean enabled) {
+        incompleteMarkingEnabled = enabled;
+    }
 
     /**
      * Public accessors used by RealMainController and MenuActionHandler paths.
@@ -1108,234 +1149,67 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     /**
-     * Build menu items for Decks and Collections proposals.
-     * Each MenuItem label follows the requested format:
-     * - CollectionName
-     * - CollectionName/DeckName/Main Deck (or Extra/Side)
+     * Inserts {@code newElements} into {@code targetList} at {@code insertionIndex}.
+     * If {@code sourceElements} is non-null and non-empty, each source element is
+     * first removed from its current group (MOVE semantics); otherwise new
+     * {@link CardElement} wrappers are created from the cards (ADD semantics).
+     *
+     * <p>Dirty marking and view refresh are handled by the caller.
      */
-    private List<MenuItem> buildDecksAndCollectionsProposals(Model.CardsLists.Card card, CardElement clickedElement) {
-        List<MenuItem> items = new ArrayList<>();
-        try {
-            if (card == null) return items;
+    public static java.util.Set<CardsGroup> dropInsertIntoGroup(
+            CardsGroup targetGroup,
+            int insertionIndex,
+            java.util.List<Model.CardsLists.CardElement> sourceElements,
+            java.util.List<Model.CardsLists.Card> sourceCards) {
 
-            if (UserInterfaceFunctions.getDecksList() == null) {
-                UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
-            }
-            DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
-            if (dac == null) return items;
+        java.util.Set<CardsGroup> modifiedSourceGroups = new java.util.LinkedHashSet<>();
 
-            OwnedCardsCollection owned = null;
-            try {
-                owned = Model.CardsLists.OuicheList.getMyCardsCollection();
-            } catch (Throwable ignored) {
-            }
-            if (owned == null) {
-                try {
-                    Controller.UserInterfaceFunctions.loadCollectionFile();
-                } catch (Throwable ignored) {
-                }
-                try {
-                    owned = Model.CardsLists.OuicheList.getMyCardsCollection();
-                } catch (Throwable ignored) {
-                }
-            }
-            if (owned == null || owned.getOwnedCollection() == null) return items;
-
-            OwnedCardsCollection finalOwned = owned;
-            java.util.function.Predicate<String> existsLocation = (name) -> {
-                if (name == null || name.trim().isEmpty()) return false;
-                String targetSan = sanitizeDisplayName(name).toLowerCase();
-                for (Box b : finalOwned.getOwnedCollection()) {
-                    if (b == null) continue;
-                    String boxSan = sanitizeDisplayName(b.getName()).toLowerCase();
-                    if (boxSan.equals(targetSan)) return true;
-                    if (b.getContent() != null) {
-                        for (CardsGroup g : b.getContent()) {
-                            if (g == null) continue;
-                            String groupSan = sanitizeDisplayName(g.getName()).toLowerCase();
-                            if (groupSan.equals(targetSan)) return true;
-                        }
-                    }
-                }
-                if (name.contains("/")) {
-                    String[] parts = name.split("/");
-                    for (String p : parts) {
-                        String pSan = sanitizeDisplayName(p).toLowerCase();
-                        if (pSan.isEmpty()) continue;
-                        for (Box b : finalOwned.getOwnedCollection()) {
-                            if (b == null) continue;
-                            String boxSan = sanitizeDisplayName(b.getName()).toLowerCase();
-                            if (boxSan.equals(pSan)) return true;
-                            if (b.getContent() != null) {
-                                for (CardsGroup g : b.getContent()) {
-                                    if (g == null) continue;
-                                    String groupSan = sanitizeDisplayName(g.getName()).toLowerCase();
-                                    if (groupSan.equals(pSan)) return true;
-                                }
-                            }
-                        }
-                    }
-                    String last = name.substring(name.lastIndexOf('/') + 1);
-                    String lastSan = sanitizeDisplayName(last).toLowerCase();
-                    if (!lastSan.isEmpty()) {
-                        for (Box b : finalOwned.getOwnedCollection()) {
-                            if (b == null) continue;
-                            String boxSan = sanitizeDisplayName(b.getName()).toLowerCase();
-                            if (boxSan.equals(lastSan)) return true;
-                            if (b.getContent() != null) {
-                                for (CardsGroup g : b.getContent()) {
-                                    if (g == null) continue;
-                                    String groupSan = sanitizeDisplayName(g.getName()).toLowerCase();
-                                    if (groupSan.equals(lastSan)) return true;
-                                }
-                            }
-                        }
-                    }
-                }
-                return false;
-            };
-
-            Map<String, Boolean> proposedTargets = new LinkedHashMap<>();
-
-            if (dac.getCollections() != null) {
-                for (ThemeCollection tc : dac.getCollections()) {
-                    if (tc == null) continue;
-                    int countInCollection = countCardInList(tc.toList(), card);
-                    if (countInCollection <= 0) continue;
-
-                    boolean collectionProposed = false;
-                    for (Box box : owned.getOwnedCollection()) {
-                        if (box == null || box.getContent() == null) continue;
-                        for (CardsGroup group : box.getContent()) {
-                            int countInBoxGroup = countCardInList(group.getCardList(), card);
-                            if (countInCollection > countInBoxGroup) {
-                                String target = sanitizeDisplayName(tc.getName());
-                                boolean exists = existsLocation.test(tc.getName());
-                                proposedTargets.put(target, exists);
-                                collectionProposed = true;
-                                break;
-                            }
-                        }
-                        if (collectionProposed) break;
-                    }
-
-                    if (tc.getLinkedDecks() != null) {
-                        for (List<Deck> unit : tc.getLinkedDecks()) {
-                            if (unit == null) continue;
-                            for (Deck deck : unit) {
-                                if (deck == null) continue;
-                                int countMain = countCardInList(deck.getMainDeck(), card);
-                                int countExtra = countCardInList(deck.getExtraDeck(), card);
-                                int countSide = countCardInList(deck.getSideDeck(), card);
-
-                                // compute total required by this deck across all lists
-                                int requiredTotal = countMain + countExtra + countSide;
-                                if (requiredTotal > 0) {
-                                    int presentTotal = countInOwnedForDeckCombined(owned, deck.getName(), card);
-                                    if (requiredTotal > presentTotal) {
-                                        // propose targets for the individual lists as before (so user can choose where to place),
-                                        // but only if the deck as a whole still needs copies.
-                                        if (countMain > 0) {
-                                            String target = sanitizeDisplayName(deck.getName()) + "/Main Deck";
-                                            boolean exists = existsLocation.test(deck.getName()); // keep your original semantics
-                                            proposedTargets.put(target, exists);
-                                        }
-                                        if (countExtra > 0) {
-                                            String target = sanitizeDisplayName(deck.getName()) + "/Extra Deck";
-                                            boolean exists = existsLocation.test(deck.getName());
-                                            proposedTargets.put(target, exists);
-                                        }
-                                        if (countSide > 0) {
-                                            String target = sanitizeDisplayName(deck.getName()) + "/Side Deck";
-                                            boolean exists = existsLocation.test(deck.getName());
-                                            proposedTargets.put(target, exists);
-                                        }
-                                    }
-                                }
-
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (dac.getDecks() != null) {
-                for (Deck deck : dac.getDecks()) {
-                    if (deck == null) continue;
-                    int countMain = countCardInList(deck.getMainDeck(), card);
-                    int countExtra = countCardInList(deck.getExtraDeck(), card);
-                    int countSide = countCardInList(deck.getSideDeck(), card);
-
-                    // compute total required by this deck across all lists
-                    int requiredTotal = countMain + countExtra + countSide;
-                    if (requiredTotal > 0) {
-                        int presentTotal = countInOwnedForDeckCombined(owned, deck.getName(), card);
-                        if (requiredTotal > presentTotal) {
-                            // propose targets for the individual lists as before (so user can choose where to place),
-                            // but only if the deck as a whole still needs copies.
-                            if (countMain > 0) {
-                                String target = sanitizeDisplayName(deck.getName()) + "/Main Deck";
-                                boolean exists = existsLocation.test(deck.getName()); // keep your original semantics
-                                proposedTargets.put(target, exists);
-                            }
-                            if (countExtra > 0) {
-                                String target = sanitizeDisplayName(deck.getName()) + "/Extra Deck";
-                                boolean exists = existsLocation.test(deck.getName());
-                                proposedTargets.put(target, exists);
-                            }
-                            if (countSide > 0) {
-                                String target = sanitizeDisplayName(deck.getName()) + "/Side Deck";
-                                boolean exists = existsLocation.test(deck.getName());
-                                proposedTargets.put(target, exists);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Deduplicate by visible label to avoid multiple identical "Add ..." entries
-            Set<String> labelsAdded = new HashSet<>();
-            for (Map.Entry<String, Boolean> e : proposedTargets.entrySet()) {
-                String rawTarget = e.getKey();
-                boolean exists = e.getValue() == null ? false : e.getValue();
-                if (rawTarget == null || rawTarget.trim().isEmpty()) continue;
-                final String handlerTarget = rawTarget;
-
-                String label;
-                if (exists) {
-                    label = rawTarget;
-                } else {
-                    String baseName = rawTarget;
-                    if (rawTarget.endsWith("/Main Deck") || rawTarget.endsWith("/Extra Deck") || rawTarget.endsWith("/Side Deck")) {
-                        String[] parts = rawTarget.split("/");
-                        if (parts.length >= 2) baseName = parts.length == 2 ? parts[0] : parts[parts.length - 2];
-                    } else if (rawTarget.contains("/")) {
-                        String[] parts = rawTarget.split("/");
-                        if (parts.length > 0) baseName = parts[parts.length - 1];
-                    }
-                    label = "Add " + baseName;
-                }
-
-                if (labelsAdded.contains(label)) continue;
-                labelsAdded.add(label);
-
-                // create MenuItem and wire the move handler (only for direct-move items; Add/Swap left for later)
-                MenuItem mi = new MenuItem(label);
-                if (label.startsWith("Add ")) {
-                    // Strip "Add " to get the category name to create
-                    final String catName = label.substring(4).trim();
-                    mi.setOnAction(ev ->
-                            MenuActionHandler.handleAddCategoryAndMove(clickedElement, catName));
-                } else if (!label.startsWith("Swap")) {
-                    mi.setOnAction(ev -> MenuActionHandler.handleMove(clickedElement, handlerTarget));
-                }
-                items.add(mi);
-            }
-
-        } catch (Exception ex) {
-            logger.debug("buildDecksAndCollectionsProposals failed", ex);
+        // ── Deck-compatibility redirect ────────────────────────────────────────
+        // If the target is a main/extra deck section and the payload is incompatible,
+        // redirect to the sibling section of the same Deck.
+        // CRITICAL: when redirected, insertionIndex belongs to the ORIGINAL (wrong)
+        // list — reset to MAX_VALUE so it clamps to end-of-list on the new target.
+        CardsGroup originalGroup = targetGroup;
+        targetGroup = resolveCompatibleTargetGroup(targetGroup, sourceElements, sourceCards);
+        if (targetGroup != originalGroup) {
+            insertionIndex = Integer.MAX_VALUE; // always append to the redirect target
         }
-        return items;
+        // ──────────────────────────────────────────────────────────────────────
+
+        javafx.collections.ObservableList<CardElement> targetList = observableListFor(targetGroup);
+        int idx = Math.max(0, Math.min(insertionIndex, targetList.size()));
+
+        if (sourceElements != null && !sourceElements.isEmpty()) {
+            // MOVE: remove from sources first (may be in different groups)
+            for (CardElement ce : sourceElements) {
+                for (java.util.Map.Entry<CardsGroup,
+                        javafx.collections.ObservableList<CardElement>> entry
+                        : GROUP_OBSERVABLE_LISTS.entrySet()) {
+                    if (entry.getValue().remove(ce)) {
+                        CardsGroup srcGroup = entry.getKey();
+                        triggerHeightAdjustment(srcGroup);
+                        modifiedSourceGroups.add(srcGroup);
+                        break;
+                    }
+                }
+            }
+            // Re-compute index in case removals shifted it
+            idx = Math.min(idx, targetList.size());
+            for (int i = 0; i < sourceElements.size(); i++) {
+                int pos = Math.min(idx + i, targetList.size());
+                targetList.add(pos, sourceElements.get(i));
+            }
+        } else if (sourceCards != null && !sourceCards.isEmpty()) {
+            // ADD: create new elements
+            for (int i = 0; i < sourceCards.size(); i++) {
+                Model.CardsLists.Card card = sourceCards.get(i);
+                if (card == null) continue;
+                int pos = Math.min(idx + i, targetList.size());
+                targetList.add(pos, new CardElement(card));
+            }
+        }
+        triggerHeightAdjustment(targetGroup);
+        return modifiedSourceGroups;
     }
 
     // ---------- Helpers for building proposals (add inside CardTreeCell class) ----------
@@ -2018,54 +1892,306 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     /**
-     * Inserts {@code newElements} into {@code targetList} at {@code insertionIndex}.
-     * If {@code sourceElements} is non-null and non-empty, each source element is
-     * first removed from its current group (MOVE semantics); otherwise new
-     * {@link CardElement} wrappers are created from the cards (ADD semantics).
-     *
-     * <p>Dirty marking and view refresh are handled by the caller.
+     * If {@code targetGroup} is a Deck's main or extra deck section and the
+     * payload is incompatible (e.g. extra-deck card dropped on Main Deck),
+     * returns the other section's CardsGroup for the same Deck.
+     * Falls back to {@code targetGroup} unchanged when redirection is not
+     * needed or not possible.
      */
-    public static java.util.Set<CardsGroup> dropInsertIntoGroup(
+    private static CardsGroup resolveCompatibleTargetGroup(
             CardsGroup targetGroup,
-            int insertionIndex,
             java.util.List<Model.CardsLists.CardElement> sourceElements,
             java.util.List<Model.CardsLists.Card> sourceCards) {
 
-        java.util.Set<CardsGroup> modifiedSourceGroups = new java.util.LinkedHashSet<>();
-        javafx.collections.ObservableList<CardElement> targetList = observableListFor(targetGroup);
-        int idx = Math.max(0, Math.min(insertionIndex, targetList.size()));
+        if (targetGroup == null) return targetGroup;
+        String groupName = targetGroup.getName();
+        if (groupName == null) return targetGroup;
 
-        if (sourceElements != null && !sourceElements.isEmpty()) {
-            // MOVE: remove from sources first (may be in different groups)
-            for (CardElement ce : sourceElements) {
-                for (java.util.Map.Entry<CardsGroup,
-                        javafx.collections.ObservableList<CardElement>> entry
-                        : GROUP_OBSERVABLE_LISTS.entrySet()) {
-                    if (entry.getValue().remove(ce)) {
-                        CardsGroup srcGroup = entry.getKey();
-                        triggerHeightAdjustment(srcGroup);
-                        modifiedSourceGroups.add(srcGroup);
-                        break;
+        boolean isMain = Utils.DeckCompatibility.isMainDeckSection(groupName);
+        boolean isExtra = Utils.DeckCompatibility.isExtraDeckSection(groupName);
+        if (!isMain && !isExtra) return targetGroup; // side deck or other — no restriction
+
+        // Collect first card to test
+        Model.CardsLists.Card sample = null;
+        if (sourceElements != null) {
+            for (Model.CardsLists.CardElement ce : sourceElements) {
+                if (ce != null && ce.getCard() != null) {
+                    sample = ce.getCard();
+                    break;
+                }
+            }
+        }
+        if (sample == null && sourceCards != null) {
+            for (Model.CardsLists.Card c : sourceCards) {
+                if (c != null) {
+                    sample = c;
+                    break;
+                }
+            }
+        }
+        if (sample == null) return targetGroup;
+
+        String redirect = Utils.DeckCompatibility.redirectSection(sample, groupName);
+        if (redirect == null) return targetGroup; // already compatible
+
+        // Find the Deck that owns this group
+        Model.CardsLists.Deck ownerDeck = findDeckOwnerForGroup(targetGroup);
+        if (ownerDeck == null) return targetGroup;
+
+        // Find the redirect group (other section) in the same Deck
+        String redirectKey = redirect.toLowerCase(java.util.Locale.ROOT)
+                .replace(" deck", "").trim(); // "main" or "extra"
+        CardsGroup redirectGroup = getDeckSectionGroup(ownerDeck, redirectKey);
+        return redirectGroup != null ? redirectGroup : targetGroup;
+    }
+
+    /**
+     * Returns the Deck that owns {@code group} via the registered section map,
+     * or null if not found.
+     */
+    public static Model.CardsLists.Deck findDeckOwnerForGroup(CardsGroup group) {
+        if (group == null) return null;
+        for (java.util.Map.Entry<Model.CardsLists.Deck,
+                java.util.Map<String, CardsGroup>> entry : DECK_SECTION_GROUPS.entrySet()) {
+            if (entry.getValue() != null && entry.getValue().containsValue(group))
+                return entry.getKey();
+        }
+        return null;
+    }
+
+    /**
+     * Build menu items for Decks and Collections proposals.
+     * Each MenuItem label follows the requested format:
+     * - CollectionName
+     * - CollectionName/DeckName/Main Deck (or Extra/Side)
+     */
+    private List<MenuItem> buildDecksAndCollectionsProposals(Model.CardsLists.Card card, CardElement clickedElement) {
+        List<MenuItem> items = new ArrayList<>();
+        try {
+            if (card == null) return items;
+
+            if (UserInterfaceFunctions.getDecksList() == null) {
+                UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+            }
+            DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
+            if (dac == null) return items;
+
+            OwnedCardsCollection owned = null;
+            try {
+                owned = Model.CardsLists.OuicheList.getMyCardsCollection();
+            } catch (Throwable ignored) {
+            }
+            if (owned == null) {
+                try {
+                    Controller.UserInterfaceFunctions.loadCollectionFile();
+                } catch (Throwable ignored) {
+                }
+                try {
+                    owned = Model.CardsLists.OuicheList.getMyCardsCollection();
+                } catch (Throwable ignored) {
+                }
+            }
+            if (owned == null || owned.getOwnedCollection() == null) return items;
+
+            OwnedCardsCollection finalOwned = owned;
+            java.util.function.Predicate<String> existsLocation = (name) -> {
+                if (name == null || name.trim().isEmpty()) return false;
+                String targetSan = sanitizeDisplayName(name).toLowerCase();
+                for (Box b : finalOwned.getOwnedCollection()) {
+                    if (b == null) continue;
+                    String boxSan = sanitizeDisplayName(b.getName()).toLowerCase();
+                    if (boxSan.equals(targetSan)) return true;
+                    if (b.getContent() != null) {
+                        for (CardsGroup g : b.getContent()) {
+                            if (g == null) continue;
+                            String groupSan = sanitizeDisplayName(g.getName()).toLowerCase();
+                            if (groupSan.equals(targetSan)) return true;
+                        }
+                    }
+                }
+                if (name.contains("/")) {
+                    String[] parts = name.split("/");
+                    for (String p : parts) {
+                        String pSan = sanitizeDisplayName(p).toLowerCase();
+                        if (pSan.isEmpty()) continue;
+                        for (Box b : finalOwned.getOwnedCollection()) {
+                            if (b == null) continue;
+                            String boxSan = sanitizeDisplayName(b.getName()).toLowerCase();
+                            if (boxSan.equals(pSan)) return true;
+                            if (b.getContent() != null) {
+                                for (CardsGroup g : b.getContent()) {
+                                    if (g == null) continue;
+                                    String groupSan = sanitizeDisplayName(g.getName()).toLowerCase();
+                                    if (groupSan.equals(pSan)) return true;
+                                }
+                            }
+                        }
+                    }
+                    String last = name.substring(name.lastIndexOf('/') + 1);
+                    String lastSan = sanitizeDisplayName(last).toLowerCase();
+                    if (!lastSan.isEmpty()) {
+                        for (Box b : finalOwned.getOwnedCollection()) {
+                            if (b == null) continue;
+                            String boxSan = sanitizeDisplayName(b.getName()).toLowerCase();
+                            if (boxSan.equals(lastSan)) return true;
+                            if (b.getContent() != null) {
+                                for (CardsGroup g : b.getContent()) {
+                                    if (g == null) continue;
+                                    String groupSan = sanitizeDisplayName(g.getName()).toLowerCase();
+                                    if (groupSan.equals(lastSan)) return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                return false;
+            };
+
+            Map<String, Boolean> proposedTargets = new LinkedHashMap<>();
+
+            if (dac.getCollections() != null) {
+                for (ThemeCollection tc : dac.getCollections()) {
+                    if (tc == null) continue;
+                    int countInCollection = countCardInList(tc.toList(), card);
+                    if (countInCollection <= 0) continue;
+
+                    boolean collectionProposed = false;
+                    for (Box box : owned.getOwnedCollection()) {
+                        if (box == null || box.getContent() == null) continue;
+                        for (CardsGroup group : box.getContent()) {
+                            int countInBoxGroup = countCardInList(group.getCardList(), card);
+                            if (countInCollection > countInBoxGroup) {
+                                String target = sanitizeDisplayName(tc.getName());
+                                boolean exists = existsLocation.test(tc.getName());
+                                proposedTargets.put(target, exists);
+                                collectionProposed = true;
+                                break;
+                            }
+                        }
+                        if (collectionProposed) break;
+                    }
+
+                    if (tc.getLinkedDecks() != null) {
+                        for (List<Deck> unit : tc.getLinkedDecks()) {
+                            if (unit == null) continue;
+                            for (Deck deck : unit) {
+                                if (deck == null) continue;
+                                int countMain = countCardInList(deck.getMainDeck(), card);
+                                int countExtra = countCardInList(deck.getExtraDeck(), card);
+                                int countSide = countCardInList(deck.getSideDeck(), card);
+
+                                // compute total required by this deck across all lists
+                                int requiredTotal = countMain + countExtra + countSide;
+                                if (requiredTotal > 0) {
+                                    int presentTotal = countInOwnedForDeckCombined(owned, deck.getName(), card);
+                                    if (requiredTotal > presentTotal) {
+                                        // propose targets for the individual lists as before (so user can choose where to place),
+                                        // but only if the deck as a whole still needs copies.
+                                        if (countMain > 0
+                                                && Utils.DeckCompatibility.isCompatibleWith(card, "Main Deck")) {
+                                            String target = sanitizeDisplayName(deck.getName()) + "/Main Deck";
+                                            boolean exists = existsLocation.test(deck.getName());
+                                            proposedTargets.put(target, exists);
+                                        }
+                                        if (countExtra > 0
+                                                && Utils.DeckCompatibility.isCompatibleWith(card, "Extra Deck")) {
+                                            String target = sanitizeDisplayName(deck.getName()) + "/Extra Deck";
+                                            boolean exists = existsLocation.test(deck.getName());
+                                            proposedTargets.put(target, exists);
+                                        }
+                                        if (countSide > 0) {
+                                            String target = sanitizeDisplayName(deck.getName()) + "/Side Deck";
+                                            boolean exists = existsLocation.test(deck.getName());
+                                            proposedTargets.put(target, exists);
+                                        }
+                                    }
+                                }
+
+                            }
+                        }
                     }
                 }
             }
-            // Re-compute index in case removals shifted it
-            idx = Math.min(idx, targetList.size());
-            for (int i = 0; i < sourceElements.size(); i++) {
-                int pos = Math.min(idx + i, targetList.size());
-                targetList.add(pos, sourceElements.get(i));
+
+            if (dac.getDecks() != null) {
+                for (Deck deck : dac.getDecks()) {
+                    if (deck == null) continue;
+                    int countMain = countCardInList(deck.getMainDeck(), card);
+                    int countExtra = countCardInList(deck.getExtraDeck(), card);
+                    int countSide = countCardInList(deck.getSideDeck(), card);
+
+                    // compute total required by this deck across all lists
+                    int requiredTotal = countMain + countExtra + countSide;
+                    if (requiredTotal > 0) {
+                        int presentTotal = countInOwnedForDeckCombined(owned, deck.getName(), card);
+                        if (requiredTotal > presentTotal) {
+                            // propose targets for the individual lists as before (so user can choose where to place),
+                            // but only if the deck as a whole still needs copies.
+                            if (countMain > 0
+                                    && Utils.DeckCompatibility.isCompatibleWith(card, "Main Deck")) {
+                                String target = sanitizeDisplayName(deck.getName()) + "/Main Deck";
+                                boolean exists = existsLocation.test(deck.getName());
+                                proposedTargets.put(target, exists);
+                            }
+                            if (countExtra > 0
+                                    && Utils.DeckCompatibility.isCompatibleWith(card, "Extra Deck")) {
+                                String target = sanitizeDisplayName(deck.getName()) + "/Extra Deck";
+                                boolean exists = existsLocation.test(deck.getName());
+                                proposedTargets.put(target, exists);
+                            }
+                            if (countSide > 0) {
+                                String target = sanitizeDisplayName(deck.getName()) + "/Side Deck";
+                                boolean exists = existsLocation.test(deck.getName());
+                                proposedTargets.put(target, exists);
+                            }
+                        }
+                    }
+                }
             }
-        } else if (sourceCards != null && !sourceCards.isEmpty()) {
-            // ADD: create new elements
-            for (int i = 0; i < sourceCards.size(); i++) {
-                Model.CardsLists.Card card = sourceCards.get(i);
-                if (card == null) continue;
-                int pos = Math.min(idx + i, targetList.size());
-                targetList.add(pos, new CardElement(card));
+
+            // Deduplicate by visible label to avoid multiple identical "Add ..." entries
+            Set<String> labelsAdded = new HashSet<>();
+            for (Map.Entry<String, Boolean> e : proposedTargets.entrySet()) {
+                String rawTarget = e.getKey();
+                boolean exists = e.getValue() == null ? false : e.getValue();
+                if (rawTarget == null || rawTarget.trim().isEmpty()) continue;
+                final String handlerTarget = rawTarget;
+
+                String label;
+                if (exists) {
+                    label = rawTarget;
+                } else {
+                    String baseName = rawTarget;
+                    if (rawTarget.endsWith("/Main Deck") || rawTarget.endsWith("/Extra Deck") || rawTarget.endsWith("/Side Deck")) {
+                        String[] parts = rawTarget.split("/");
+                        if (parts.length >= 2) baseName = parts.length == 2 ? parts[0] : parts[parts.length - 2];
+                    } else if (rawTarget.contains("/")) {
+                        String[] parts = rawTarget.split("/");
+                        if (parts.length > 0) baseName = parts[parts.length - 1];
+                    }
+                    label = "Add " + baseName;
+                }
+
+                if (labelsAdded.contains(label)) continue;
+                labelsAdded.add(label);
+
+                // create MenuItem and wire the move handler (only for direct-move items; Add/Swap left for later)
+                MenuItem mi = new MenuItem(label);
+                if (label.startsWith("Add ")) {
+                    // Strip "Add " to get the category name to create
+                    final String catName = label.substring(4).trim();
+                    mi.setOnAction(ev ->
+                            MenuActionHandler.handleAddCategoryAndMove(clickedElement, catName));
+                } else if (!label.startsWith("Swap")) {
+                    mi.setOnAction(ev -> MenuActionHandler.handleMove(clickedElement, handlerTarget));
+                }
+                items.add(mi);
             }
+
+        } catch (Exception ex) {
+            logger.debug("buildDecksAndCollectionsProposals failed", ex);
         }
-        triggerHeightAdjustment(targetGroup);
-        return modifiedSourceGroups;
+        return items;
     }
 
     /**
@@ -2311,10 +2437,13 @@ public class CardTreeCell extends TreeCell<String> {
          * This preserves the archetype missing-set behavior (used by Decks & Collections / Archetypes)
          * while also providing the element name for My Collection compute logic.
          */
+        Set<String> missingArtworkSet = MISSING_ARTWORK_SETS.get(group);
+
         Map<String, Object> ud = new HashMap<>();
         ud.put("missingSet", missingForThisGroup == null ? Collections.emptySet() : missingForThisGroup);
         ud.put("elementName", displayName);
         ud.put("isArchetype", isArchetype);
+        ud.put("missingArtworkSet", missingArtworkSet == null ? Collections.emptySet() : missingArtworkSet);
         grid.setUserData(ud);
 
         this.cardGridView = grid;
@@ -2362,6 +2491,17 @@ public class CardTreeCell extends TreeCell<String> {
                 event.consume();
                 return;
             }
+
+            // wrapper.setOnDragDropped fires first (child before parent).
+            // If it handled the drop it sets dropHandledByCell = true.
+            // Consume the flag immediately so it never persists past this point.
+            if (dropHandledByCell) {
+                dropHandledByCell = false; // always reset so next drag starts clean
+                event.setDropCompleted(true);
+                event.consume();
+                return;
+            }
+
             int insertionIndex = computeGapInsertionIndex(
                     grid, group, event.getX(), event.getY());
             if (insertionIndex < 0) {
@@ -2388,7 +2528,6 @@ public class CardTreeCell extends TreeCell<String> {
                         new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
                 dropInsertIntoGroup(group, insertionIndex, null, srcCards);
             }
-            markDirtyAndRefreshForGroup(group);
             markDirtyAndRefreshForGroup(group);
             event.setDropCompleted(true);
             event.consume();
@@ -2449,8 +2588,21 @@ public class CardTreeCell extends TreeCell<String> {
         private final StackPane wrapper;
         private Future<?> imageLoadFuture;
         private String currentImageKey;
-        /** Tracks whether this cell is currently glowing; read in the hover handler. */
-        private boolean currentNeedsSorting = false;
+        /**
+         * Glow priority for this cell, read by the hover handler.
+         * 0 = none | 1 = white (archetype/artwork missing or needs-sort)
+         * 2 = orange (condition or rarity not set) | 3 = red (no printCode).
+         * The glow is only applied when incompleteMarkingEnabled for priorities 2 & 3.
+         */
+        private int currentGlowPriority = 0;
+        /**
+         * All applicable tooltip warnings for this cell, computed unconditionally.
+         * Each entry is a two-element array: [message, cssColor].
+         * Priorities 2 & 3 (My Collection completeness) are always collected even
+         * when incompleteMarkingEnabled is false, so the hover tooltip is always
+         * informative regardless of whether the glow overlay is active.
+         */
+        private java.util.List<String[]> currentTooltips = new java.util.ArrayList<>();
 
         public CardGridCell() {
             cardImageView = new ImageView();
@@ -3289,21 +3441,22 @@ public class CardTreeCell extends TreeCell<String> {
                 CardTreeCell.this.hoverLabel.setText(
                         CardHoverPopup.buildTooltipText(item));
 
-                // Orange warning line — shown only for glowing cards.
-                if (currentNeedsSorting) {
-                    String warning;
-                    if (isInArchetypeGroup()) {
-                        warning = "This card is missing in the collection.";
-                    } else {
-                        warning = "This card can be sorted to a deck or collection it is needed in.";
-                    }
-                    CardTreeCell.this.hoverWarningLabel.setText(warning);
-                    CardTreeCell.this.hoverWarningLabel.setVisible(true);
-                    CardTreeCell.this.hoverWarningLabel.setManaged(true);
-                } else {
-                    CardTreeCell.this.hoverWarningLabel.setVisible(false);
-                    CardTreeCell.this.hoverWarningLabel.setManaged(false);
+                // Rebuild the warnings box from currentTooltips (computed in updateItem).
+                // Always shown when applicable, regardless of whether the card is glowing.
+                CardTreeCell.this.warningsBox.getChildren().clear();
+                for (String[] entry : currentTooltips) {
+                    Label wl = new Label(entry[0]);
+                    wl.setStyle("-fx-text-fill: " + entry[1] + "; " +
+                            "-fx-font-size: 12; " +
+                            "-fx-font-weight: bold; " +
+                            "-fx-padding: 2 10 2 10;");
+                    wl.setWrapText(true);
+                    wl.setMaxWidth(260);
+                    CardTreeCell.this.warningsBox.getChildren().add(wl);
                 }
+                boolean hasWarnings = !currentTooltips.isEmpty();
+                CardTreeCell.this.warningsBox.setVisible(hasWarnings);
+                CardTreeCell.this.warningsBox.setManaged(hasWarnings);
 
                 CardTreeCell.this.hoverPopup.show(wrapper, e.getScreenX() + 14, e.getScreenY() + 14);
             });
@@ -3324,6 +3477,11 @@ public class CardTreeCell extends TreeCell<String> {
             });
 
             wrapper.setOnDragDropped(event -> {
+                // Always reset the flag at the start of each drop so it is never
+                // stale from a previous drag session (e.g. after a right-pane drag
+                // where wrapper.setOnDragDone never fires).
+                dropHandledByCell = false;
+
                 if (isInArchetypeGroup()) {
                     event.setDropCompleted(false);
                     event.consume();
@@ -3377,6 +3535,8 @@ public class CardTreeCell extends TreeCell<String> {
                     dropInsertIntoGroup(group, insertionIndex, null, srcCards);
                 }
                 markDirtyAndRefreshForGroup(group);
+                // Signal to grid.setOnDragDropped that this drop is already handled.
+                dropHandledByCell = true;
                 event.setDropCompleted(true);
                 event.consume();
             });
@@ -3598,7 +3758,8 @@ public class CardTreeCell extends TreeCell<String> {
                 cardImageView.setEffect(null);
                 wrapper.setEffect(null);
                 wrapper.setStyle("-fx-background-color: transparent;");
-                currentNeedsSorting = false;
+                currentGlowPriority = 0;
+                currentTooltips = new java.util.ArrayList<>();
                 setGraphic(wrapper);
                 return;
             }
@@ -3636,91 +3797,158 @@ public class CardTreeCell extends TreeCell<String> {
                 });
             }
 
-            // --- Determine whether this card needs the "unsorted" white glow ---
-            boolean needsSorting = false;
+            // ── Tooltip list: always computed, regardless of marking toggle ───────────────
+            // Each entry: [message, cssColor]
+            java.util.List<String[]> tooltips = new java.util.ArrayList<>();
+            int glowPriority = 0;
             try {
-                // Retrieve GridView userData (we stored a Map with "missingSet" and "elementName")
-                Object ud = null;
-                try {
-                    if (this.getGridView() != null) ud = this.getGridView().getUserData();
-                } catch (Exception ignored) {
-                    ud = null;
+                Card card = cardElement.getCard();
+                boolean myCollTab = isMyCollectionTabSelected();
+
+                // ── My Collection completeness warnings (always shown in tooltip) ─────────
+                // Glow is only applied when incompleteMarkingEnabled; tooltip always shows.
+                if (myCollTab && card != null
+                        && (card.getPrintCode() == null || card.getPrintCode().isBlank())) {
+                    tooltips.add(new String[]{
+                            "This card has no print code — the edition is unknown.", "#ff3333"});
+                    if (incompleteMarkingEnabled) glowPriority = 3;
+                }
+                if (myCollTab
+                        && (cardElement.getCondition() == null || cardElement.getRarity() == null)) {
+                    tooltips.add(new String[]{
+                            "This card is missing its condition or rarity.", "#EB9E34"});
+                    if (incompleteMarkingEnabled && glowPriority < 2) glowPriority = 2;
                 }
 
-                Set<String> missingSet = null;
-                String elementNameFromUD = null;
-
-                if (ud instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> map = (Map<String, Object>) ud;
-                    Object ms = map.get("missingSet");
-                    if (ms instanceof Set) {
-                        @SuppressWarnings("unchecked")
-                        Set<String> s = (Set<String>) ms;
-                        missingSet = s;
-                    } else if (ms instanceof Collection) {
-                        Set<String> s = new HashSet<>();
-                        for (Object o : (Collection<?>) ms) if (o != null) s.add(o.toString());
-                        missingSet = s;
+                // ── White-glow conditions (archetype / artwork missing, needs-sort) ─────────
+                // Always evaluated so their tooltip entries are always collected.
+                // glowPriority is only elevated to 1 when it is still 0 (higher-priority
+                // My Collection glows have already won and keep their effect).
+                {
+                    Object ud = null;
+                    try {
+                        if (this.getGridView() != null) ud = this.getGridView().getUserData();
+                    } catch (Exception ignored) {
                     }
-                    Object en = map.get("elementName");
-                    if (en instanceof String) elementNameFromUD = (String) en;
-                } else if (ud instanceof Set) {
-                    @SuppressWarnings("unchecked")
-                    Set<String> s = (Set<String>) ud;
-                    missingSet = s;
-                } else if (ud instanceof String) {
-                    elementNameFromUD = (String) ud;
-                }
 
-                // If a missing set exists and indicates this card is missing, use that (archetype glow)
-                if (missingSet != null && !missingSet.isEmpty()) {
-                    String konamiId = cardElement.getCard() == null ? null : cardElement.getCard().getKonamiId();
-                    String passCode = cardElement.getCard() == null ? null : cardElement.getCard().getPassCode();
-                    boolean missing = false;
-                    if (konamiId != null && missingSet.contains(konamiId)) missing = true;
-                    if (!missing && passCode != null && missingSet.contains(passCode)) missing = true;
-                    // fallback to legacy global set if needed
-                    if (!missing && legacyGlobalMissingSet.contains(konamiId)) missing = true;
-                    if (!missing && legacyGlobalMissingSet.contains(passCode)) missing = true;
-                    needsSorting = missing;
-                } else {
-                    // No archetype missing-set -> try elementName + computeCardNeedsSorting
-                    String elementName = elementNameFromUD;
-                    boolean isFirstTabSelected = isFirstTabSelected();
-                    if (elementName != null && !elementName.trim().isEmpty() && isFirstTabSelected) {
-                        try {
-                            needsSorting = Controller.RealMainController.computeCardNeedsSorting(cardElement.getCard(), elementName);
-                        } catch (Throwable t) {
-                            needsSorting = false;
+                    Set<String> missingSet = null;
+                    Set<String> missingArtworkSet = null;
+                    String elementNameFromUD = null;
+
+                    if (ud instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> map = (Map<String, Object>) ud;
+
+                        Object ms = map.get("missingSet");
+                        if (ms instanceof Set) {
+                            @SuppressWarnings("unchecked") Set<String> s = (Set<String>) ms;
+                            missingSet = s;
+                        } else if (ms instanceof Collection) {
+                            Set<String> s = new HashSet<>();
+                            for (Object o : (Collection<?>) ms) if (o != null) s.add(o.toString());
+                            missingSet = s;
                         }
-                    } else {
-                        needsSorting = false;
+
+                        Object mas = map.get("missingArtworkSet");
+                        if (mas instanceof Set) {
+                            @SuppressWarnings("unchecked") Set<String> s = (Set<String>) mas;
+                            missingArtworkSet = s;
+                        }
+
+                        Object en = map.get("elementName");
+                        if (en instanceof String) elementNameFromUD = (String) en;
+
+                    } else if (ud instanceof Set) {
+                        @SuppressWarnings("unchecked") Set<String> s = (Set<String>) ud;
+                        missingSet = s;
+                    } else if (ud instanceof String) {
+                        elementNameFromUD = (String) ud;
+                    }
+
+                    String konamiId = card == null ? null : card.getKonamiId();
+                    String passCode = card == null ? null : card.getPassCode();
+
+                    // 1a — archetype / explicit missing set
+                    if (missingSet != null && !missingSet.isEmpty()) {
+                        boolean missing = (konamiId != null && missingSet.contains(konamiId))
+                                || (passCode != null && missingSet.contains(passCode))
+                                || legacyGlobalMissingSet.contains(konamiId)
+                                || legacyGlobalMissingSet.contains(passCode);
+                        if (missing) {
+                            if (glowPriority == 0) glowPriority = 1;
+                            tooltips.add(new String[]{
+                                    isInArchetypeGroup()
+                                            ? "This card is missing in the collection."
+                                            : "This card can be sorted to a deck or collection it is needed in.",
+                                    "#EB9E34"});
+                        }
+                    }
+
+                    // 1b — missing artwork set (check both konamiId and passCode)
+                    if (missingArtworkSet != null && !missingArtworkSet.isEmpty()) {
+                        boolean artMissing = (konamiId != null && missingArtworkSet.contains(konamiId))
+                                || (passCode != null && missingArtworkSet.contains(passCode));
+                        if (artMissing) {
+                            if (glowPriority == 0) glowPriority = 1;
+                            tooltips.add(new String[]{
+                                    "Not all artworks of this card are present in this collection.",
+                                    "#EB9E34"});
+                        }
+                    }
+
+                    // 1c — computeCardNeedsSorting (only when no glow has fired yet;
+                    //      also always adds tooltip so it shows even when My Coll warns)
+                    if (elementNameFromUD != null
+                            && !elementNameFromUD.trim().isEmpty() && isFirstTabSelected()) {
+                        try {
+                            if (Controller.RealMainController.computeCardNeedsSorting(card, elementNameFromUD)) {
+                                if (glowPriority == 0) glowPriority = 1;
+                                tooltips.add(new String[]{
+                                        "This card can be sorted to a deck or collection it is needed in.",
+                                        "#EB9E34"});
+                            }
+                        } catch (Throwable ignored) {
+                        }
                     }
                 }
             } catch (Exception e) {
-                logger.debug("Failed to compute needsSorting in CardGridCell.updateItem", e);
-                needsSorting = false;
+                logger.debug("Failed to compute glow in CardGridCell.updateItem", e);
             }
 
-            // --- Apply glow if needed (on the wrapper StackPane) ---
-            if (needsSorting) {
-                DropShadow innerGlow = new DropShadow();
-                innerGlow.setColor(javafx.scene.paint.Color.web("#ffffff", 1.0));
-                innerGlow.setOffsetX(0);
-                innerGlow.setOffsetY(0);
-                innerGlow.setRadius(4);
-                innerGlow.setSpread(0.9);
-
-                DropShadow outerGlow = new DropShadow();
-                outerGlow.setColor(javafx.scene.paint.Color.web("#ffffff", 0.22));
-                outerGlow.setOffsetX(0);
-                outerGlow.setOffsetY(0);
-                outerGlow.setRadius(14);
-                outerGlow.setSpread(0.12);
-
-                outerGlow.setInput(innerGlow);
-                wrapper.setEffect(outerGlow);
+            // ── Apply glow effect to the wrapper StackPane ────────────────────────────────
+            if (glowPriority >= 3) {
+                // Red — no printCode
+                DropShadow inner = new DropShadow();
+                inner.setColor(javafx.scene.paint.Color.web("#ff3333", 1.0));
+                inner.setOffsetX(0);
+                inner.setOffsetY(0);
+                inner.setRadius(4);
+                inner.setSpread(0.9);
+                DropShadow outer = new DropShadow();
+                outer.setColor(javafx.scene.paint.Color.web("#ff3333", 0.35));
+                outer.setOffsetX(0);
+                outer.setOffsetY(0);
+                outer.setRadius(14);
+                outer.setSpread(0.12);
+                outer.setInput(inner);
+                wrapper.setEffect(outer);
+            } else if (glowPriority >= 1) {
+                // White — covers priority 1 (archetype/artwork missing, needs-sort)
+                //         AND priority 2 (condition/rarity missing, marking enabled).
+                DropShadow inner = new DropShadow();
+                inner.setColor(javafx.scene.paint.Color.web("#ffffff", 1.0));
+                inner.setOffsetX(0);
+                inner.setOffsetY(0);
+                inner.setRadius(4);
+                inner.setSpread(0.9);
+                DropShadow outer = new DropShadow();
+                outer.setColor(javafx.scene.paint.Color.web("#ffffff", 0.22));
+                outer.setOffsetX(0);
+                outer.setOffsetY(0);
+                outer.setRadius(14);
+                outer.setSpread(0.12);
+                outer.setInput(inner);
+                wrapper.setEffect(outer);
             } else {
                 wrapper.setEffect(null);
             }
@@ -3756,7 +3984,8 @@ public class CardTreeCell extends TreeCell<String> {
             }
 
             // Store for the hover handler
-            currentNeedsSorting = needsSorting;
+            currentGlowPriority = glowPriority;
+            currentTooltips     = tooltips;
 
             // Finalize graphic
             setGraphic(wrapper);
@@ -4142,6 +4371,28 @@ public class CardTreeCell extends TreeCell<String> {
         }
 
         /**
+         * Returns true when the current selection is compatible with the
+         * named section for a MOVE operation. The Side Deck always returns true.
+         */
+        private boolean moveSectionAllowed(String sectionName) {
+            if (Utils.DeckCompatibility.isSideDeckSection(sectionName)) return true;
+            // Use only getItem() — the CardElement in the cell being right-clicked.
+            // SelectionManager holds stale state from previous interactions and must
+            // not be used here; it would show incompatible sections for other cards.
+            Model.CardsLists.CardElement item = getItem();
+            if (item == null || item.getCard() == null) return true;
+            return Utils.DeckCompatibility.isCompatibleWith(item.getCard(), sectionName);
+        }
+
+        /**
+         * Returns true when the current selection is compatible with the
+         * named section for an ADD operation. The Side Deck always returns true.
+         */
+        private boolean addSectionAllowed(String sectionName) {
+            return moveSectionAllowed(sectionName); // same logic
+        }
+
+        /**
          * Returns true when the card list that {@code path} resolves to is currently
          * empty (meaning the corresponding DataTreeItem was never inserted in the tree
          * and a structural refresh will be needed after the add).
@@ -4245,8 +4496,10 @@ public class CardTreeCell extends TreeCell<String> {
                                 for (Model.CardsLists.Deck deck : unit) {
                                     if (deck == null) continue;
                                     String base = coll + " / " + sanitizeDisplayName(deck.getName());
-                                    addMoveDestItem(items, base + " / Main Deck", excludePath);
-                                    addMoveDestItem(items, base + " / Extra Deck", excludePath);
+                                    if (moveSectionAllowed("Main Deck"))
+                                        addMoveDestItem(items, base + " / Main Deck", excludePath);
+                                    if (moveSectionAllowed("Extra Deck"))
+                                        addMoveDestItem(items, base + " / Extra Deck", excludePath);
                                     addMoveDestItem(items, base + " / Side Deck", excludePath);
                                 }
                             }
@@ -4258,8 +4511,10 @@ public class CardTreeCell extends TreeCell<String> {
                     for (Model.CardsLists.Deck deck : dac.getDecks()) {
                         if (deck == null) continue;
                         String d = sanitizeDisplayName(deck.getName());
-                        addMoveDestItem(items, d + " / Main Deck", excludePath);
-                        addMoveDestItem(items, d + " / Extra Deck", excludePath);
+                        if (moveSectionAllowed("Main Deck"))
+                            addMoveDestItem(items, d + " / Main Deck", excludePath);
+                        if (moveSectionAllowed("Extra Deck"))
+                            addMoveDestItem(items, d + " / Extra Deck", excludePath);
                         addMoveDestItem(items, d + " / Side Deck", excludePath);
                     }
                 }
@@ -4298,8 +4553,10 @@ public class CardTreeCell extends TreeCell<String> {
                                 for (Model.CardsLists.Deck deck : unit) {
                                     if (deck == null) continue;
                                     String base = coll + " / " + sanitizeDisplayName(deck.getName());
-                                    addAddDestItem(items, base + " / Main Deck");
-                                    addAddDestItem(items, base + " / Extra Deck");
+                                    if (addSectionAllowed("Main Deck"))
+                                        addAddDestItem(items, base + " / Main Deck");
+                                    if (addSectionAllowed("Extra Deck"))
+                                        addAddDestItem(items, base + " / Extra Deck");
                                     addAddDestItem(items, base + " / Side Deck");
                                 }
                             }
@@ -4311,8 +4568,10 @@ public class CardTreeCell extends TreeCell<String> {
                     for (Model.CardsLists.Deck deck : dac.getDecks()) {
                         if (deck == null) continue;
                         String d = sanitizeDisplayName(deck.getName());
-                        addAddDestItem(items, d + " / Main Deck");
-                        addAddDestItem(items, d + " / Extra Deck");
+                        if (addSectionAllowed("Main Deck"))
+                            addAddDestItem(items, d + " / Main Deck");
+                        if (addSectionAllowed("Extra Deck"))
+                            addAddDestItem(items, d + " / Extra Deck");
                         addAddDestItem(items, d + " / Side Deck");
                     }
                 }
@@ -4361,6 +4620,29 @@ public class CardTreeCell extends TreeCell<String> {
                 }
             }
             return null;
+        }
+
+        /**
+         * Returns true when the current selection contains at least one card
+         * that is compatible with {@code sectionName}.
+         * The Side Deck always returns true.
+         * Falls back to true when no card info is available (show all).
+         * Must live inside CardGridCell so that getItem() returns CardElement.
+         */
+        private boolean deckSectionAllowedForSelection(String sectionName) {
+            if (Utils.DeckCompatibility.isSideDeckSection(sectionName)) return true;
+            java.util.List<Model.CardsLists.Card> cards = new java.util.ArrayList<>();
+            java.util.Set<Model.CardsLists.CardElement> sel =
+                    Controller.SelectionManager.getSelectedMiddleElements();
+            if (!sel.isEmpty()) {
+                for (Model.CardsLists.CardElement ce : sel)
+                    if (ce != null && ce.getCard() != null) cards.add(ce.getCard());
+            } else {
+                Model.CardsLists.CardElement item = getItem(); // CardElement here ✓
+                if (item != null && item.getCard() != null) cards.add(item.getCard());
+            }
+            if (cards.isEmpty()) return true;
+            return Utils.DeckCompatibility.anyCompatibleWith(cards, sectionName);
         }
     }
 }

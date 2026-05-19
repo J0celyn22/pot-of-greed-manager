@@ -1616,6 +1616,75 @@ public class RealMainController {
 
 // --- Decks & Collections display (left unchanged except for keeping decksTreeView field) ---
 
+    /**
+     * Returns true when {@code group} has a card whose {@link Card#getPrintCode()}
+     * is null or blank. These cards receive the highest-priority red glow.
+     */
+    private boolean groupHasMissingPrintCode(CardsGroup group) {
+        if (group == null || group.getCardList() == null) return false;
+        for (CardElement ce : group.getCardList()) {
+            if (ce == null || ce.getCard() == null) continue;
+            Card c = ce.getCard();
+            if (c.getPrintCode() == null || c.getPrintCode().isBlank()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true when {@code group} has a card that has a printCode but is
+     * missing {@link CardElement#getCondition()} or {@link CardElement#getRarity()}.
+     * These cards receive the orange glow (lower priority than the red one).
+     */
+    private boolean groupHasIncompleteCards(CardsGroup group) {
+        if (group == null || group.getCardList() == null) return false;
+        for (CardElement ce : group.getCardList()) {
+            if (ce == null || ce.getCard() == null) continue;
+            Card c = ce.getCard();
+            // Cards without a printCode are handled by the red glow; skip here.
+            if (c.getPrintCode() == null || c.getPrintCode().isBlank()) continue;
+            if (ce.getCondition() == null || ce.getRarity() == null) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true when {@code box} (or any nested sub-box / group) contains
+     * at least one card with a missing printCode.
+     */
+    private boolean boxHasMissingPrintCode(Box box) {
+        if (box == null) return false;
+        if (box.getContent() != null) {
+            for (CardsGroup g : box.getContent()) {
+                if (groupHasMissingPrintCode(g)) return true;
+            }
+        }
+        if (box.getSubBoxes() != null) {
+            for (Box sb : box.getSubBoxes()) {
+                if (sb != null && boxHasMissingPrintCode(sb)) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns true when {@code box} (or any nested sub-box / group) contains
+     * at least one card that has a printCode but is missing condition or rarity.
+     */
+    private boolean boxHasIncompleteCards(Box box) {
+        if (box == null) return false;
+        if (box.getContent() != null) {
+            for (CardsGroup g : box.getContent()) {
+                if (groupHasIncompleteCards(g)) return true;
+            }
+        }
+        if (box.getSubBoxes() != null) {
+            for (Box sb : box.getSubBoxes()) {
+                if (sb != null && boxHasIncompleteCards(sb)) return true;
+            }
+        }
+        return false;
+    }
+
     private boolean groupHasUnsortedCards(CardsGroup group) {
         if (group == null) return false;
 
@@ -1829,9 +1898,22 @@ public class RealMainController {
                     navigateToTree(myCollectionTreeView, boxName);
                 });
 
-                // --- highlight logic (unchanged) ---
-                boolean boxHasUnsorted = boxHasUnsortedCards(box, boxName);
-                applyNavigationItemHighlight(boxItem, boxHasUnsorted, "This box contains unsorted cards.");
+                // --- highlight logic ---
+                // Incomplete-card checks (red > orange) take precedence over the
+                // unsorted-card check; all three share the same highlight colour.
+                boolean boxHasUnsorted;
+                String boxInitMsg;
+                if (View.CardTreeCell.isIncompleteMarkingEnabled() && boxHasMissingPrintCode(box)) {
+                    boxHasUnsorted = true;
+                    boxInitMsg = "This box contains cards without a print code.";
+                } else if (View.CardTreeCell.isIncompleteMarkingEnabled() && boxHasIncompleteCards(box)) {
+                    boxHasUnsorted = true;
+                    boxInitMsg = "This box contains cards with no condition or rarity set.";
+                } else {
+                    boxHasUnsorted = boxHasUnsortedCards(box, boxName);
+                    boxInitMsg = "This box contains unsorted cards.";
+                }
+                applyNavigationItemHighlight(boxItem, boxHasUnsorted, boxInitMsg);
 
                 // --- NEW: context menu for Box items ---
                 {
@@ -1860,11 +1942,22 @@ public class RealMainController {
                             navigateToTree(myCollectionTreeView, boxName, groupName);
                         });
 
-                        // highlight (unchanged)
-                        boolean groupHasUnsorted = groupHasUnsortedCards(group, groupName);
-                        applyNavigationItemHighlight(groupItem, groupHasUnsorted, "This category contains unsorted cards.");
+                        // highlight
+                        boolean groupHasUnsorted;
+                        String groupMsg;
+                        if (View.CardTreeCell.isIncompleteMarkingEnabled() && groupHasMissingPrintCode(group)) {
+                            groupHasUnsorted = true;
+                            groupMsg = "This category contains cards without a print code.";
+                        } else if (View.CardTreeCell.isIncompleteMarkingEnabled() && groupHasIncompleteCards(group)) {
+                            groupHasUnsorted = true;
+                            groupMsg = "This category contains cards with no condition or rarity set.";
+                        } else {
+                            groupHasUnsorted = groupHasUnsortedCards(group, groupName);
+                            groupMsg = "This category contains unsorted cards.";
+                        }
+                        applyNavigationItemHighlight(groupItem, groupHasUnsorted, groupMsg);
                         if (groupHasUnsorted && !boxHasUnsorted) {
-                            applyNavigationItemHighlight(boxItem, true, "This box contains unsorted cards.");
+                            applyNavigationItemHighlight(boxItem, true, groupMsg);
                             boxHasUnsorted = true;
                         }
 
@@ -1898,10 +1991,21 @@ public class RealMainController {
                             navigateToTree(myCollectionTreeView, subBoxName);
                         });
 
-                        boolean subBoxHasUnsorted = boxHasUnsortedCards(subBox, subBoxName);
-                        applyNavigationItemHighlight(subBoxItem, subBoxHasUnsorted, "This box contains unsorted cards.");
+                        boolean subBoxHasUnsorted;
+                        String subBoxMsg;
+                        if (View.CardTreeCell.isIncompleteMarkingEnabled() && boxHasMissingPrintCode(subBox)) {
+                            subBoxHasUnsorted = true;
+                            subBoxMsg = "This box contains cards without a print code.";
+                        } else if (View.CardTreeCell.isIncompleteMarkingEnabled() && boxHasIncompleteCards(subBox)) {
+                            subBoxHasUnsorted = true;
+                            subBoxMsg = "This box contains cards with no condition or rarity set.";
+                        } else {
+                            subBoxHasUnsorted = boxHasUnsortedCards(subBox, subBoxName);
+                            subBoxMsg = "This box contains unsorted cards.";
+                        }
+                        applyNavigationItemHighlight(subBoxItem, subBoxHasUnsorted, subBoxMsg);
                         if (subBoxHasUnsorted && !boxHasUnsorted) {
-                            applyNavigationItemHighlight(boxItem, true, "This box contains unsorted cards.");
+                            applyNavigationItemHighlight(boxItem, true, subBoxMsg);
                             boxHasUnsorted = true;
                         }
 
@@ -1931,13 +2035,24 @@ public class RealMainController {
                                     navigateToTree(myCollectionTreeView, subBoxName, gName);
                                 });
 
-                                boolean gHasUnsorted = groupHasUnsortedCards(group, gName);
-                                applyNavigationItemHighlight(gItem, gHasUnsorted, "This category contains unsorted cards.");
+                                boolean gHasUnsorted;
+                                String gMsg;
+                                if (View.CardTreeCell.isIncompleteMarkingEnabled() && groupHasMissingPrintCode(group)) {
+                                    gHasUnsorted = true;
+                                    gMsg = "This category contains cards without a print code.";
+                                } else if (View.CardTreeCell.isIncompleteMarkingEnabled() && groupHasIncompleteCards(group)) {
+                                    gHasUnsorted = true;
+                                    gMsg = "This category contains cards with no condition or rarity set.";
+                                } else {
+                                    gHasUnsorted = groupHasUnsortedCards(group, gName);
+                                    gMsg = "This category contains unsorted cards.";
+                                }
+                                applyNavigationItemHighlight(gItem, gHasUnsorted, gMsg);
                                 if (gHasUnsorted && !subBoxHasUnsorted) {
-                                    applyNavigationItemHighlight(subBoxItem, true, "This box contains unsorted cards.");
+                                    applyNavigationItemHighlight(subBoxItem, true, gMsg);
                                     subBoxHasUnsorted = true;
                                     if (!boxHasUnsorted) {
-                                        applyNavigationItemHighlight(boxItem, true, "This box contains unsorted cards.");
+                                        applyNavigationItemHighlight(boxItem, true, gMsg);
                                         boxHasUnsorted = true;
                                     }
                                 }
@@ -2269,6 +2384,8 @@ public class RealMainController {
         // Always create the group and register it so that pasteCardsIntoNavigationItem
         // can mutate through the ObservableList. Only insert the DataTreeItem when
         // non-empty; the ListChangeListener keeps it in sync afterwards.
+        // Declared here so it is also in scope for the Exceptions section below.
+        Set<String> missingArtworkSet = computeCardsWithMissingArtworks(collection);
         {
             List<CardElement> cardsList = collection.getCardsList();
             if (cardsList == null) {
@@ -2277,6 +2394,9 @@ public class RealMainController {
             }
             CardsGroup cardsGroup = new CardsGroup("Cards", cardsList);
             CardTreeCell.registerCollectionCardsGroup(collection, cardsGroup);
+
+            // Register the missing-artwork set so CardGridCell can apply the white glow.
+            CardTreeCell.setMissingArtworkSetForGroup(cardsGroup, missingArtworkSet);
 
             DataTreeItem<Object> cardsGroupItem = new DataTreeItem<>("Cards", cardsGroup);
             cardsGroupItem.setExpanded(true);
@@ -2489,6 +2609,8 @@ public class RealMainController {
                 CardsGroup exceptionsGroup =
                         new CardsGroup("Cards not to add", exceptions);
                 CardTreeCell.registerCollectionExceptionsGroup(collection, exceptionsGroup);
+                // Reuse the same set computed above (same collection, same scope).
+                CardTreeCell.setMissingArtworkSetForGroup(exceptionsGroup, missingArtworkSet);
 
                 DataTreeItem<Object> exceptionsNode =
                         new DataTreeItem<>("Cards not to add", exceptionsGroup);
@@ -2844,6 +2966,154 @@ public class RealMainController {
         item.setOnLabelClicked(event -> {
         });
         return item;
+    }
+
+    /**
+     * Groups all database cards by their French name (English as fallback), then
+     * for each card in {@code collection} (both cardsList and exceptionsToNotAdd)
+     * checks whether the database has more than one artwork number for that name
+     * and whether the collection holds all of them.
+     *
+     * <p>Returns a set of konamiIds AND passCodes that ARE present in the collection
+     * but belong to a multi-artwork card missing at least one sibling artwork.
+     * Both identifiers are added so that CardGridCell can match via either field.
+     */
+    private Set<String> computeCardsWithMissingArtworks(ThemeCollection collection) {
+        Set<String> result = new HashSet<>();
+        if (collection == null) return result;
+
+        // ── 1. Load the card database ──────────────────────────────────────────────
+        Map<Integer, Card> allCards;
+        try {
+            allCards = Model.Database.Database.getAllCardsList();
+        } catch (Exception e) {
+            logger.warn("computeCardsWithMissingArtworks: DB unavailable for '{}': {}",
+                    collection.getName(), e.toString());
+            return result;
+        }
+        if (allCards == null || allCards.isEmpty()) {
+            logger.warn("computeCardsWithMissingArtworks: DB empty for collection '{}'",
+                    collection.getName());
+            return result;
+        }
+
+        // ── 2. Build DB indexes ────────────────────────────────────────────────────
+        // name → Set<artNumber>: the artwork variants that exist in the DB per name.
+        // Only names with 2+ artNumbers are kept (true multi-artwork cards).
+        // konamiId → DB Card: for resolving collection cards whose passCode is absent.
+        Map<String, Set<String>> nameToAllArtNumbers = new HashMap<>();
+        Map<String, Card> dbByKonamiId = new HashMap<>();
+
+        for (Map.Entry<Integer, Card> entry : allCards.entrySet()) {
+            Card dbCard = entry.getValue();
+            if (dbCard == null) continue;
+
+            String name = dbCard.getName_FR();
+            if (name == null || name.isBlank()) name = dbCard.getName_EN();
+            if (name == null || name.isBlank()) continue;
+
+            String art = dbCard.getArtNumber();
+            if (art == null || art.isBlank()) art = "1";
+
+            nameToAllArtNumbers.computeIfAbsent(name, k -> new HashSet<>()).add(art);
+
+            if (dbCard.getKonamiId() != null && !dbCard.getKonamiId().isBlank())
+                dbByKonamiId.putIfAbsent(dbCard.getKonamiId(), dbCard);
+        }
+
+        nameToAllArtNumbers.entrySet().removeIf(e -> e.getValue().size() <= 1);
+        logger.info("computeCardsWithMissingArtworks: {} multi-artwork names for collection '{}'",
+                nameToAllArtNumbers.size(), collection.getName());
+        if (nameToAllArtNumbers.isEmpty()) return result;
+
+        // ── 3. Resolve each collection card to (canonicalName, artNumber) ──────────
+        // artNumber resolution priority:
+        //   a) card.getArtNumber()           — set when the user selects a specific artwork
+        //   b) allCards.get(parsedPassCode)   — direct DB map lookup by Integer key;
+        //      no string-comparison issues, works whenever passCode is a numeric string
+        //   c) dbByKonamiId.get(konamiId)    — last resort; unreliable if konamiId is
+        //      a name-level ID shared by all artworks, but better than defaulting
+        //   d) "1"                           — absolute fallback
+        List<CardElement> collectionCards = new ArrayList<>();
+        if (collection.getCardsList() != null) collectionCards.addAll(collection.getCardsList());
+        if (collection.getExceptionsToNotAdd() != null) collectionCards.addAll(collection.getExceptionsToNotAdd());
+
+        // name → artNumbers present in this collection
+        Map<String, Set<String>> presentArtNumbers = new HashMap<>();
+        // name → collection CardElements (for marking in step 4)
+        Map<String, List<CardElement>> cardsByName = new HashMap<>();
+
+        for (CardElement ce : collectionCards) {
+            if (ce == null || ce.getCard() == null) continue;
+            Card c = ce.getCard();
+
+            String name = c.getName_FR();
+            if (name == null || name.isBlank()) name = c.getName_EN();
+            if (name == null || name.isBlank()) continue;
+            if (!nameToAllArtNumbers.containsKey(name)) continue;
+
+            // Resolve artNumber for this collection card.
+            String artNumber = null;
+
+            // a) card's own artNumber (explicit artwork selection)
+            if (c.getArtNumber() != null && !c.getArtNumber().isBlank())
+                artNumber = c.getArtNumber();
+
+            // b) direct DB lookup by parsed passCode integer key
+            if (artNumber == null && c.getPassCode() != null && !c.getPassCode().isBlank()) {
+                try {
+                    Card dbCard = allCards.get(Integer.parseInt(c.getPassCode().trim()));
+                    if (dbCard != null && dbCard.getArtNumber() != null && !dbCard.getArtNumber().isBlank())
+                        artNumber = dbCard.getArtNumber();
+                } catch (NumberFormatException ignored) {
+                }
+            }
+
+            // c) konamiId lookup
+            if (artNumber == null && c.getKonamiId() != null && !c.getKonamiId().isBlank()) {
+                Card dbCard = dbByKonamiId.get(c.getKonamiId());
+                if (dbCard != null && dbCard.getArtNumber() != null && !dbCard.getArtNumber().isBlank())
+                    artNumber = dbCard.getArtNumber();
+            }
+
+            // d) default
+            if (artNumber == null || artNumber.isBlank()) artNumber = "1";
+
+            presentArtNumbers.computeIfAbsent(name, k -> new HashSet<>()).add(artNumber);
+            cardsByName.computeIfAbsent(name, k -> new ArrayList<>()).add(ce);
+        }
+
+        // ── 4. Completeness check and marking ─────────────────────────────────────
+        for (Map.Entry<String, Set<String>> entry : presentArtNumbers.entrySet()) {
+            String name = entry.getKey();
+            Set<String> haveArts = entry.getValue();
+            Set<String> allArts = nameToAllArtNumbers.get(name);
+
+            logger.debug("computeCardsWithMissingArtworks: '{}' — have={} all={} complete={}",
+                    name, haveArts, allArts, haveArts.containsAll(allArts));
+
+            if (haveArts.containsAll(allArts)) continue; // collection is complete — do not mark
+
+            List<CardElement> toMark = cardsByName.get(name);
+            if (toMark == null) continue;
+            for (CardElement ce : toMark) {
+                if (ce.getCard() == null) continue;
+                Card c = ce.getCard();
+                if (c.getKonamiId() != null && !c.getKonamiId().isBlank()) result.add(c.getKonamiId());
+                if (c.getPassCode() != null && !c.getPassCode().isBlank()) result.add(c.getPassCode().trim());
+            }
+        }
+
+        logger.info("computeCardsWithMissingArtworks: collection '{}' → {} identifiers marked",
+                collection.getName(), result.size());
+        return result;
+    }
+
+    /**
+     * True when at least one multi-artwork card in {@code collection} is missing a sibling artwork.
+     */
+    private boolean collectionHasMissingArtworks(ThemeCollection collection) {
+        return !computeCardsWithMissingArtworks(collection).isEmpty();
     }
 
     /**
@@ -4238,7 +4508,17 @@ public class RealMainController {
                     collectionNavItem.getLabel().setStyle(labelStyle);
 
                     boolean hasMissing = collectionHasMissing(collection);
-                    applyNavigationItemHighlight(collectionNavItem, hasMissing, "This collection contains missing archetype cards.");
+                    boolean hasMissingArtwork = collectionHasMissingArtworks(collection);
+                    boolean highlight = hasMissing || hasMissingArtwork;
+                    String highlightMsg;
+                    if (hasMissing && hasMissingArtwork) {
+                        highlightMsg = "This collection contains missing archetype cards and cards with missing artwork variants.";
+                    } else if (hasMissing) {
+                        highlightMsg = "This collection contains missing archetype cards.";
+                    } else {
+                        highlightMsg = "This collection contains cards with missing artwork variants.";
+                    }
+                    applyNavigationItemHighlight(collectionNavItem, highlight, highlightMsg);
 
                     // navigation wiring (unchanged)
                     collectionNavItem.setOnLabelClicked(evt -> navigateToTree(decksAndCollectionsTreeView, collection.getName()));
@@ -4503,45 +4783,43 @@ public class RealMainController {
         } else if (navItem instanceof Model.CardsLists.Deck) {
             Model.CardsLists.Deck deck = (Model.CardsLists.Deck) navItem;
             if (deck.getMainDeck() == null) deck.setMainDeck(new ArrayList<>());
+            if (deck.getExtraDeck() == null) deck.setExtraDeck(new ArrayList<>());
 
-            // The main-deck CardsGroup is registered during createDeckTreeItem (apply the
-            // same reactive-listener pattern there). Look it up the same way.
-            CardsGroup mainGroup = CardTreeCell.getDeckSectionGroup(deck, "main");
-            if (mainGroup != null) {
-                javafx.collections.ObservableList<Model.CardsLists.CardElement> obs =
-                        CardTreeCell.observableListFor(mainGroup);
-                for (Model.CardsLists.Card card : clipboardCards) {
-                    if (card != null) obs.add(new Model.CardsLists.CardElement(card));
-                }
-                CardTreeCell.triggerHeightAdjustment(mainGroup);
-            } else {
-                for (Model.CardsLists.Card card : clipboardCards) {
-                    if (card != null) deck.getMainDeck().add(new Model.CardsLists.CardElement(card));
-                }
-                Controller.UserInterfaceFunctions.triggerDecksStructureRefresh();
+            // Split cards by deck section: extra-deck monsters → Extra Deck,
+            // everything else → Main Deck.
+            java.util.List<Model.CardsLists.Card> toMain = new java.util.ArrayList<>();
+            java.util.List<Model.CardsLists.Card> toExtra = new java.util.ArrayList<>();
+            for (Model.CardsLists.Card card : clipboardCards) {
+                if (card == null) continue;
+                if (Utils.DeckCompatibility.isExtraDeckCard(card)) toExtra.add(card);
+                else toMain.add(card);
             }
-            Controller.UserInterfaceFunctions.markDirty(deck);
-            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-        } else if (navItem instanceof Model.CardsLists.Deck) {
-            Model.CardsLists.Deck deck = (Model.CardsLists.Deck) navItem;
-            if (deck.getMainDeck() == null) deck.setMainDeck(new ArrayList<>());
 
-            CardsGroup mainGroup = CardTreeCell.getDeckSectionGroup(deck, "main");
-            if (mainGroup != null) {
-                javafx.collections.ObservableList<Model.CardsLists.CardElement> obs =
-                        CardTreeCell.observableListFor(mainGroup);
-                for (Model.CardsLists.Card card : clipboardCards) {
-                    if (card != null) obs.add(new Model.CardsLists.CardElement(card));
+            java.util.function.BiConsumer<java.util.List<Model.CardsLists.Card>, String>
+                    addToSection = (cards, sectionKey) -> {
+                if (cards.isEmpty()) return;
+                CardsGroup sectionGroup =
+                        CardTreeCell.getDeckSectionGroup(deck, sectionKey);
+                if (sectionGroup != null) {
+                    javafx.collections.ObservableList<Model.CardsLists.CardElement> obs =
+                            CardTreeCell.observableListFor(sectionGroup);
+                    for (Model.CardsLists.Card card : cards)
+                        obs.add(new Model.CardsLists.CardElement(card));
+                    CardTreeCell.triggerHeightAdjustment(sectionGroup);
+                } else {
+                    java.util.List<Model.CardsLists.CardElement> rawList =
+                            "extra".equals(sectionKey)
+                                    ? deck.getExtraDeck()
+                                    : deck.getMainDeck();
+                    for (Model.CardsLists.Card card : cards)
+                        rawList.add(new Model.CardsLists.CardElement(card));
+                    Controller.UserInterfaceFunctions.triggerDecksStructureRefresh();
                 }
-                CardTreeCell.triggerHeightAdjustment(mainGroup);
-            } else {
-                // Tree not built yet for this deck — raw add + structural rebuild.
-                for (Model.CardsLists.Card card : clipboardCards) {
-                    if (card != null)
-                        deck.getMainDeck().add(new Model.CardsLists.CardElement(card));
-                }
-                Controller.UserInterfaceFunctions.triggerDecksStructureRefresh();
-            }
+            };
+
+            addToSection.accept(toMain, "main");
+            addToSection.accept(toExtra, "extra");
+
             Controller.UserInterfaceFunctions.markDirty(deck);
             Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
 
@@ -5380,6 +5658,64 @@ public class RealMainController {
                     populateMyCollectionMenu();         // refresh nav to remove "*" markers
                 } catch (Exception ex) {
                     logger.error("Error saving My Collection", ex);
+                }
+            });
+        }
+
+        // Wire "Mark incomplete cards" toggle button
+        if (myCollectionTab.getIncompleteMarkButton() != null) {
+            Button incBtn = myCollectionTab.getIncompleteMarkButton();
+            // incompleteMarkingEnabled defaults to true, so initialise to the ON style.
+            incBtn.setStyle(
+                    "-fx-background-color: #cdfc04;" +
+                            "-fx-text-fill: black;" +
+                            "-fx-border-color: #cdfc04;" +
+                            "-fx-border-width: 1;" +
+                            "-fx-border-radius: 4;" +
+                            "-fx-background-radius: 4;" +
+                            "-fx-font-size: 12px;" +
+                            "-fx-padding: 4 10 4 10;" +
+                            "-fx-cursor: hand;");
+            incBtn.setOnAction(e -> {
+                boolean nowEnabled = !View.CardTreeCell.isIncompleteMarkingEnabled();
+                View.CardTreeCell.setIncompleteMarkingEnabled(nowEnabled);
+
+                // ON  → green-yellow fill, black text
+                // OFF → dark background, green-yellow border/text
+                if (nowEnabled) {
+                    incBtn.setStyle(
+                            "-fx-background-color: #cdfc04;" +
+                                    "-fx-text-fill: black;" +
+                                    "-fx-border-color: #cdfc04;" +
+                                    "-fx-border-width: 1;" +
+                                    "-fx-border-radius: 4;" +
+                                    "-fx-background-radius: 4;" +
+                                    "-fx-font-size: 12px;" +
+                                    "-fx-padding: 4 10 4 10;" +
+                                    "-fx-cursor: hand;");
+                } else {
+                    incBtn.setStyle(
+                            "-fx-background-color: #100317;" +
+                                    "-fx-text-fill: #cdfc04;" +
+                                    "-fx-border-color: #cdfc04;" +
+                                    "-fx-border-width: 1;" +
+                                    "-fx-border-radius: 4;" +
+                                    "-fx-background-radius: 4;" +
+                                    "-fx-font-size: 12px;" +
+                                    "-fx-padding: 4 10 4 10;" +
+                                    "-fx-cursor: hand;");
+                }
+
+                // Rebuild the nav menu so highlight states update immediately,
+                // then force all GridViews to re-render so glow states update.
+                try {
+                    populateMyCollectionMenu();
+                } catch (Exception ex) {
+                    logger.error("Error refreshing My Collection menu after incomplete-mark toggle", ex);
+                }
+                if (myCollectionTreeView != null) {
+                    myCollectionTreeView.refresh();
+                    View.CardTreeCell.refreshAllGridViews();
                 }
             });
         }

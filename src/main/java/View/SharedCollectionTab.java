@@ -186,6 +186,11 @@ public class SharedCollectionTab extends HBox {
     private Button compactDetailedButton;
     private Button mosaicListButton;
     private Button saveButton;
+    private Button incompleteMarkButton;
+
+    public Button getIncompleteMarkButton() {
+        return incompleteMarkButton;
+    }
 
     public Button getCompactDetailedButton() {
         return compactDetailedButton;
@@ -210,7 +215,12 @@ public class SharedCollectionTab extends HBox {
 
         switch (type) {
             case MY_COLLECTION: {
-                HBox groupRow = new HBox(5);
+                VBox myCollectionGroup = new VBox(8);
+                myCollectionGroup.setAlignment(Pos.CENTER_LEFT);
+
+                // ── Row 1: Browse | Load | Generate HTML ─────────────────────
+                HBox row1 = new HBox(5);
+
                 TextField collectionFileField = new TextField();
                 collectionFileField.setPromptText("Enter collection file path");
                 collectionFileField.setPrefColumnCount(30);
@@ -224,17 +234,37 @@ public class SharedCollectionTab extends HBox {
                 Button collectionFileLoadButton = new Button("Load");
                 Button collectionFileGenerateHTMLButton = new Button("Generate HTML");
 
-                saveButton = new Button("Save");
-                saveButton.getStyleClass().add("small-button");
-                groupRow.getChildren().add(saveButton);
-
                 collectionFileButton.getStyleClass().add("small-button");
                 collectionFileLoadButton.getStyleClass().add("small-button");
                 collectionFileGenerateHTMLButton.getStyleClass().add("small-button");
 
-                groupRow.getChildren().addAll(collectionFileButton, collectionFileLoadButton,
-                        collectionFileGenerateHTMLButton);
+                row1.getChildren().addAll(
+                        collectionFileButton, collectionFileLoadButton, collectionFileGenerateHTMLButton);
 
+                // ── Row 2: Save ───────────────────────────────────────────────
+                HBox row2 = new HBox(5);
+                saveButton = new Button("Save");
+                saveButton.getStyleClass().add("small-button");
+                row2.getChildren().add(saveButton);
+
+                // ── Row 3: "Mark incomplete cards" toggle ─────────────────────
+                // OFF: dark background + green-yellow border/text
+                // ON:  green-yellow background + black text  (toggled by controller)
+                HBox row3 = new HBox(5);
+                incompleteMarkButton = new Button("Mark incomplete cards");
+                incompleteMarkButton.setStyle(
+                        "-fx-background-color: #100317;" +
+                                "-fx-text-fill: #cdfc04;" +
+                                "-fx-border-color: #cdfc04;" +
+                                "-fx-border-width: 1;" +
+                                "-fx-border-radius: 4;" +
+                                "-fx-background-radius: 4;" +
+                                "-fx-font-size: 12px;" +
+                                "-fx-padding: 4 10 4 10;" +
+                                "-fx-cursor: hand;");
+                row3.getChildren().add(incompleteMarkButton);
+
+                // ── Handlers ─────────────────────────────────────────────────
                 collectionFileButton.setOnAction(e -> {
                     Stage stage = (Stage) collectionFileButton.getScene().getWindow();
                     FileChooser fileChooser = new FileChooser();
@@ -258,7 +288,9 @@ public class SharedCollectionTab extends HBox {
                         logger.error("Error generating collection HTML", ex);
                     }
                 });
-                headerContent.getChildren().add(groupRow);
+
+                myCollectionGroup.getChildren().addAll(row1, row2, row3);
+                headerContent.getChildren().add(myCollectionGroup);
                 break;
             }
             case DECKS: {

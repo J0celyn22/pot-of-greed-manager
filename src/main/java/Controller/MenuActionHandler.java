@@ -1400,6 +1400,67 @@ public final class MenuActionHandler {
             return false;
         }
 
+        // ── Deck-compatibility redirect ────────────────────────────────────────
+        // When the host group is a main/extra deck section, split cards into
+        // compatible (stay in hostGroup, inserted after afterElement) and
+        // incompatible (appended to the sibling section of the same Deck).
+        String groupName = hostGroup.getName();
+        boolean targetIsMainOrExtra =
+                Utils.DeckCompatibility.isMainDeckSection(groupName)
+                        || Utils.DeckCompatibility.isExtraDeckSection(groupName);
+
+        if (targetIsMainOrExtra) {
+            List<Card> compatible = new ArrayList<>();
+            List<Card> incompatible = new ArrayList<>();
+            for (Card card : cardsToInsert) {
+                if (card == null) continue;
+                if (Utils.DeckCompatibility.isCompatibleWith(card, groupName))
+                    compatible.add(card);
+                else
+                    incompatible.add(card);
+            }
+
+            // Insert compatible cards after afterElement in hostGroup
+            if (!compatible.isEmpty()) {
+                javafx.collections.ObservableList<CardElement> list =
+                        View.CardTreeCell.observableListFor(hostGroup);
+                int idx = list.indexOf(afterElement);
+                if (idx < 0) idx = list.size() - 1;
+                for (int i = 0; i < compatible.size(); i++) {
+                    int pos = Math.min(idx + 1 + i, list.size());
+                    list.add(pos, new CardElement(compatible.get(i)));
+                }
+                View.CardTreeCell.triggerHeightAdjustment(hostGroup);
+            }
+
+            // Append incompatible cards at the END of the sibling section
+            if (!incompatible.isEmpty()) {
+                String redirect = Utils.DeckCompatibility.redirectSection(
+                        incompatible.get(0), groupName);
+                if (redirect != null) {
+                    Model.CardsLists.Deck ownerDeck =
+                            View.CardTreeCell.findDeckOwnerForGroup(hostGroup);
+                    if (ownerDeck != null) {
+                        String key = redirect.toLowerCase(java.util.Locale.ROOT)
+                                .replace(" deck", "").trim(); // "main" or "extra"
+                        CardsGroup altGroup =
+                                View.CardTreeCell.getDeckSectionGroup(ownerDeck, key);
+                        if (altGroup != null) {
+                            javafx.collections.ObservableList<CardElement> altList =
+                                    View.CardTreeCell.observableListFor(altGroup);
+                            // Always append at the end — do not carry over the source index
+                            for (Card card : incompatible)
+                                altList.add(new CardElement(card));
+                            View.CardTreeCell.triggerHeightAdjustment(altGroup);
+                        }
+                    }
+                }
+            }
+            return !compatible.isEmpty() || !incompatible.isEmpty();
+        }
+        // ──────────────────────────────────────────────────────────────────────
+
+        // Normal (non-deck-section) insertion — unchanged behaviour
         javafx.collections.ObservableList<CardElement> observableList =
                 View.CardTreeCell.observableListFor(hostGroup);
         int insertionIndex = observableList.indexOf(afterElement);
@@ -1414,6 +1475,18 @@ public final class MenuActionHandler {
         }
         View.CardTreeCell.triggerHeightAdjustment(hostGroup);
         return true;
+    }
+
+    /**
+     * Returns the {@link Model.CardsLists.Deck} that owns {@code group} as one of
+     * its registered section groups (main / extra / side), or {@code null}.
+     * Delegates to {@link View.CardTreeCell#findDeckOwnerForGroup} which searches
+     * the live DECK_SECTION_GROUPS registry.
+     */
+    private static Model.CardsLists.Deck findDeckOwnerForGroup(CardsGroup group) {
+        if (group == null) return null;
+        // CardTreeCell exposes a public helper for exactly this lookup.
+        return View.CardTreeCell.findDeckOwnerForGroup(group);
     }
 
     // ── Edit Card ────────────────────────────────────────────────────────────
