@@ -416,6 +416,85 @@ public class CardTreeCell extends TreeCell<String> {
         }
     }
 
+    /**
+     * Finds the dirty-markable owner (ThemeCollection or Deck) for a CardsGroup.
+     * <p>
+     * Rules matching the save-file structure:
+     * ThemeCollection.cardsList / exceptionsToNotAdd  → ThemeCollection
+     * Deck.mainDeck / extraDeck / sideDeck            → Deck  (NOT the parent collection)
+     * <p>
+     * Uses the typed registries as the primary source (O(1)), then falls back to
+     * raw-list identity comparison for any group not in the registry.
+     */
+    public static Object findOwnerForGroup(CardsGroup group) {
+        if (group == null) return null;
+        Model.CardsLists.DecksAndCollectionsList dac =
+                Controller.UserInterfaceFunctions.getDecksList();
+        if (dac == null) return null;
+
+        // ── 1. Registry lookup ────────────────────────────────────────────────
+        if (dac.getCollections() != null) {
+            for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                if (tc == null) continue;
+                // Collection-owned groups → mark the collection
+                if (group == getCollectionCardsGroup(tc)
+                        || group == getCollectionExceptionsGroup(tc)) return tc;
+                // Deck-section groups → mark the deck only
+                if (tc.getLinkedDecks() != null) {
+                    for (java.util.List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                        if (unit == null) continue;
+                        for (Model.CardsLists.Deck d : unit) {
+                            if (d == null) continue;
+                            java.util.Map<String, CardsGroup> secs = DECK_SECTION_GROUPS.get(d);
+                            if (secs != null && secs.containsValue(group)) return d;
+                        }
+                    }
+                }
+            }
+        }
+        if (dac.getDecks() != null) {
+            for (Model.CardsLists.Deck d : dac.getDecks()) {
+                if (d == null) continue;
+                java.util.Map<String, CardsGroup> secs = DECK_SECTION_GROUPS.get(d);
+                if (secs != null && secs.containsValue(group)) return d;
+            }
+        }
+
+        // ── 2. Raw-list identity fallback ─────────────────────────────────────
+        // For groups created outside the registries. Compares the CardsGroup's
+        // backing List (not the ObservableList wrapper) against model lists.
+        java.util.List<Model.CardsLists.CardElement> rawList = group.getCardList();
+        if (rawList != null) {
+            if (dac.getCollections() != null) {
+                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                    if (tc == null) continue;
+                    if (rawList == tc.getCardsList()
+                            || rawList == tc.getExceptionsToNotAdd()) return tc;
+                    if (tc.getLinkedDecks() != null) {
+                        for (java.util.List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                            if (unit == null) continue;
+                            for (Model.CardsLists.Deck d : unit) {
+                                if (d == null) continue;
+                                if (rawList == d.getMainDeck()
+                                        || rawList == d.getExtraDeck()
+                                        || rawList == d.getSideDeck()) return d;
+                            }
+                        }
+                    }
+                }
+            }
+            if (dac.getDecks() != null) {
+                for (Model.CardsLists.Deck d : dac.getDecks()) {
+                    if (d == null) continue;
+                    if (rawList == d.getMainDeck()
+                            || rawList == d.getExtraDeck()
+                            || rawList == d.getSideDeck()) return d;
+                }
+            }
+        }
+        return null;
+    }
+
     private boolean isDecksAndCollectionsTabSelected() {
         try {
             Node node = getTreeView();
@@ -1813,82 +1892,72 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     /**
-     * Finds the dirty-markable owner (ThemeCollection or Deck) for a CardsGroup.
-     * <p>
-     * Rules matching the save-file structure:
-     * ThemeCollection.cardsList / exceptionsToNotAdd  → ThemeCollection
-     * Deck.mainDeck / extraDeck / sideDeck            → Deck  (NOT the parent collection)
-     * <p>
-     * Uses the typed registries as the primary source (O(1)), then falls back to
-     * raw-list identity comparison for any group not in the registry.
+     * After a RIGHT-pane drag-drop into a My Collection group, opens a
+     * {@link View.CardEditPopup} for every dropped card that has no printCode.
+     *
+     * <p>Popups are opened in reverse card order so the <em>first</em> card's popup
+     * ends up on top (the last {@code show()} call wins z-order).</p>
+     *
+     * @param droppedCards the cards just inserted
+     * @param targetGroup  the group they were inserted into (used to find the
+     *                     matching new CardElement at the tail of the list)
+     * @param sceneNode    any node currently in the scene, used to resolve the owner window
      */
-    static Object findOwnerForGroup(CardsGroup group) {
-        if (group == null) return null;
-        Model.CardsLists.DecksAndCollectionsList dac =
-                Controller.UserInterfaceFunctions.getDecksList();
-        if (dac == null) return null;
+    private void openEditPopupsForNoPrintCode(
+            java.util.List<Model.CardsLists.Card> droppedCards,
+            CardsGroup targetGroup,
+            javafx.scene.Node sceneNode) {
+        if (droppedCards == null || droppedCards.isEmpty() || targetGroup == null) return;
 
-        // ── 1. Registry lookup ────────────────────────────────────────────────
-        if (dac.getCollections() != null) {
-            for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
-                if (tc == null) continue;
-                // Collection-owned groups → mark the collection
-                if (group == getCollectionCardsGroup(tc)
-                        || group == getCollectionExceptionsGroup(tc)) return tc;
-                // Deck-section groups → mark the deck only
-                if (tc.getLinkedDecks() != null) {
-                    for (java.util.List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
-                        if (unit == null) continue;
-                        for (Model.CardsLists.Deck d : unit) {
-                            if (d == null) continue;
-                            java.util.Map<String, CardsGroup> secs = DECK_SECTION_GROUPS.get(d);
-                            if (secs != null && secs.containsValue(group)) return d;
-                        }
-                    }
-                }
+        // Resolve the window before any potential refresh.
+        javafx.stage.Window ownerWindow = null;
+        try {
+            if (sceneNode != null && sceneNode.getScene() != null)
+                ownerWindow = sceneNode.getScene().getWindow();
+        } catch (Exception ignored) {
+        }
+        // Also try the CardTreeCell itself as a fallback.
+        if (ownerWindow == null) {
+            try {
+                if (getScene() != null) ownerWindow = getScene().getWindow();
+            } catch (Exception ignored) {
             }
         }
-        if (dac.getDecks() != null) {
-            for (Model.CardsLists.Deck d : dac.getDecks()) {
-                if (d == null) continue;
-                java.util.Map<String, CardsGroup> secs = DECK_SECTION_GROUPS.get(d);
-                if (secs != null && secs.containsValue(group)) return d;
+        final javafx.stage.Window finalOwner = ownerWindow;
+
+        // Collect the cards that need a popup (no printCode).
+        java.util.List<Model.CardsLists.Card> noPrint = new java.util.ArrayList<>();
+        for (Model.CardsLists.Card c : droppedCards) {
+            if (c != null && (c.getPrintCode() == null || c.getPrintCode().isBlank())) {
+                noPrint.add(c);
+            }
+        }
+        if (noPrint.isEmpty()) return;
+
+        // Find the freshly-inserted CardElements at the tail of the group's list.
+        // dropInsertIntoGroup appended them in order, so the last N elements correspond
+        // to the N dropped cards (where N = noPrint.size() within droppedCards).
+        javafx.collections.ObservableList<CardElement> obsList = observableListFor(targetGroup);
+        int listSize = obsList.size();
+
+        // Build a map: card → the last CardElement in the group that wraps it.
+        java.util.Map<Model.CardsLists.Card, CardElement> cardToElement = new java.util.LinkedHashMap<>();
+        for (int i = listSize - droppedCards.size(); i < listSize; i++) {
+            if (i < 0) continue;
+            CardElement el = obsList.get(i);
+            if (el != null && el.getCard() != null) {
+                cardToElement.put(el.getCard(), el);
             }
         }
 
-        // ── 2. Raw-list identity fallback ─────────────────────────────────────
-        // For groups created outside the registries. Compares the CardsGroup's
-        // backing List (not the ObservableList wrapper) against model lists.
-        java.util.List<Model.CardsLists.CardElement> rawList = group.getCardList();
-        if (rawList != null) {
-            if (dac.getCollections() != null) {
-                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
-                    if (tc == null) continue;
-                    if (rawList == tc.getCardsList()
-                            || rawList == tc.getExceptionsToNotAdd()) return tc;
-                    if (tc.getLinkedDecks() != null) {
-                        for (java.util.List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
-                            if (unit == null) continue;
-                            for (Model.CardsLists.Deck d : unit) {
-                                if (d == null) continue;
-                                if (rawList == d.getMainDeck()
-                                        || rawList == d.getExtraDeck()
-                                        || rawList == d.getSideDeck()) return d;
-                            }
-                        }
-                    }
-                }
-            }
-            if (dac.getDecks() != null) {
-                for (Model.CardsLists.Deck d : dac.getDecks()) {
-                    if (d == null) continue;
-                    if (rawList == d.getMainDeck()
-                            || rawList == d.getExtraDeck()
-                            || rawList == d.getSideDeck()) return d;
-                }
+        // Open in reverse order so the first card's popup is on top.
+        for (int i = noPrint.size() - 1; i >= 0; i--) {
+            Model.CardsLists.Card c = noPrint.get(i);
+            CardElement el = cardToElement.get(c);
+            if (el != null) {
+                Controller.MenuActionHandler.handleEditCard(el, finalOwner);
             }
         }
-        return null;
     }
 
     /**
@@ -2527,6 +2596,10 @@ public class CardTreeCell extends TreeCell<String> {
                 java.util.List<Model.CardsLists.Card> srcCards =
                         new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
                 dropInsertIntoGroup(group, insertionIndex, null, srcCards);
+                // My Collection only: open edit popup for cards dropped without a printCode.
+                if (isMyCollectionTabSelected()) {
+                    openEditPopupsForNoPrintCode(srcCards, group, this);
+                }
             }
             markDirtyAndRefreshForGroup(group);
             event.setDropCompleted(true);
@@ -3533,6 +3606,10 @@ public class CardTreeCell extends TreeCell<String> {
                     java.util.List<Model.CardsLists.Card> srcCards =
                             new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
                     dropInsertIntoGroup(group, insertionIndex, null, srcCards);
+                    // My Collection only: open edit popup for cards dropped without a printCode.
+                    if (isMyCollectionTabSelected()) {
+                        openEditPopupsForNoPrintCode(srcCards, group, this);
+                    }
                 }
                 markDirtyAndRefreshForGroup(group);
                 // Signal to grid.setOnDragDropped that this drop is already handled.

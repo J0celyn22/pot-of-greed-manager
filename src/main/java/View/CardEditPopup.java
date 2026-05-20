@@ -89,10 +89,23 @@ public class CardEditPopup extends Stage {
         this.card = (element != null) ? element.getCard() : null;
 
         this.selectedRarity = (element != null) ? element.getRarity() : null;
-        this.selectedArtwork = (element != null
-                && Boolean.TRUE.equals(element.getSpecificArtwork())
-                && element.getArtwork() > 0)
-                ? element.getArtwork() : 1;
+
+        // Determine the initially-selected artwork index.
+        // Priority: explicit element.artwork flag → card.artNumber → default 1.
+        int resolvedArtwork = 1;
+        if (element != null && Boolean.TRUE.equals(element.getSpecificArtwork()) && element.getArtwork() > 0) {
+            resolvedArtwork = element.getArtwork();
+        } else if (this.card != null) {
+            try {
+                String an = this.card.getArtNumber();
+                if (an != null && !an.isBlank()) {
+                    int parsed = Integer.parseInt(an.trim());
+                    if (parsed > 0) resolvedArtwork = parsed;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        this.selectedArtwork = resolvedArtwork;
 
         initStyle(StageStyle.TRANSPARENT);
         setResizable(false);
@@ -132,6 +145,64 @@ public class CardEditPopup extends Stage {
             if (arrow != null)
                 arrow.setStyle("-fx-background-color: #cdfc04;");
         }
+    }
+
+    /**
+     * Shows the popup centred on an already-resolved {@link javafx.stage.Window}.
+     * Prefer this over {@link #showCenteredOn(javafx.scene.Node)} whenever the
+     * anchor node may have been recycled (e.g. after a ListView refresh).
+     */
+    public void showCenteredOn(javafx.stage.Window ownerWindow) {
+        try {
+            if (ownerWindow instanceof javafx.stage.Stage) {
+                initOwner(ownerWindow);
+            }
+        } catch (Exception ignored) {
+        }
+
+        double overlayX, overlayY, overlayW, overlayH;
+        if (ownerWindow != null) {
+            overlayX = ownerWindow.getX();
+            overlayY = ownerWindow.getY();
+            overlayW = ownerWindow.getWidth();
+            overlayH = ownerWindow.getHeight();
+        } else {
+            javafx.geometry.Rectangle2D screen =
+                    javafx.stage.Screen.getPrimary().getVisualBounds();
+            overlayX = screen.getMinX();
+            overlayY = screen.getMinY();
+            overlayW = screen.getWidth();
+            overlayH = screen.getHeight();
+        }
+
+        javafx.scene.Group contentGroup = new javafx.scene.Group(content);
+        javafx.scene.layout.StackPane overlay = new javafx.scene.layout.StackPane(contentGroup);
+        overlay.setPrefSize(overlayW, overlayH);
+        overlay.setAlignment(Pos.CENTER);
+        overlay.setStyle("-fx-background-color: rgba(0, 0, 0, 0.45);");
+        overlay.setOnMouseClicked(e -> close());
+
+        Scene scene = new Scene(overlay, overlayW, overlayH);
+        scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
+        scene.setOnKeyPressed(e -> {
+            if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) close();
+        });
+
+        try {
+            java.net.URL cssUrl = getClass().getResource("/styles.css");
+            if (cssUrl == null) {
+                java.io.File f = new java.io.File("src/main/resources/styles.css");
+                if (f.exists()) cssUrl = f.toURI().toURL();
+            }
+            if (cssUrl != null) scene.getStylesheets().add(cssUrl.toExternalForm());
+        } catch (Exception ignored) {
+        }
+
+        setScene(scene);
+        setX(overlayX);
+        setY(overlayY);
+        show();
+        Platform.runLater(this::applyArrowStyles);
     }
 
     public void showCenteredOn(javafx.scene.Node anchor) {
@@ -353,49 +424,89 @@ public class CardEditPopup extends Stage {
         cb.setEditable(true);
         cb.getEditor().getStyleClass().add("accent-text-field");
 
-        if (card != null && card.getPrintCode() != null)
-            cb.setValue(card.getPrintCode());
+        // ── Item list ────────────────────────────────────────────────────────
+        // Create ONE mutable ObservableList and never call cb.setItems() again.
+        // Replacing the items list while the popup is open causes JavaFX layout
+        // glitches (one-line-high popup, wrong scrollbar, etc.).
+        loadSetNames();
+        javafx.collections.ObservableList<String> pcItems =
+                FXCollections.observableArrayList(printcodeSetNames);
+        cb.setItems(pcItems);
 
-        // Arrow clicked with empty field → show all set names
-        cb.setOnShowing(e -> {
-            String typed = cb.getEditor().getText();
-            if (typed == null || typed.isBlank()) {
-                loadSetNames();
-                cb.setItems(FXCollections.observableArrayList(printcodeSetNames));
-            }
-        });
+        // ── Seed current printCode BEFORE wiring listeners ───────────────────
+        // Setting text before the listeners are attached avoids a spurious
+        // filter call on construction.
+        if (card != null && card.getPrintCode() != null && !card.getPrintCode().isBlank())
+            cb.getEditor().setText(card.getPrintCode());
 
-        // While typing, prefix-match against set names
+        // ── Suppression flag ─────────────────────────────────────────────────
+        // Prevents the text listener re-firing when the selection listener's
+        // Platform.runLater sets the editor text programmatically.
+        final boolean[] suppressText = {false};
+
+        // ── Text listener: filter items in-place while the user types ─────────
         cb.getEditor().textProperty().addListener((obs, oldVal, newVal) -> {
-            String selected = cb.getSelectionModel().getSelectedItem();
-            if (selected != null && selected.equals(newVal)) return;
-            filterPrintcodeItems(cb, newVal);
+            if (suppressText[0]) return;
+            // Skip if this change was caused by the selection model setting the text
+            String sel = cb.getSelectionModel().getSelectedItem();
+            if (sel != null && sel.equals(newVal)) return;
+
+            // Once the user has typed past the "-" (e.g. "LEDE-EN001"), they are
+            // entering the card number — set-name filtering is no longer useful and
+            // calling items.setAll() would trigger JavaFX's internal clearAndSelect(),
+            // which calls editor.setText(value) and wipes the typed suffix.
+            if (newVal != null && newVal.contains("-")) {
+                cb.hide();
+                return;
+            }
+
+            updatePrintcodeItems(pcItems, newVal);
+
+            if (!pcItems.isEmpty() && !cb.isShowing()) cb.show();
+            else if (pcItems.isEmpty()) cb.hide();
         });
 
-        // After a set name is chosen, append whatever suffix the user had typed
+        // After a set name is chosen, append "-" so the user can type the number
         cb.getSelectionModel().selectedItemProperty().addListener((obs, oldItem, newItem) -> {
             if (newItem == null || newItem.contains("-")) return;
-            // newItem is a raw set name — append "-" so the user can type the number
+            // This listener re-fires every time items.setAll() is called while
+            // the selection is on a set name (e.g. "LEDE"). If the editor already
+            // shows that set name followed by a dash (possibly with more characters
+            // the user has typed, e.g. "LEDE-EN001"), do NOT overwrite it.
+            String currentText = cb.getEditor().getText();
+            if (currentText != null && currentText.startsWith(newItem + "-")) return;
             String full = newItem + "-";
             Platform.runLater(() -> {
+                suppressText[0] = true;
                 cb.getEditor().setText(full);
-                cb.getEditor().positionCaret(full.length());
+                Platform.runLater(() -> {
+                    cb.getEditor().deselect();
+                    cb.getEditor().positionCaret(full.length());
+                    suppressText[0] = false;
+                });
             });
         });
 
         return cb;
     }
 
-    private void filterPrintcodeItems(ComboBox<String> cb, String typed) {
+    /**
+     * Mutates {@code items} in-place to the set names that prefix-match {@code typed}.
+     * Never replaces the list reference — the combo's popup stays properly sized.
+     */
+    private void updatePrintcodeItems(javafx.collections.ObservableList<String> items,
+                                      String typed) {
         loadSetNames();
         if (typed == null || typed.isBlank()) {
-            cb.setItems(FXCollections.observableArrayList(printcodeSetNames));
+            items.setAll(printcodeSetNames);
             return;
         }
         int dashIdx = typed.indexOf('-');
         String setPart = (dashIdx >= 0 ? typed.substring(0, dashIdx) : typed).toUpperCase();
-        if (setPart.isEmpty()) return;
-
+        if (setPart.isEmpty()) {
+            items.setAll(printcodeSetNames);
+            return;
+        }
         List<String> matches = new ArrayList<>();
         for (String name : printcodeSetNames) {
             if (name.toUpperCase().startsWith(setPart)) {
@@ -403,9 +514,7 @@ public class CardEditPopup extends Stage {
                 if (matches.size() >= 20) break;
             }
         }
-        cb.setItems(FXCollections.observableArrayList(matches));
-        if (!matches.isEmpty()) cb.show();
-        else cb.hide();
+        items.setAll(matches);
     }
 
     private void loadSetNames() {
@@ -577,11 +686,14 @@ public class CardEditPopup extends Stage {
                     && specificArtworkCheck.isSelected();
             element.setSpecificArtwork(isSpecific);
             element.setArtwork(selectedArtwork);
-            // Update the Card reference on the element to the chosen alias so that
-            // imagePath and passCode reflect the selected artwork everywhere.
             int aliasIdx = selectedArtwork - 1;
             if (aliasIdx >= 0 && aliasIdx < artworkAliases.size()) {
-                element.setCard(artworkAliases.get(aliasIdx));
+                Card alias = artworkAliases.get(aliasIdx);
+                // The printCode belongs to this physical copy, not to the artwork
+                // variant. Carry it over so it is not lost when the card reference
+                // is swapped (card.getPrintCode() was already set above).
+                if (card != null) alias.setPrintCode(card.getPrintCode());
+                element.setCard(alias);
             }
         }
     }

@@ -62,11 +62,11 @@ public class CardsListCell extends ListCell<Card> {
     }
 
 
-    private static MenuItem makeMyCollDestItem(String path, Card card) {
+    private static MenuItem makeMyCollDestItem(String path, Card card, javafx.scene.Node anchor) {
         MenuItem mi = new MenuItem(path);
         mi.setOnAction(e -> {
             logger.debug("makeMyCollDestItem action fired: path='{}', card='{}'", path, card == null ? "null" : card.getName_EN());
-            Controller.MenuActionHandler.handleAddCopy(card, path);
+            Controller.MenuActionHandler.handleAddCopy(card, path, anchor);
         });
         return mi;
     }
@@ -266,13 +266,14 @@ public class CardsListCell extends ListCell<Card> {
     }
 
     private static MenuItem makeMyCollDestItemForCards(
-            String path, java.util.Collection<Model.CardsLists.Card> cards) {
+            String path, java.util.Collection<Model.CardsLists.Card> cards,
+            javafx.scene.Node anchor) {
         MenuItem mi = new MenuItem(path);
         mi.setOnAction(e -> {
             if (cards.size() == 1) {
-                Controller.MenuActionHandler.handleAddCopy(cards.iterator().next(), path);
+                Controller.MenuActionHandler.handleAddCopy(cards.iterator().next(), path, anchor);
             } else {
-                Controller.MenuActionHandler.handleBulkAddCopy(cards, path);
+                Controller.MenuActionHandler.handleBulkAddCopy(cards, path, anchor);
             }
         });
         return mi;
@@ -523,14 +524,14 @@ public class CardsListCell extends ListCell<Card> {
                 if (box == null) continue;
                 String boxName = sanitize(box.getName());
                 if (boxName.isEmpty()) boxName = "(Unnamed box)";
-                items.add(makeMyCollDestItem(boxName, card));
+                items.add(makeMyCollDestItem(boxName, card, this));
 
                 if (box.getContent() != null) {
                     for (Model.CardsLists.CardsGroup g : box.getContent()) {
                         if (g == null) continue;
                         String groupName = sanitize(g.getName());
                         if (groupName.isEmpty()) continue;
-                        items.add(makeMyCollDestItem(boxName + " / " + groupName, card));
+                        items.add(makeMyCollDestItem(boxName + " / " + groupName, card, this));
                     }
                 }
                 if (box.getSubBoxes() != null) {
@@ -538,14 +539,14 @@ public class CardsListCell extends ListCell<Card> {
                         if (sb == null) continue;
                         String subName = sanitize(sb.getName());
                         if (subName.isEmpty()) subName = "(Unnamed sub-box)";
-                        items.add(makeMyCollDestItem(boxName + " / " + subName, card));
+                        items.add(makeMyCollDestItem(boxName + " / " + subName, card, this));
                         if (sb.getContent() != null) {
                             for (Model.CardsLists.CardsGroup g : sb.getContent()) {
                                 if (g == null) continue;
                                 String groupName = sanitize(g.getName());
                                 if (groupName.isEmpty()) continue;
                                 items.add(makeMyCollDestItem(
-                                        boxName + " / " + subName + " / " + groupName, card));
+                                        boxName + " / " + subName + " / " + groupName, card, this));
                             }
                         }
                     }
@@ -791,14 +792,14 @@ public class CardsListCell extends ListCell<Card> {
                 String boxName = sanitize(box.getName());
                 if (boxName.isEmpty()) boxName = "(Unnamed box)";
                 final String finalBoxName = boxName;
-                items.add(makeMyCollDestItemForCards(finalBoxName, finalCards));
+                items.add(makeMyCollDestItemForCards(finalBoxName, finalCards, this));
                 if (box.getContent() != null) {
                     for (Model.CardsLists.CardsGroup g : box.getContent()) {
                         if (g == null) continue;
                         String groupName = sanitize(g.getName());
                         if (groupName.isEmpty()) continue;
                         final String path = finalBoxName + " / " + groupName;
-                        items.add(makeMyCollDestItemForCards(path, finalCards));
+                        items.add(makeMyCollDestItemForCards(path, finalCards, this));
                     }
                 }
                 if (box.getSubBoxes() != null) {
@@ -807,14 +808,14 @@ public class CardsListCell extends ListCell<Card> {
                         String subName = sanitize(subBox.getName());
                         if (subName.isEmpty()) subName = "(Unnamed sub-box)";
                         final String finalSubName = subName;
-                        items.add(makeMyCollDestItemForCards(finalSubName, finalCards));
+                        items.add(makeMyCollDestItemForCards(finalSubName, finalCards, this));
                         if (subBox.getContent() != null) {
                             for (Model.CardsLists.CardsGroup g : subBox.getContent()) {
                                 if (g == null) continue;
                                 String groupName = sanitize(g.getName());
                                 if (groupName.isEmpty()) continue;
                                 final String path = finalSubName + " / " + groupName;
-                                items.add(makeMyCollDestItemForCards(path, finalCards));
+                                items.add(makeMyCollDestItemForCards(path, finalCards, this));
                             }
                         }
                     }

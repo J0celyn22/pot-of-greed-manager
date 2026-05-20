@@ -85,17 +85,98 @@ public final class MenuActionHandler {
         }
     }
 
-    private static void doAddCopy(Card card, String handlerTarget) {
+    /**
+     * Like {@link #handleAddCopy(Card, String)} but, when the card has no printCode
+     * (Unique right-pane mode), also opens the {@link View.CardEditPopup} immediately
+     * after insertion so the user can fill in the printCode.
+     *
+     * <p>The owner {@link javafx.stage.Window} is resolved from {@code anchor}
+     * <em>before</em> the collection refresh so that ListView-cell recycling cannot
+     * nullify the reference.</p>
+     */
+    public static void handleAddCopy(Card card, String handlerTarget, javafx.scene.Node anchor) {
+        if (card == null || handlerTarget == null || handlerTarget.trim().isEmpty()) return;
+        // Resolve the window NOW — after refreshOwnedCollectionView the ListView cell
+        // may be recycled and anchor.getScene() would return null.
+        final javafx.stage.Window ownerWindow = resolveWindow(anchor);
+        try {
+            Runnable doAdd = () -> {
+                CardElement added = doAddCopy(card, handlerTarget);
+                UserInterfaceFunctions.refreshOwnedCollectionView();
+                if (added != null && lacksPrintCode(card)) {
+                    handleEditCard(added, ownerWindow);
+                }
+            };
+            if (Platform.isFxApplicationThread()) doAdd.run();
+            else Platform.runLater(doAdd);
+        } catch (Throwable t) {
+            logger.debug("handleAddCopy(anchor) failed for target {}", handlerTarget, t);
+        }
+    }
+
+    /**
+     * Like {@link #handleBulkAddCopy(java.util.Collection, String)} but opens
+     * {@link View.CardEditPopup} for every added card that has no printCode.
+     * Popups are opened in reverse insertion order so the first card's popup is
+     * on top (last {@code show()} call wins the z-order).
+     */
+    public static void handleBulkAddCopy(java.util.Collection<Card> cards,
+                                         String handlerTarget, javafx.scene.Node anchor) {
+        if (cards == null || cards.isEmpty() || handlerTarget == null) return;
+        final javafx.stage.Window ownerWindow = resolveWindow(anchor);
+        try {
+            Runnable doAdd = () -> {
+                List<CardElement> added = new ArrayList<>();
+                for (Card card : cards) {
+                    CardElement el = doAddCopy(card, handlerTarget);
+                    if (el != null) added.add(el);
+                }
+                UserInterfaceFunctions.refreshOwnedCollectionView();
+                // Open popups in reverse order so index 0 ends on top.
+                for (int i = added.size() - 1; i >= 0; i--) {
+                    CardElement el = added.get(i);
+                    if (lacksPrintCode(el.getCard())) handleEditCard(el, ownerWindow);
+                }
+            };
+            if (Platform.isFxApplicationThread()) doAdd.run();
+            else Platform.runLater(doAdd);
+        } catch (Throwable t) {
+            logger.debug("handleBulkAddCopy(anchor) failed for target {}", handlerTarget, t);
+        }
+    }
+
+    /**
+     * Returns true when the card has no non-blank printCode.
+     */
+    private static boolean lacksPrintCode(Card card) {
+        if (card == null) return false;
+        String pc = card.getPrintCode();
+        return pc == null || pc.isBlank();
+    }
+
+    /**
+     * Safely resolves the JavaFX Window from a node; returns null if unavailable.
+     */
+    private static javafx.stage.Window resolveWindow(javafx.scene.Node anchor) {
+        try {
+            if (anchor != null && anchor.getScene() != null)
+                return anchor.getScene().getWindow();
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static CardElement doAddCopy(Card card, String handlerTarget) {
         OwnedCardsCollection owned = safeGetOwnedCollection();
         if (owned == null || owned.getOwnedCollection() == null) {
             logger.warn("OwnedCardsCollection not available; cannot add card to {}", handlerTarget);
-            return;
+            return null;
         }
 
         CardsGroup dest = findMyCollectionDestination(handlerTarget, owned);
         if (dest == null) {
             logger.info("My Collection destination not found for '{}'; skipping add", handlerTarget);
-            return;
+            return null;
         }
 
         CardElement newElement = new CardElement(card);
@@ -109,6 +190,7 @@ public final class MenuActionHandler {
 
         UserInterfaceFunctions.markMyCollectionDirty();
         UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+        return newElement;
     }
 
     /**
@@ -1502,13 +1584,36 @@ public final class MenuActionHandler {
      * @param anchor  any scene node used to centre the popup on the same window;
      *                may be {@code null} (popup will centre on screen)
      */
-    public static void handleEditCard(CardElement element, javafx.scene.Node anchor) {
+    /**
+     * Like {@link #handleEditCard(CardElement, javafx.scene.Node)} but accepts
+     * a pre-resolved {@link javafx.stage.Window} instead of a node.
+     * Use this when the anchor node may have been recycled (e.g. after a ListView
+     * refresh) — the Window reference stays stable.
+     */
+    public static void handleEditCard(CardElement element, javafx.stage.Window ownerWindow) {
         if (element == null) return;
         Runnable show = () -> {
             try {
                 View.CardEditPopup popup = new View.CardEditPopup(element);
                 popup.setOnOk(() -> {
-                    // Refresh whichever collection is currently loaded
+                    // Mark the owning model object (Deck, ThemeCollection, or
+                    // OwnedCardsCollection) as dirty so the tab unsaved-indicator fires.
+                    try {
+                        CardsGroup group = CardTreeCell.findGroupForCardElement(element);
+                        Object dacOwner = CardTreeCell.findOwnerForGroup(group);
+                        if (dacOwner != null) {
+                            UserInterfaceFunctions.markDirty(dacOwner);
+                            UserInterfaceFunctions.setPendingDecksFullRebuild();
+                        } else {
+                            UserInterfaceFunctions.markMyCollectionDirty();
+                        }
+                    } catch (Throwable ignored) {
+                        UserInterfaceFunctions.markMyCollectionDirty();
+                    }
+                    try {
+                        UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                    } catch (Throwable ignored) {
+                    }
                     try {
                         UserInterfaceFunctions.refreshOwnedCollectionView();
                     } catch (Throwable ignored) {
@@ -1518,15 +1623,26 @@ public final class MenuActionHandler {
                     } catch (Throwable ignored) {
                     }
                 });
-                popup.showCenteredOn(anchor);
+                popup.showCenteredOn(ownerWindow);
             } catch (Throwable t) {
-                logger.error("handleEditCard failed", t);
+                logger.error("handleEditCard(Window) failed", t);
             }
         };
-        if (javafx.application.Platform.isFxApplicationThread()) {
-            show.run();
-        } else {
-            javafx.application.Platform.runLater(show);
+        if (javafx.application.Platform.isFxApplicationThread()) show.run();
+        else javafx.application.Platform.runLater(show);
+    }
+
+    public static void handleEditCard(CardElement element, javafx.scene.Node anchor) {
+        if (element == null) return;
+        // Resolve the window NOW, before any refresh can recycle the anchor node.
+        javafx.stage.Window ownerWindow = null;
+        try {
+            if (anchor != null && anchor.getScene() != null) {
+                ownerWindow = anchor.getScene().getWindow();
+            }
+        } catch (Exception ignored) {
         }
+        // Delegate to the window-based overload so the window reference is stable.
+        handleEditCard(element, ownerWindow);
     }
 }
