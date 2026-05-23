@@ -46,7 +46,7 @@ import java.util.List;
 public final class CardSorter {
 
     // -------------------------------------------------------------------------
-    // Public API
+    // Subcategory tables
     // -------------------------------------------------------------------------
 
     /**
@@ -63,6 +63,7 @@ public final class CardSorter {
             "Link"       // 6
             // index 7+ → "other" subcategory (e.g. Xyz)
     );
+
     private static final List<String> SPELL_SUBCAT_ORDER = Arrays.asList(
             "Normal",       // 0
             "Continuous",   // 1
@@ -72,9 +73,6 @@ public final class CardSorter {
             "Ritual"        // 5
     );
 
-    // -------------------------------------------------------------------------
-    // Subcategory tables
-    // -------------------------------------------------------------------------
     private static final List<String> TRAP_SUBCAT_ORDER = Arrays.asList(
             "Normal",       // 0
             "Continuous",   // 1
@@ -84,6 +82,10 @@ public final class CardSorter {
     // No instances.
     private CardSorter() {
     }
+
+    // -------------------------------------------------------------------------
+    // Public API
+    // -------------------------------------------------------------------------
 
     /**
      * Returns a new sorted list; the original list is never mutated.
@@ -103,14 +105,25 @@ public final class CardSorter {
     // -------------------------------------------------------------------------
 
     /**
-     * Returns the main-type bucket: 0=Monster, 1=Spell, 2=Trap, 3=Other.
+     * Returns the main-type bucket: 0 = Monster, 1 = Spell, 2 = Trap, 3 = Other.
+     *
+     * @param card the card to classify
+     * @return the main-type sort order index
      */
-    private static int mainTypeOrder(Card c) {
-        String t = c.getCardType();
-        if (t == null) return 3;
-        if (t.contains("Monster")) return 0;
-        if (t.contains("Spell")) return 1;
-        if (t.contains("Trap")) return 2;
+    private static int mainTypeOrder(Card card) {
+        String cardType = card.getCardType();
+        if (cardType == null) {
+            return 3;
+        }
+        if (cardType.contains("Monster")) {
+            return 0;
+        }
+        if (cardType.contains("Spell")) {
+            return 1;
+        }
+        if (cardType.contains("Trap")) {
+            return 2;
+        }
         return 3;
     }
 
@@ -118,27 +131,37 @@ public final class CardSorter {
      * Returns the subcategory sort index within the card's main type.
      * For monsters the scan is in <em>reverse</em> order so more specific
      * properties (Link, Synchro…) beat generic ones (Effect, Normal).
+     *
+     * @param card the card to classify
+     * @return the subcategory sort order index
      */
-    private static int subcatOrder(Card c) {
-        String t = c.getCardType();
-        List<String> props = c.getCardProperties();
-        if (t == null || props == null || props.isEmpty()) return 0;
-
-        if (t.contains("Monster")) {
+    private static int subcatOrder(Card card) {
+        String cardType = card.getCardType();
+        List<String> properties = card.getCardProperties();
+        if (cardType == null || properties == null || properties.isEmpty()) {
+            return 0;
+        }
+        if (cardType.contains("Monster")) {
             for (int i = MONSTER_SUBCAT_ORDER.size() - 1; i >= 0; i--) {
-                if (props.contains(MONSTER_SUBCAT_ORDER.get(i))) return i;
+                if (properties.contains(MONSTER_SUBCAT_ORDER.get(i))) {
+                    return i;
+                }
             }
             return MONSTER_SUBCAT_ORDER.size(); // unknown → last
         }
-        if (t.contains("Spell")) {
+        if (cardType.contains("Spell")) {
             for (int i = 0; i < SPELL_SUBCAT_ORDER.size(); i++) {
-                if (props.contains(SPELL_SUBCAT_ORDER.get(i))) return i;
+                if (properties.contains(SPELL_SUBCAT_ORDER.get(i))) {
+                    return i;
+                }
             }
             return SPELL_SUBCAT_ORDER.size();
         }
-        if (t.contains("Trap")) {
+        if (cardType.contains("Trap")) {
             for (int i = 0; i < TRAP_SUBCAT_ORDER.size(); i++) {
-                if (props.contains(TRAP_SUBCAT_ORDER.get(i))) return i;
+                if (properties.contains(TRAP_SUBCAT_ORDER.get(i))) {
+                    return i;
+                }
             }
             return TRAP_SUBCAT_ORDER.size();
         }
@@ -154,28 +177,46 @@ public final class CardSorter {
      * </ul>
      * Returns 0 for non-monsters (unused in practice since the level sort is
      * only applied inside the monster main-type bucket).
+     *
+     * @param card the card whose effective level is to be determined
+     * @return the effective level for sorting purposes
      */
-    private static int effectiveLevel(Card c) {
-        List<String> props = c.getCardProperties();
-        if (props != null) {
-            if (props.contains("Link")) return c.getLinkVal();
-            if (props.contains("Xyz")) return c.getRank();
+    private static int effectiveLevel(Card card) {
+        List<String> properties = card.getCardProperties();
+        if (properties != null) {
+            if (properties.contains("Link")) {
+                return card.getLinkVal();
+            }
+            if (properties.contains("Xyz")) {
+                return card.getRank();
+            }
         }
-        return c.getLevel();
+        return card.getLevel();
     }
 
     /**
-     * Null-safe English name for comparisons.
+     * Returns a null-safe English name for comparisons.
+     *
+     * @param card the card whose name is needed
+     * @return the English name, or an empty string if {@code null}
      */
-    private static String safeName(Card c) {
-        String n = c.getName_EN();
-        return (n == null) ? "" : n;
+    private static String safeName(Card card) {
+        String name = card.getName_EN();
+        return (name == null) ? "" : name;
     }
 
     // -------------------------------------------------------------------------
     // Comparator builder
     // -------------------------------------------------------------------------
 
+    /**
+     * Builds the {@link Comparator} corresponding to the requested {@link SortMode}.
+     * All modes share the same top-level structure:
+     * main type → subcategory → mode-specific tiebreakers.
+     *
+     * @param mode the desired sort mode
+     * @return a fully chained comparator for {@link Card} objects
+     */
     private static Comparator<Card> buildComparator(SortMode mode) {
 
         // Structural comparators shared by every mode
@@ -184,10 +225,10 @@ public final class CardSorter {
         Comparator<Card> byNameAsc = Comparator.comparing(
                 CardSorter::safeName, String.CASE_INSENSITIVE_ORDER);
 
-        // All mode-specific lambdas below are the final stage of the chain
+        // All mode-specific lambdas are the final stage of the chain:
         //   byMainType → bySubcat → <mode-specific>
-        // At that point both cards share the same main type and subcategory,
-        // so mainTypeOrder(a) == mainTypeOrder(b) is always true.
+        // At that point both cards share the same main type and subcategory.
+        // Lambda parameters (a, b) follow the standard Comparator convention and are kept as-is.
 
         switch (mode) {
 
@@ -198,10 +239,14 @@ public final class CardSorter {
             case AZ:
                 return byMainType.thenComparing(bySubcat).thenComparing((a, b) -> {
                     int nameCmp = safeName(a).compareToIgnoreCase(safeName(b));
-                    if (nameCmp != 0) return nameCmp;
+                    if (nameCmp != 0) {
+                        return nameCmp;
+                    }
                     if (mainTypeOrder(a) == 0) {
-                        int lvlCmp = Integer.compare(effectiveLevel(b), effectiveLevel(a)); // desc
-                        if (lvlCmp != 0) return lvlCmp;
+                        int levelCmp = Integer.compare(effectiveLevel(b), effectiveLevel(a)); // desc
+                        if (levelCmp != 0) {
+                            return levelCmp;
+                        }
                         return Integer.compare(b.getAtk(), a.getAtk()); // desc
                     }
                     return 0;
@@ -210,10 +255,14 @@ public final class CardSorter {
             case ZA:
                 return byMainType.thenComparing(bySubcat).thenComparing((a, b) -> {
                     int nameCmp = safeName(b).compareToIgnoreCase(safeName(a)); // reversed
-                    if (nameCmp != 0) return nameCmp;
+                    if (nameCmp != 0) {
+                        return nameCmp;
+                    }
                     if (mainTypeOrder(a) == 0) {
-                        int lvlCmp = Integer.compare(effectiveLevel(b), effectiveLevel(a)); // desc
-                        if (lvlCmp != 0) return lvlCmp;
+                        int levelCmp = Integer.compare(effectiveLevel(b), effectiveLevel(a)); // desc
+                        if (levelCmp != 0) {
+                            return levelCmp;
+                        }
                         return Integer.compare(b.getAtk(), a.getAtk()); // desc
                     }
                     return 0;
@@ -223,8 +272,10 @@ public final class CardSorter {
             case ATK_DESC:
                 return byMainType.thenComparing(bySubcat).thenComparing((a, b) -> {
                     if (mainTypeOrder(a) == 0) {
-                        int cmp = Integer.compare(b.getAtk(), a.getAtk()); // highest first
-                        if (cmp != 0) return cmp;
+                        int atkCmp = Integer.compare(b.getAtk(), a.getAtk()); // highest first
+                        if (atkCmp != 0) {
+                            return atkCmp;
+                        }
                     }
                     return safeName(a).compareToIgnoreCase(safeName(b));
                 });
@@ -232,8 +283,10 @@ public final class CardSorter {
             case ATK_ASC:
                 return byMainType.thenComparing(bySubcat).thenComparing((a, b) -> {
                     if (mainTypeOrder(a) == 0) {
-                        int cmp = Integer.compare(a.getAtk(), b.getAtk()); // lowest first
-                        if (cmp != 0) return cmp;
+                        int atkCmp = Integer.compare(a.getAtk(), b.getAtk()); // lowest first
+                        if (atkCmp != 0) {
+                            return atkCmp;
+                        }
                     }
                     return safeName(a).compareToIgnoreCase(safeName(b));
                 });
@@ -242,8 +295,10 @@ public final class CardSorter {
             case DEF_DESC:
                 return byMainType.thenComparing(bySubcat).thenComparing((a, b) -> {
                     if (mainTypeOrder(a) == 0) {
-                        int cmp = Integer.compare(b.getDef(), a.getDef()); // highest first
-                        if (cmp != 0) return cmp;
+                        int defCmp = Integer.compare(b.getDef(), a.getDef()); // highest first
+                        if (defCmp != 0) {
+                            return defCmp;
+                        }
                     }
                     return safeName(a).compareToIgnoreCase(safeName(b));
                 });
@@ -251,8 +306,10 @@ public final class CardSorter {
             case DEF_ASC:
                 return byMainType.thenComparing(bySubcat).thenComparing((a, b) -> {
                     if (mainTypeOrder(a) == 0) {
-                        int cmp = Integer.compare(a.getDef(), b.getDef()); // lowest first
-                        if (cmp != 0) return cmp;
+                        int defCmp = Integer.compare(a.getDef(), b.getDef()); // lowest first
+                        if (defCmp != 0) {
+                            return defCmp;
+                        }
                     }
                     return safeName(a).compareToIgnoreCase(safeName(b));
                 });
@@ -265,10 +322,14 @@ public final class CardSorter {
             case LVL_DESC:
                 return byMainType.thenComparing(bySubcat).thenComparing((a, b) -> {
                     if (mainTypeOrder(a) == 0) {
-                        int lvlCmp = Integer.compare(effectiveLevel(b), effectiveLevel(a)); // highest first
-                        if (lvlCmp != 0) return lvlCmp;
+                        int levelCmp = Integer.compare(effectiveLevel(b), effectiveLevel(a)); // highest first
+                        if (levelCmp != 0) {
+                            return levelCmp;
+                        }
                         int nameCmp = safeName(a).compareToIgnoreCase(safeName(b));
-                        if (nameCmp != 0) return nameCmp;
+                        if (nameCmp != 0) {
+                            return nameCmp;
+                        }
                         return Integer.compare(b.getAtk(), a.getAtk()); // ATK desc as final tiebreaker
                     }
                     return safeName(a).compareToIgnoreCase(safeName(b));
@@ -277,10 +338,14 @@ public final class CardSorter {
             case LVL_ASC:
                 return byMainType.thenComparing(bySubcat).thenComparing((a, b) -> {
                     if (mainTypeOrder(a) == 0) {
-                        int lvlCmp = Integer.compare(effectiveLevel(a), effectiveLevel(b)); // lowest first
-                        if (lvlCmp != 0) return lvlCmp;
+                        int levelCmp = Integer.compare(effectiveLevel(a), effectiveLevel(b)); // lowest first
+                        if (levelCmp != 0) {
+                            return levelCmp;
+                        }
                         int nameCmp = safeName(a).compareToIgnoreCase(safeName(b));
-                        if (nameCmp != 0) return nameCmp;
+                        if (nameCmp != 0) {
+                            return nameCmp;
+                        }
                         return Integer.compare(b.getAtk(), a.getAtk());
                     }
                     return safeName(a).compareToIgnoreCase(safeName(b));
@@ -291,38 +356,50 @@ public final class CardSorter {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Sort mode enum
+    // -------------------------------------------------------------------------
+
     /**
      * All supported sort modes, one per button label.
      */
     public enum SortMode {
+
         /**
          * Alphabetical ascending (A→Z); monster tiebreakers: LVL desc, then ATK desc.
          */
         AZ,
+
         /**
          * Alphabetical descending (Z→A); same tiebreakers as AZ.
          */
         ZA,
+
         /**
          * Highest ATK first; ties broken by name asc.
          */
         ATK_DESC,
+
         /**
          * Lowest ATK first; ties broken by name asc.
          */
         ATK_ASC,
+
         /**
          * Highest DEF first; ties broken by name asc.
          */
         DEF_DESC,
+
         /**
          * Lowest DEF first; ties broken by name asc.
          */
         DEF_ASC,
+
         /**
          * Highest effective level first; ties: name asc, then ATK desc.
          */
         LVL_DESC,
+
         /**
          * Lowest effective level first; ties: name asc, then ATK desc.
          */

@@ -71,102 +71,179 @@ public final class CardElementSorter {
             "Counter"       // 2
     );
 
-    // ── Classification helpers ─────────────────────────────────────────────────
+    // ── Comparator ────────────────────────────────────────────────────────────
+
+    /**
+     * The single shared comparator used for all sorting operations.
+     * Lambda parameters (a, b) follow the standard {@link Comparator} convention
+     * and are kept as-is; local result variables use descriptive names.
+     */
     private static final Comparator<CardElement> COMPARATOR = (a, b) -> {
-        Card ca = (a == null) ? null : a.getCard();
-        Card cb = (b == null) ? null : b.getCard();
+        Card cardA = (a == null) ? null : a.getCard();
+        Card cardB = (b == null) ? null : b.getCard();
 
         // Null guards: null elements sink to the bottom
-        if (ca == null && cb == null) return 0;
-        if (ca == null) return 1;
-        if (cb == null) return -1;
+        if (cardA == null && cardB == null) {
+            return 0;
+        }
+        if (cardA == null) {
+            return 1;
+        }
+        if (cardB == null) {
+            return -1;
+        }
 
         // 1. Main type
-        int mt = Integer.compare(mainTypeOrder(ca), mainTypeOrder(cb));
-        if (mt != 0) return mt;
+        int mainTypeCmp = Integer.compare(mainTypeOrder(cardA), mainTypeOrder(cardB));
+        if (mainTypeCmp != 0) {
+            return mainTypeCmp;
+        }
 
         // 2. Subcategory
-        int sc = Integer.compare(subcatOrder(ca), subcatOrder(cb));
-        if (sc != 0) return sc;
+        int subcatCmp = Integer.compare(subcatOrder(cardA), subcatOrder(cardB));
+        if (subcatCmp != 0) {
+            return subcatCmp;
+        }
 
         // 3. Monster-specific tiebreakers
-        if (mainTypeOrder(ca) == 0) {
-            int lvl = Integer.compare(effectiveLevel(cb), effectiveLevel(ca)); // desc
-            if (lvl != 0) return lvl;
-            int atk = Integer.compare(cb.getAtk(), ca.getAtk()); // desc
-            if (atk != 0) return atk;
-            int def = Integer.compare(cb.getDef(), ca.getDef()); // desc
-            if (def != 0) return def;
+        if (mainTypeOrder(cardA) == 0) {
+            int levelCmp = Integer.compare(effectiveLevel(cardB), effectiveLevel(cardA)); // desc
+            if (levelCmp != 0) {
+                return levelCmp;
+            }
+            int atkCmp = Integer.compare(cardB.getAtk(), cardA.getAtk()); // desc
+            if (atkCmp != 0) {
+                return atkCmp;
+            }
+            int defCmp = Integer.compare(cardB.getDef(), cardA.getDef()); // desc
+            if (defCmp != 0) {
+                return defCmp;
+            }
         }
 
         // 4. Alphabetical (spell / trap / other fall through to here directly)
-        return safeName(ca).compareToIgnoreCase(safeName(cb));
+        return safeName(cardA).compareToIgnoreCase(safeName(cardB));
     };
 
     // No instances.
     private CardElementSorter() {
     }
 
-    private static int mainTypeOrder(Card c) {
-        if (c == null) return 3;
-        String t = c.getCardType();
-        if (t == null) return 3;
-        if (t.contains("Monster")) return 0;
-        if (t.contains("Spell")) return 1;
-        if (t.contains("Trap")) return 2;
+    // ── Classification helpers ─────────────────────────────────────────────────
+
+    /**
+     * Returns the main-type bucket: 0 = Monster, 1 = Spell, 2 = Trap, 3 = Other.
+     *
+     * @param card the card to classify
+     * @return the main-type sort order index
+     */
+    private static int mainTypeOrder(Card card) {
+        if (card == null) {
+            return 3;
+        }
+        String cardType = card.getCardType();
+        if (cardType == null) {
+            return 3;
+        }
+        if (cardType.contains("Monster")) {
+            return 0;
+        }
+        if (cardType.contains("Spell")) {
+            return 1;
+        }
+        if (cardType.contains("Trap")) {
+            return 2;
+        }
         return 3;
     }
 
-    private static int subcatOrder(Card c) {
-        if (c == null) return 0;
-        String t = c.getCardType();
-        List<String> props = c.getCardProperties();
-        if (t == null || props == null || props.isEmpty()) return 0;
-
-        if (t.contains("Monster")) {
+    /**
+     * Returns the subcategory sort index within the card's main type.
+     * For monsters the scan is in <em>reverse</em> order so more specific
+     * properties (Link, Synchro…) beat generic ones (Effect, Normal).
+     *
+     * @param card the card to classify
+     * @return the subcategory sort order index
+     */
+    private static int subcatOrder(Card card) {
+        if (card == null) {
+            return 0;
+        }
+        String cardType = card.getCardType();
+        List<String> properties = card.getCardProperties();
+        if (cardType == null || properties == null || properties.isEmpty()) {
+            return 0;
+        }
+        if (cardType.contains("Monster")) {
             // Reverse scan: most specific property wins
             for (int i = MONSTER_SUBCAT_ORDER.size() - 1; i >= 0; i--) {
-                if (props.contains(MONSTER_SUBCAT_ORDER.get(i))) return i;
+                if (properties.contains(MONSTER_SUBCAT_ORDER.get(i))) {
+                    return i;
+                }
             }
             return MONSTER_SUBCAT_ORDER.size(); // unknown → after Link
         }
-        if (t.contains("Spell")) {
+        if (cardType.contains("Spell")) {
             for (int i = 0; i < SPELL_SUBCAT_ORDER.size(); i++) {
-                if (props.contains(SPELL_SUBCAT_ORDER.get(i))) return i;
+                if (properties.contains(SPELL_SUBCAT_ORDER.get(i))) {
+                    return i;
+                }
             }
             return SPELL_SUBCAT_ORDER.size();
         }
-        if (t.contains("Trap")) {
+        if (cardType.contains("Trap")) {
             for (int i = 0; i < TRAP_SUBCAT_ORDER.size(); i++) {
-                if (props.contains(TRAP_SUBCAT_ORDER.get(i))) return i;
+                if (properties.contains(TRAP_SUBCAT_ORDER.get(i))) {
+                    return i;
+                }
             }
             return TRAP_SUBCAT_ORDER.size();
         }
         return 0;
     }
 
-    // ── Comparator ────────────────────────────────────────────────────────────
+    /**
+     * Returns the effective level for sorting purposes:
+     * <ul>
+     *   <li>Link monsters → {@link Card#getLinkVal()}</li>
+     *   <li>Xyz  monsters → {@link Card#getRank()}</li>
+     *   <li>All others    → {@link Card#getLevel()}</li>
+     * </ul>
+     *
+     * @param card the card whose effective level is to be determined
+     * @return the effective level, or 0 if {@code card} is {@code null}
+     */
+    private static int effectiveLevel(Card card) {
+        if (card == null) {
+            return 0;
+        }
+        List<String> properties = card.getCardProperties();
+        if (properties != null) {
+            if (properties.contains("Link")) {
+                return card.getLinkVal();
+            }
+            if (properties.contains("Xyz")) {
+                return card.getRank();
+            }
+        }
+        return card.getLevel();
+    }
 
     /**
-     * Level / Rank / Link value — the effective "level" for sorting purposes.
+     * Returns a null-safe English name for comparisons.
+     *
+     * @param card the card whose name is needed
+     * @return the English name, or an empty string if {@code null}
      */
-    private static int effectiveLevel(Card c) {
-        if (c == null) return 0;
-        List<String> props = c.getCardProperties();
-        if (props != null) {
-            if (props.contains("Link")) return c.getLinkVal();
-            if (props.contains("Xyz")) return c.getRank();
+    private static String safeName(Card card) {
+        if (card == null) {
+            return "";
         }
-        return c.getLevel();
+        String name = card.getName_EN();
+        return name == null ? "" : name;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
-
-    private static String safeName(Card c) {
-        if (c == null) return "";
-        String n = c.getName_EN();
-        return n == null ? "" : n;
-    }
 
     /**
      * Sorts {@code elements} in-place.
@@ -175,7 +252,9 @@ public final class CardElementSorter {
      * @param elements the list to sort (may be empty, never {@code null})
      */
     public static void sortInPlace(List<CardElement> elements) {
-        if (elements == null || elements.size() <= 1) return;
+        if (elements == null || elements.size() <= 1) {
+            return;
+        }
         elements.sort(COMPARATOR);
     }
 
@@ -186,7 +265,9 @@ public final class CardElementSorter {
      * @return a new {@link ArrayList} with the same elements in sorted order
      */
     public static List<CardElement> sorted(List<CardElement> elements) {
-        if (elements == null) return new ArrayList<>();
+        if (elements == null) {
+            return new ArrayList<>();
+        }
         List<CardElement> result = new ArrayList<>(elements);
         result.sort(COMPARATOR);
         return result;
