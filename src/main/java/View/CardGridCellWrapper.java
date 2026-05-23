@@ -165,7 +165,7 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
             boolean degradedNow = false;
             try {
                 if (!elementNameFromUD_hover.isEmpty() && isDecksAndCollectionsTabSelected()) {
-                    degradedNow = Controller.RealMainController
+                    degradedNow = Controller.CardQualityService
                             .isDegradedCopyInDeckOrCollection(finalCardElement, elementNameFromUD_hover);
                 }
             } catch (Throwable ignored) {
@@ -296,7 +296,7 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
 
                         if (elementNameFromUD != null && !elementNameFromUD.trim().isEmpty() && isMyCollection) {
                             try {
-                                needsSorting = Controller.RealMainController.computeCardNeedsSortingWithUpgrade(finalCardElement, elementNameFromUD);
+                                needsSorting = Controller.CardQualityService.computeCardNeedsSortingWithUpgrade(finalCardElement, elementNameFromUD);
                             } catch (Throwable t) {
                                 needsSorting = false;
                             }
@@ -317,7 +317,7 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                         }
                         if (isDecksTab) {
                             try {
-                                isDegraded = Controller.RealMainController
+                                isDegraded = Controller.CardQualityService
                                         .isDegradedCopyInDeckOrCollection(finalCardElement, elementNameFromUD);
                             } catch (Throwable t) {
                                 isDegraded = false;
@@ -659,7 +659,7 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                 } else {
                     if (elementNameFromUD != null && !elementNameFromUD.trim().isEmpty() && isMyCollectionTabSelected()) {
                         try {
-                            needsSorting = Controller.RealMainController.computeCardNeedsSortingWithUpgrade(current, elementNameFromUD);
+                            needsSorting = Controller.CardQualityService.computeCardNeedsSortingWithUpgrade(current, elementNameFromUD);
                         } catch (Throwable t) {
                             needsSorting = false;
                         }
@@ -673,7 +673,7 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                 if (!needsSorting && elementNameFromUD != null && !elementNameFromUD.trim().isEmpty()) {
                     try {
                         if (isDecksAndCollectionsTabSelected()) {
-                            isDegraded = Controller.RealMainController
+                            isDegraded = Controller.CardQualityService
                                     .isDegradedCopyInDeckOrCollection(current, elementNameFromUD);
                         }
                     } catch (Throwable t) {
@@ -814,7 +814,7 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                 final String finalElemName = elemName;
                 List<Model.CardsLists.CardElement> candidates;
                 try {
-                    candidates = Controller.RealMainController
+                    candidates = Controller.CardQualityService
                             .findOwnedUpgradeCandidates(ce, finalElemName);
                 } catch (Exception ex) {
                     candidates = new java.util.ArrayList<>();

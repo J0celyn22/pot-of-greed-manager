@@ -811,12 +811,12 @@ public class CardTreeCell extends TreeCell<String> {
 
                             if (elementName != null && !elementName.trim().isEmpty() && isMyCollectionTabSelected()) {
                                 try {
-                                    boolean genuinelyNeeded = Controller.RealMainController
+                                    boolean genuinelyNeeded = Controller.CardQualityService
                                             .computeCardNeedsSorting(cardElement.getCard(), elementName);
                                     if (genuinelyNeeded) {
                                         needsSorting = true;
                                     } else {
-                                        needsSorting = Controller.RealMainController
+                                        needsSorting = Controller.CardQualityService
                                                 .computeCardNeedsSortingWithUpgrade(cardElement, elementName);
                                     }
                                 } catch (Throwable t) {
@@ -837,7 +837,7 @@ public class CardTreeCell extends TreeCell<String> {
                     if (!needsSorting && elementNameFromUD != null && !elementNameFromUD.trim().isEmpty()
                             && isDecksAndCollectionsTabSelected()) {
                         try {
-                            isDegraded = Controller.RealMainController
+                            isDegraded = Controller.CardQualityService
                                     .isDegradedCopyInDeckOrCollection(cardElement, elementNameFromUD);
                         } catch (Throwable ignored) {
                         }
@@ -2005,7 +2005,7 @@ public class CardTreeCell extends TreeCell<String> {
                 String elemName = elementNameFromUDForContextMenu();
                 if (elemName == null || elemName.trim().isEmpty()) return items;
                 List<Model.CardsLists.CardElement> candidates =
-                        Controller.RealMainController.findOwnedUpgradeCandidates(clicked, elemName);
+                        Controller.CardQualityService.findOwnedUpgradeCandidates(clicked, elemName);
                 if (candidates.isEmpty()) return items;
                 for (Model.CardsLists.CardElement candidate : candidates) {
                     String label = buildSwapCandidateLabel(candidate);
@@ -2040,10 +2040,10 @@ public class CardTreeCell extends TreeCell<String> {
                         if (tc.getCardsList() != null) {
                             for (Model.CardsLists.CardElement ce : tc.getCardsList()) {
                                 if (ce == null || !sameCard.test(ce.getCard(), card)) continue;
-                                if (Controller.RealMainController
+                                if (Controller.CardQualityService
                                         .isDegradedCopyInDeckOrCollection(ce, tc.getName())) {
                                     List<Model.CardsLists.CardElement> candidates =
-                                            Controller.RealMainController
+                                            Controller.CardQualityService
                                                     .findOwnedUpgradeCandidates(ce, tc.getName());
                                     if (candidates.stream().anyMatch(c -> c == clicked)) {
                                         degradedSlots.add(ce);
@@ -2062,10 +2062,10 @@ public class CardTreeCell extends TreeCell<String> {
                                         if (lst == null) continue;
                                         for (Model.CardsLists.CardElement ce : lst) {
                                             if (ce == null || !sameCard.test(ce.getCard(), card)) continue;
-                                            if (Controller.RealMainController
+                                            if (Controller.CardQualityService
                                                     .isDegradedCopyInDeckOrCollection(ce, d.getName())) {
                                                 List<Model.CardsLists.CardElement> candidates =
-                                                        Controller.RealMainController
+                                                        Controller.CardQualityService
                                                                 .findOwnedUpgradeCandidates(ce, d.getName());
                                                 if (candidates.stream().anyMatch(c -> c == clicked)) {
                                                     degradedSlots.add(ce);
@@ -2087,10 +2087,10 @@ public class CardTreeCell extends TreeCell<String> {
                             if (lst == null) continue;
                             for (Model.CardsLists.CardElement ce : lst) {
                                 if (ce == null || !sameCard.test(ce.getCard(), card)) continue;
-                                if (Controller.RealMainController
+                                if (Controller.CardQualityService
                                         .isDegradedCopyInDeckOrCollection(ce, d.getName())) {
                                     List<Model.CardsLists.CardElement> candidates =
-                                            Controller.RealMainController
+                                            Controller.CardQualityService
                                                     .findOwnedUpgradeCandidates(ce, d.getName());
                                     if (candidates.stream().anyMatch(c -> c == clicked)) {
                                         degradedSlots.add(ce);
@@ -2204,7 +2204,7 @@ public class CardTreeCell extends TreeCell<String> {
     /**
      * Returns true when {@code ownedElement} is a quality upgrade over at least
      * one copy of the same card already present in {@code targetList}.
-     * Delegates to {@link Controller.RealMainController#isQualityUpgrade}.
+     * Delegates to {@link Controller.CardQualityService#isQualityUpgrade}.
      */
     private boolean isQualityUpgradeFor(
             List<CardElement> targetList,
@@ -2218,7 +2218,7 @@ public class CardTreeCell extends TreeCell<String> {
             if (CardMatcher.cardsMatch(ce.getCard(), card)) existingCopies.add(ce);
         }
         if (existingCopies.isEmpty()) return false;
-        return Controller.RealMainController.isQualityUpgrade(existingCopies, targetList, ownedElement);
+        return Controller.CardQualityService.isQualityUpgrade(existingCopies, targetList, ownedElement);
     }
 
     private List<MenuItem> buildDecksAndCollectionsProposals(Model.CardsLists.Card card, CardElement clickedElement) {
@@ -4206,7 +4206,7 @@ public class CardTreeCell extends TreeCell<String> {
                         try {
                             boolean genuinelyNeeded = false;
                             try {
-                                genuinelyNeeded = Controller.RealMainController
+                                genuinelyNeeded = Controller.CardQualityService
                                         .computeCardNeedsSorting(card, elementNameFromUD);
                             } catch (Throwable ignored) {
                             }
@@ -4214,7 +4214,7 @@ public class CardTreeCell extends TreeCell<String> {
                             boolean upgradeNeeded = false;
                             if (!genuinelyNeeded) {
                                 try {
-                                    upgradeNeeded = Controller.RealMainController
+                                    upgradeNeeded = Controller.CardQualityService
                                             .computeCardNeedsSortingWithUpgrade(cardElement, elementNameFromUD);
                                 } catch (Throwable ignored) {
                                 }
@@ -4240,7 +4240,7 @@ public class CardTreeCell extends TreeCell<String> {
                     if (elementNameFromUD != null && !elementNameFromUD.trim().isEmpty()
                             && isDecksAndCollectionsTabSelected()) {
                         try {
-                            boolean degraded = Controller.RealMainController
+                            boolean degraded = Controller.CardQualityService
                                     .isDegradedCopyInDeckOrCollection(cardElement, elementNameFromUD);
                             if (degraded) {
                                 if (glowPriority == 0) glowPriority = 1;
