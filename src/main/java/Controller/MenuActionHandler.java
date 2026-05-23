@@ -11,6 +11,8 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
+import static Utils.CardMatcher.cardsMatch;
+
 /**
  * Centralized handler for context-menu actions (Move, Add, Swap).
  * Currently implements Move. Add and Swap are left as placeholders.
@@ -349,23 +351,6 @@ public final class MenuActionHandler {
         return null;
     }
 
-    private static boolean cardsMatch(Card a, Card b) {
-        if (a == null || b == null) return false;
-        try {
-            // best-effort identity: compare Konami id, pass, print or other available fields
-            if (a.getKonamiId() != null && b.getKonamiId() != null && a.getKonamiId().equals(b.getKonamiId()))
-                return true;
-            if (a.getPassCode() != null && b.getPassCode() != null && a.getPassCode().equals(b.getPassCode()))
-                return true;
-            if (a.getPrintCode() != null && b.getPrintCode() != null && a.getPrintCode().equals(b.getPrintCode()))
-                return true;
-        } catch (Throwable ignored) {
-        }
-        // fallback to equals
-        return a.equals(b);
-    }
-
-    // Destination finder similar to earlier logic
     // Destination finder similar to earlier logic
     private static Destination findDestinationGroup(String handlerTarget, OwnedCardsCollection owned) {
         if (handlerTarget == null || handlerTarget.trim().isEmpty() || owned == null || owned.getOwnedCollection() == null) {

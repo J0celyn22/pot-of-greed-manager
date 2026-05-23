@@ -10,6 +10,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
+import static Utils.CardNameUtils.sanitize;
+
 public final class NavigationContextMenuBuilder {
 
     private static final Logger logger = LoggerFactory.getLogger(NavigationContextMenuBuilder.class);
@@ -1259,24 +1261,6 @@ public final class NavigationContextMenuBuilder {
         MenuItem mi = new MenuItem(text);
         mi.setDisable(true);
         return mi;
-    }
-
-    /*private static String sanitize(String raw) {
-        if (raw == null) return "";
-        return raw.replaceAll("[=\\-]", "").trim();
-    }*/
-    private static String sanitize(String raw) {
-        if (raw == null) return "";
-        // Strip only leading/trailing decorator characters (= for boxes, - for categories),
-        // preserving hyphens that are genuinely part of the name.
-        String s = raw.trim();
-        // Strip leading = or -
-        int start = 0;
-        while (start < s.length() && (s.charAt(start) == '=' || s.charAt(start) == '-')) start++;
-        // Strip trailing = or -
-        int end = s.length();
-        while (end > start && (s.charAt(end - 1) == '=' || s.charAt(end - 1) == '-')) end--;
-        return s.substring(start, end).trim();
     }
 
     // ── Emptiness checks ─────────────────────────────────────────────────────

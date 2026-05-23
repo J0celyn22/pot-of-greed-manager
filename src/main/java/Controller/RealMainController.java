@@ -1,6 +1,8 @@
 package Controller;
 
 import Model.CardsLists.*;
+import Utils.CardMatcher;
+import Utils.CardNameUtils;
 import View.*;
 import View.SharedCollectionTab.TabType;
 import javafx.application.Platform;
@@ -1068,29 +1070,6 @@ public class RealMainController {
             logger.debug("findSlotListForCard failed: {}", ex.toString());
         }
         return java.util.Collections.emptyList();
-    }
-
-    private static String sanitize(String raw) {
-        if (raw == null) return "";
-        // Strip only leading/trailing decorator characters (= for boxes, - for categories),
-        // preserving hyphens that are genuinely part of the name.
-        String s = raw.trim();
-        // Strip leading = or -
-        int start = 0;
-        while (start < s.length() && (s.charAt(start) == '=' || s.charAt(start) == '-')) start++;
-        // Strip trailing = or -
-        int end = s.length();
-        while (end > start && (s.charAt(end - 1) == '=' || s.charAt(end - 1) == '-')) end--;
-        return s.substring(start, end).trim();
-    }
-
-    private static boolean cardsMatchLoose(
-            Model.CardsLists.Card a, Model.CardsLists.Card b) {
-        if (a == null || b == null) return false;
-        if (a.getPassCode() != null && a.getPassCode().equals(b.getPassCode())) return true;
-        if (a.getPrintCode() != null && a.getPrintCode().equals(b.getPrintCode())) return true;
-        if (a.getKonamiId() != null && a.getKonamiId().equals(b.getKonamiId())) return true;
-        return false;
     }
 
     private void setupZoom(SharedCollectionTab tab) {
@@ -5054,7 +5033,7 @@ public class RealMainController {
                     boolean isLoose = Boolean.TRUE.equals(collection.getConnectToWholeCollection());
 
                     if (isDirty) {
-                        collectionNavItem.getLabel().setText("* " + sanitize(collection.getName()));
+                        collectionNavItem.getLabel().setText("* " + CardNameUtils.sanitize(collection.getName()));
                     }
                     // Set base style: bold always, italic for loose collections.
                     // Color is controlled solely by applyNavigationItemHighlight — no yellow for dirty.
@@ -5117,7 +5096,7 @@ public class RealMainController {
                                 enableNavItemAsNavDndTarget(deckSubItem, linkedDeck,
                                         (dragged, pos) -> handleDecksNavDrop(dragged, linkedDeck, pos, decksCollection));
                                 if (UserInterfaceFunctions.isDirty(linkedDeck)) {
-                                    deckSubItem.getLabel().setText("* " + sanitize(linkedDeck.getName()));
+                                    deckSubItem.getLabel().setText("* " + CardNameUtils.sanitize(linkedDeck.getName()));
                                 }
 
                                 // --- NEW: context menu for Deck items (inside a Collection) ---
@@ -5157,7 +5136,7 @@ public class RealMainController {
                     enableNavItemAsNavDndTarget(navItem, deck,
                             (dragged, pos) -> handleDecksNavDrop(dragged, deck, pos, decksCollection));
                     if (UserInterfaceFunctions.isDirty(deck)) {
-                        navItem.getLabel().setText("* " + sanitize(deck.getName()));
+                        navItem.getLabel().setText("* " + CardNameUtils.sanitize(deck.getName()));
                     }
 
                     // navigation wiring (unchanged)
@@ -5518,7 +5497,7 @@ public class RealMainController {
                 if (tc == null) continue;
                 if (tc.getCardsList() != null) {
                     for (Model.CardsLists.CardElement ce : tc.getCardsList()) {
-                        if (ce != null && cardsMatchLoose(ce.getCard(), card)) return ce;
+                        if (ce != null && CardMatcher.cardsMatch(ce.getCard(), card)) return ce;
                     }
                 }
                 if (tc.getLinkedDecks() != null) {
@@ -5549,7 +5528,7 @@ public class RealMainController {
                 deck.getMainDeck(), deck.getExtraDeck(), deck.getSideDeck())) {
             if (deckList == null) continue;
             for (Model.CardsLists.CardElement ce : deckList) {
-                if (ce != null && cardsMatchLoose(ce.getCard(), card)) return ce;
+                if (ce != null && CardMatcher.cardsMatch(ce.getCard(), card)) return ce;
             }
         }
         return null;

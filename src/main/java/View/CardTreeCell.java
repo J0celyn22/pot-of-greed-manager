@@ -4,6 +4,7 @@ import Controller.MenuActionHandler;
 import Controller.UserInterfaceFunctions;
 import Model.CardsLists.*;
 import Model.Database.DataBaseUpdate;
+import Utils.CardMatcher;
 import Utils.LruImageCache;
 import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
@@ -556,8 +557,6 @@ public class CardTreeCell extends TreeCell<String> {
      * <p>The popup is dismissed on ✓ / Enter (confirm), ✗ / Escape (cancel), or
      * when it auto-hides because the user clicks outside it.</p>
      *
-     * @param anchor     the button that triggered the rename; the popup is
-     *                   positioned just below it
      * @param seedName   the current (display) name to pre-fill the text field
      * @param onConfirm  called with the trimmed non-empty new name on confirm
      */
@@ -1674,21 +1673,9 @@ public class CardTreeCell extends TreeCell<String> {
         int count = 0;
         for (CardElement ce : list) {
             if (ce == null || ce.getCard() == null) continue;
-            if (cardsMatch(ce.getCard(), card)) count++;
+            if (CardMatcher.cardsMatch(ce.getCard(), card)) count++;
         }
         return count;
-    }
-
-    /**
-     * Compare two Card objects for identity using passCode, then printCode, then konamiId.
-     */
-    private boolean cardsMatch(Model.CardsLists.Card a, Model.CardsLists.Card b) {
-        if (a == null || b == null) return false;
-        if (a.getPassCode() != null && b.getPassCode() != null && a.getPassCode().equals(b.getPassCode())) return true;
-        if (a.getPrintCode() != null && b.getPrintCode() != null && a.getPrintCode().equals(b.getPrintCode()))
-            return true;
-        if (a.getKonamiId() != null && b.getKonamiId() != null && a.getKonamiId().equals(b.getKonamiId())) return true;
-        return false;
     }
 
     // Placeholder handlers: only log for now. Implement move/swap logic later.
@@ -2228,7 +2215,7 @@ public class CardTreeCell extends TreeCell<String> {
         List<CardElement> existingCopies = new ArrayList<>();
         for (CardElement ce : targetList) {
             if (ce == null || ce.getCard() == null) continue;
-            if (cardsMatch(ce.getCard(), card)) existingCopies.add(ce);
+            if (CardMatcher.cardsMatch(ce.getCard(), card)) existingCopies.add(ce);
         }
         if (existingCopies.isEmpty()) return false;
         return Controller.RealMainController.isQualityUpgrade(existingCopies, targetList, ownedElement);
