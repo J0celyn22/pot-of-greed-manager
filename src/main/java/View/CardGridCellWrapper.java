@@ -136,14 +136,47 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
         final StackPane finalPane = pane;
         final CardElement finalCardElement = cardElement;
 
+        // Read elementName from GridView userData once, for use in hover and glow logic.
+        String _elementNameUD = null;
+        try {
+            Node _n = this;
+            while (_n != null && !(_n instanceof GridView)) _n = _n.getParent();
+            if (_n instanceof GridView) {
+                Object _ud = ((GridView<?>) _n).getUserData();
+                if (_ud instanceof Map) {
+                    Object _en = ((Map<?, ?>) _ud).get("elementName");
+                    if (_en instanceof String) _elementNameUD = (String) _en;
+                } else if (_ud instanceof String) {
+                    _elementNameUD = (String) _ud;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        final String elementNameFromUD_hover = _elementNameUD != null ? _elementNameUD : "";
+
         // Hover popup — attach directly to finalPane (the graphic StackPane)
         // rather than using setTooltip() on the GridCell, because the graphic
         // covers the entire cell and consumes mouse events before they reach
         // the cell Control, which would prevent Tooltip from ever triggering.
         Card tooltipCard = (cardElement.getCard() != null) ? cardElement.getCard() : new Card();
-        final String tooltipText = CardHoverPopup.buildTooltipText(cardElement);
+        final String baseTooltipText = CardHoverPopup.buildTooltipText(cardElement);
         finalPane.setOnMouseEntered(e -> {
+            // Re-check degraded status at hover time so the style is always current.
+            boolean degradedNow = false;
+            try {
+                if (!elementNameFromUD_hover.isEmpty() && isDecksAndCollectionsTabSelected()) {
+                    degradedNow = Controller.RealMainController
+                            .isDegradedCopyInDeckOrCollection(finalCardElement, elementNameFromUD_hover);
+                }
+            } catch (Throwable ignored) {
+            }
+            String tooltipText = degradedNow
+                    ? baseTooltipText + "\n" + CardHoverPopup.DOWNGRADE_WARNING
+                    : baseTooltipText;
             hoverLabel.setText(tooltipText);
+            hoverLabel.setStyle(degradedNow
+                    ? CardHoverPopup.LABEL_STYLE_ORANGE
+                    : CardHoverPopup.LABEL_STYLE);
             hoverPopup.show(finalPane, e.getScreenX() + 14, e.getScreenY() + 14);
         });
         finalPane.setOnMouseMoved(e ->
@@ -263,7 +296,7 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
 
                         if (elementNameFromUD != null && !elementNameFromUD.trim().isEmpty() && isMyCollection) {
                             try {
-                                needsSorting = Controller.RealMainController.computeCardNeedsSorting(finalCardElement.getCard(), elementNameFromUD);
+                                needsSorting = Controller.RealMainController.computeCardNeedsSortingWithUpgrade(finalCardElement, elementNameFromUD);
                             } catch (Throwable t) {
                                 needsSorting = false;
                             }
@@ -272,17 +305,39 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                         }
                     }
 
+                    // --- Degraded-in-deck check (Decks & Collections tab) ---
+                    // When this card is inside a deck/collection and the owned collection
+                    // contains a better copy, glow orange.
+                    boolean isDegraded = false;
+                    if (!needsSorting && elementNameFromUD != null && !elementNameFromUD.trim().isEmpty()) {
+                        boolean isDecksTab = false;
+                        try {
+                            isDecksTab = isDecksAndCollectionsTabSelected();
+                        } catch (Exception ignored) {
+                        }
+                        if (isDecksTab) {
+                            try {
+                                isDegraded = Controller.RealMainController
+                                        .isDegradedCopyInDeckOrCollection(finalCardElement, elementNameFromUD);
+                            } catch (Throwable t) {
+                                isDegraded = false;
+                            }
+                        }
+                    }
+
                     // Apply glow to the finalPane (keeps other visuals intact)
-                    if (needsSorting) {
+                    if (needsSorting || isDegraded) {
+                        String glowColor = isDegraded ? "#EB9E34" : "#ffffff";
+                        double outerAlpha = isDegraded ? 0.35 : 0.22;
                         DropShadow innerGlow = new DropShadow();
-                        innerGlow.setColor(javafx.scene.paint.Color.web("#ffffff", 1.0));
+                        innerGlow.setColor(javafx.scene.paint.Color.web(glowColor, 1.0));
                         innerGlow.setOffsetX(0);
                         innerGlow.setOffsetY(0);
                         innerGlow.setRadius(4);
                         innerGlow.setSpread(0.9);
 
                         DropShadow outerGlow = new DropShadow();
-                        outerGlow.setColor(javafx.scene.paint.Color.web("#ffffff", 0.22));
+                        outerGlow.setColor(javafx.scene.paint.Color.web(glowColor, outerAlpha));
                         outerGlow.setOffsetX(0);
                         outerGlow.setOffsetY(0);
                         outerGlow.setRadius(14);
@@ -290,8 +345,14 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
 
                         outerGlow.setInput(innerGlow);
                         finalPane.setEffect(outerGlow);
+
+                        // Orange hover label for degraded cards
+                        hoverLabel.setStyle(isDegraded
+                                ? CardHoverPopup.LABEL_STYLE_ORANGE
+                                : CardHoverPopup.LABEL_STYLE);
                     } else {
                         finalPane.setEffect(null);
+                        hoverLabel.setStyle(CardHoverPopup.LABEL_STYLE);
                     }
                 } catch (Exception e) {
                     finalPane.setEffect(null);
@@ -598,7 +659,7 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                 } else {
                     if (elementNameFromUD != null && !elementNameFromUD.trim().isEmpty() && isMyCollectionTabSelected()) {
                         try {
-                            needsSorting = Controller.RealMainController.computeCardNeedsSorting(current.getCard(), elementNameFromUD);
+                            needsSorting = Controller.RealMainController.computeCardNeedsSortingWithUpgrade(current, elementNameFromUD);
                         } catch (Throwable t) {
                             needsSorting = false;
                         }
@@ -607,16 +668,31 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                     }
                 }
 
-                if (needsSorting) {
+                // Degraded-in-deck check
+                boolean isDegraded = false;
+                if (!needsSorting && elementNameFromUD != null && !elementNameFromUD.trim().isEmpty()) {
+                    try {
+                        if (isDecksAndCollectionsTabSelected()) {
+                            isDegraded = Controller.RealMainController
+                                    .isDegradedCopyInDeckOrCollection(current, elementNameFromUD);
+                        }
+                    } catch (Throwable t) {
+                        isDegraded = false;
+                    }
+                }
+
+                if (needsSorting || isDegraded) {
+                    String glowColor = isDegraded ? "#EB9E34" : "#ffffff";
+                    double outerAlpha = isDegraded ? 0.35 : 0.22;
                     DropShadow innerGlow = new DropShadow();
-                    innerGlow.setColor(javafx.scene.paint.Color.web("#ffffff", 1.0));
+                    innerGlow.setColor(javafx.scene.paint.Color.web(glowColor, 1.0));
                     innerGlow.setOffsetX(0);
                     innerGlow.setOffsetY(0);
                     innerGlow.setRadius(4);
                     innerGlow.setSpread(0.9);
 
                     DropShadow outerGlow = new DropShadow();
-                    outerGlow.setColor(javafx.scene.paint.Color.web("#ffffff", 0.22));
+                    outerGlow.setColor(javafx.scene.paint.Color.web(glowColor, outerAlpha));
                     outerGlow.setOffsetX(0);
                     outerGlow.setOffsetY(0);
                     outerGlow.setRadius(14);
@@ -633,6 +709,9 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                         } catch (Exception ignored) {
                         }
                     }
+                    hoverLabel.setStyle(isDegraded
+                            ? CardHoverPopup.LABEL_STYLE_ORANGE
+                            : CardHoverPopup.LABEL_STYLE);
                 } else {
                     Node g = getGraphic();
                     if (g instanceof StackPane) {
@@ -644,6 +723,7 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                         } catch (Exception ignored) {
                         }
                     }
+                    hoverLabel.setStyle(CardHoverPopup.LABEL_STYLE);
                 }
             } catch (Exception e) {
                 logger.warn("reapplyEffectsForCurrentItem failed", e);
@@ -679,9 +759,113 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                 Controller.MenuActionHandler.handleEditCard(ce, this);
             }
         });
-
         cm.getItems().add(editItem);
+
+        // "Swap with..." — populated lazily when the menu opens.
+        // Only visible when this card (inside a deck/collection) has a better copy
+        // available in the owned collection.
+        Menu swapMenu = new Menu();
+        {
+            Label swapLbl = new Label("Swap with...");
+            swapLbl.setStyle("-fx-text-fill: #EB9E34; -fx-font-size: 13;");
+            HBox swapG = new HBox(swapLbl);
+            swapG.setAlignment(Pos.CENTER_LEFT);
+            swapG.setPadding(new Insets(2, 6, 2, 6));
+            swapMenu.setGraphic(swapG);
+            swapMenu.setText("");
+
+            MenuItem loadingPlaceholder = new MenuItem("Loading...");
+            loadingPlaceholder.setDisable(true);
+            swapMenu.getItems().add(loadingPlaceholder);
+
+            swapMenu.setOnShowing(evt -> {
+                swapMenu.getItems().clear();
+                CardElement ce = getItem();
+                if (ce == null) {
+                    MenuItem none = new MenuItem("No card selected");
+                    none.setDisable(true);
+                    swapMenu.getItems().add(none);
+                    return;
+                }
+                // Find the elementName from the ancestor GridView userData
+                String elemName = null;
+                try {
+                    Node n = this;
+                    while (n != null && !(n instanceof GridView)) n = n.getParent();
+                    if (n instanceof GridView) {
+                        Object ud = ((GridView<?>) n).getUserData();
+                        if (ud instanceof Map) {
+                            Object en = ((Map<?, ?>) ud).get("elementName");
+                            if (en instanceof String) elemName = (String) en;
+                        } else if (ud instanceof String) {
+                            elemName = (String) ud;
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+
+                if (elemName == null || elemName.trim().isEmpty()) {
+                    MenuItem none = new MenuItem("Not in a deck/collection context");
+                    none.setDisable(true);
+                    swapMenu.getItems().add(none);
+                    return;
+                }
+
+                final String finalElemName = elemName;
+                List<Model.CardsLists.CardElement> candidates;
+                try {
+                    candidates = Controller.RealMainController
+                            .findOwnedUpgradeCandidates(ce, finalElemName);
+                } catch (Exception ex) {
+                    candidates = new java.util.ArrayList<>();
+                }
+
+                if (candidates.isEmpty()) {
+                    MenuItem none = new MenuItem("No upgrade copies in collection");
+                    none.setDisable(true);
+                    swapMenu.getItems().add(none);
+                } else {
+                    for (Model.CardsLists.CardElement candidate : candidates) {
+                        String label = buildCandidateLabel(candidate);
+                        MenuItem mi = new MenuItem(label);
+                        final Model.CardsLists.CardElement finalCe = ce;
+                        final Model.CardsLists.CardElement finalCandidate = candidate;
+                        mi.setOnAction(ev ->
+                                Controller.MenuActionHandler.handleSwap(finalCandidate, finalCe));
+                        swapMenu.getItems().add(mi);
+                    }
+                }
+            });
+        }
+        cm.getItems().add(swapMenu);
+
+        // Hide the swap menu by default; show it only when in Decks & Collections tab.
+        cm.setOnShowing(evt -> {
+            boolean inDecksTab = false;
+            try {
+                inDecksTab = isDecksAndCollectionsTabSelected();
+            } catch (Exception ignored) {
+            }
+            swapMenu.setVisible(inDecksTab);
+        });
+
         return cm;
+    }
+
+    /**
+     * Builds a human-readable label for an upgrade-candidate {@link Model.CardsLists.CardElement},
+     * showing its location in the collection plus condition and rarity when known.
+     */
+    private String buildCandidateLabel(Model.CardsLists.CardElement ce) {
+        if (ce == null) return "(unknown)";
+        StringBuilder sb = new StringBuilder();
+        if (ce.getCondition() != null) sb.append(ce.getCondition().getDisplayName());
+        if (ce.getRarity() != null) {
+            if (sb.length() > 0) sb.append(" / ");
+            sb.append(ce.getRarity().getDisplayName());
+        }
+        if (sb.length() == 0) sb.append("Copy in collection");
+        return sb.toString();
     }
 
     /**
@@ -805,6 +989,25 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                 if (sel != null) {
                     String t = sel.getText();
                     return t != null && t.trim().equalsIgnoreCase("My Collection");
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    private boolean isDecksAndCollectionsTabSelected() {
+        try {
+            TabPane tp = findNearestTabPane();
+            if (tp != null) {
+                Tab sel = tp.getSelectionModel().getSelectedItem();
+                if (sel != null) {
+                    String t = sel.getText();
+                    if (t == null) return false;
+                    String stripped = t.trim();
+                    if (stripped.startsWith("* ")) stripped = stripped.substring(2).trim();
+                    return stripped.equalsIgnoreCase("Decks and Collections")
+                            || stripped.equalsIgnoreCase("Decks & Collections");
                 }
             }
         } catch (Exception ignored) {

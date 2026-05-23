@@ -132,19 +132,23 @@ public class RealMainController {
                 }
             }
 
-            // Helper: compare a CardElement to the Card (match by printCode if exists, otherwise by passCode)
+            // Helper: compare a CardElement to the Card.
+            // Match by printCode only when BOTH sides have one; otherwise fall back to passCode.
+            // Deck definitions typically store entries by passCode only (no printCode), so requiring
+            // a printCode match when the definition entry has none would cause all owned cards that
+            // carry a printCode to fail matching entirely.
             java.util.function.BiPredicate<Model.CardsLists.CardElement, Model.CardsLists.Card> matches =
                     (ce, c) -> {
                         if (ce == null || ce.getCard() == null || c == null) return false;
                         Model.CardsLists.Card other = ce.getCard();
-                        if (c.getPrintCode() != null) {
-                            if (other.getPrintCode() != null) {
-                                if (other.getPrintCode().equals(c.getPrintCode())) {
-                                    return true;
-                                } else return false;
-                            } else return false;
+                        // Strict printCode match only when both sides have a printCode.
+                        if (c.getPrintCode() != null && other.getPrintCode() != null) {
+                            return c.getPrintCode().equals(other.getPrintCode());
                         }
-                        if (other.getPassCode() != null && other.getPassCode().equals(c.getPassCode())) return true;
+                        // Otherwise fall back to passCode.
+                        if (c.getPassCode() != null && other.getPassCode() != null) {
+                            return c.getPassCode().equals(other.getPassCode());
+                        }
                         return false;
                     };
 
@@ -177,9 +181,16 @@ public class RealMainController {
                     }
 
                     if (matchedCe != null) {
-                        // If dontRemove == true: consider sorted and stop (no mutation)
+                        // If dontRemove == true: consider sorted — unless the owned card is a quality upgrade
                         Boolean dontRemove = matchedCe.getDontRemove() == null ? false : matchedCe.getDontRemove();
                         if (dontRemove) {
+                            // Still mark as needing sorting when the owned card has better condition or
+                            // satisfies the expected rarity that the existing copy does not.
+                            // We need a CardElement for the owned card to compare; here `card` is just a Card,
+                            // so we rely on the caller (CardTreeCell) to do the full check via
+                            // computeCardNeedsSortingWithUpgrade.  From computeCardNeedsSorting itself we
+                            // conservatively return sorted (false) — upgrade detection is done at the
+                            // context-menu level where the CardElement is available.
                             return false; // sorted
                         }
 
@@ -390,15 +401,20 @@ public class RealMainController {
                 boolean matchesType = predicate != null && predicate.test(card);
 
                 if (!matchesType) {
-                    // If the element is a type but the card does not match that type => card is not sorted
+                    // Card does not match the expected type of this category → it is misplaced
+                    // and should be marked as needing sorting.
                     return true;
                 }
 
-                // Card matches the type: now search Collections (cardsList + every linked deck) and loose decks
-                // BUT skip any collection/deck whose normalized name is in alreadyConsidered.
+                // Card matches the type.
+                // A deck "needs" this card if its definition contains an entry matching this card.
+                // If found → the owned copy is already accounted for → sorted (false).
+                // If a deck contains an entry for the same card AND the owned copy is not yet there →
+                // that is handled by sections 1 & 2 (name-based matching).  Here we just check
+                // whether the specific card is listed in any deck/collection definition at all.
 
                 // Helper to search a deck's lists for a match (non-destructive check)
-                java.util.function.Predicate<Model.CardsLists.Deck> deckContainsCard = d -> {
+                java.util.function.Predicate<Model.CardsLists.Deck> deckNeedsThisCard = d -> {
                     if (d == null) return false;
                     List<Model.CardsLists.CardElement> main = d.getMainDeck();
                     if (main != null) {
@@ -421,34 +437,35 @@ public class RealMainController {
                     return false;
                 };
 
-                // Search collections (cardsList + linked decks), skipping alreadyConsidered collections
+                // Search collections (cardsList + linked decks), skipping alreadyConsidered
                 if (decksList != null && decksList.getCollections() != null) {
                     for (Model.CardsLists.ThemeCollection collection : decksList.getCollections()) {
                         if (collection == null || collection.getName() == null) continue;
                         String collName = norm.apply(collection.getName());
-                        if (alreadyConsidered.contains(collName)) continue; // skip previously considered element
+                        if (alreadyConsidered.contains(collName)) continue;
 
-                        // Search collection's cardsList (but NOT exceptionsToNotAdd nor archetypes)
+                        // Check collection's own card list
                         List<Model.CardsLists.CardElement> collCards = collection.getCardsList();
                         if (collCards != null) {
                             for (Model.CardsLists.CardElement ce : collCards) {
                                 if (matches.test(ce, card)) {
-                                    // Found in collection's cardsList -> card is not sorted
+                                    // This collection needs this specific card → needs sorting
                                     return true;
                                 }
                             }
                         }
 
-                        // Search every linked deck inside this collection
+                        // Check every linked deck
                         if (collection.getLinkedDecks() != null) {
                             for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
                                 if (unit == null) continue;
                                 for (Model.CardsLists.Deck d : unit) {
                                     if (d == null) continue;
                                     String dName = d.getName() == null ? "" : norm.apply(d.getName());
-                                    if (alreadyConsidered.contains(dName)) continue; // skip if previously considered
-                                    if (deckContainsCard.test(d)) {
-                                        return true; // found in a deck inside a collection -> not sorted
+                                    if (alreadyConsidered.contains(dName)) continue;
+                                    if (deckNeedsThisCard.test(d)) {
+                                        // Deck definition requires this specific card → needs sorting
+                                        return true;
                                     }
                                 }
                             }
@@ -456,19 +473,21 @@ public class RealMainController {
                     }
                 }
 
-                // Search loose decks (decksList.getDecks()), skipping alreadyConsidered decks
+                // Search loose decks
                 if (decksList != null && decksList.getDecks() != null) {
                     for (Model.CardsLists.Deck d : decksList.getDecks()) {
                         if (d == null || d.getName() == null) continue;
                         String dName = norm.apply(d.getName());
                         if (alreadyConsidered.contains(dName)) continue;
-                        if (deckContainsCard.test(d)) {
-                            return true; // found in a loose deck -> not sorted
+                        if (deckNeedsThisCard.test(d)) {
+                            // Loose deck requires this specific card → needs sorting
+                            return true;
                         }
                     }
                 }
 
-                // Not found in any collection or deck -> sorted
+                // Card matches the type but no deck/collection definition lists this specific card
+                // → nothing to sort it into → not unsorted
                 return false;
             }
 
@@ -479,6 +498,123 @@ public class RealMainController {
             logger.debug("computeCardNeedsSorting failed for element '{}': {}", elementName, ex.toString());
             return false;
         }
+    }
+
+    /**
+     * Extended version of {@link #computeCardNeedsSorting} that additionally
+     * returns {@code true} when the owned copy ({@code ownedElement}) would be a
+     * quality upgrade over copies already placed in a matching deck or collection —
+     * even if that deck/collection already holds the required number of copies.
+     *
+     * <p>A quality upgrade is defined as:
+     * <ul>
+     *   <li>The owned copy has a <em>better physical condition</em> (lower
+     *       {@link Model.CardsLists.CardCondition} ordinal) than at least one of
+     *       the already-placed copies, OR</li>
+     *   <li>The deck/collection slot specifies an <em>expected rarity</em> that
+     *       none of the already-placed copies satisfy, but the owned copy does.</li>
+     * </ul>
+     * </p>
+     *
+     * @param ownedElement the concrete owned {@link Model.CardsLists.CardElement}
+     *                     being evaluated (may be {@code null}, in which case this
+     *                     falls back to {@link #computeCardNeedsSorting})
+     * @param elementName  the display name of the navigation element that owns
+     *                     this card in the collection
+     * @return {@code true} if the card needs sorting or is a quality upgrade
+     */
+    public static boolean computeCardNeedsSortingWithUpgrade(
+            Model.CardsLists.CardElement ownedElement,
+            String elementName) {
+        if (ownedElement == null) return false;
+        Model.CardsLists.Card card = ownedElement.getCard();
+        if (card == null) return false;
+
+        // First, run the standard check — if it says "needs sorting", we're done.
+        if (computeCardNeedsSorting(card, elementName)) return true;
+
+        // Standard check says "sorted". Now check for a quality-upgrade opportunity.
+        try {
+            Model.CardsLists.DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
+            if (decksList == null) return false;
+
+            String elem = java.text.Normalizer.normalize(elementName, java.text.Normalizer.Form.NFD)
+                    .replaceAll("\\p{M}", "").trim().toLowerCase(java.util.Locale.ROOT);
+
+            java.util.function.Function<String, String> norm = s -> s == null ? "" :
+                    java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+                            .replaceAll("\\p{M}", "").trim().toLowerCase(java.util.Locale.ROOT);
+
+            // Helper: collect all CardElements in a list that match `card`
+            java.util.function.Function<List<Model.CardsLists.CardElement>, List<Model.CardsLists.CardElement>>
+                    matchingIn = list -> {
+                List<Model.CardsLists.CardElement> result = new ArrayList<>();
+                if (list == null) return result;
+                for (Model.CardsLists.CardElement ce : list) {
+                    if (ce == null || ce.getCard() == null) continue;
+                    Model.CardsLists.Card c = ce.getCard();
+                    boolean same = (card.getPassCode() != null && card.getPassCode().equals(c.getPassCode()))
+                            || (card.getPrintCode() != null && card.getPrintCode().equals(c.getPrintCode()))
+                            || (card.getKonamiId() != null && card.getKonamiId().equals(c.getKonamiId()));
+                    if (same) result.add(ce);
+                }
+                return result;
+            };
+
+            // --- Collections ---
+            if (decksList.getCollections() != null) {
+                for (Model.CardsLists.ThemeCollection collection : decksList.getCollections()) {
+                    if (collection == null || collection.getName() == null) continue;
+                    if (!norm.apply(collection.getName()).equals(elem)) continue;
+
+                    // Check collection's own card list
+                    List<Model.CardsLists.CardElement> slotList = collection.getCardsList();
+                    List<Model.CardsLists.CardElement> existingInColl = matchingIn.apply(slotList);
+                    if (!existingInColl.isEmpty()
+                            && isQualityUpgrade(existingInColl, slotList, ownedElement)) {
+                        return true;
+                    }
+
+                    // Check every linked deck
+                    if (collection.getLinkedDecks() != null) {
+                        for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
+                            if (unit == null) continue;
+                            for (Model.CardsLists.Deck d : unit) {
+                                if (d == null) continue;
+                                for (List<Model.CardsLists.CardElement> deckList :
+                                        java.util.Arrays.asList(d.getMainDeck(), d.getExtraDeck(), d.getSideDeck())) {
+                                    List<Model.CardsLists.CardElement> existingInDeck = matchingIn.apply(deckList);
+                                    if (!existingInDeck.isEmpty()
+                                            && isQualityUpgrade(existingInDeck, deckList, ownedElement)) {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- Loose decks ---
+            if (decksList.getDecks() != null) {
+                for (Model.CardsLists.Deck deck : decksList.getDecks()) {
+                    if (deck == null || deck.getName() == null) continue;
+                    if (!norm.apply(deck.getName()).equals(elem)) continue;
+
+                    for (List<Model.CardsLists.CardElement> deckList :
+                            java.util.Arrays.asList(deck.getMainDeck(), deck.getExtraDeck(), deck.getSideDeck())) {
+                        List<Model.CardsLists.CardElement> existingInDeck = matchingIn.apply(deckList);
+                        if (!existingInDeck.isEmpty()
+                                && isQualityUpgrade(existingInDeck, deckList, ownedElement)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            logger.debug("computeCardNeedsSortingWithUpgrade failed for element '{}': {}", elementName, ex.toString());
+        }
+        return false;
     }
 
     /**
@@ -499,6 +635,439 @@ public class RealMainController {
             }
         }
         return false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Net-copies-needed helper
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns the number of additional copies of {@code card} that are still needed
+     * in the deck or collection identified by {@code elementName}, after accounting
+     * for copies already placed in the owned collection under that element's box/group.
+     *
+     * <p>A positive result means the deck/collection definition lists more copies of
+     * this card than are currently owned under its name -> the card genuinely fills a
+     * blank slot.  Zero or negative means all required copies are already there -> any
+     * match in {@link #computeCardNeedsSorting} is either a rarity/condition upgrade
+     * or a false positive.</p>
+     *
+     * @return the net number of copies still needed (may be negative if extras exist),
+     * or {@code -1} when the element name is not recognised / an error occurs.
+     */
+    public static int computeNetCopiesNeeded(Model.CardsLists.Card card, String elementName) {
+        if (card == null || elementName == null || elementName.trim().isEmpty()) return -1;
+        try {
+            Model.CardsLists.DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
+            if (decksList == null) return -1;
+            Model.CardsLists.OwnedCardsCollection owned = Model.CardsLists.OuicheList.getMyCardsCollection();
+
+            java.util.function.Function<String, String> norm = s -> s == null ? "" :
+                    java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+                            .replaceAll("\\p{M}", "").trim().toLowerCase(java.util.Locale.ROOT);
+
+            String elem = norm.apply(elementName);
+
+            // Card-matching predicate (same logic as the matches predicate in computeCardNeedsSorting)
+            java.util.function.Predicate<Model.CardsLists.CardElement> matchesCe = ce -> {
+                if (ce == null || ce.getCard() == null) return false;
+                Model.CardsLists.Card other = ce.getCard();
+                if (card.getPrintCode() != null && other.getPrintCode() != null)
+                    return card.getPrintCode().equals(other.getPrintCode());
+                if (card.getPassCode() != null && other.getPassCode() != null)
+                    return card.getPassCode().equals(other.getPassCode());
+                return false;
+            };
+
+            java.util.function.Function<java.util.List<Model.CardsLists.CardElement>, Integer> countIn =
+                    list -> {
+                        if (list == null) return 0;
+                        int n = 0;
+                        for (Model.CardsLists.CardElement ce : list) if (matchesCe.test(ce)) n++;
+                        return n;
+                    };
+
+            // Count how many copies the owned collection has under boxes/groups named like this element
+            int ownedCount = 0;
+            if (owned != null) {
+                for (Model.CardsLists.Box box : owned.getOwnedCollection()) {
+                    if (box == null) continue;
+                    boolean boxMatches = norm.apply(box.getName()).equals(elem);
+                    if (box.getContent() != null) {
+                        for (Model.CardsLists.CardsGroup g : box.getContent()) {
+                            if (g == null) continue;
+                            boolean groupMatches = norm.apply(
+                                    Model.CardsLists.OwnedCardsCollection.extractName(
+                                            g.getName() == null ? "" : g.getName(), '-')).equals(elem);
+                            if (boxMatches || groupMatches) {
+                                ownedCount += countIn.apply(g.getCardList());
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Count how many copies the definition requires
+            int definitionCount = 0;
+            if (decksList.getCollections() != null) {
+                for (Model.CardsLists.ThemeCollection tc : decksList.getCollections()) {
+                    if (tc == null) continue;
+                    if (norm.apply(tc.getName()).equals(elem)) {
+                        definitionCount += countIn.apply(tc.getCardsList());
+                        if (tc.getLinkedDecks() != null) {
+                            for (java.util.List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                                if (unit == null) continue;
+                                for (Model.CardsLists.Deck d : unit) {
+                                    if (d == null) continue;
+                                    definitionCount += countIn.apply(d.getMainDeck());
+                                    definitionCount += countIn.apply(d.getExtraDeck());
+                                    definitionCount += countIn.apply(d.getSideDeck());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (decksList.getDecks() != null) {
+                for (Model.CardsLists.Deck d : decksList.getDecks()) {
+                    if (d == null) continue;
+                    if (norm.apply(d.getName()).equals(elem)) {
+                        definitionCount += countIn.apply(d.getMainDeck());
+                        definitionCount += countIn.apply(d.getExtraDeck());
+                        definitionCount += countIn.apply(d.getSideDeck());
+                    }
+                }
+            }
+
+            if (definitionCount == 0) return -1; // element not recognised as named deck/collection
+            return definitionCount - ownedCount;
+
+        } catch (Exception ex) {
+            logger.debug("computeNetCopiesNeeded failed for element '{}': {}", elementName, ex.toString());
+            return -1;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Quality-upgrade helpers (used by computeCardNeedsSorting and CardTreeCell)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns {@code true} when {@code candidate} has a strictly better physical
+     * condition than {@code existing}.
+     * <p>
+     * "Better" means a lower {@link CardCondition} ordinal (MINT=0 … DAMAGED=6).
+     * A non-null condition is always considered better than {@code null} (unknown).
+     * </p>
+     */
+    public static boolean isBetterCondition(
+            Model.CardsLists.CardCondition candidate,
+            Model.CardsLists.CardCondition existing) {
+        if (candidate == null) return false;   // no condition on candidate → can't claim upgrade
+        if (existing == null) return false;    // existing has no condition recorded — don't compare
+        return candidate.ordinal() < existing.ordinal(); // lower ordinal = better condition
+    }
+
+    /**
+     * Returns {@code true} when {@code candidate} satisfies the expected rarity
+     * of {@code target} but {@code existing} does not.
+     * <p>
+     * The "expected rarity" is the rarity stored on the {@code target}
+     * {@link CardElement} (i.e. the slot in the deck / collection).
+     * The check is:
+     * <ul>
+     *   <li>If {@code target} has no expected rarity → not applicable, return
+     *       {@code false}.</li>
+     *   <li>If {@code existing} already matches the expected rarity → not an
+     *       upgrade, return {@code false}.</li>
+     *   <li>If {@code candidate} matches the expected rarity (and existing
+     *       doesn't) → return {@code true}.</li>
+     * </ul>
+     * </p>
+     */
+    public static boolean satisfiesExpectedRarityBetter(
+            Model.CardsLists.CardRarity candidateRarity,
+            Model.CardsLists.CardRarity existingRarity,
+            Model.CardsLists.CardRarity expectedRarity) {
+        if (expectedRarity == null) return false;               // no expectation → N/A
+        if (existingRarity != null && existingRarity == expectedRarity) return false; // already satisfied
+        return candidateRarity != null && candidateRarity == expectedRarity;
+    }
+
+    /**
+     * Given a list of {@link CardElement}s that are already placed in a deck /
+     * collection slot and an incoming candidate {@link CardElement}, returns
+     * {@code true} when the candidate is a quality upgrade over at least one of
+     * the existing copies: either a better physical condition or it satisfies the
+     * expected rarity of a slot that the existing copy does not.
+     *
+     * @param existingInTarget   the copies of this card already present in the target
+     *                           deck / collection list
+     * @param targetSlotElements the full slot list from the deck/collection file
+     *                           (used to find the "expected" rarity for each slot)
+     * @param candidate          the owned CardElement being evaluated
+     */
+    public static boolean isQualityUpgrade(
+            java.util.List<Model.CardsLists.CardElement> existingInTarget,
+            java.util.List<Model.CardsLists.CardElement> targetSlotElements,
+            Model.CardsLists.CardElement candidate) {
+        if (candidate == null) return false;
+        if (existingInTarget == null || existingInTarget.isEmpty()) return false;
+
+        Model.CardsLists.CardCondition candidateCondition = candidate.getCondition();
+        Model.CardsLists.CardRarity candidateRarity = candidate.getRarity();
+
+        for (Model.CardsLists.CardElement existing : existingInTarget) {
+            if (existing == null) continue;
+
+            // 1) Better physical condition?
+            // Only compare when the existing copy has a recorded condition — if it has none,
+            // it is either a definition-only slot or an untracked owned copy; in neither case
+            // do we treat a candidate's condition as an upgrade (we can't know it's "better").
+            if (existing.getCondition() != null
+                    && isBetterCondition(candidateCondition, existing.getCondition())) return true;
+
+            // 2) Satisfies expected rarity that the existing copy does not?
+            //    The "expected rarity" is what the slot in targetSlotElements specifies.
+            if (targetSlotElements != null) {
+                for (Model.CardsLists.CardElement slot : targetSlotElements) {
+                    if (slot == null) continue;
+                    if (slot.getCard() == null || existing.getCard() == null) continue;
+                    Model.CardsLists.Card sc = slot.getCard();
+                    Model.CardsLists.Card ec = existing.getCard();
+                    boolean sameCard = (sc.getPassCode() != null && sc.getPassCode().equals(ec.getPassCode()))
+                            || (sc.getPrintCode() != null && sc.getPrintCode().equals(ec.getPrintCode()))
+                            || (sc.getKonamiId() != null && sc.getKonamiId().equals(ec.getKonamiId()));
+                    if (!sameCard) continue;
+                    if (satisfiesExpectedRarityBetter(candidateRarity, existing.getRarity(), slot.getRarity()))
+                        return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Inverse-side helpers: detecting degraded cards inside decks/collections
+    // -----------------------------------------------------------------------
+
+    /**
+     * Given a {@link Model.CardsLists.CardElement} that is already placed inside a
+     * deck or collection slot, returns {@code true} when the user's owned collection
+     * contains at least one copy of the same card that is a quality upgrade over this
+     * one — i.e. better physical condition, or the expected rarity that this copy
+     * lacks.
+     *
+     * @param deckElement        the element currently sitting in the deck/collection
+     * @param deckOrCollectionName the display name of that deck or collection (used to
+     *                           locate the slot list and read the expected rarity)
+     */
+    /**
+     * Returns {@code true} when {@code candidate} is a quality upgrade over
+     * {@code placedCopy} — a copy already physically placed in a deck or collection.
+     * <p>
+     * Unlike {@link #isQualityUpgrade} (which is used for definition-slot comparisons),
+     * this method treats a null condition on the placed copy as "unrecorded" — i.e. any
+     * candidate with a known condition is considered an improvement.
+     * </p>
+     */
+    private static boolean isUpgradeOverPlacedCopy(
+            Model.CardsLists.CardElement candidate,
+            Model.CardsLists.CardElement placedCopy,
+            java.util.List<Model.CardsLists.CardElement> slotList) {
+        if (candidate == null || placedCopy == null) return false;
+
+        // Condition check: if placed copy has no condition, any known candidate condition is better.
+        Model.CardsLists.CardCondition candidateCond = candidate.getCondition();
+        Model.CardsLists.CardCondition placedCond = placedCopy.getCondition();
+        if (candidateCond != null) {
+            if (placedCond == null) return true;                      // placed copy untracked → candidate is better
+            if (candidateCond.ordinal() < placedCond.ordinal()) return true; // strictly better condition
+        }
+
+        // Rarity check: does the candidate satisfy an expected rarity that the placed copy doesn't?
+        if (slotList != null) {
+            for (Model.CardsLists.CardElement slot : slotList) {
+                if (slot == null || slot.getCard() == null || placedCopy.getCard() == null) continue;
+                Model.CardsLists.Card sc = slot.getCard();
+                Model.CardsLists.Card pc = placedCopy.getCard();
+                boolean sameCard = (sc.getPassCode() != null && sc.getPassCode().equals(pc.getPassCode()))
+                        || (sc.getPrintCode() != null && sc.getPrintCode().equals(pc.getPrintCode()))
+                        || (sc.getKonamiId() != null && sc.getKonamiId().equals(pc.getKonamiId()));
+                if (!sameCard) continue;
+                if (satisfiesExpectedRarityBetter(candidate.getRarity(), placedCopy.getRarity(), slot.getRarity()))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean isDegradedCopyInDeckOrCollection(
+            Model.CardsLists.CardElement deckElement,
+            String deckOrCollectionName) {
+        if (deckElement == null || deckOrCollectionName == null) return false;
+        Model.CardsLists.Card card = deckElement.getCard();
+        if (card == null) return false;
+        try {
+            Model.CardsLists.OwnedCardsCollection owned =
+                    Model.CardsLists.OuicheList.getMyCardsCollection();
+            if (owned == null) return false;
+
+            List<Model.CardsLists.CardElement> ownedCopies = collectOwnedCopies(owned, card);
+            if (ownedCopies.isEmpty()) return false;
+
+            List<Model.CardsLists.CardElement> slotList =
+                    findSlotListForCard(deckOrCollectionName, card);
+
+            for (Model.CardsLists.CardElement ownedCopy : ownedCopies) {
+                if (isUpgradeOverPlacedCopy(ownedCopy, deckElement, slotList)) return true;
+            }
+        } catch (Exception ex) {
+            logger.debug("isDegradedCopyInDeckOrCollection failed: {}", ex.toString());
+        }
+        return false;
+    }
+
+    /**
+     * Returns all owned {@link Model.CardsLists.CardElement}s that are quality
+     * upgrades over {@code deckElement} (the copy currently in a deck/collection).
+     *
+     * @param deckElement          the element currently sitting in the deck/collection
+     * @param deckOrCollectionName the display name of that deck or collection
+     * @return a (possibly empty) list of owned elements that would improve this slot
+     */
+    public static List<Model.CardsLists.CardElement> findOwnedUpgradeCandidates(
+            Model.CardsLists.CardElement deckElement,
+            String deckOrCollectionName) {
+        List<Model.CardsLists.CardElement> result = new ArrayList<>();
+        if (deckElement == null || deckOrCollectionName == null) return result;
+        Model.CardsLists.Card card = deckElement.getCard();
+        if (card == null) return result;
+        try {
+            Model.CardsLists.OwnedCardsCollection owned =
+                    Model.CardsLists.OuicheList.getMyCardsCollection();
+            if (owned == null) return result;
+
+            List<Model.CardsLists.CardElement> ownedCopies =
+                    collectOwnedCopies(owned, card);
+            if (ownedCopies.isEmpty()) return result;
+
+            List<Model.CardsLists.CardElement> slotList =
+                    findSlotListForCard(deckOrCollectionName, card);
+
+            for (Model.CardsLists.CardElement oc : ownedCopies) {
+                if (isUpgradeOverPlacedCopy(oc, deckElement, slotList)) result.add(oc);
+            }
+        } catch (Exception ex) {
+            logger.debug("findOwnedUpgradeCandidates failed: {}", ex.toString());
+        }
+        return result;
+    }
+
+    /**
+     * Collects all {@link Model.CardsLists.CardElement}s in the owned collection that
+     * refer to the same card as {@code card} (matched by passCode, printCode, or
+     * konamiId).
+     */
+    private static List<Model.CardsLists.CardElement> collectOwnedCopies(
+            Model.CardsLists.OwnedCardsCollection owned,
+            Model.CardsLists.Card card) {
+        List<Model.CardsLists.CardElement> result = new ArrayList<>();
+        if (owned == null || card == null) return result;
+        for (Model.CardsLists.Box box : owned.getOwnedCollection()) {
+            if (box == null) continue;
+            for (Model.CardsLists.CardsGroup g : box.getContent()) {
+                if (g == null) continue;
+                for (Model.CardsLists.CardElement ce : g.getCardList()) {
+                    if (ce == null || ce.getCard() == null) continue;
+                    Model.CardsLists.Card c = ce.getCard();
+                    boolean same = (card.getPassCode() != null && card.getPassCode().equals(c.getPassCode()))
+                            || (card.getPrintCode() != null && card.getPrintCode().equals(c.getPrintCode()))
+                            || (card.getKonamiId() != null && card.getKonamiId().equals(c.getKonamiId()));
+                    if (same) result.add(ce);
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Finds the deck/collection slot list (main, extra, or side deck) that contains
+     * a card matching {@code card}, searching by {@code deckOrCollectionName}.
+     * Returns an empty list when nothing matches.
+     */
+    private static List<Model.CardsLists.CardElement> findSlotListForCard(
+            String deckOrCollectionName,
+            Model.CardsLists.Card card) {
+        try {
+            Model.CardsLists.DecksAndCollectionsList decksList =
+                    UserInterfaceFunctions.getDecksList();
+            if (decksList == null) return java.util.Collections.emptyList();
+
+            String norm = java.text.Normalizer
+                    .normalize(deckOrCollectionName, java.text.Normalizer.Form.NFD)
+                    .replaceAll("\\p{M}", "").trim().toLowerCase(java.util.Locale.ROOT);
+
+            java.util.function.Function<String, String> normalize = s -> s == null ? "" :
+                    java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+                            .replaceAll("\\p{M}", "").trim().toLowerCase(java.util.Locale.ROOT);
+
+            java.util.function.BiPredicate<Model.CardsLists.Card, Model.CardsLists.Card> sameCard =
+                    (a, b) -> a != null && b != null &&
+                            ((a.getPassCode() != null && a.getPassCode().equals(b.getPassCode()))
+                                    || (a.getPrintCode() != null && a.getPrintCode().equals(b.getPrintCode()))
+                                    || (a.getKonamiId() != null && a.getKonamiId().equals(b.getKonamiId())));
+
+            // Search collections
+            if (decksList.getCollections() != null) {
+                for (Model.CardsLists.ThemeCollection tc : decksList.getCollections()) {
+                    if (tc == null) continue;
+                    if (normalize.apply(tc.getName()).equals(norm)) {
+                        List<Model.CardsLists.CardElement> cl = tc.getCardsList();
+                        if (cl != null) {
+                            for (Model.CardsLists.CardElement ce : cl) {
+                                if (ce != null && sameCard.test(ce.getCard(), card)) return cl;
+                            }
+                        }
+                    }
+                    // Also search linked decks
+                    if (tc.getLinkedDecks() != null) {
+                        for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                            if (unit == null) continue;
+                            for (Model.CardsLists.Deck d : unit) {
+                                if (d == null) continue;
+                                String dn = normalize.apply(d.getName());
+                                if (dn.equals(norm) || normalize.apply(tc.getName()).equals(norm)) {
+                                    for (List<Model.CardsLists.CardElement> lst :
+                                            java.util.Arrays.asList(d.getMainDeck(), d.getExtraDeck(), d.getSideDeck())) {
+                                        if (lst == null) continue;
+                                        for (Model.CardsLists.CardElement ce : lst) {
+                                            if (ce != null && sameCard.test(ce.getCard(), card)) return lst;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Search loose decks
+            if (decksList.getDecks() != null) {
+                for (Model.CardsLists.Deck d : decksList.getDecks()) {
+                    if (d == null || !normalize.apply(d.getName()).equals(norm)) continue;
+                    for (List<Model.CardsLists.CardElement> lst :
+                            java.util.Arrays.asList(d.getMainDeck(), d.getExtraDeck(), d.getSideDeck())) {
+                        if (lst == null) continue;
+                        for (Model.CardsLists.CardElement ce : lst) {
+                            if (ce != null && sameCard.test(ce.getCard(), card)) return lst;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            logger.debug("findSlotListForCard failed: {}", ex.toString());
+        }
+        return java.util.Collections.emptyList();
     }
 
     private static String sanitize(String raw) {
@@ -1604,8 +2173,12 @@ public class RealMainController {
         for (CardElement ce : group.getCardList()) {
             if (ce == null || ce.getCard() == null) continue;
             try {
+                // Standard check first
                 boolean needs = Controller.RealMainController.computeCardNeedsSorting(ce.getCard(), groupDisplayName);
                 if (needs) return true;
+                // If not genuinely needed, check for quality upgrade
+                boolean upgrade = Controller.RealMainController.computeCardNeedsSortingWithUpgrade(ce, groupDisplayName);
+                if (upgrade) return true;
             } catch (Throwable t) {
                 // If compute method fails, ignore this card (do not mark as unsorted)
             }
@@ -2185,42 +2758,24 @@ public class RealMainController {
     private boolean boxHasUnsortedCards(Box box, String boxDisplayName) {
         if (box == null) return false;
 
-        // 1) Check cards that may be directly present in categories (groups) of this box
+        // Check cards in each named category (group) of this box.
+        // Pass the group/category name to computeCardNeedsSorting — that is what matches
+        // deck/collection type-category names (e.g. "Monstres Fusion").
         if (box.getContent() != null) {
             for (CardsGroup group : box.getContent()) {
-                // If a group contains unsorted cards, the box is considered to have unsorted cards
-                if (groupHasUnsortedCards(group, Model.CardsLists.OwnedCardsCollection.extractName(group.getName() == null ? "" : group.getName(), '-'))) {
+                String rawGroupName = group.getName() == null ? "" : group.getName();
+                String groupName = Model.CardsLists.OwnedCardsCollection.extractName(rawGroupName, '-');
+                if (groupHasUnsortedCards(group, groupName)) {
                     return true;
                 }
             }
         }
 
-        // 2) If the Box itself may directly contain cards (some formats may put cards at box-level),
-        //    check them by iterating groups with empty names or by checking the group's card list directly.
-        //    (This covers the case where a Box may contain cards without a named category.)
-        if (box.getContent() != null) {
-            for (CardsGroup group : box.getContent()) {
-                if (group.getName() == null || group.getName().trim().isEmpty()) {
-                    // treat as box-level cards
-                    if (group.getCardList() != null) {
-                        for (CardElement ce : group.getCardList()) {
-                            if (ce == null || ce.getCard() == null) continue;
-                            try {
-                                boolean needs = Controller.RealMainController.computeCardNeedsSorting(ce.getCard(), boxDisplayName);
-                                if (needs) return true;
-                            } catch (Throwable t) {
-                                // If compute method fails, be conservative and treat as not needing sorting
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3) Check sub-boxes recursively
+        // Check sub-boxes recursively.
         if (box.getSubBoxes() != null) {
             for (Box sub : box.getSubBoxes()) {
-                String subBoxDisplayName = Model.CardsLists.OwnedCardsCollection.extractName(sub.getName() == null ? "" : sub.getName(), '=');
+                String subBoxDisplayName = Model.CardsLists.OwnedCardsCollection.extractName(
+                        sub.getName() == null ? "" : sub.getName(), '=');
                 if (boxHasUnsortedCards(sub, subBoxDisplayName)) return true;
             }
         }

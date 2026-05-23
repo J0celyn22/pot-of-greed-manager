@@ -85,98 +85,17 @@ public final class MenuActionHandler {
         }
     }
 
-    /**
-     * Like {@link #handleAddCopy(Card, String)} but, when the card has no printCode
-     * (Unique right-pane mode), also opens the {@link View.CardEditPopup} immediately
-     * after insertion so the user can fill in the printCode.
-     *
-     * <p>The owner {@link javafx.stage.Window} is resolved from {@code anchor}
-     * <em>before</em> the collection refresh so that ListView-cell recycling cannot
-     * nullify the reference.</p>
-     */
-    public static void handleAddCopy(Card card, String handlerTarget, javafx.scene.Node anchor) {
-        if (card == null || handlerTarget == null || handlerTarget.trim().isEmpty()) return;
-        // Resolve the window NOW — after refreshOwnedCollectionView the ListView cell
-        // may be recycled and anchor.getScene() would return null.
-        final javafx.stage.Window ownerWindow = resolveWindow(anchor);
-        try {
-            Runnable doAdd = () -> {
-                CardElement added = doAddCopy(card, handlerTarget);
-                UserInterfaceFunctions.refreshOwnedCollectionView();
-                if (added != null && lacksPrintCode(card)) {
-                    handleEditCard(added, ownerWindow);
-                }
-            };
-            if (Platform.isFxApplicationThread()) doAdd.run();
-            else Platform.runLater(doAdd);
-        } catch (Throwable t) {
-            logger.debug("handleAddCopy(anchor) failed for target {}", handlerTarget, t);
-        }
-    }
-
-    /**
-     * Like {@link #handleBulkAddCopy(java.util.Collection, String)} but opens
-     * {@link View.CardEditPopup} for every added card that has no printCode.
-     * Popups are opened in reverse insertion order so the first card's popup is
-     * on top (last {@code show()} call wins the z-order).
-     */
-    public static void handleBulkAddCopy(java.util.Collection<Card> cards,
-                                         String handlerTarget, javafx.scene.Node anchor) {
-        if (cards == null || cards.isEmpty() || handlerTarget == null) return;
-        final javafx.stage.Window ownerWindow = resolveWindow(anchor);
-        try {
-            Runnable doAdd = () -> {
-                List<CardElement> added = new ArrayList<>();
-                for (Card card : cards) {
-                    CardElement el = doAddCopy(card, handlerTarget);
-                    if (el != null) added.add(el);
-                }
-                UserInterfaceFunctions.refreshOwnedCollectionView();
-                // Open popups in reverse order so index 0 ends on top.
-                for (int i = added.size() - 1; i >= 0; i--) {
-                    CardElement el = added.get(i);
-                    if (lacksPrintCode(el.getCard())) handleEditCard(el, ownerWindow);
-                }
-            };
-            if (Platform.isFxApplicationThread()) doAdd.run();
-            else Platform.runLater(doAdd);
-        } catch (Throwable t) {
-            logger.debug("handleBulkAddCopy(anchor) failed for target {}", handlerTarget, t);
-        }
-    }
-
-    /**
-     * Returns true when the card has no non-blank printCode.
-     */
-    private static boolean lacksPrintCode(Card card) {
-        if (card == null) return false;
-        String pc = card.getPrintCode();
-        return pc == null || pc.isBlank();
-    }
-
-    /**
-     * Safely resolves the JavaFX Window from a node; returns null if unavailable.
-     */
-    private static javafx.stage.Window resolveWindow(javafx.scene.Node anchor) {
-        try {
-            if (anchor != null && anchor.getScene() != null)
-                return anchor.getScene().getWindow();
-        } catch (Exception ignored) {
-        }
-        return null;
-    }
-
-    private static CardElement doAddCopy(Card card, String handlerTarget) {
+    private static void doAddCopy(Card card, String handlerTarget) {
         OwnedCardsCollection owned = safeGetOwnedCollection();
         if (owned == null || owned.getOwnedCollection() == null) {
             logger.warn("OwnedCardsCollection not available; cannot add card to {}", handlerTarget);
-            return null;
+            return;
         }
 
         CardsGroup dest = findMyCollectionDestination(handlerTarget, owned);
         if (dest == null) {
             logger.info("My Collection destination not found for '{}'; skipping add", handlerTarget);
-            return null;
+            return;
         }
 
         CardElement newElement = new CardElement(card);
@@ -190,7 +109,6 @@ public final class MenuActionHandler {
 
         UserInterfaceFunctions.markMyCollectionDirty();
         UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-        return newElement;
     }
 
     /**
@@ -1571,7 +1489,185 @@ public final class MenuActionHandler {
         return View.CardTreeCell.findDeckOwnerForGroup(group);
     }
 
-    // ── Edit Card ────────────────────────────────────────────────────────────
+    // ── Swap ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Swaps {@code incoming} (an owned copy with better condition/rarity) into the
+     * position currently occupied by {@code outgoing} (a degraded copy inside a deck
+     * or collection), and moves {@code outgoing} back into the owned collection at the
+     * position {@code incoming} came from.
+     *
+     * <p>Both positions are preserved so the order in the deck/collection and in the
+     * owned collection stays stable.</p>
+     *
+     * <p>Safe to call from any thread.</p>
+     *
+     * @param incoming the owned {@link CardElement} that is the quality upgrade
+     * @param outgoing the deck/collection {@link CardElement} to be replaced
+     */
+    public static void handleSwap(CardElement incoming, CardElement outgoing) {
+        if (incoming == null || outgoing == null) return;
+        try {
+            if (Platform.isFxApplicationThread()) {
+                doSwap(incoming, outgoing);
+            } else {
+                Platform.runLater(() -> doSwap(incoming, outgoing));
+            }
+        } catch (Throwable t) {
+            logger.debug("handleSwap failed", t);
+        }
+    }
+
+    /**
+     * Core swap logic — must be called on the FX Application Thread.
+     *
+     * <p>Steps:
+     * <ol>
+     *   <li>Locate {@code outgoing} in every DAC list and record its position.</li>
+     *   <li>Locate {@code incoming} in the owned collection and record its position.</li>
+     *   <li>Replace {@code outgoing} with {@code incoming} in the DAC list (same index).</li>
+     *   <li>Replace {@code incoming} with {@code outgoing} in the owned collection
+     *       (same index) so the previous owner of that slot now lives in the owned
+     *       collection at the spot the upgrade copy came from.</li>
+     *   <li>Mark both sides dirty and refresh both views.</li>
+     * </ol>
+     * </p>
+     */
+    private static void doSwap(CardElement incoming, CardElement outgoing) {
+        OwnedCardsCollection owned = safeGetOwnedCollection();
+        DecksAndCollectionsList dac = null;
+        try {
+            dac = UserInterfaceFunctions.getDecksList();
+        } catch (Throwable ignored) {
+        }
+
+        if (owned == null || dac == null) {
+            logger.warn("doSwap: owned collection or DAC not available");
+            return;
+        }
+
+        // 1. Find outgoing's location in DAC
+        DacLocation outgoingLoc = findInDac(outgoing, dac);
+        if (outgoingLoc == null) {
+            logger.warn("doSwap: outgoing element not found in any DAC list");
+            return;
+        }
+
+        // 2. Find incoming's location in owned collection
+        SourceLocation incomingLoc = findSource(incoming, owned);
+        if (incomingLoc == null) {
+            logger.warn("doSwap: incoming element not found in owned collection");
+            return;
+        }
+
+        // 3. Swap in DAC list (in-place, preserving index)
+        try {
+            outgoingLoc.list.set(outgoingLoc.index, incoming);
+        } catch (Throwable ex) {
+            logger.debug("doSwap: failed to replace outgoing in DAC list", ex);
+            return;
+        }
+
+        // 4. Swap in owned collection (in-place via ObservableList)
+        try {
+            javafx.collections.ObservableList<CardElement> srcObs =
+                    CardTreeCell.observableListFor(incomingLoc.group);
+            int idx = incomingLoc.index;
+            if (idx >= 0 && idx < srcObs.size() && srcObs.get(idx) == incoming) {
+                srcObs.set(idx, outgoing);
+            } else {
+                int actualIdx = srcObs.indexOf(incoming);
+                if (actualIdx >= 0) {
+                    srcObs.set(actualIdx, outgoing);
+                } else {
+                    srcObs.add(outgoing);
+                }
+            }
+            CardTreeCell.triggerHeightAdjustment(incomingLoc.group);
+        } catch (Throwable ex) {
+            logger.debug("doSwap: failed to replace incoming in owned collection", ex);
+        }
+
+        // 5. Mark dirty and refresh
+        try {
+            UserInterfaceFunctions.markDirty(outgoingLoc.owner);
+        } catch (Throwable ignored) {
+        }
+        try {
+            UserInterfaceFunctions.markMyCollectionDirty();
+        } catch (Throwable ignored) {
+        }
+        try {
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+        } catch (Throwable ignored) {
+        }
+        try {
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        } catch (Throwable ignored) {
+        }
+        try {
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+        } catch (Throwable ignored) {
+        }
+
+        logger.debug("doSwap: swapped '{}' (owned) <-> '{}' (deck/collection)",
+                incoming.getCard() != null ? incoming.getCard().getName_EN() : "?",
+                outgoing.getCard() != null ? outgoing.getCard().getName_EN() : "?");
+    }
+
+    /**
+     * Locates {@code element} (by object identity) in every card list in the DAC.
+     * Returns a {@link DacLocation} with the owning object, the list, and the index,
+     * or {@code null} if not found.
+     */
+    private static DacLocation findInDac(CardElement element, DecksAndCollectionsList dac) {
+        if (element == null || dac == null) return null;
+        if (dac.getCollections() != null) {
+            for (ThemeCollection tc : dac.getCollections()) {
+                if (tc == null) continue;
+                DacLocation loc;
+                loc = findInList(element, tc.getCardsList(), tc);
+                if (loc != null) return loc;
+                loc = findInList(element, tc.getExceptionsToNotAdd(), tc);
+                if (loc != null) return loc;
+                if (tc.getLinkedDecks() != null) {
+                    for (List<Deck> unit : tc.getLinkedDecks()) {
+                        if (unit == null) continue;
+                        for (Deck d : unit) {
+                            if (d == null) continue;
+                            loc = findInList(element, d.getMainDeck(), d);
+                            if (loc != null) return loc;
+                            loc = findInList(element, d.getExtraDeck(), d);
+                            if (loc != null) return loc;
+                            loc = findInList(element, d.getSideDeck(), d);
+                            if (loc != null) return loc;
+                        }
+                    }
+                }
+            }
+        }
+        if (dac.getDecks() != null) {
+            for (Deck d : dac.getDecks()) {
+                if (d == null) continue;
+                DacLocation loc;
+                loc = findInList(element, d.getMainDeck(), d);
+                if (loc != null) return loc;
+                loc = findInList(element, d.getExtraDeck(), d);
+                if (loc != null) return loc;
+                loc = findInList(element, d.getSideDeck(), d);
+                if (loc != null) return loc;
+            }
+        }
+        return null;
+    }
+
+    private static DacLocation findInList(CardElement element, List<CardElement> list, Object owner) {
+        if (list == null) return null;
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i) == element) return new DacLocation(owner, list, i);
+        }
+        return null;
+    }
 
     /**
      * Opens the {@link View.CardEditPopup} for {@code element}, then refreshes
@@ -1584,36 +1680,13 @@ public final class MenuActionHandler {
      * @param anchor  any scene node used to centre the popup on the same window;
      *                may be {@code null} (popup will centre on screen)
      */
-    /**
-     * Like {@link #handleEditCard(CardElement, javafx.scene.Node)} but accepts
-     * a pre-resolved {@link javafx.stage.Window} instead of a node.
-     * Use this when the anchor node may have been recycled (e.g. after a ListView
-     * refresh) — the Window reference stays stable.
-     */
-    public static void handleEditCard(CardElement element, javafx.stage.Window ownerWindow) {
+    public static void handleEditCard(CardElement element, javafx.scene.Node anchor) {
         if (element == null) return;
         Runnable show = () -> {
             try {
                 View.CardEditPopup popup = new View.CardEditPopup(element);
                 popup.setOnOk(() -> {
-                    // Mark the owning model object (Deck, ThemeCollection, or
-                    // OwnedCardsCollection) as dirty so the tab unsaved-indicator fires.
-                    try {
-                        CardsGroup group = CardTreeCell.findGroupForCardElement(element);
-                        Object dacOwner = CardTreeCell.findOwnerForGroup(group);
-                        if (dacOwner != null) {
-                            UserInterfaceFunctions.markDirty(dacOwner);
-                            UserInterfaceFunctions.setPendingDecksFullRebuild();
-                        } else {
-                            UserInterfaceFunctions.markMyCollectionDirty();
-                        }
-                    } catch (Throwable ignored) {
-                        UserInterfaceFunctions.markMyCollectionDirty();
-                    }
-                    try {
-                        UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-                    } catch (Throwable ignored) {
-                    }
+                    // Refresh whichever collection is currently loaded
                     try {
                         UserInterfaceFunctions.refreshOwnedCollectionView();
                     } catch (Throwable ignored) {
@@ -1623,26 +1696,35 @@ public final class MenuActionHandler {
                     } catch (Throwable ignored) {
                     }
                 });
-                popup.showCenteredOn(ownerWindow);
+                popup.showCenteredOn(anchor);
             } catch (Throwable t) {
-                logger.error("handleEditCard(Window) failed", t);
+                logger.error("handleEditCard failed", t);
             }
         };
-        if (javafx.application.Platform.isFxApplicationThread()) show.run();
-        else javafx.application.Platform.runLater(show);
+        if (javafx.application.Platform.isFxApplicationThread()) {
+            show.run();
+        } else {
+            javafx.application.Platform.runLater(show);
+        }
     }
 
-    public static void handleEditCard(CardElement element, javafx.scene.Node anchor) {
-        if (element == null) return;
-        // Resolve the window NOW, before any refresh can recycle the anchor node.
-        javafx.stage.Window ownerWindow = null;
-        try {
-            if (anchor != null && anchor.getScene() != null) {
-                ownerWindow = anchor.getScene().getWindow();
-            }
-        } catch (Exception ignored) {
+    // ── Edit Card ────────────────────────────────────────────────────────────
+
+    private static final class DacLocation {
+        /**
+         * The Deck or ThemeCollection that owns the list.
+         */
+        final Object owner;
+        /**
+         * The actual list (mainDeck, extraDeck, sideDeck, or cardsList).
+         */
+        final List<CardElement> list;
+        final int index;
+
+        DacLocation(Object owner, List<CardElement> list, int index) {
+            this.owner = owner;
+            this.list = list;
+            this.index = index;
         }
-        // Delegate to the window-based overload so the window reference is stable.
-        handleEditCard(element, ownerWindow);
     }
 }

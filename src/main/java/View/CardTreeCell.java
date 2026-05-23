@@ -77,6 +77,10 @@ public class CardTreeCell extends TreeCell<String> {
     final javafx.stage.Popup hoverPopup = new javafx.stage.Popup();
     final Label hoverLabel = new Label();
     /**
+     * The VBox that wraps hoverLabel + warningsBox and carries the popup border.
+     */
+    final javafx.scene.layout.VBox hoverPopupBox = new javafx.scene.layout.VBox(0);
+    /**
      * Maps each CardsGroup to the set of passCodes that belong to a
      * multi-artwork card whose collection is missing at least one artwork.
      * Populated by RealMainController when building the D&C / OuicheList tree.
@@ -157,14 +161,8 @@ public class CardTreeCell extends TreeCell<String> {
         warningsBox.setStyle("-fx-padding: 0 0 4 0;");
 
         // Wrap both labels in a styled VBox so they share one rounded border.
-        javafx.scene.layout.VBox popupBox = new javafx.scene.layout.VBox(0, hoverLabel, warningsBox);
-        popupBox.setStyle(
-                "-fx-background-color: #1a0428; " +
-                        "-fx-background-radius: 6; " +
-                        "-fx-border-color: #cdfc04; " +
-                        "-fx-border-width: 1; " +
-                        "-fx-border-radius: 6;"
-        );
+        hoverPopupBox.getChildren().addAll(hoverLabel, warningsBox);
+        hoverPopupBox.setStyle(CardHoverPopup.POPUP_BOX_STYLE_DEFAULT);
         // Remove the border/background from the individual label now that the VBox carries it.
         hoverLabel.setStyle(
                 "-fx-text-fill: white; " +
@@ -172,7 +170,7 @@ public class CardTreeCell extends TreeCell<String> {
                         "-fx-padding: 8 10 4 10;"
         );
 
-        hoverPopup.getContent().add(popupBox);
+        hoverPopup.getContent().add(hoverPopupBox);
         hoverPopup.setAutoFix(true);
         hoverPopup.setAutoHide(false);
     }
@@ -760,6 +758,8 @@ public class CardTreeCell extends TreeCell<String> {
                     // Determine whether to apply the "unsorted" glow
                     // ----------------------------
                     boolean needsSorting = false;
+                    Set<String> missingSet = null;
+                    String elementNameFromUD = null;
                     try {
                         // Retrieve userData from the GridView that was stored in createCardsGroupCell.
                         Object ud = null;
@@ -768,10 +768,6 @@ public class CardTreeCell extends TreeCell<String> {
                         } catch (Exception ignored) {
                             ud = null;
                         }
-
-                        // 1) Archetype missing-set logic (keeps Decks & Collections archetype highlighting)
-                        Set<String> missingSet = null;
-                        String elementNameFromUD = null;
 
                         if (ud instanceof Map) {
                             @SuppressWarnings("unchecked")
@@ -809,14 +805,21 @@ public class CardTreeCell extends TreeCell<String> {
                             }
                             needsSorting = missing;
                         } else {
-                            // 2) No archetype missing-set -> try elementName + computeCardNeedsSorting
-                            // But only when the FIRST tab is currently selected.
+                            // 2) No archetype missing-set -> sorting/upgrade check.
+                            // My Collection: check if needs sorting, then if upgrade.
+                            // D&C: already handled by isDegraded block below.
                             String elementName = elementNameFromUD;
-                            boolean isFirstTabSelected = isFirstTabSelected();
 
-                            if (elementName != null && !elementName.trim().isEmpty() && isFirstTabSelected) {
+                            if (elementName != null && !elementName.trim().isEmpty() && isMyCollectionTabSelected()) {
                                 try {
-                                    needsSorting = Controller.RealMainController.computeCardNeedsSorting(cardElement.getCard(), elementName);
+                                    boolean genuinelyNeeded = Controller.RealMainController
+                                            .computeCardNeedsSorting(cardElement.getCard(), elementName);
+                                    if (genuinelyNeeded) {
+                                        needsSorting = true;
+                                    } else {
+                                        needsSorting = Controller.RealMainController
+                                                .computeCardNeedsSortingWithUpgrade(cardElement, elementName);
+                                    }
                                 } catch (Throwable t) {
                                     needsSorting = false;
                                 }
@@ -829,17 +832,31 @@ public class CardTreeCell extends TreeCell<String> {
                         needsSorting = false;
                     }
 
+                    // Degraded-in-deck check: orange glow when a better owned copy exists.
+                    // Only run on D&C tab (not My Collection) and only when not already glowing.
+                    boolean isDegraded = false;
+                    if (!needsSorting && elementNameFromUD != null && !elementNameFromUD.trim().isEmpty()
+                            && isDecksAndCollectionsTabSelected()) {
+                        try {
+                            isDegraded = Controller.RealMainController
+                                    .isDegradedCopyInDeckOrCollection(cardElement, elementNameFromUD);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+
                     // Apply glow if needed to the cardBox (keeps other visuals intact)
-                    if (needsSorting) {
+                    if (needsSorting || isDegraded) {
+                        String glowColor = isDegraded ? "#EB9E34" : "#ffffff";
+                        double outerAlpha = isDegraded ? 0.35 : 0.22;
                         DropShadow innerGlow = new DropShadow();
-                        innerGlow.setColor(javafx.scene.paint.Color.web("#ffffff", 1.0));
+                        innerGlow.setColor(javafx.scene.paint.Color.web(glowColor, 1.0));
                         innerGlow.setOffsetX(0);
                         innerGlow.setOffsetY(0);
                         innerGlow.setRadius(4);
                         innerGlow.setSpread(0.9);
 
                         DropShadow outerGlow = new DropShadow();
-                        outerGlow.setColor(javafx.scene.paint.Color.web("#ffffff", 0.22));
+                        outerGlow.setColor(javafx.scene.paint.Color.web(glowColor, outerAlpha));
                         outerGlow.setOffsetX(0);
                         outerGlow.setOffsetY(0);
                         outerGlow.setRadius(14);
@@ -1649,69 +1666,6 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     /**
-     * Build swap proposals for the given card and clickedElement.
-     * <p>
-     * Avoid proposing a swap with the same CardElement instance (identity) and avoid proposing
-     * a swap with a card located at the same location as the clicked element (defensive).
-     * <p>
-     * Uses the shared OwnedCardsCollection from OuicheList.getMyCardsCollection() when available
-     * so identity comparisons are meaningful; falls back to file-based constructor otherwise.
-     */
-    private List<MenuItem> buildSwapProposals(Model.CardsLists.Card card, CardElement clickedElement) {
-        List<MenuItem> items = new ArrayList<>();
-        try {
-            OwnedCardsCollection owned = null;
-            try {
-                owned = Model.CardsLists.OuicheList.getMyCardsCollection();
-            } catch (Throwable ignored) {
-            }
-            if (owned == null) {
-                try {
-                    Controller.UserInterfaceFunctions.loadCollectionFile();
-                } catch (Throwable ignored) {
-                }
-                try {
-                    owned = Model.CardsLists.OuicheList.getMyCardsCollection();
-                } catch (Throwable ignored) {
-                }
-            }
-            if (owned == null || owned.getOwnedCollection() == null) return items;
-
-            String clickedLocation = findElementLocation(clickedElement, owned);
-
-            for (Box box : owned.getOwnedCollection()) {
-                if (box == null || box.getContent() == null) continue;
-                for (CardsGroup g : box.getContent()) {
-                    if (g == null) continue;
-                    List<CardElement> list = g.getCardList();
-                    if (list == null) continue;
-                    for (int i = 0; i < list.size(); i++) {
-                        CardElement ce = list.get(i);
-                        if (ce == null || ce.getCard() == null) continue;
-                        if (ce == clickedElement) continue;
-                        if (!cardsMatch(ce.getCard(), card)) continue;
-
-                        String candidateLocation = sanitizeDisplayName(box.getName()) + "/" + sanitizeDisplayName(g.getName()) + "@" + i;
-                        if (clickedLocation != null && candidateLocation.equals(clickedLocation)) continue;
-
-                        String boxLabel = sanitizeDisplayName(box.getName());
-                        String groupLabel = sanitizeDisplayName(g.getName());
-                        String displayLocation = boxLabel + "/" + groupLabel + " (index " + i + ")";
-                        final String locationCopy = displayLocation;
-
-                        MenuItem mi = new MenuItem(displayLocation);
-                        mi.setOnAction(e -> onProposeSwapWith(clickedElement, locationCopy));
-                        items.add(mi);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("buildSwapProposals failed", e);
-        }
-        return items;
-    }
-
-    /**
      * Count how many occurrences of the given card exist in the provided CardElement list.
      * Matching uses passCode, then printCode, then konamiId.
      */
@@ -1955,7 +1909,7 @@ public class CardTreeCell extends TreeCell<String> {
             Model.CardsLists.Card c = noPrint.get(i);
             CardElement el = cardToElement.get(c);
             if (el != null) {
-                Controller.MenuActionHandler.handleEditCard(el, finalOwner);
+                Controller.MenuActionHandler.handleEditCard(el, null);
             }
         }
     }
@@ -2034,6 +1988,252 @@ public class CardTreeCell extends TreeCell<String> {
      * - CollectionName
      * - CollectionName/DeckName/Main Deck (or Extra/Side)
      */
+    /**
+     * Builds "Swap with..." menu items for a CardElement.
+     *
+     * <p>Two directions:</p>
+     * <ul>
+     *   <li><b>My Collection card (upgrade candidate):</b> proposes to swap this owned copy
+     *       with the degraded copy already in a deck/collection.</li>
+     *   <li><b>D&amp;C card (degraded copy):</b> proposes to swap with the better owned copy.</li>
+     * </ul>
+     *
+     * @param card    the {@link Model.CardsLists.Card} of the clicked element
+     * @param clicked the {@link CardElement} that was right-clicked
+     * @return a (possibly empty) list of orange-styled swap MenuItems
+     */
+    @SuppressWarnings("unused") // called via reflection from sortingMenu.setOnShowing
+    private List<MenuItem> buildSwapProposals(Model.CardsLists.Card card, CardElement clicked) {
+        List<MenuItem> items = new ArrayList<>();
+        try {
+            boolean inDeckContext = false;
+            // Determine if this cell is in a D&C group (vs My Collection)
+            CardsGroup parentGroup = getParentGroup(clicked);
+            if (parentGroup != null && findDeckOwnerForGroup(parentGroup) != null) {
+                inDeckContext = true;
+            }
+
+            if (inDeckContext) {
+                // D&C card — find owned upgrade candidates
+                String elemName = elementNameFromUDForContextMenu();
+                if (elemName == null || elemName.trim().isEmpty()) return items;
+                List<Model.CardsLists.CardElement> candidates =
+                        Controller.RealMainController.findOwnedUpgradeCandidates(clicked, elemName);
+                if (candidates.isEmpty()) return items;
+                for (Model.CardsLists.CardElement candidate : candidates) {
+                    String label = buildSwapCandidateLabel(candidate);
+                    MenuItem mi = new MenuItem(label);
+                    mi.setStyle("-fx-text-fill: #EB9E34;");
+                    final CardElement finalCandidate = candidate;
+                    mi.setOnAction(ev ->
+                            Controller.MenuActionHandler.handleSwap(finalCandidate, clicked));
+                    items.add(mi);
+                }
+            } else {
+                // My Collection card — find D&C degraded entries this card can upgrade
+                // Use computeCardNeedsSortingWithUpgrade to find matching deck/collection,
+                // then find the specific degraded element in it.
+                Model.CardsLists.DecksAndCollectionsList dac =
+                        Controller.UserInterfaceFunctions.getDecksList();
+                if (dac == null) return items;
+
+                java.util.function.BiPredicate<Model.CardsLists.Card, Model.CardsLists.Card> sameCard =
+                        (a, b) -> a != null && b != null
+                                && ((a.getPassCode() != null && a.getPassCode().equals(b.getPassCode()))
+                                || (a.getPrintCode() != null && b.getPrintCode() != null
+                                && a.getPrintCode().equals(b.getPrintCode())));
+
+                // Collect all deck/collection elements for the same card that are degraded
+                List<Model.CardsLists.CardElement> degradedSlots = new ArrayList<>();
+                List<String> degradedNames = new ArrayList<>();
+
+                if (dac.getCollections() != null) {
+                    for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                        if (tc == null) continue;
+                        if (tc.getCardsList() != null) {
+                            for (Model.CardsLists.CardElement ce : tc.getCardsList()) {
+                                if (ce == null || !sameCard.test(ce.getCard(), card)) continue;
+                                if (Controller.RealMainController
+                                        .isDegradedCopyInDeckOrCollection(ce, tc.getName())) {
+                                    List<Model.CardsLists.CardElement> candidates =
+                                            Controller.RealMainController
+                                                    .findOwnedUpgradeCandidates(ce, tc.getName());
+                                    if (candidates.stream().anyMatch(c -> c == clicked)) {
+                                        degradedSlots.add(ce);
+                                        degradedNames.add(tc.getName());
+                                    }
+                                }
+                            }
+                        }
+                        if (tc.getLinkedDecks() != null) {
+                            for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                                if (unit == null) continue;
+                                for (Model.CardsLists.Deck d : unit) {
+                                    if (d == null) continue;
+                                    for (List<Model.CardsLists.CardElement> lst :
+                                            java.util.Arrays.asList(d.getMainDeck(), d.getExtraDeck(), d.getSideDeck())) {
+                                        if (lst == null) continue;
+                                        for (Model.CardsLists.CardElement ce : lst) {
+                                            if (ce == null || !sameCard.test(ce.getCard(), card)) continue;
+                                            if (Controller.RealMainController
+                                                    .isDegradedCopyInDeckOrCollection(ce, d.getName())) {
+                                                List<Model.CardsLists.CardElement> candidates =
+                                                        Controller.RealMainController
+                                                                .findOwnedUpgradeCandidates(ce, d.getName());
+                                                if (candidates.stream().anyMatch(c -> c == clicked)) {
+                                                    degradedSlots.add(ce);
+                                                    degradedNames.add(d.getName());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (dac.getDecks() != null) {
+                    for (Model.CardsLists.Deck d : dac.getDecks()) {
+                        if (d == null) continue;
+                        for (List<Model.CardsLists.CardElement> lst :
+                                java.util.Arrays.asList(d.getMainDeck(), d.getExtraDeck(), d.getSideDeck())) {
+                            if (lst == null) continue;
+                            for (Model.CardsLists.CardElement ce : lst) {
+                                if (ce == null || !sameCard.test(ce.getCard(), card)) continue;
+                                if (Controller.RealMainController
+                                        .isDegradedCopyInDeckOrCollection(ce, d.getName())) {
+                                    List<Model.CardsLists.CardElement> candidates =
+                                            Controller.RealMainController
+                                                    .findOwnedUpgradeCandidates(ce, d.getName());
+                                    if (candidates.stream().anyMatch(c -> c == clicked)) {
+                                        degradedSlots.add(ce);
+                                        degradedNames.add(d.getName());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                for (int i = 0; i < degradedSlots.size(); i++) {
+                    Model.CardsLists.CardElement slot = degradedSlots.get(i);
+                    String name = degradedNames.get(i);
+                    String label = "Swap into " + name + buildSlotConditionSuffix(slot);
+                    MenuItem mi = new MenuItem(label);
+                    mi.setStyle("-fx-text-fill: #EB9E34;");
+                    final CardElement finalSlot = slot;
+                    mi.setOnAction(ev ->
+                            Controller.MenuActionHandler.handleSwap(clicked, finalSlot));
+                    items.add(mi);
+                }
+            }
+        } catch (Throwable t) {
+            logger.debug("buildSwapProposals failed", t);
+        }
+        return items;
+    }
+
+    /**
+     * Finds the {@link CardsGroup} that contains {@code element} by searching all
+     * groups in My Collection and D&amp;C groups registered in {@link #DECK_SECTION_GROUPS}.
+     */
+    private CardsGroup getParentGroup(CardElement element) {
+        if (element == null) return null;
+        try {
+            // Search D&C groups first (faster lookup)
+            for (java.util.Map<String, CardsGroup> secs : DECK_SECTION_GROUPS.values()) {
+                if (secs == null) continue;
+                for (CardsGroup g : secs.values()) {
+                    if (g != null && g.getCardList() != null && g.getCardList().contains(element))
+                        return g;
+                }
+            }
+            // Search My Collection
+            Model.CardsLists.OwnedCardsCollection owned =
+                    Model.CardsLists.OuicheList.getMyCardsCollection();
+            if (owned != null) {
+                for (Model.CardsLists.Box box : owned.getOwnedCollection()) {
+                    if (box == null) continue;
+                    for (CardsGroup g : box.getContent()) {
+                        if (g != null && g.getCardList() != null && g.getCardList().contains(element))
+                            return g;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * Reads the elementName from the ancestor GridView userData (best-effort).
+     */
+    private String elementNameFromUDForContextMenu() {
+        try {
+            Node n = this;
+            while (n != null && !(n instanceof javafx.scene.control.TreeView)) n = n.getParent();
+            // For tree cells the userData comes from the ancestor TreeView or the GridView it hosts
+            // Try the GridView path (used by CardGridCell embedded in the tree)
+            n = this;
+            while (n != null) {
+                if (n instanceof GridView) {
+                    Object ud = ((GridView<?>) n).getUserData();
+                    if (ud instanceof java.util.Map) {
+                        Object en = ((java.util.Map<?, ?>) ud).get("elementName");
+                        if (en instanceof String) return (String) en;
+                    }
+                }
+                n = n.getParent();
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private String buildSwapCandidateLabel(Model.CardsLists.CardElement ce) {
+        if (ce == null) return "(unknown)";
+        StringBuilder sb = new StringBuilder();
+        if (ce.getCondition() != null) sb.append(ce.getCondition().getDisplayName());
+        if (ce.getRarity() != null) {
+            if (sb.length() > 0) sb.append(" / ");
+            sb.append(ce.getRarity().getDisplayName());
+        }
+        return sb.length() > 0 ? sb.toString() : "Copy in collection";
+    }
+
+    private String buildSlotConditionSuffix(Model.CardsLists.CardElement ce) {
+        if (ce == null) return "";
+        StringBuilder sb = new StringBuilder(" (");
+        if (ce.getCondition() != null) sb.append(ce.getCondition().getDisplayName());
+        if (ce.getRarity() != null) {
+            if (sb.length() > 2) sb.append(" / ");
+            sb.append(ce.getRarity().getDisplayName());
+        }
+        if (sb.length() == 2) return "";
+        sb.append(")");
+        return sb.toString();
+    }
+
+    /**
+     * Returns true when {@code ownedElement} is a quality upgrade over at least
+     * one copy of the same card already present in {@code targetList}.
+     * Delegates to {@link Controller.RealMainController#isQualityUpgrade}.
+     */
+    private boolean isQualityUpgradeFor(
+            List<CardElement> targetList,
+            CardElement ownedElement) {
+        if (ownedElement == null || targetList == null) return false;
+        Model.CardsLists.Card card = ownedElement.getCard();
+        if (card == null) return false;
+        List<CardElement> existingCopies = new ArrayList<>();
+        for (CardElement ce : targetList) {
+            if (ce == null || ce.getCard() == null) continue;
+            if (cardsMatch(ce.getCard(), card)) existingCopies.add(ce);
+        }
+        if (existingCopies.isEmpty()) return false;
+        return Controller.RealMainController.isQualityUpgrade(existingCopies, targetList, ownedElement);
+    }
+
     private List<MenuItem> buildDecksAndCollectionsProposals(Model.CardsLists.Card card, CardElement clickedElement) {
         List<MenuItem> items = new ArrayList<>();
         try {
@@ -2117,6 +2317,9 @@ public class CardTreeCell extends TreeCell<String> {
             };
 
             Map<String, Boolean> proposedTargets = new LinkedHashMap<>();
+            // Targets that are purely quality-upgrade proposals (no missing copies).
+            // These get orange styling in the context menu.
+            Set<String> upgradeOnlyTargets = new HashSet<>();
 
             if (dac.getCollections() != null) {
                 for (ThemeCollection tc : dac.getCollections()) {
@@ -2129,10 +2332,14 @@ public class CardTreeCell extends TreeCell<String> {
                         if (box == null || box.getContent() == null) continue;
                         for (CardsGroup group : box.getContent()) {
                             int countInBoxGroup = countCardInList(group.getCardList(), card);
-                            if (countInCollection > countInBoxGroup) {
+                            boolean needsMore = countInCollection > countInBoxGroup;
+                            boolean qualityUpgrade = !needsMore
+                                    && isQualityUpgradeFor(tc.getCardsList(), clickedElement);
+                            if (needsMore || qualityUpgrade) {
                                 String target = sanitizeDisplayName(tc.getName());
                                 boolean exists = existsLocation.test(tc.getName());
                                 proposedTargets.put(target, exists);
+                                if (qualityUpgrade) upgradeOnlyTargets.add(target);
                                 collectionProposed = true;
                                 break;
                             }
@@ -2153,25 +2360,33 @@ public class CardTreeCell extends TreeCell<String> {
                                 int requiredTotal = countMain + countExtra + countSide;
                                 if (requiredTotal > 0) {
                                     int presentTotal = countInOwnedForDeckCombined(owned, deck.getName(), card);
-                                    if (requiredTotal > presentTotal) {
-                                        // propose targets for the individual lists as before (so user can choose where to place),
-                                        // but only if the deck as a whole still needs copies.
+                                    boolean needsMore = requiredTotal > presentTotal;
+                                    // Also propose when the owned copy is a quality upgrade for any sub-list
+                                    boolean upgradeMain = !needsMore && countMain > 0 && isQualityUpgradeFor(deck.getMainDeck(), clickedElement);
+                                    boolean upgradeExtra = !needsMore && countExtra > 0 && isQualityUpgradeFor(deck.getExtraDeck(), clickedElement);
+                                    boolean upgradeSide = !needsMore && countSide > 0 && isQualityUpgradeFor(deck.getSideDeck(), clickedElement);
+                                    if (needsMore || upgradeMain || upgradeExtra || upgradeSide) {
                                         if (countMain > 0
-                                                && Utils.DeckCompatibility.isCompatibleWith(card, "Main Deck")) {
+                                                && Utils.DeckCompatibility.isCompatibleWith(card, "Main Deck")
+                                                && (needsMore || upgradeMain)) {
                                             String target = sanitizeDisplayName(deck.getName()) + "/Main Deck";
                                             boolean exists = existsLocation.test(deck.getName());
                                             proposedTargets.put(target, exists);
+                                            if (!needsMore && upgradeMain) upgradeOnlyTargets.add(target);
                                         }
                                         if (countExtra > 0
-                                                && Utils.DeckCompatibility.isCompatibleWith(card, "Extra Deck")) {
+                                                && Utils.DeckCompatibility.isCompatibleWith(card, "Extra Deck")
+                                                && (needsMore || upgradeExtra)) {
                                             String target = sanitizeDisplayName(deck.getName()) + "/Extra Deck";
                                             boolean exists = existsLocation.test(deck.getName());
                                             proposedTargets.put(target, exists);
+                                            if (!needsMore && upgradeExtra) upgradeOnlyTargets.add(target);
                                         }
-                                        if (countSide > 0) {
+                                        if (countSide > 0 && (needsMore || upgradeSide)) {
                                             String target = sanitizeDisplayName(deck.getName()) + "/Side Deck";
                                             boolean exists = existsLocation.test(deck.getName());
                                             proposedTargets.put(target, exists);
+                                            if (!needsMore && upgradeSide) upgradeOnlyTargets.add(target);
                                         }
                                     }
                                 }
@@ -2193,25 +2408,33 @@ public class CardTreeCell extends TreeCell<String> {
                     int requiredTotal = countMain + countExtra + countSide;
                     if (requiredTotal > 0) {
                         int presentTotal = countInOwnedForDeckCombined(owned, deck.getName(), card);
-                        if (requiredTotal > presentTotal) {
-                            // propose targets for the individual lists as before (so user can choose where to place),
-                            // but only if the deck as a whole still needs copies.
+                        boolean needsMore = requiredTotal > presentTotal;
+                        // Also propose when the owned copy is a quality upgrade for any sub-list
+                        boolean upgradeMain = !needsMore && countMain > 0 && isQualityUpgradeFor(deck.getMainDeck(), clickedElement);
+                        boolean upgradeExtra = !needsMore && countExtra > 0 && isQualityUpgradeFor(deck.getExtraDeck(), clickedElement);
+                        boolean upgradeSide = !needsMore && countSide > 0 && isQualityUpgradeFor(deck.getSideDeck(), clickedElement);
+                        if (needsMore || upgradeMain || upgradeExtra || upgradeSide) {
                             if (countMain > 0
-                                    && Utils.DeckCompatibility.isCompatibleWith(card, "Main Deck")) {
+                                    && Utils.DeckCompatibility.isCompatibleWith(card, "Main Deck")
+                                    && (needsMore || upgradeMain)) {
                                 String target = sanitizeDisplayName(deck.getName()) + "/Main Deck";
                                 boolean exists = existsLocation.test(deck.getName());
                                 proposedTargets.put(target, exists);
+                                if (!needsMore && upgradeMain) upgradeOnlyTargets.add(target);
                             }
                             if (countExtra > 0
-                                    && Utils.DeckCompatibility.isCompatibleWith(card, "Extra Deck")) {
+                                    && Utils.DeckCompatibility.isCompatibleWith(card, "Extra Deck")
+                                    && (needsMore || upgradeExtra)) {
                                 String target = sanitizeDisplayName(deck.getName()) + "/Extra Deck";
                                 boolean exists = existsLocation.test(deck.getName());
                                 proposedTargets.put(target, exists);
+                                if (!needsMore && upgradeExtra) upgradeOnlyTargets.add(target);
                             }
-                            if (countSide > 0) {
+                            if (countSide > 0 && (needsMore || upgradeSide)) {
                                 String target = sanitizeDisplayName(deck.getName()) + "/Side Deck";
                                 boolean exists = existsLocation.test(deck.getName());
                                 proposedTargets.put(target, exists);
+                                if (!needsMore && upgradeSide) upgradeOnlyTargets.add(target);
                             }
                         }
                     }
@@ -2224,19 +2447,24 @@ public class CardTreeCell extends TreeCell<String> {
                 String rawTarget = e.getKey();
                 boolean exists = e.getValue() == null ? false : e.getValue();
                 if (rawTarget == null || rawTarget.trim().isEmpty()) continue;
+                // handlerTarget keeps the full string (incl. /Main Deck suffix) for findDestinationGroup.
                 final String handlerTarget = rawTarget;
+
+                // Build the visible label: strip /Main Deck, /Extra Deck, /Side Deck from the display.
+                String displayTarget = rawTarget;
+                if (displayTarget.endsWith("/Main Deck") || displayTarget.endsWith("/Extra Deck")
+                        || displayTarget.endsWith("/Side Deck")) {
+                    displayTarget = displayTarget.substring(0, displayTarget.lastIndexOf('/'));
+                }
 
                 String label;
                 if (exists) {
-                    label = rawTarget;
+                    label = displayTarget;
                 } else {
-                    String baseName = rawTarget;
-                    if (rawTarget.endsWith("/Main Deck") || rawTarget.endsWith("/Extra Deck") || rawTarget.endsWith("/Side Deck")) {
-                        String[] parts = rawTarget.split("/");
-                        if (parts.length >= 2) baseName = parts.length == 2 ? parts[0] : parts[parts.length - 2];
-                    } else if (rawTarget.contains("/")) {
-                        String[] parts = rawTarget.split("/");
-                        if (parts.length > 0) baseName = parts[parts.length - 1];
+                    String baseName = displayTarget;
+                    if (baseName.contains("/")) {
+                        String[] parts = baseName.split("/");
+                        baseName = parts[parts.length - 1];
                     }
                     label = "Add " + baseName;
                 }
@@ -2244,10 +2472,12 @@ public class CardTreeCell extends TreeCell<String> {
                 if (labelsAdded.contains(label)) continue;
                 labelsAdded.add(label);
 
-                // create MenuItem and wire the move handler (only for direct-move items; Add/Swap left for later)
+                boolean isUpgradeOnly = upgradeOnlyTargets.contains(rawTarget);
                 MenuItem mi = new MenuItem(label);
+                mi.setStyle(isUpgradeOnly
+                        ? "-fx-text-fill: #EB9E34;"
+                        : "-fx-text-fill: #cdfc04;");
                 if (label.startsWith("Add ")) {
-                    // Strip "Add " to get the category name to create
                     final String catName = label.substring(4).trim();
                     mi.setOnAction(ev ->
                             MenuActionHandler.handleAddCategoryAndMove(clickedElement, catName));
@@ -2766,12 +2996,8 @@ public class CardTreeCell extends TreeCell<String> {
                                 List<MenuItem> swapItems = (List<MenuItem>) swapMethod.invoke(CardTreeCell.this, card, ce);
                                 if (swapItems != null && !swapItems.isEmpty()) {
                                     sortingMenu.getItems().addAll(swapItems);
-                                } else {
-                                    // If helper returned nothing, show a small disabled placeholder to indicate no swap targets
-                                    MenuItem noneSwap = new MenuItem("No swap proposals");
-                                    noneSwap.setDisable(true);
-                                    sortingMenu.getItems().add(noneSwap);
                                 }
+                                // No placeholder when empty — other sections already filled the menu
                             } else {
                                 // If the helper isn't present, do nothing (preserve existing behavior)
                                 // Optionally add a disabled placeholder if you prefer:
@@ -2805,6 +3031,7 @@ public class CardTreeCell extends TreeCell<String> {
             }
             contextMenu.getItems().add(sortingMenu);
 
+            // --- Swap with... submenu — shown only for degraded D&C cards ---
             // --- Move to... as a Menu (submenu) with same left-aligned accent label ---
             Menu moveToMenu = new Menu();
             {
@@ -3514,6 +3741,18 @@ public class CardTreeCell extends TreeCell<String> {
                 CardTreeCell.this.hoverLabel.setText(
                         CardHoverPopup.buildTooltipText(item));
 
+                // Switch popup border to orange when this card is an upgrade candidate
+                // or a degraded D&C card (both use orange tooltips).
+                boolean isOrangePopup = currentGlowPriority == 1
+                        && !currentTooltips.isEmpty()
+                        && currentTooltips.stream().anyMatch(t ->
+                        t[0] != null && (t[0].equals(CardHoverPopup.UPGRADE_CANDIDATE_WARNING)
+                                || t[0].equals(CardHoverPopup.DOWNGRADE_WARNING)));
+                CardTreeCell.this.hoverPopupBox.setStyle(
+                        isOrangePopup
+                                ? CardHoverPopup.POPUP_BOX_STYLE_ORANGE
+                                : CardHoverPopup.POPUP_BOX_STYLE_DEFAULT);
+
                 // Rebuild the warnings box from currentTooltips (computed in updateItem).
                 // Always shown when applicable, regardless of whether the card is glowing.
                 CardTreeCell.this.warningsBox.getChildren().clear();
@@ -3973,15 +4212,53 @@ public class CardTreeCell extends TreeCell<String> {
                         }
                     }
 
-                    // 1c — computeCardNeedsSorting (only when no glow has fired yet;
-                    //      also always adds tooltip so it shows even when My Coll warns)
+                    // 1c — sorting check: only on My Collection tab.
+                    //      Cards in D&C get DOWNGRADE_WARNING via 1d below, not here.
                     if (elementNameFromUD != null
-                            && !elementNameFromUD.trim().isEmpty() && isFirstTabSelected()) {
+                            && !elementNameFromUD.trim().isEmpty() && isMyCollectionTabSelected()) {
                         try {
-                            if (Controller.RealMainController.computeCardNeedsSorting(card, elementNameFromUD)) {
+                            boolean genuinelyNeeded = false;
+                            try {
+                                genuinelyNeeded = Controller.RealMainController
+                                        .computeCardNeedsSorting(card, elementNameFromUD);
+                            } catch (Throwable ignored) {
+                            }
+
+                            boolean upgradeNeeded = false;
+                            if (!genuinelyNeeded) {
+                                try {
+                                    upgradeNeeded = Controller.RealMainController
+                                            .computeCardNeedsSortingWithUpgrade(cardElement, elementNameFromUD);
+                                } catch (Throwable ignored) {
+                                }
+                            }
+
+                            if (genuinelyNeeded) {
                                 if (glowPriority == 0) glowPriority = 1;
                                 tooltips.add(new String[]{
-                                        "This card can be sorted to a deck or collection it is needed in.",
+                                        "This card can be sorted to a deck or collection that needs it.",
+                                        "#EB9E34"});
+                            } else if (upgradeNeeded) {
+                                if (glowPriority == 0) glowPriority = 1;
+                                tooltips.add(new String[]{
+                                        CardHoverPopup.UPGRADE_CANDIDATE_WARNING,
+                                        "#EB9E34"});
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                    }
+
+                    // 1d — degraded-in-deck check: only on D&C tab.
+                    //      Shows DOWNGRADE_WARNING when a better owned copy exists for this slot.
+                    if (elementNameFromUD != null && !elementNameFromUD.trim().isEmpty()
+                            && isDecksAndCollectionsTabSelected()) {
+                        try {
+                            boolean degraded = Controller.RealMainController
+                                    .isDegradedCopyInDeckOrCollection(cardElement, elementNameFromUD);
+                            if (degraded) {
+                                if (glowPriority == 0) glowPriority = 1;
+                                tooltips.add(new String[]{
+                                        CardHoverPopup.DOWNGRADE_WARNING,
                                         "#EB9E34"});
                             }
                         } catch (Throwable ignored) {

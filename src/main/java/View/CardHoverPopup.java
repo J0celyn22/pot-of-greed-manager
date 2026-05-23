@@ -21,6 +21,53 @@ public final class CardHoverPopup {
                     "-fx-font-size: 12; " +
                     "-fx-padding: 8 10 8 10;";
 
+    /**
+     * Style string for the hover label when a quality-upgrade or quality-downgrade
+     * warning is active (orange border instead of lime).
+     */
+    public static final String LABEL_STYLE_ORANGE =
+            "-fx-background-color: #1a0428; " +
+                    "-fx-background-radius: 6; " +
+                    "-fx-border-color: #EB9E34; " +
+                    "-fx-border-width: 1; " +
+                    "-fx-border-radius: 6; " +
+                    "-fx-text-fill: white; " +
+                    "-fx-font-size: 12; " +
+                    "-fx-padding: 8 10 8 10;";
+
+    /**
+     * Inner VBox style (used by CardTreeCell) with orange border — applied when the
+     * card is an upgrade or downgrade candidate.
+     */
+    public static final String POPUP_BOX_STYLE_ORANGE =
+            "-fx-background-color: #1a0428; " +
+                    "-fx-background-radius: 6; " +
+                    "-fx-border-color: #EB9E34; " +
+                    "-fx-border-width: 1; " +
+                    "-fx-border-radius: 6;";
+
+    /**
+     * Inner VBox style (used by CardTreeCell) with the default lime border.
+     */
+    public static final String POPUP_BOX_STYLE_DEFAULT =
+            "-fx-background-color: #1a0428; " +
+                    "-fx-background-radius: 6; " +
+                    "-fx-border-color: #cdfc04; " +
+                    "-fx-border-width: 1; " +
+                    "-fx-border-radius: 6;";
+
+    /**
+     * Warning text appended to upgrade-candidate owned cards.
+     */
+    public static final String UPGRADE_CANDIDATE_WARNING =
+            "⬆ This copy has better condition/rarity — can replace the one in your deck or collection.";
+
+    /**
+     * Warning text appended to degraded cards inside a deck or collection.
+     */
+    public static final String DOWNGRADE_WARNING =
+            "⬇ A better copy exists in your collection — consider swapping this one out.";
+
     private CardHoverPopup() {
     }
 
