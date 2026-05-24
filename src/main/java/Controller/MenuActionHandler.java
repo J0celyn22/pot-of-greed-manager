@@ -14,67 +14,117 @@ import java.util.List;
 import static Utils.CardMatcher.cardsMatch;
 
 /**
- * Centralized handler for context-menu actions (Move, Add, Swap).
- * Currently implements Move. Add and Swap are left as placeholders.
+ * Centralized handler for context-menu actions (Move, Add, Swap, Edit).
+ * <p>
+ * All public entry points dispatch to private {@code do*()} methods that must
+ * run on the JavaFX Application Thread. Each entry point checks the current
+ * thread and uses {@link Platform#runLater} when needed. UI refreshes are
+ * triggered after every mutating operation via {@link UserInterfaceFunctions}.
+ * </p>
+ * <p>
+ * Normalization of user-facing path strings (box / group / deck names) is
+ * performed by a local {@code normalizer} lambda: accent-insensitive,
+ * case-insensitive, punctuation- and whitespace-collapsed.
+ * </p>
  */
 public final class MenuActionHandler {
+
     private static final Logger logger = LoggerFactory.getLogger(MenuActionHandler.class);
 
-    // Stores the last target path used by handleAddCopy so the UI can scroll to it after refresh
+    /**
+     * Stores the last target path used by {@link #handleAddCopy} so the UI can scroll to it.
+     */
     private static volatile String lastAddedTarget = null;
 
+    /** Stores the last target path used by {@link #handleAddToDeck} so the UI can scroll to it. */
     private static volatile String lastDecksAddedTarget = null;
 
+    private MenuActionHandler() { /* static utility */ }
+
+    // ── Last-target accessors ─────────────────────────────────────────────────
+
+    /**
+     * Sets the last deck-related target path (used by the scroll-to-new-card logic
+     * after a Decks &amp; Collections view refresh).
+     *
+     * @param target the canonical handler-target string of the deck operation
+     */
     public static void setLastDecksAddedTarget(String target) {
         lastDecksAddedTarget = target;
     }
 
+    /**
+     * Returns and atomically clears the last deck-related target path.
+     *
+     * @return the last target string, or {@code null} if none was recorded
+     */
     public static String getAndClearLastDecksAddedTarget() {
-        String t = lastDecksAddedTarget;
+        String target = lastDecksAddedTarget;
         lastDecksAddedTarget = null;
-        return t;
+        return target;
     }
 
+    /**
+     * Returns and atomically clears the last owned-collection target path
+     * recorded by {@link #handleAddCopy}.
+     *
+     * @return the last target string, or {@code null} if none was recorded
+     */
     public static String getAndClearLastAddedTarget() {
-        String t = lastAddedTarget;
+        String target = lastAddedTarget;
         lastAddedTarget = null;
-        return t;
+        return target;
     }
 
-    private MenuActionHandler() { /* static utility */ }
+    // ── Move ──────────────────────────────────────────────────────────────────
 
     /**
      * Public entry point for "move" menu items.
+     * <p>
+     * Moves {@code clickedElement} from its current position in the
+     * {@link OwnedCardsCollection} into the group identified by
+     * {@code handlerTarget}. The operation is dispatched on the FX thread and
+     * a collection-view refresh is triggered afterwards.
+     * </p>
      *
-     * @param clickedElement the CardElement that was clicked (may be null)
-     * @param handlerTarget  canonical target string (e.g. "Box", "Box/Group", "Deck/Main Deck")
+     * @param clickedElement the {@link CardElement} to move (may be {@code null})
+     * @param handlerTarget  canonical target string, e.g. {@code "Box"},
+     *                       {@code "Box/Group"}, {@code "Deck/Main Deck"}
      */
-    public static void handleMove(Model.CardsLists.CardElement clickedElement, String handlerTarget) {
-        if (handlerTarget == null || handlerTarget.trim().isEmpty()) return;
+    public static void handleMove(CardElement clickedElement, String handlerTarget) {
+        if (handlerTarget == null || handlerTarget.trim().isEmpty()) {
+            return;
+        }
         try {
-            // Run on FX thread if you need immediate UI updates; otherwise run directly.
             if (Platform.isFxApplicationThread()) {
                 doMove(clickedElement, handlerTarget);
             } else {
                 Platform.runLater(() -> doMove(clickedElement, handlerTarget));
             }
-            Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
-        } catch (Throwable t) {
-            logger.debug("handleMove failed for target {}", handlerTarget, t);
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+        } catch (Throwable throwable) {
+            logger.debug("handleMove failed for target {}", handlerTarget, throwable);
         }
     }
 
+    // ── Add copy to owned collection ──────────────────────────────────────────
+
     /**
-     * Creates a fresh CardElement from the given Card and inserts it into
-     * the matching Box/Category of the OwnedCardsCollection.
-     * The existing Card instance is reused directly so its printCode is preserved.
+     * Creates a fresh {@link CardElement} from the given {@link Card} and inserts
+     * it into the matching Box / Category of the {@link OwnedCardsCollection}.
+     * The existing {@link Card} instance is reused directly so its printCode is
+     * preserved.
      *
-     * @param card          the Card from AllExistingCards (not null)
-     * @param handlerTarget canonical target string, e.g. "BoxName", "BoxName / CategoryName",
-     *                      "BoxName / SubBoxName", "BoxName / SubBoxName / CategoryName"
+     * @param card          the card from AllExistingCards (not {@code null})
+     * @param handlerTarget canonical target string, e.g. {@code "BoxName"},
+     *                      {@code "BoxName / CategoryName"},
+     *                      {@code "BoxName / SubBoxName"},
+     *                      {@code "BoxName / SubBoxName / CategoryName"}
      */
     public static void handleAddCopy(Card card, String handlerTarget) {
-        if (card == null || handlerTarget == null || handlerTarget.trim().isEmpty()) return;
+        if (card == null || handlerTarget == null || handlerTarget.trim().isEmpty()) {
+            return;
+        }
         try {
             if (Platform.isFxApplicationThread()) {
                 doAddCopy(card, handlerTarget);
@@ -82,8 +132,8 @@ public final class MenuActionHandler {
                 Platform.runLater(() -> doAddCopy(card, handlerTarget));
             }
             UserInterfaceFunctions.refreshOwnedCollectionView();
-        } catch (Throwable t) {
-            logger.debug("handleAddCopy failed for target {}", handlerTarget, t);
+        } catch (Throwable throwable) {
+            logger.debug("handleAddCopy failed for target {}", handlerTarget, throwable);
         }
     }
 
@@ -105,7 +155,7 @@ public final class MenuActionHandler {
         // Add through the ObservableList: updates the model backing list AND notifies the GridView.
         CardTreeCell.observableListFor(dest).add(newElement);
         CardTreeCell.triggerHeightAdjustment(dest);
-        logger.debug("handleAddCopy: added '{}' to '{}'", card.getName_EN(), handlerTarget);
+        logger.debug("doAddCopy: added '{}' to '{}'", card.getName_EN(), handlerTarget);
 
         lastAddedTarget = handlerTarget;
 
@@ -114,63 +164,80 @@ public final class MenuActionHandler {
     }
 
     /**
-     * Finds the CardsGroup inside OwnedCardsCollection that matches the given path.
+     * Finds the {@link CardsGroup} inside the {@link OwnedCardsCollection} that
+     * matches the given path.
      * <p>
      * Path formats (slash-separated, trimmed, accent- and case-insensitive):
-     * "BoxName"                         → default group of that Box
-     * "BoxName / CategoryName"          → named category inside Box
-     * "BoxName / SubBoxName"            → default group of SubBox inside Box
-     * "BoxName / SubBoxName / CatName"  → named category inside SubBox
+     * <ul>
+     *   <li>{@code "BoxName"} → default group of that Box</li>
+     *   <li>{@code "BoxName / CategoryName"} → named category inside Box</li>
+     *   <li>{@code "BoxName / SubBoxName"} → default group of SubBox inside Box</li>
+     *   <li>{@code "BoxName / SubBoxName / CatName"} → named category inside SubBox</li>
+     * </ul>
+     * </p>
      */
     private static CardsGroup findMyCollectionDestination(String handlerTarget,
                                                           OwnedCardsCollection owned) {
-        java.util.function.Function<String, String> norm = s -> {
-            if (s == null) return "";
-            String t = s.trim().replaceAll("[=\\-]", "").replaceAll("\\s+", " "); // ← add this
-            t = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD)
+        java.util.function.Function<String, String> normalizer = input -> {
+            if (input == null) {
+                return "";
+            }
+            String normalized = input.trim()
+                    .replaceAll("[=\\-]", "")
+                    .replaceAll("\\s+", " ");
+            normalized = java.text.Normalizer
+                    .normalize(normalized, java.text.Normalizer.Form.NFD)
                     .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
-            return t.toLowerCase().trim();
+            return normalized.toLowerCase().trim();
         };
 
         String[] parts = handlerTarget.split("/");
-        for (int i = 0; i < parts.length; i++) parts[i] = parts[i].trim();
+        for (int i = 0; i < parts.length; i++) {
+            parts[i] = parts[i].trim();
+        }
 
-        String boxNorm = norm.apply(parts[0]);
+        String boxNorm = normalizer.apply(parts[0]);
 
         for (Box box : owned.getOwnedCollection()) {
-            if (box == null || !norm.apply(box.getName()).equals(boxNorm)) continue;
+            if (box == null || !normalizer.apply(box.getName()).equals(boxNorm)) {
+                continue;
+            }
 
             if (parts.length == 1) {
                 // "BoxName" → default (empty-named) group, or first group, or create one
                 return getOrCreateDefaultGroup(box);
             }
 
-            String secondNorm = norm.apply(parts[1]);
+            String secondNorm = normalizer.apply(parts[1]);
 
             // Could be a Category directly inside the Box
             if (parts.length == 2 && box.getContent() != null) {
-                for (CardsGroup g : box.getContent()) {
-                    if (g != null && norm.apply(g.getName()).equals(secondNorm))
-                        return g;
+                for (CardsGroup cardsGroup : box.getContent()) {
+                    if (cardsGroup != null && normalizer.apply(cardsGroup.getName()).equals(secondNorm)) {
+                        return cardsGroup;
+                    }
                 }
             }
 
             // Could be a SubBox
             if (box.getSubBoxes() != null) {
-                for (Box sub : box.getSubBoxes()) {
-                    if (sub == null || !norm.apply(sub.getName()).equals(secondNorm)) continue;
+                for (Box subBox : box.getSubBoxes()) {
+                    if (subBox == null || !normalizer.apply(subBox.getName()).equals(secondNorm)) {
+                        continue;
+                    }
 
                     if (parts.length == 2) {
                         // "BoxName / SubBoxName" → default group of SubBox
-                        return getOrCreateDefaultGroup(sub);
+                        return getOrCreateDefaultGroup(subBox);
                     }
 
                     // "BoxName / SubBoxName / CategoryName"
-                    String catNorm = norm.apply(parts[2]);
-                    if (sub.getContent() != null) {
-                        for (CardsGroup g : sub.getContent()) {
-                            if (g != null && norm.apply(g.getName()).equals(catNorm))
-                                return g;
+                    String catNorm = normalizer.apply(parts[2]);
+                    if (subBox.getContent() != null) {
+                        for (CardsGroup cardsGroup : subBox.getContent()) {
+                            if (cardsGroup != null && normalizer.apply(cardsGroup.getName()).equals(catNorm)) {
+                                return cardsGroup;
+                            }
                         }
                     }
                 }
@@ -180,18 +247,26 @@ public final class MenuActionHandler {
     }
 
     /**
-     * Returns the default (empty-named) CardsGroup for a Box, or the first one,
-     * or creates and registers a new one if the box has no groups at all.
+     * Returns the default (empty-named) {@link CardsGroup} for a {@link Box}, or
+     * the first one if no empty-named group exists, or creates and registers a new
+     * empty-named group if the box has no groups at all.
+     *
+     * @param box the box to inspect or modify
+     * @return the default group, or {@code null} if creation failed
      */
     public static CardsGroup getOrCreateDefaultGroup(Box box) {
         if (box.getContent() != null) {
-            for (CardsGroup g : box.getContent()) {
-                if (g != null) {
-                    String n = g.getName();
-                    if (n == null || n.trim().isEmpty()) return g;
+            for (CardsGroup cardsGroup : box.getContent()) {
+                if (cardsGroup != null) {
+                    String groupName = cardsGroup.getName();
+                    if (groupName == null || groupName.trim().isEmpty()) {
+                        return cardsGroup;
+                    }
                 }
             }
-            if (!box.getContent().isEmpty()) return box.getContent().get(0);
+            if (!box.getContent().isEmpty()) {
+                return box.getContent().get(0);
+            }
         }
         // Create a new default group
         try {
@@ -202,16 +277,17 @@ public final class MenuActionHandler {
             }
             box.getContent().add(newGroup);
             return newGroup;
-        } catch (Throwable t) {
-            logger.debug("getOrCreateDefaultGroup: could not create group", t);
+        } catch (Throwable throwable) {
+            logger.debug("getOrCreateDefaultGroup: could not create group", throwable);
         }
         return null;
     }
 
-    // --- Core move implementation (private) ---
-    private static void doMove(Model.CardsLists.CardElement clickedElement, String handlerTarget) {
+    // ── Core move implementation ──────────────────────────────────────────────
+
+    private static void doMove(CardElement clickedElement, String handlerTarget) {
         // 1) obtain shared owned collection
-        Model.CardsLists.OwnedCardsCollection owned = safeGetOwnedCollection();
+        OwnedCardsCollection owned = safeGetOwnedCollection();
         if (owned == null || owned.getOwnedCollection() == null) {
             logger.warn("OwnedCardsCollection not available; cannot move card to {}", handlerTarget);
             return;
@@ -230,7 +306,7 @@ public final class MenuActionHandler {
         // 4) remove from source via ObservableList (updates model + GridView automatically)
         if (src != null && src.group != null && src.index >= 0) {
             try {
-                javafx.collections.ObservableList<Model.CardsLists.CardElement> srcObs =
+                javafx.collections.ObservableList<CardElement> srcObs =
                         CardTreeCell.observableListFor(src.group);
                 if (src.index < srcObs.size() && srcObs.get(src.index) == src.element) {
                     srcObs.remove(src.index);
@@ -238,13 +314,13 @@ public final class MenuActionHandler {
                     srcObs.remove(src.element);
                 }
                 CardTreeCell.triggerHeightAdjustment(src.group);
-            } catch (Throwable ex) {
-                logger.debug("Failed to remove element from source; continuing", ex);
+            } catch (Throwable exception) {
+                logger.debug("Failed to remove element from source; continuing", exception);
             }
         }
 
         // 5) prepare element to add
-        Model.CardsLists.CardElement toAdd = src != null ? src.element : null;
+        CardElement toAdd = src != null ? src.element : null;
         if (toAdd == null && clickedElement != null && clickedElement.getCard() != null) {
             toAdd = constructCardElementFallback(clickedElement);
         }
@@ -257,63 +333,75 @@ public final class MenuActionHandler {
         try {
             CardTreeCell.observableListFor(dest.group).add(toAdd);
             CardTreeCell.triggerHeightAdjustment(dest.group);
-        } catch (Throwable ex) {
-            logger.debug("Failed to add element to destination", ex);
+        } catch (Throwable exception) {
+            logger.debug("Failed to add element to destination", exception);
         }
 
         UserInterfaceFunctions.markMyCollectionDirty();
         UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
     }
 
-    // --- Helpers ---
-    private static Model.CardsLists.OwnedCardsCollection safeGetOwnedCollection() {
-        Model.CardsLists.OwnedCardsCollection owned = null;
+    // ── Internal helpers ──────────────────────────────────────────────────────
+
+    private static OwnedCardsCollection safeGetOwnedCollection() {
+        OwnedCardsCollection owned = null;
         try {
-            owned = Model.CardsLists.OuicheList.getMyCardsCollection();
+            owned = OuicheList.getMyCardsCollection();
         } catch (Throwable ignored) {
         }
         if (owned == null) {
             try {
-                Controller.UserInterfaceFunctions.loadCollectionFile();
+                UserInterfaceFunctions.loadCollectionFile();
             } catch (Throwable ignored) {
             }
             try {
-                owned = Model.CardsLists.OuicheList.getMyCardsCollection();
+                owned = OuicheList.getMyCardsCollection();
             } catch (Throwable ignored) {
             }
         }
         return owned;
     }
 
-    private static SourceLocation findSource(Model.CardsLists.CardElement clickedElement, Model.CardsLists.OwnedCardsCollection owned) {
-        if (owned == null || owned.getOwnedCollection() == null) return null;
+    private static SourceLocation findSource(CardElement clickedElement,
+                                             OwnedCardsCollection owned) {
+        if (owned == null || owned.getOwnedCollection() == null) {
+            return null;
+        }
         if (clickedElement != null) {
-            // try exact instance
-            outer:
-            for (Model.CardsLists.Box b : owned.getOwnedCollection()) {
-                if (b == null || b.getContent() == null) continue;
-                for (Model.CardsLists.CardsGroup g : b.getContent()) {
-                    if (g == null || g.getCardList() == null) continue;
-                    List<Model.CardsLists.CardElement> list = g.getCardList();
+            // Try exact instance match first
+            for (Box box : owned.getOwnedCollection()) {
+                if (box == null || box.getContent() == null) {
+                    continue;
+                }
+                for (CardsGroup cardsGroup : box.getContent()) {
+                    if (cardsGroup == null || cardsGroup.getCardList() == null) {
+                        continue;
+                    }
+                    List<CardElement> list = cardsGroup.getCardList();
                     for (int i = 0; i < list.size(); i++) {
-                        Model.CardsLists.CardElement ce = list.get(i);
-                        if (ce == clickedElement) return new SourceLocation(b, g, ce, i);
+                        CardElement cardElement = list.get(i);
+                        if (cardElement == clickedElement) {
+                            return new SourceLocation(box, cardsGroup, cardElement, i);
+                        }
                     }
                 }
             }
-            // fallback: match by card identity
-            Model.CardsLists.Card targetCard = clickedElement.getCard();
+            // Fallback: match by card identity
+            Card targetCard = clickedElement.getCard();
             if (targetCard != null) {
-                outer2:
-                for (Model.CardsLists.Box b : owned.getOwnedCollection()) {
-                    if (b == null || b.getContent() == null) continue;
-                    for (Model.CardsLists.CardsGroup g : b.getContent()) {
-                        if (g == null || g.getCardList() == null) continue;
-                        List<Model.CardsLists.CardElement> list = g.getCardList();
+                for (Box box : owned.getOwnedCollection()) {
+                    if (box == null || box.getContent() == null) {
+                        continue;
+                    }
+                    for (CardsGroup cardsGroup : box.getContent()) {
+                        if (cardsGroup == null || cardsGroup.getCardList() == null) {
+                            continue;
+                        }
+                        List<CardElement> list = cardsGroup.getCardList();
                         for (int i = 0; i < list.size(); i++) {
-                            Model.CardsLists.CardElement ce = list.get(i);
-                            if (ce != null && cardsMatch(ce.getCard(), targetCard)) {
-                                return new SourceLocation(b, g, ce, i);
+                            CardElement cardElement = list.get(i);
+                            if (cardElement != null && cardsMatch(cardElement.getCard(), targetCard)) {
+                                return new SourceLocation(box, cardsGroup, cardElement, i);
                             }
                         }
                     }
@@ -323,181 +411,230 @@ public final class MenuActionHandler {
         return null;
     }
 
-    private static Model.CardsLists.CardElement constructCardElementFallback(Model.CardsLists.CardElement clickedElement) {
-        if (clickedElement == null) return null;
+    private static CardElement constructCardElementFallback(CardElement clickedElement) {
+        if (clickedElement == null) {
+            return null;
+        }
         try {
-            // try direct constructor new CardElement(Card)
+            // Try direct constructor new CardElement(Card)
             try {
-                Constructor<?> ctor = Class.forName("Model.CardsLists.CardElement").getConstructor(Model.CardsLists.Card.class);
-                return (Model.CardsLists.CardElement) ctor.newInstance(clickedElement.getCard());
+                Constructor<?> ctor = Class.forName("Model.CardsLists.CardElement")
+                        .getConstructor(Card.class);
+                return (CardElement) ctor.newInstance(clickedElement.getCard());
             } catch (Throwable ignored) {
             }
-            // fallback: default ctor + setter
+            // Fallback: default constructor + setter
             try {
                 Class<?> ceClass = Class.forName("Model.CardsLists.CardElement");
                 Object ceObj = ceClass.getDeclaredConstructor().newInstance();
                 try {
-                    Method setCard = ceClass.getMethod("setCard", Model.CardsLists.Card.class);
+                    Method setCard = ceClass.getMethod("setCard", Card.class);
                     setCard.invoke(ceObj, clickedElement.getCard());
                 } catch (Throwable ignored) {
                 }
-                return (Model.CardsLists.CardElement) ceObj;
-            } catch (Throwable ex) {
-                logger.debug("Reflection fallback failed constructing CardElement", ex);
+                return (CardElement) ceObj;
+            } catch (Throwable exception) {
+                logger.debug("Reflection fallback failed constructing CardElement", exception);
             }
-        } catch (Throwable t) {
-            logger.debug("constructCardElementFallback failed", t);
+        } catch (Throwable throwable) {
+            logger.debug("constructCardElementFallback failed", throwable);
         }
         return null;
     }
 
-    // Destination finder similar to earlier logic
-    private static Destination findDestinationGroup(String handlerTarget, OwnedCardsCollection owned) {
-        if (handlerTarget == null || handlerTarget.trim().isEmpty() || owned == null || owned.getOwnedCollection() == null) {
+    /**
+     * Finds the {@link Destination} (owning Box + CardsGroup) within the
+     * {@link OwnedCardsCollection} that best matches the given handler-target path.
+     * <p>
+     * Matching is accent-insensitive, case-insensitive, and punctuation-collapsed.
+     * The method tries progressively looser strategies before returning {@code null}.
+     * </p>
+     * <p>
+     * <strong>Note:</strong> this method is intentionally not split in this phase;
+     * decomposition into focused sub-strategies is deferred to Phase 4.
+     * </p>
+     */
+    private static Destination findDestinationGroup(String handlerTarget,
+                                                    OwnedCardsCollection owned) {
+        if (handlerTarget == null
+                || handlerTarget.trim().isEmpty()
+                || owned == null
+                || owned.getOwnedCollection() == null) {
             return null;
         }
 
-        // normalize helper (accent-insensitive, case-insensitive, collapse spaces)
-        java.util.function.Function<String, String> norm = s -> {
-            if (s == null) return "";
-            String t = s.trim().replaceAll("\\s+", " ");
-            t = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD)
+        // Normalize: accent-insensitive, case-insensitive, punctuation-collapsed
+        java.util.function.Function<String, String> normalizer = input -> {
+            if (input == null) {
+                return "";
+            }
+            String normalized = input.trim().replaceAll("\\s+", " ");
+            normalized = java.text.Normalizer
+                    .normalize(normalized, java.text.Normalizer.Form.NFD)
                     .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
-            t = t.replaceAll("[\\p{Punct}]+", " ");
-            return t.toLowerCase().trim();
+            normalized = normalized.replaceAll("[\\p{Punct}]+", " ");
+            return normalized.toLowerCase().trim();
         };
 
         String[] parts = handlerTarget.split("/");
-        for (int i = 0; i < parts.length; i++) parts[i] = parts[i].trim();
+        for (int i = 0; i < parts.length; i++) {
+            parts[i] = parts[i].trim();
+        }
 
-        // detect if last component is a deck list name (Main Deck / Extra Deck / Side Deck)
-        String last = parts[parts.length - 1];
-        String lastNorm = norm.apply(last);
-        boolean isDeckList = lastNorm.equals("main deck") || lastNorm.equals("extra deck") || lastNorm.equals("side deck")
-                || lastNorm.equals("maindeck") || lastNorm.equals("extradeck") || lastNorm.equals("sidedeck")
-                || lastNorm.equals("main") || lastNorm.equals("extra") || lastNorm.equals("side");
+        // Detect if last component is a deck-list name (Main / Extra / Side Deck)
+        String lastComponent = parts[parts.length - 1];
+        String lastNorm = normalizer.apply(lastComponent);
+        boolean isDeckList = lastNorm.equals("main deck")
+                || lastNorm.equals("extra deck")
+                || lastNorm.equals("side deck")
+                || lastNorm.equals("maindeck")
+                || lastNorm.equals("extradeck")
+                || lastNorm.equals("sidedeck")
+                || lastNorm.equals("main")
+                || lastNorm.equals("extra")
+                || lastNorm.equals("side");
 
         // Helper: search owned boxes/groups by normalized box name and optional group name.
-        // IMPORTANT: if groupName is provided (non-empty), do NOT fallback to the first group of the box.
-        java.util.function.BiFunction<String, String, Destination> findBoxAndGroupByBoxThenGroup = (boxName, groupName) -> {
-            String bNorm = norm.apply(boxName);
-            String gNorm = groupName == null ? "" : norm.apply(groupName);
-            for (Box b : owned.getOwnedCollection()) {
-                if (b == null) continue;
-                if (norm.apply(b.getName()).equals(bNorm)) {
-                    if (b.getContent() != null) {
-                        // If a group name was provided, require an exact group match
-                        if (!gNorm.isEmpty()) {
-                            for (CardsGroup g : b.getContent()) {
-                                if (g == null) continue;
-                                if (norm.apply(g.getName()).equals(gNorm)) return new Destination(b, g);
-                            }
-                            // explicit group requested but not found -> do not return a fallback group
-                            return null;
+        // IMPORTANT: if groupName is non-empty, do NOT fall back to the first group of the box.
+        java.util.function.BiFunction<String, String, Destination> findBoxAndGroupByBoxThenGroup =
+                (boxName, groupName) -> {
+                    String bNorm = normalizer.apply(boxName);
+                    String gNorm = groupName == null ? "" : normalizer.apply(groupName);
+                    for (Box box : owned.getOwnedCollection()) {
+                        if (box == null) {
+                            continue;
                         }
-                        // No group requested: prefer a box-level group (empty name) if present
-                        for (CardsGroup g : b.getContent()) {
-                            if (g == null) continue;
-                            String gName = g.getName();
-                            if (gName == null || gName.trim().isEmpty()) {
-                                return new Destination(b, g);
-                            }
-                        }
-                        // If no box-level group exists, create one and add it to the box content (safe via reflection)
-                        try {
-                            Class<?> cgClass = Class.forName("Model.CardsLists.CardsGroup");
-                            Object newGroupObj = null;
-                            try {
-                                // try no-arg constructor first
-                                newGroupObj = cgClass.getDeclaredConstructor().newInstance();
-                            } catch (NoSuchMethodException ns) {
-                                // try constructor with String name if available
-                                try {
-                                    java.lang.reflect.Constructor<?> ctor = cgClass.getDeclaredConstructor(String.class);
-                                    ctor.setAccessible(true);
-                                    newGroupObj = ctor.newInstance("");
-                                } catch (NoSuchMethodException ignored) {
-                                    // give up creating via reflection
-                                    newGroupObj = null;
+                        if (normalizer.apply(box.getName()).equals(bNorm)) {
+                            if (box.getContent() != null) {
+                                // If a group name was provided, require an exact group match
+                                if (!gNorm.isEmpty()) {
+                                    for (CardsGroup cardsGroup : box.getContent()) {
+                                        if (cardsGroup == null) {
+                                            continue;
+                                        }
+                                        if (normalizer.apply(cardsGroup.getName()).equals(gNorm)) {
+                                            return new Destination(box, cardsGroup);
+                                        }
+                                    }
+                                    // Explicit group requested but not found — do not return a fallback
+                                    return null;
                                 }
-                            }
-                            if (newGroupObj != null) {
-                                // try to set name to empty string if setter exists
+                                // No group requested: prefer a box-level group (empty name) if present
+                                for (CardsGroup cardsGroup : box.getContent()) {
+                                    if (cardsGroup == null) {
+                                        continue;
+                                    }
+                                    String gName = cardsGroup.getName();
+                                    if (gName == null || gName.trim().isEmpty()) {
+                                        return new Destination(box, cardsGroup);
+                                    }
+                                }
+                                // No box-level group: create one via reflection
                                 try {
-                                    java.lang.reflect.Method setName = cgClass.getMethod("setName", String.class);
-                                    setName.invoke(newGroupObj, "");
+                                    Class<?> cgClass = Class.forName("Model.CardsLists.CardsGroup");
+                                    Object newGroupObj = null;
+                                    try {
+                                        newGroupObj = cgClass.getDeclaredConstructor().newInstance();
+                                    } catch (NoSuchMethodException noSuchMethod) {
+                                        try {
+                                            java.lang.reflect.Constructor<?> ctor =
+                                                    cgClass.getDeclaredConstructor(String.class);
+                                            ctor.setAccessible(true);
+                                            newGroupObj = ctor.newInstance("");
+                                        } catch (NoSuchMethodException ignored) {
+                                            newGroupObj = null;
+                                        }
+                                    }
+                                    if (newGroupObj != null) {
+                                        try {
+                                            java.lang.reflect.Method setName =
+                                                    cgClass.getMethod("setName", String.class);
+                                            setName.invoke(newGroupObj, "");
+                                        } catch (Throwable ignored) {
+                                        }
+                                        try {
+                                            java.lang.reflect.Method setCardList =
+                                                    cgClass.getMethod("setCardList", java.util.List.class);
+                                            setCardList.invoke(newGroupObj,
+                                                    new java.util.ArrayList<CardElement>());
+                                        } catch (Throwable ignored) {
+                                        }
+                                        try {
+                                            box.getContent().add((CardsGroup) newGroupObj);
+                                            return new Destination(box, (CardsGroup) newGroupObj);
+                                        } catch (ClassCastException ignored) {
+                                        }
+                                    }
                                 } catch (Throwable ignored) {
+                                    // Reflection failed; fall back to returning first group if present
                                 }
-                                // try to initialize card list if setter exists
-                                try {
-                                    java.lang.reflect.Method setCardList = cgClass.getMethod("setCardList", java.util.List.class);
-                                    setCardList.invoke(newGroupObj, new java.util.ArrayList<Model.CardsLists.CardElement>());
-                                } catch (Throwable ignored) {
-                                }
-                                // add to box content
-                                try {
-                                    b.getContent().add((CardsGroup) newGroupObj);
-                                    return new Destination(b, (CardsGroup) newGroupObj);
-                                } catch (ClassCastException cc) {
-                                    // If cast fails, ignore and continue fallback below
+                                // Fallback: return first group if present (legacy behaviour)
+                                if (!box.getContent().isEmpty()) {
+                                    return new Destination(box, box.getContent().get(0));
                                 }
                             }
-                        } catch (Throwable t) {
-                            // reflection failed; fall back to returning first group if present
                         }
-
-                        // Fallback: return the first group if present (legacy behavior)
-                        if (!b.getContent().isEmpty()) return new Destination(b, b.getContent().get(0));
                     }
-                }
-            }
-            return null;
-        };
+                    return null;
+                };
 
-        // 1) If target points to a deck list (e.g., "Collection/Deck/Main Deck" or "Deck/Main Deck")
+        // ── Strategy 1: target points to a deck list ─────────────────────────
         if (isDeckList) {
-            // deck name is the component before the last one
             String deckName = parts.length >= 2 ? parts[parts.length - 2] : null;
-            String collectionName = parts.length >= 3 ? parts[0] : null; // if present
+            String collectionName = parts.length >= 3 ? parts[0] : null;
 
-            // Try: if collectionName present, find the collection in DecksAndCollectionsList and then the deck inside it
-            DecksAndCollectionsList dac = null;
+            DecksAndCollectionsList decksAndCollections = null;
             try {
-                dac = UserInterfaceFunctions.getDecksList();
+                decksAndCollections = UserInterfaceFunctions.getDecksList();
             } catch (Throwable ignored) {
             }
-            if (dac != null && collectionName != null && deckName != null) {
-                String collNorm = norm.apply(collectionName);
-                String deckNorm = norm.apply(deckName);
-                if (dac.getCollections() != null) {
-                    for (ThemeCollection tc : dac.getCollections()) {
-                        if (tc == null) continue;
-                        if (norm.apply(tc.getName()).equals(collNorm)) {
-                            if (tc.getLinkedDecks() != null) {
-                                for (List<Deck> unit : tc.getLinkedDecks()) {
-                                    if (unit == null) continue;
-                                    for (Deck d : unit) {
-                                        if (d == null) continue;
-                                        if (norm.apply(d.getName()).equals(deckNorm)) {
-                                            // Prefer Box = collectionName, Group = deckName/listName (require exact group match)
-                                            Destination dest = findBoxAndGroupByBoxThenGroup.apply(tc.getName(), deckName);
+
+            // Try: if collectionName present, find via collection → deck lookup
+            if (decksAndCollections != null && collectionName != null && deckName != null) {
+                String collNorm = normalizer.apply(collectionName);
+                String deckNorm = normalizer.apply(deckName);
+                if (decksAndCollections.getCollections() != null) {
+                    for (ThemeCollection themeCollection : decksAndCollections.getCollections()) {
+                        if (themeCollection == null) {
+                            continue;
+                        }
+                        if (normalizer.apply(themeCollection.getName()).equals(collNorm)) {
+                            if (themeCollection.getLinkedDecks() != null) {
+                                for (List<Deck> unit : themeCollection.getLinkedDecks()) {
+                                    if (unit == null) {
+                                        continue;
+                                    }
+                                    for (Deck deck : unit) {
+                                        if (deck == null) {
+                                            continue;
+                                        }
+                                        if (normalizer.apply(deck.getName()).equals(deckNorm)) {
+                                            // Prefer Box = collectionName, Group = deckName
+                                            Destination dest = findBoxAndGroupByBoxThenGroup
+                                                    .apply(themeCollection.getName(), deckName);
                                             if (dest != null) {
-                                                // try to find the specific list group (Main/Extra/Side) inside that box
-                                                String listName = last;
-                                                String listNorm = norm.apply(listName);
+                                                // Try to find the specific list group (Main/Extra/Side)
+                                                String listNorm = normalizer.apply(lastComponent);
                                                 if (dest.box.getContent() != null) {
-                                                    for (CardsGroup g : dest.box.getContent()) {
-                                                        if (g == null) continue;
-                                                        if (norm.apply(g.getName()).equals(listNorm))
-                                                            return new Destination(dest.box, g);
+                                                    for (CardsGroup cardsGroup : dest.box.getContent()) {
+                                                        if (cardsGroup == null) {
+                                                            continue;
+                                                        }
+                                                        if (normalizer.apply(cardsGroup.getName())
+                                                                .equals(listNorm)) {
+                                                            return new Destination(dest.box, cardsGroup);
+                                                        }
                                                     }
                                                 }
-                                                // If deckName matched a group and list not found, do not fallback to another group
+                                                // deckName matched a group but list not found — do not fallback
                                                 return dest;
                                             }
-                                            // fallback: try Box = deckName, Group = listName (require exact group match)
-                                            Destination dest2 = findBoxAndGroupByBoxThenGroup.apply(deckName, last);
-                                            if (dest2 != null) return dest2;
+                                            // Fallback: Box = deckName, Group = listName
+                                            Destination dest2 = findBoxAndGroupByBoxThenGroup
+                                                    .apply(deckName, lastComponent);
+                                            if (dest2 != null) {
+                                                return dest2;
+                                            }
                                         }
                                     }
                                 }
@@ -507,153 +644,183 @@ public final class MenuActionHandler {
                 }
             }
 
-            // 2) If not found via collection, try top-level decks (not in collections)
-            if (dac != null && deckName != null && dac.getDecks() != null) {
-                String deckNorm = norm.apply(deckName);
-                for (Deck d : dac.getDecks()) {
-                    if (d == null) continue;
-                    if (norm.apply(d.getName()).equals(deckNorm)) {
-                        // try to find Box named like deckName and group named like list (require exact group match)
-                        Destination dest = findBoxAndGroupByBoxThenGroup.apply(d.getName(), last);
-                        if (dest != null) return dest;
-                        // fallback: find any group named like list across owned (exact match)
-                        String listNorm = norm.apply(last);
-                        for (Box b : owned.getOwnedCollection()) {
-                            if (b == null || b.getContent() == null) continue;
-                            for (CardsGroup g : b.getContent()) {
-                                if (g == null) continue;
-                                if (norm.apply(g.getName()).equals(listNorm)) return new Destination(b, g);
+            // Try top-level decks (not in collections)
+            if (decksAndCollections != null
+                    && deckName != null
+                    && decksAndCollections.getDecks() != null) {
+                String deckNorm = normalizer.apply(deckName);
+                for (Deck deck : decksAndCollections.getDecks()) {
+                    if (deck == null) {
+                        continue;
+                    }
+                    if (normalizer.apply(deck.getName()).equals(deckNorm)) {
+                        Destination dest = findBoxAndGroupByBoxThenGroup
+                                .apply(deck.getName(), lastComponent);
+                        if (dest != null) {
+                            return dest;
+                        }
+                        // Fallback: find any group named like the list across all owned boxes
+                        String listNorm = normalizer.apply(lastComponent);
+                        for (Box box : owned.getOwnedCollection()) {
+                            if (box == null || box.getContent() == null) {
+                                continue;
+                            }
+                            for (CardsGroup cardsGroup : box.getContent()) {
+                                if (cardsGroup == null) {
+                                    continue;
+                                }
+                                if (normalizer.apply(cardsGroup.getName()).equals(listNorm)) {
+                                    return new Destination(box, cardsGroup);
+                                }
                             }
                         }
                     }
                 }
             }
 
-            // 3) Generic fallback: try to find a group whose name matches the deckName or the list name (exact match)
+            // Generic fallback: match group name to deckName or listName (exact)
             if (deckName != null) {
-                String deckNorm = norm.apply(deckName);
-                for (Box b : owned.getOwnedCollection()) {
-                    if (b == null || b.getContent() == null) continue;
-                    for (CardsGroup g : b.getContent()) {
-                        if (g == null) continue;
-                        String gNorm = norm.apply(g.getName());
-                        if (gNorm.equals(deckNorm) || gNorm.equals(lastNorm)) return new Destination(b, g);
+                String deckNorm = normalizer.apply(deckName);
+                for (Box box : owned.getOwnedCollection()) {
+                    if (box == null || box.getContent() == null) {
+                        continue;
+                    }
+                    for (CardsGroup cardsGroup : box.getContent()) {
+                        if (cardsGroup == null) {
+                            continue;
+                        }
+                        String gNorm = normalizer.apply(cardsGroup.getName());
+                        if (gNorm.equals(deckNorm) || gNorm.equals(lastNorm)) {
+                            return new Destination(box, cardsGroup);
+                        }
                     }
                 }
             }
 
-            // 4) permissive: match last component (list) anywhere (exact match)
-            for (Box b : owned.getOwnedCollection()) {
-                if (b == null || b.getContent() == null) continue;
-                for (CardsGroup g : b.getContent()) {
-                    if (g == null) continue;
-                    if (norm.apply(g.getName()).equals(lastNorm)) return new Destination(b, g);
+            // Permissive: match last component (list) anywhere (exact)
+            for (Box box : owned.getOwnedCollection()) {
+                if (box == null || box.getContent() == null) {
+                    continue;
+                }
+                for (CardsGroup cardsGroup : box.getContent()) {
+                    if (cardsGroup == null) {
+                        continue;
+                    }
+                    if (normalizer.apply(cardsGroup.getName()).equals(lastNorm)) {
+                        return new Destination(box, cardsGroup);
+                    }
                 }
             }
 
-            // nothing found for deck target
+            // Nothing found for deck target
             return null;
         }
 
-        // 2) If not a deck list, treat as a collection or a box/group target.
-        // Try exact Box name -> return its box-level group (preferred) or first group only when no group was requested
+        // ── Strategy 2: collection or box/group target ────────────────────────
         String comp0 = parts[0];
-        String comp0Norm = norm.apply(comp0);
-        for (Box b : owned.getOwnedCollection()) {
-            if (b == null) continue;
-            if (norm.apply(b.getName()).equals(comp0Norm)) {
+        String comp0Norm = normalizer.apply(comp0);
+        for (Box box : owned.getOwnedCollection()) {
+            if (box == null) {
+                continue;
+            }
+            if (normalizer.apply(box.getName()).equals(comp0Norm)) {
                 if (parts.length == 1) {
-                    if (b.getContent() != null && !b.getContent().isEmpty()) {
-                        // Prefer a box-level group (empty name) if present, otherwise create one or fallback to first group
-                        // Use helper to find or create box-level group
-                        Destination dest = findBoxAndGroupByBoxThenGroup.apply(b.getName(), "");
-                        if (dest != null) return dest;
+                    if (box.getContent() != null && !box.getContent().isEmpty()) {
+                        Destination dest = findBoxAndGroupByBoxThenGroup.apply(box.getName(), "");
+                        if (dest != null) {
+                            return dest;
+                        }
                     }
                 } else {
-                    // a group was requested; require exact group match
+                    // A group was requested; require exact group match
                     String requestedGroup = parts[parts.length - 1];
-                    if (b.getContent() != null) {
-                        for (CardsGroup g : b.getContent()) {
-                            if (g == null) continue;
-                            if (norm.apply(g.getName()).equals(norm.apply(requestedGroup)))
-                                return new Destination(b, g);
+                    if (box.getContent() != null) {
+                        for (CardsGroup cardsGroup : box.getContent()) {
+                            if (cardsGroup == null) {
+                                continue;
+                            }
+                            if (normalizer.apply(cardsGroup.getName())
+                                    .equals(normalizer.apply(requestedGroup))) {
+                                return new Destination(box, cardsGroup);
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Try to match a group name equal to the first component across all boxes (exact match)
-        for (Box b : owned.getOwnedCollection()) {
-            if (b == null || b.getContent() == null) continue;
-            for (CardsGroup g : b.getContent()) {
-                if (g == null) continue;
-                if (norm.apply(g.getName()).equals(comp0Norm)) return new Destination(b, g);
+        // Try to match a group name equal to first component across all boxes (exact)
+        for (Box box : owned.getOwnedCollection()) {
+            if (box == null || box.getContent() == null) {
+                continue;
+            }
+            for (CardsGroup cardsGroup : box.getContent()) {
+                if (cardsGroup == null) {
+                    continue;
+                }
+                if (normalizer.apply(cardsGroup.getName()).equals(comp0Norm)) {
+                    return new Destination(box, cardsGroup);
+                }
             }
         }
 
-        // Try matching any component as a group name (useful for "Collection/Deck" where deck is a group)
+        // Try matching any path component as a group name (useful for "Collection/Deck" targets)
         for (String part : parts) {
-            String pNorm = norm.apply(part);
-            if (pNorm.isEmpty()) continue;
-            for (Box b : owned.getOwnedCollection()) {
-                if (b == null || b.getContent() == null) continue;
-                for (CardsGroup g : b.getContent()) {
-                    if (g == null) continue;
-                    if (norm.apply(g.getName()).equals(pNorm)) return new Destination(b, g);
+            String partNorm = normalizer.apply(part);
+            if (partNorm.isEmpty()) {
+                continue;
+            }
+            for (Box box : owned.getOwnedCollection()) {
+                if (box == null || box.getContent() == null) {
+                    continue;
+                }
+                for (CardsGroup cardsGroup : box.getContent()) {
+                    if (cardsGroup == null) {
+                        continue;
+                    }
+                    if (normalizer.apply(cardsGroup.getName()).equals(partNorm)) {
+                        return new Destination(box, cardsGroup);
+                    }
                 }
             }
         }
 
-        // final permissive fallback: partial contains match on last component
-        String lastNorm2 = norm.apply(parts[parts.length - 1]);
+        // Final permissive fallback: partial contains-match on last component
+        String lastNorm2 = normalizer.apply(parts[parts.length - 1]);
         if (!lastNorm2.isEmpty()) {
-            for (Box b : owned.getOwnedCollection()) {
-                if (b == null || b.getContent() == null) continue;
-                for (CardsGroup g : b.getContent()) {
-                    if (g == null) continue;
-                    String gNorm = norm.apply(g.getName());
-                    if (gNorm.contains(lastNorm2) || lastNorm2.contains(gNorm)) return new Destination(b, g);
+            for (Box box : owned.getOwnedCollection()) {
+                if (box == null || box.getContent() == null) {
+                    continue;
+                }
+                for (CardsGroup cardsGroup : box.getContent()) {
+                    if (cardsGroup == null) {
+                        continue;
+                    }
+                    String gNorm = normalizer.apply(cardsGroup.getName());
+                    if (gNorm.contains(lastNorm2) || lastNorm2.contains(gNorm)) {
+                        return new Destination(box, cardsGroup);
+                    }
                 }
             }
         }
 
-        // nothing found
         return null;
     }
 
-    // small holders
-    private static final class SourceLocation {
-        final Model.CardsLists.Box box;
-        final Model.CardsLists.CardsGroup group;
-        final Model.CardsLists.CardElement element;
-        final int index;
-
-        SourceLocation(Model.CardsLists.Box box, Model.CardsLists.CardsGroup group, Model.CardsLists.CardElement element, int index) {
-            this.box = box;
-            this.group = group;
-            this.element = element;
-            this.index = index;
-        }
-    }
-
-    private static final class Destination {
-        final Model.CardsLists.Box box;
-        final Model.CardsLists.CardsGroup group;
-
-        Destination(Model.CardsLists.Box box, Model.CardsLists.CardsGroup group) {
-            this.box = box;
-            this.group = group;
-        }
-    }
+    // ── Value holders (private inner classes) ─────────────────────────────────
 
     /**
-     * Creates a new CardsGroup named {@code categoryName} in the last Box of the
-     * owned collection, then moves {@code clickedElement} into it.
-     * Both the navigation menu and the middle tree are refreshed.
+     * Creates a new {@link CardsGroup} named {@code categoryName} in the last
+     * {@link Box} of the owned collection, then moves {@code clickedElement} into
+     * it. Both the navigation menu and the middle tree are refreshed afterwards.
+     *
+     * @param clickedElement the element to move into the new category
+     * @param categoryName   the name for the new category (trimmed internally)
      */
     public static void handleAddCategoryAndMove(CardElement clickedElement, String categoryName) {
-        if (clickedElement == null || categoryName == null || categoryName.trim().isEmpty()) return;
+        if (clickedElement == null || categoryName == null || categoryName.trim().isEmpty()) {
+            return;
+        }
         try {
             if (Platform.isFxApplicationThread()) {
                 doAddCategoryAndMove(clickedElement, categoryName.trim());
@@ -662,8 +829,8 @@ public final class MenuActionHandler {
             }
             // Structural refresh: rebuilds both the middle TreeView and the nav menu
             UserInterfaceFunctions.refreshOwnedCollectionStructure();
-        } catch (Throwable t) {
-            logger.debug("handleAddCategoryAndMove failed for category '{}'", categoryName, t);
+        } catch (Throwable throwable) {
+            logger.debug("handleAddCategoryAndMove failed for category '{}'", categoryName, throwable);
         }
     }
 
@@ -682,7 +849,9 @@ public final class MenuActionHandler {
 
         // 2) Create the new category and append it to that box
         CardsGroup newGroup = new CardsGroup(categoryName);
-        if (lastBox.getContent() == null) lastBox.setContent(new java.util.ArrayList<>());
+        if (lastBox.getContent() == null) {
+            lastBox.setContent(new java.util.ArrayList<>());
+        }
         lastBox.getContent().add(newGroup);
         logger.debug("doAddCategoryAndMove: created category '{}' in box '{}'",
                 categoryName, lastBox.getName());
@@ -693,7 +862,7 @@ public final class MenuActionHandler {
 
         if (src != null && src.group != null) {
             // Use the ObservableList so the source GridView shrinks immediately
-            View.CardTreeCell.observableListFor(src.group).remove(src.element);
+            CardTreeCell.observableListFor(src.group).remove(src.element);
             logger.debug("doAddCategoryAndMove: removed card '{}' from group '{}'",
                     toAdd.getCard() != null ? toAdd.getCard().getName_EN() : "?",
                     src.group.getName());
@@ -704,7 +873,7 @@ public final class MenuActionHandler {
         }
 
         // 4) Add the element to the new category via its ObservableList
-        View.CardTreeCell.observableListFor(newGroup).add(toAdd);
+        CardTreeCell.observableListFor(newGroup).add(toAdd);
         logger.debug("doAddCategoryAndMove: card '{}' added to new category '{}'",
                 toAdd.getCard() != null ? toAdd.getCard().getName_EN() : "?",
                 categoryName);
@@ -713,30 +882,44 @@ public final class MenuActionHandler {
         UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
     }
 
+    // ── Add category and move ─────────────────────────────────────────────────
+
     /**
-     * Adds a copy of the given Card to the correct deck list
-     * (Main Deck / Extra Deck / Side Deck) identified by handlerTarget.
+     * Adds a copy of the given {@link Card} to the correct deck list
+     * (Main Deck / Extra Deck / Side Deck) identified by {@code handlerTarget}.
      *
-     * @param card          the Card from AllExistingCards (not null)
-     * @param handlerTarget e.g. "DeckName / Main Deck" or "CollectionName / DeckName / Extra Deck"
+     * @param card          the card from AllExistingCards (not {@code null})
+     * @param handlerTarget e.g. {@code "DeckName / Main Deck"} or
+     *                      {@code "CollectionName / DeckName / Extra Deck"}
      */
     public static void handleAddToDeck(Card card, String handlerTarget) {
-        if (card == null || handlerTarget == null || handlerTarget.trim().isEmpty()) return;
+        if (card == null || handlerTarget == null || handlerTarget.trim().isEmpty()) {
+            return;
+        }
         try {
             if (Platform.isFxApplicationThread()) {
                 doAddToDeck(card, handlerTarget);
             } else {
                 Platform.runLater(() -> doAddToDeck(card, handlerTarget));
             }
-            lastDecksAddedTarget = handlerTarget;   // ← ADD THIS LINE
+            lastDecksAddedTarget = handlerTarget;
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
-        } catch (Throwable t) {
-            logger.debug("handleAddToDeck failed for target {}", handlerTarget, t);
+        } catch (Throwable throwable) {
+            logger.debug("handleAddToDeck failed for target {}", handlerTarget, throwable);
         }
     }
 
+    /**
+     * Adds a copy of the given {@link Card} to the card list of the named
+     * {@link ThemeCollection}.
+     *
+     * @param card           the card to add (not {@code null})
+     * @param collectionName the name of the target collection
+     */
     public static void handleAddToCollectionCards(Card card, String collectionName) {
-        if (card == null || collectionName == null || collectionName.trim().isEmpty()) return;
+        if (card == null || collectionName == null || collectionName.trim().isEmpty()) {
+            return;
+        }
         try {
             if (Platform.isFxApplicationThread()) {
                 doAddToCollectionCards(card, collectionName);
@@ -745,36 +928,48 @@ public final class MenuActionHandler {
             }
             lastDecksAddedTarget = collectionName + " / Cards";
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
-        } catch (Throwable t) {
-            logger.debug("handleAddToCollectionCards failed for collection {}", collectionName, t);
+        } catch (Throwable throwable) {
+            logger.debug("handleAddToCollectionCards failed for collection {}",
+                    collectionName, throwable);
         }
     }
 
+    // ── Add to deck ───────────────────────────────────────────────────────────
+
     private static void doAddToCollectionCards(Card card, String collectionName) {
-        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
-        if (dac == null) {
+        DecksAndCollectionsList decksAndCollections = UserInterfaceFunctions.getDecksList();
+        if (decksAndCollections == null) {
             try {
                 UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
             } catch (Throwable ignored) {
             }
-            dac = UserInterfaceFunctions.getDecksList();
+            decksAndCollections = UserInterfaceFunctions.getDecksList();
         }
-        if (dac == null || dac.getCollections() == null) return;
+        if (decksAndCollections == null || decksAndCollections.getCollections() == null) {
+            return;
+        }
 
-        java.util.function.Function<String, String> norm = s -> {
-            if (s == null) return "";
-            String t = s.trim().replaceAll("[=\\-]", "").replaceAll("\\s+", " ");
-            t = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD)
+        java.util.function.Function<String, String> normalizer = input -> {
+            if (input == null) {
+                return "";
+            }
+            String normalized = input.trim()
+                    .replaceAll("[=\\-]", "")
+                    .replaceAll("\\s+", " ");
+            normalized = java.text.Normalizer
+                    .normalize(normalized, java.text.Normalizer.Form.NFD)
                     .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
-            return t.toLowerCase().trim();
+            return normalized.toLowerCase().trim();
         };
-        String targetNorm = norm.apply(collectionName);
+        String targetNorm = normalizer.apply(collectionName);
 
         ThemeCollection foundCollection = null;
-        for (ThemeCollection tc : dac.getCollections()) {
-            if (tc == null) continue;
-            if (norm.apply(tc.getName()).equals(targetNorm)) {
-                foundCollection = tc;
+        for (ThemeCollection themeCollection : decksAndCollections.getCollections()) {
+            if (themeCollection == null) {
+                continue;
+            }
+            if (normalizer.apply(themeCollection.getName()).equals(targetNorm)) {
+                foundCollection = themeCollection;
                 break;
             }
         }
@@ -783,8 +978,9 @@ public final class MenuActionHandler {
             return;
         }
 
-        if (foundCollection.getCardsList() == null)
+        if (foundCollection.getCardsList() == null) {
             foundCollection.setCardsList(new ArrayList<>());
+        }
         foundCollection.getCardsList().add(new CardElement(card));
         logger.debug("handleAddToCollectionCards: added '{}' to collection '{}'",
                 card.getName_EN(), collectionName);
@@ -793,8 +989,19 @@ public final class MenuActionHandler {
         UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
     }
 
+    // ── Add to collection cards ───────────────────────────────────────────────
+
+    /**
+     * Adds a copy of the given {@link Card} to the exclusion list ("cards not to
+     * add") of the named {@link ThemeCollection}.
+     *
+     * @param card           the card to exclude (not {@code null})
+     * @param collectionName the name of the target collection
+     */
     public static void handleAddToExclusionList(Card card, String collectionName) {
-        if (card == null || collectionName == null || collectionName.trim().isEmpty()) return;
+        if (card == null || collectionName == null || collectionName.trim().isEmpty()) {
+            return;
+        }
         try {
             if (Platform.isFxApplicationThread()) {
                 doAddToExclusionList(card, collectionName);
@@ -803,36 +1010,46 @@ public final class MenuActionHandler {
             }
             lastDecksAddedTarget = collectionName + " / Cards not to add";
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
-        } catch (Throwable t) {
-            logger.debug("handleAddToExclusionList failed for collection {}", collectionName, t);
+        } catch (Throwable throwable) {
+            logger.debug("handleAddToExclusionList failed for collection {}",
+                    collectionName, throwable);
         }
     }
 
     private static void doAddToExclusionList(Card card, String collectionName) {
-        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
-        if (dac == null) {
+        DecksAndCollectionsList decksAndCollections = UserInterfaceFunctions.getDecksList();
+        if (decksAndCollections == null) {
             try {
                 UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
             } catch (Throwable ignored) {
             }
-            dac = UserInterfaceFunctions.getDecksList();
+            decksAndCollections = UserInterfaceFunctions.getDecksList();
         }
-        if (dac == null || dac.getCollections() == null) return;
+        if (decksAndCollections == null || decksAndCollections.getCollections() == null) {
+            return;
+        }
 
-        java.util.function.Function<String, String> norm = s -> {
-            if (s == null) return "";
-            String t = s.trim().replaceAll("[=\\-]", "").replaceAll("\\s+", " ");
-            t = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD)
+        java.util.function.Function<String, String> normalizer = input -> {
+            if (input == null) {
+                return "";
+            }
+            String normalized = input.trim()
+                    .replaceAll("[=\\-]", "")
+                    .replaceAll("\\s+", " ");
+            normalized = java.text.Normalizer
+                    .normalize(normalized, java.text.Normalizer.Form.NFD)
                     .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
-            return t.toLowerCase().trim();
+            return normalized.toLowerCase().trim();
         };
-        String targetNorm = norm.apply(collectionName);
+        String targetNorm = normalizer.apply(collectionName);
 
         ThemeCollection foundCollection = null;
-        for (ThemeCollection tc : dac.getCollections()) {
-            if (tc == null) continue;
-            if (norm.apply(tc.getName()).equals(targetNorm)) {
-                foundCollection = tc;
+        for (ThemeCollection themeCollection : decksAndCollections.getCollections()) {
+            if (themeCollection == null) {
+                continue;
+            }
+            if (normalizer.apply(themeCollection.getName()).equals(targetNorm)) {
+                foundCollection = themeCollection;
                 break;
             }
         }
@@ -841,8 +1058,9 @@ public final class MenuActionHandler {
             return;
         }
 
-        if (foundCollection.getExceptionsToNotAdd() == null)
+        if (foundCollection.getExceptionsToNotAdd() == null) {
             foundCollection.setExceptionsToNotAdd(new ArrayList<>());
+        }
         foundCollection.getExceptionsToNotAdd().add(new CardElement(card));
         logger.debug("handleAddToExclusionList: added '{}' to exclusion list of '{}'",
                 card.getName_EN(), collectionName);
@@ -851,37 +1069,46 @@ public final class MenuActionHandler {
         UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
     }
 
+    // ── Add to exclusion list ─────────────────────────────────────────────────
+
     private static void doAddToDeck(Card card, String handlerTarget) {
-        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
-        if (dac == null) {
+        DecksAndCollectionsList decksAndCollections = UserInterfaceFunctions.getDecksList();
+        if (decksAndCollections == null) {
             try {
                 UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
             } catch (Throwable ignored) {
             }
-            dac = UserInterfaceFunctions.getDecksList();
+            decksAndCollections = UserInterfaceFunctions.getDecksList();
         }
-        if (dac == null) {
+        if (decksAndCollections == null) {
             logger.warn("doAddToDeck: DecksAndCollectionsList not available");
             return;
         }
 
-        java.util.function.Function<String, String> norm = s -> {
-            if (s == null) return "";
-            String t2 = s.trim().replaceAll("[=\\-]", "").replaceAll("\\s+", " ");
-            t2 = java.text.Normalizer.normalize(t2, java.text.Normalizer.Form.NFD)
+        java.util.function.Function<String, String> normalizer = input -> {
+            if (input == null) {
+                return "";
+            }
+            String normalized = input.trim()
+                    .replaceAll("[=\\-]", "")
+                    .replaceAll("\\s+", " ");
+            normalized = java.text.Normalizer
+                    .normalize(normalized, java.text.Normalizer.Form.NFD)
                     .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
-            return t2.toLowerCase().trim();
+            return normalized.toLowerCase().trim();
         };
 
         String[] parts = handlerTarget.split("/");
-        for (int i = 0; i < parts.length; i++) parts[i] = parts[i].trim();
+        for (int i = 0; i < parts.length; i++) {
+            parts[i] = parts[i].trim();
+        }
 
         if (parts.length < 2) {
             logger.debug("doAddToDeck: handlerTarget '{}' has fewer than 2 parts", handlerTarget);
             return;
         }
 
-        String lastNorm = norm.apply(parts[parts.length - 1]);
+        String lastNorm = normalizer.apply(parts[parts.length - 1]);
         boolean isMain = lastNorm.equals("main deck") || lastNorm.equals("main");
         boolean isExtra = lastNorm.equals("extra deck") || lastNorm.equals("extra");
         boolean isSide = lastNorm.equals("side deck") || lastNorm.equals("side");
@@ -891,8 +1118,8 @@ public final class MenuActionHandler {
             return;
         }
 
-        String deckNameNorm = norm.apply(parts[parts.length - 2]);
-        Deck targetDeck = findDeckInDac(deckNameNorm, norm, dac);
+        String deckNameNorm = normalizer.apply(parts[parts.length - 2]);
+        Deck targetDeck = findDeckInDac(deckNameNorm, normalizer, decksAndCollections);
 
         if (targetDeck == null) {
             logger.info("doAddToDeck: deck '{}' not found in DecksAndCollectionsList", deckNameNorm);
@@ -914,22 +1141,30 @@ public final class MenuActionHandler {
     }
 
     private static Deck findDeckInDac(String deckNameNorm,
-                                      java.util.function.Function<String, String> norm,
-                                      DecksAndCollectionsList dac) {
+                                      java.util.function.Function<String, String> normalizer,
+                                      DecksAndCollectionsList decksAndCollections) {
         // Search standalone decks first
-        if (dac.getDecks() != null) {
-            for (Deck d : dac.getDecks()) {
-                if (d != null && norm.apply(d.getName()).equals(deckNameNorm)) return d;
+        if (decksAndCollections.getDecks() != null) {
+            for (Deck deck : decksAndCollections.getDecks()) {
+                if (deck != null && normalizer.apply(deck.getName()).equals(deckNameNorm)) {
+                    return deck;
+                }
             }
         }
         // Search inside collections
-        if (dac.getCollections() != null) {
-            for (ThemeCollection tc : dac.getCollections()) {
-                if (tc == null || tc.getLinkedDecks() == null) continue;
-                for (List<Deck> unit : tc.getLinkedDecks()) {
-                    if (unit == null) continue;
-                    for (Deck d : unit) {
-                        if (d != null && norm.apply(d.getName()).equals(deckNameNorm)) return d;
+        if (decksAndCollections.getCollections() != null) {
+            for (ThemeCollection themeCollection : decksAndCollections.getCollections()) {
+                if (themeCollection == null || themeCollection.getLinkedDecks() == null) {
+                    continue;
+                }
+                for (List<Deck> unit : themeCollection.getLinkedDecks()) {
+                    if (unit == null) {
+                        continue;
+                    }
+                    for (Deck deck : unit) {
+                        if (deck != null && normalizer.apply(deck.getName()).equals(deckNameNorm)) {
+                            return deck;
+                        }
                     }
                 }
             }
@@ -937,19 +1172,30 @@ public final class MenuActionHandler {
         return null;
     }
 
-// ── Bulk operations ────────────────────────────────────────────────────────────
+    // ── doAddToDeck + findDeckInDac ───────────────────────────────────────────
 
     /**
-     * Finds all CardElements in the OwnedCardsCollection whose Card matches
-     * any card in the provided collection (by passCode / printCode / konamiId).
+     * Finds all {@link CardElement} instances in the {@link OwnedCardsCollection}
+     * whose {@link Card} matches any card in {@code targetCards}
+     * (by passCode / printCode / konamiId).
+     *
+     * @param targetCards the set of cards to match against
+     * @return list of matching elements; never {@code null}
      */
-    public static List<CardElement> findCardElementsForCards(java.util.Collection<Card> targetCards) {
+    public static List<CardElement> findCardElementsForCards(
+            java.util.Collection<Card> targetCards) {
         List<CardElement> result = new ArrayList<>();
-        if (targetCards == null || targetCards.isEmpty()) return result;
+        if (targetCards == null || targetCards.isEmpty()) {
+            return result;
+        }
         OwnedCardsCollection owned = safeGetOwnedCollection();
-        if (owned == null || owned.getOwnedCollection() == null) return result;
+        if (owned == null || owned.getOwnedCollection() == null) {
+            return result;
+        }
         for (Box box : owned.getOwnedCollection()) {
-            if (box == null) continue;
+            if (box == null) {
+                continue;
+            }
             collectMatchingElementsFromBox(box, targetCards, result);
         }
         return result;
@@ -959,9 +1205,12 @@ public final class MenuActionHandler {
             Box box, java.util.Collection<Card> targetCards, List<CardElement> result) {
         if (box.getContent() != null) {
             for (CardsGroup group : box.getContent()) {
-                if (group == null || group.getCardList() == null) continue;
+                if (group == null || group.getCardList() == null) {
+                    continue;
+                }
                 for (CardElement cardElement : group.getCardList()) {
-                    if (cardElement != null && cardElement.getCard() != null
+                    if (cardElement != null
+                            && cardElement.getCard() != null
                             && collectionContainsCard(targetCards, cardElement.getCard())) {
                         result.add(cardElement);
                     }
@@ -970,76 +1219,121 @@ public final class MenuActionHandler {
         }
         if (box.getSubBoxes() != null) {
             for (Box subBox : box.getSubBoxes()) {
-                if (subBox != null) collectMatchingElementsFromBox(subBox, targetCards, result);
+                if (subBox != null) {
+                    collectMatchingElementsFromBox(subBox, targetCards, result);
+                }
             }
         }
     }
 
+    // ── Bulk operations ───────────────────────────────────────────────────────
+
     /**
      * Returns the {@link Deck} or {@link ThemeCollection} inside the current
      * {@link DecksAndCollectionsList} that owns the list containing {@code element}
-     * (matched by instance identity). Returns {@code null} if not found (e.g. the
-     * element lives in the OwnedCardsCollection instead).
+     * (matched by object identity). Returns {@code null} if not found.
+     *
+     * @param element the element to search for
+     * @return the owning DAC object, or {@code null}
      */
     public static Object findDacOwnerForCardElement(CardElement element) {
-        if (element == null) return null;
-        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
-        if (dac == null) return null;
-        if (dac.getCollections() != null) {
-            for (ThemeCollection tc : dac.getCollections()) {
-                if (tc == null) continue;
-                if (listContainsElementByIdentity(tc.getCardsList(), element)
-                        || listContainsElementByIdentity(tc.getExceptionsToNotAdd(), element))
-                    return tc;
-                if (tc.getLinkedDecks() != null) {
-                    for (List<Deck> unit : tc.getLinkedDecks()) {
-                        if (unit == null) continue;
-                        for (Deck d : unit) {
-                            if (d == null) continue;
-                            if (listContainsElementByIdentity(d.getMainDeck(), element)
-                                    || listContainsElementByIdentity(d.getExtraDeck(), element)
-                                    || listContainsElementByIdentity(d.getSideDeck(), element))
-                                return d;
+        if (element == null) {
+            return null;
+        }
+        DecksAndCollectionsList decksAndCollections = UserInterfaceFunctions.getDecksList();
+        if (decksAndCollections == null) {
+            return null;
+        }
+        if (decksAndCollections.getCollections() != null) {
+            for (ThemeCollection themeCollection : decksAndCollections.getCollections()) {
+                if (themeCollection == null) {
+                    continue;
+                }
+                if (listContainsElementByIdentity(themeCollection.getCardsList(), element)
+                        || listContainsElementByIdentity(
+                        themeCollection.getExceptionsToNotAdd(), element)) {
+                    return themeCollection;
+                }
+                if (themeCollection.getLinkedDecks() != null) {
+                    for (List<Deck> unit : themeCollection.getLinkedDecks()) {
+                        if (unit == null) {
+                            continue;
+                        }
+                        for (Deck deck : unit) {
+                            if (deck == null) {
+                                continue;
+                            }
+                            if (listContainsElementByIdentity(deck.getMainDeck(), element)
+                                    || listContainsElementByIdentity(deck.getExtraDeck(), element)
+                                    || listContainsElementByIdentity(deck.getSideDeck(), element)) {
+                                return deck;
+                            }
                         }
                     }
                 }
             }
         }
-        if (dac.getDecks() != null) {
-            for (Deck d : dac.getDecks()) {
-                if (d == null) continue;
-                if (listContainsElementByIdentity(d.getMainDeck(), element)
-                        || listContainsElementByIdentity(d.getExtraDeck(), element)
-                        || listContainsElementByIdentity(d.getSideDeck(), element))
-                    return d;
+        if (decksAndCollections.getDecks() != null) {
+            for (Deck deck : decksAndCollections.getDecks()) {
+                if (deck == null) {
+                    continue;
+                }
+                if (listContainsElementByIdentity(deck.getMainDeck(), element)
+                        || listContainsElementByIdentity(deck.getExtraDeck(), element)
+                        || listContainsElementByIdentity(deck.getSideDeck(), element)) {
+                    return deck;
+                }
             }
         }
         return null;
     }
 
-    private static boolean listContainsElementByIdentity(List<CardElement> list, CardElement target) {
-        if (list == null || target == null) return false;
-        for (CardElement ce : list) if (ce == target) return true;
+    private static boolean listContainsElementByIdentity(List<CardElement> list,
+                                                         CardElement target) {
+        if (list == null || target == null) {
+            return false;
+        }
+        for (CardElement cardElement : list) {
+            if (cardElement == target) {
+                return true;
+            }
+        }
         return false;
     }
 
     private static boolean collectionContainsCard(
             java.util.Collection<Card> cards, Card target) {
         for (Card card : cards) {
-            if (cardsMatch(card, target)) return true;
+            if (cardsMatch(card, target)) {
+                return true;
+            }
         }
         return false;
     }
 
+    /**
+     * Moves each element in {@code elements} to the group identified by
+     * {@code handlerTarget}. Equivalent to calling {@link #handleMove} for each
+     * element, but dispatched as a single batch on the FX thread.
+     *
+     * @param elements      the elements to move
+     * @param handlerTarget canonical target string
+     */
     public static void handleBulkMove(List<CardElement> elements, String handlerTarget) {
-        if (elements == null || elements.isEmpty() || handlerTarget == null) return;
+        if (elements == null || elements.isEmpty() || handlerTarget == null) {
+            return;
+        }
         try {
             if (Platform.isFxApplicationThread()) {
-                for (CardElement element : elements) doMove(element, handlerTarget);
+                for (CardElement element : elements) {
+                    doMove(element, handlerTarget);
+                }
             } else {
                 final List<CardElement> copy = new ArrayList<>(elements);
                 Platform.runLater(() -> {
-                    for (CardElement element : copy) doMove(element, handlerTarget);
+                    for (CardElement element : copy) {
+                        doMove(element, handlerTarget);
+                    }
                 });
             }
             UserInterfaceFunctions.refreshOwnedCollectionView();
@@ -1048,8 +1342,16 @@ public final class MenuActionHandler {
         }
     }
 
+    /**
+     * Removes all elements in {@code elements} from the {@link OwnedCardsCollection}
+     * by object identity. Marks the collection dirty and triggers a view refresh.
+     *
+     * @param elements the elements to remove
+     */
     public static void handleBulkRemoveFromOwnedCollection(List<CardElement> elements) {
-        if (elements == null || elements.isEmpty()) return;
+        if (elements == null || elements.isEmpty()) {
+            return;
+        }
         try {
             if (Platform.isFxApplicationThread()) {
                 doBulkRemoveFromOwnedCollection(elements);
@@ -1067,49 +1369,75 @@ public final class MenuActionHandler {
 
     private static void doBulkRemoveFromOwnedCollection(List<CardElement> elements) {
         OwnedCardsCollection owned = safeGetOwnedCollection();
-        if (owned == null || owned.getOwnedCollection() == null) return;
+        if (owned == null || owned.getOwnedCollection() == null) {
+            return;
+        }
         for (CardElement targetElement : elements) {
             removeElementFromOwned(targetElement, owned);
         }
     }
 
-    private static void removeElementFromOwned(CardElement targetElement, OwnedCardsCollection owned) {
-        if (targetElement == null) return;
+    private static void removeElementFromOwned(CardElement targetElement,
+                                               OwnedCardsCollection owned) {
+        if (targetElement == null) {
+            return;
+        }
         for (Box box : owned.getOwnedCollection()) {
-            if (box == null) continue;
-            if (removeElementFromBox(targetElement, box)) return;
+            if (box == null) {
+                continue;
+            }
+            if (removeElementFromBox(targetElement, box)) {
+                return;
+            }
         }
     }
 
     private static boolean removeElementFromBox(CardElement targetElement, Box box) {
         if (box.getContent() != null) {
             for (CardsGroup group : box.getContent()) {
-                if (group == null) continue;
+                if (group == null) {
+                    continue;
+                }
                 javafx.collections.ObservableList<CardElement> observableList =
-                        View.CardTreeCell.observableListFor(group);
+                        CardTreeCell.observableListFor(group);
                 if (observableList.remove(targetElement)) {
-                    View.CardTreeCell.triggerHeightAdjustment(group);
+                    CardTreeCell.triggerHeightAdjustment(group);
                     return true;
                 }
             }
         }
         if (box.getSubBoxes() != null) {
             for (Box subBox : box.getSubBoxes()) {
-                if (subBox != null && removeElementFromBox(targetElement, subBox)) return true;
+                if (subBox != null && removeElementFromBox(targetElement, subBox)) {
+                    return true;
+                }
             }
         }
         return false;
     }
 
+    /**
+     * Adds a copy of each card in {@code cards} to the group identified by
+     * {@code handlerTarget} in the owned collection.
+     *
+     * @param cards         the cards to copy
+     * @param handlerTarget canonical target string
+     */
     public static void handleBulkAddCopy(java.util.Collection<Card> cards, String handlerTarget) {
-        if (cards == null || cards.isEmpty() || handlerTarget == null) return;
+        if (cards == null || cards.isEmpty() || handlerTarget == null) {
+            return;
+        }
         try {
             if (Platform.isFxApplicationThread()) {
-                for (Card card : cards) doAddCopy(card, handlerTarget);
+                for (Card card : cards) {
+                    doAddCopy(card, handlerTarget);
+                }
             } else {
                 final List<Card> copy = new ArrayList<>(cards);
                 Platform.runLater(() -> {
-                    for (Card card : copy) doAddCopy(card, handlerTarget);
+                    for (Card card : copy) {
+                        doAddCopy(card, handlerTarget);
+                    }
                 });
             }
             UserInterfaceFunctions.refreshOwnedCollectionView();
@@ -1118,15 +1446,28 @@ public final class MenuActionHandler {
         }
     }
 
+    /**
+     * Adds a copy of each card in {@code cards} to the deck list identified by
+     * {@code handlerTarget}.
+     *
+     * @param cards         the cards to add
+     * @param handlerTarget canonical target string, e.g. {@code "DeckName / Main Deck"}
+     */
     public static void handleBulkAddToDeck(java.util.Collection<Card> cards, String handlerTarget) {
-        if (cards == null || cards.isEmpty() || handlerTarget == null) return;
+        if (cards == null || cards.isEmpty() || handlerTarget == null) {
+            return;
+        }
         try {
             if (Platform.isFxApplicationThread()) {
-                for (Card card : cards) doAddToDeck(card, handlerTarget);
+                for (Card card : cards) {
+                    doAddToDeck(card, handlerTarget);
+                }
             } else {
                 final List<Card> copy = new ArrayList<>(cards);
                 Platform.runLater(() -> {
-                    for (Card card : copy) doAddToDeck(card, handlerTarget);
+                    for (Card card : copy) {
+                        doAddToDeck(card, handlerTarget);
+                    }
                 });
             }
             lastDecksAddedTarget = handlerTarget;
@@ -1136,16 +1477,29 @@ public final class MenuActionHandler {
         }
     }
 
+    /**
+     * Adds a copy of each card in {@code cards} to the card list of the named
+     * {@link ThemeCollection}.
+     *
+     * @param cards          the cards to add
+     * @param collectionName the name of the target collection
+     */
     public static void handleBulkAddToCollectionCards(
             java.util.Collection<Card> cards, String collectionName) {
-        if (cards == null || cards.isEmpty() || collectionName == null) return;
+        if (cards == null || cards.isEmpty() || collectionName == null) {
+            return;
+        }
         try {
             if (Platform.isFxApplicationThread()) {
-                for (Card card : cards) doAddToCollectionCards(card, collectionName);
+                for (Card card : cards) {
+                    doAddToCollectionCards(card, collectionName);
+                }
             } else {
                 final List<Card> copy = new ArrayList<>(cards);
                 Platform.runLater(() -> {
-                    for (Card card : copy) doAddToCollectionCards(card, collectionName);
+                    for (Card card : copy) {
+                        doAddToCollectionCards(card, collectionName);
+                    }
                 });
             }
             lastDecksAddedTarget = collectionName + " / Cards";
@@ -1155,16 +1509,29 @@ public final class MenuActionHandler {
         }
     }
 
+    /**
+     * Adds a copy of each card in {@code cards} to the exclusion list of the named
+     * {@link ThemeCollection}.
+     *
+     * @param cards          the cards to exclude
+     * @param collectionName the name of the target collection
+     */
     public static void handleBulkAddToExclusionList(
             java.util.Collection<Card> cards, String collectionName) {
-        if (cards == null || cards.isEmpty() || collectionName == null) return;
+        if (cards == null || cards.isEmpty() || collectionName == null) {
+            return;
+        }
         try {
             if (Platform.isFxApplicationThread()) {
-                for (Card card : cards) doAddToExclusionList(card, collectionName);
+                for (Card card : cards) {
+                    doAddToExclusionList(card, collectionName);
+                }
             } else {
                 final List<Card> copy = new ArrayList<>(cards);
                 Platform.runLater(() -> {
-                    for (Card card : copy) doAddToExclusionList(card, collectionName);
+                    for (Card card : copy) {
+                        doAddToExclusionList(card, collectionName);
+                    }
                 });
             }
             lastDecksAddedTarget = collectionName + " / Cards not to add";
@@ -1175,11 +1542,17 @@ public final class MenuActionHandler {
     }
 
     /**
-     * Pastes clipboardCards after afterElement in the group that contains it.
+     * Pastes {@code clipboardCards} immediately after {@code afterElement} in the
+     * group that contains it in the {@link OwnedCardsCollection}.
+     *
+     * @param clipboardCards the cards to paste (not {@code null} or empty)
+     * @param afterElement   the anchor element; the paste position is after this element
      */
     public static void handlePasteAfterElementInOwnedCollection(
             List<Card> clipboardCards, CardElement afterElement) {
-        if (clipboardCards == null || clipboardCards.isEmpty() || afterElement == null) return;
+        if (clipboardCards == null || clipboardCards.isEmpty() || afterElement == null) {
+            return;
+        }
         try {
             if (Platform.isFxApplicationThread()) {
                 doPasteAfterElementInOwnedCollection(clipboardCards, afterElement);
@@ -1198,106 +1571,154 @@ public final class MenuActionHandler {
     private static void doPasteAfterElementInOwnedCollection(
             List<Card> clipboardCards, CardElement afterElement) {
         OwnedCardsCollection owned = safeGetOwnedCollection();
-        if (owned == null || owned.getOwnedCollection() == null) return;
+        if (owned == null || owned.getOwnedCollection() == null) {
+            return;
+        }
         CardsGroup targetGroup = findGroupContainingElement(afterElement, owned);
         if (targetGroup == null) {
             logger.warn("doPasteAfterElementInOwnedCollection: group not found for element");
             return;
         }
         javafx.collections.ObservableList<CardElement> observableList =
-                View.CardTreeCell.observableListFor(targetGroup);
+                CardTreeCell.observableListFor(targetGroup);
         int insertionIndex = observableList.indexOf(afterElement);
-        if (insertionIndex < 0) insertionIndex = observableList.size() - 1;
+        if (insertionIndex < 0) {
+            insertionIndex = observableList.size() - 1;
+        }
         for (int i = 0; i < clipboardCards.size(); i++) {
             Card card = clipboardCards.get(i);
-            if (card == null) continue;
+            if (card == null) {
+                continue;
+            }
             int targetIndex = insertionIndex + 1 + i;
-            if (targetIndex > observableList.size()) targetIndex = observableList.size();
+            if (targetIndex > observableList.size()) {
+                targetIndex = observableList.size();
+            }
             observableList.add(targetIndex, new CardElement(card));
         }
-        View.CardTreeCell.triggerHeightAdjustment(targetGroup);
+        CardTreeCell.triggerHeightAdjustment(targetGroup);
     }
+
+    // ── Paste after element ───────────────────────────────────────────────────
 
     private static CardsGroup findGroupContainingElement(
             CardElement targetElement, OwnedCardsCollection owned) {
-        if (targetElement == null || owned == null) return null;
+        if (targetElement == null || owned == null) {
+            return null;
+        }
         for (Box box : owned.getOwnedCollection()) {
             CardsGroup found = findGroupContainingElementInBox(targetElement, box);
-            if (found != null) return found;
+            if (found != null) {
+                return found;
+            }
         }
         return null;
     }
 
     private static CardsGroup findGroupContainingElementInBox(CardElement targetElement, Box box) {
-        if (box == null) return null;
+        if (box == null) {
+            return null;
+        }
         if (box.getContent() != null) {
             for (CardsGroup group : box.getContent()) {
-                if (group != null && group.getCardList() != null
-                        && group.getCardList().contains(targetElement)) return group;
+                if (group != null
+                        && group.getCardList() != null
+                        && group.getCardList().contains(targetElement)) {
+                    return group;
+                }
             }
         }
         if (box.getSubBoxes() != null) {
             for (Box subBox : box.getSubBoxes()) {
                 CardsGroup found = findGroupContainingElementInBox(targetElement, subBox);
-                if (found != null) return found;
+                if (found != null) {
+                    return found;
+                }
             }
         }
         return null;
     }
 
     /**
-     * Removes all cards matching any card in {@code cardsToRemove} from every
-     * list in the DecksAndCollectionsList (main, extra, side decks and collection
-     * card lists). Marks all dirty and triggers a D&C view refresh.
+     * Removes all cards matching any card in {@code cardsToRemove} from every list
+     * in the {@link DecksAndCollectionsList} (main, extra, side decks and collection
+     * card lists). Marks all dirty owners and triggers a Decks &amp; Collections view
+     * refresh.
+     *
+     * @param cardsToRemove the set of cards whose copies should be removed
      */
     public static void handleBulkRemoveFromDecksAndCollections(
             java.util.Collection<Card> cardsToRemove) {
-        if (cardsToRemove == null || cardsToRemove.isEmpty()) return;
-        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
-        if (dac == null) return;
+        if (cardsToRemove == null || cardsToRemove.isEmpty()) {
+            return;
+        }
+        DecksAndCollectionsList decksAndCollections = UserInterfaceFunctions.getDecksList();
+        if (decksAndCollections == null) {
+            return;
+        }
 
         java.util.function.Predicate<List<CardElement>> removeMatching = list -> {
-            if (list == null) return false;
-            return list.removeIf(ce -> ce != null && ce.getCard() != null
-                    && collectionContainsCard(cardsToRemove, ce.getCard()));
+            if (list == null) {
+                return false;
+            }
+            return list.removeIf(cardElement ->
+                    cardElement != null
+                            && cardElement.getCard() != null
+                            && collectionContainsCard(cardsToRemove, cardElement.getCard()));
         };
 
         java.util.Set<Object> dirtyOwners = new java.util.LinkedHashSet<>();
 
-        if (dac.getCollections() != null) {
-            for (ThemeCollection themeCollection : dac.getCollections()) {
-                if (themeCollection == null) continue;
+        if (decksAndCollections.getCollections() != null) {
+            for (ThemeCollection themeCollection : decksAndCollections.getCollections()) {
+                if (themeCollection == null) {
+                    continue;
+                }
                 boolean tcChanged =
                         removeMatching.test(themeCollection.getCardsList())
                                 | removeMatching.test(themeCollection.getExceptionsToNotAdd());
-                if (tcChanged) dirtyOwners.add(themeCollection);
+                if (tcChanged) {
+                    dirtyOwners.add(themeCollection);
+                }
                 if (themeCollection.getLinkedDecks() != null) {
                     for (List<Deck> unit : themeCollection.getLinkedDecks()) {
-                        if (unit == null) continue;
+                        if (unit == null) {
+                            continue;
+                        }
                         for (Deck deck : unit) {
-                            if (deck == null) continue;
+                            if (deck == null) {
+                                continue;
+                            }
                             boolean changed =
                                     removeMatching.test(deck.getMainDeck())
                                             | removeMatching.test(deck.getExtraDeck())
                                             | removeMatching.test(deck.getSideDeck());
-                            if (changed) dirtyOwners.add(deck);
+                            if (changed) {
+                                dirtyOwners.add(deck);
+                            }
                         }
                     }
                 }
             }
         }
-        if (dac.getDecks() != null) {
-            for (Deck deck : dac.getDecks()) {
-                if (deck == null) continue;
+        if (decksAndCollections.getDecks() != null) {
+            for (Deck deck : decksAndCollections.getDecks()) {
+                if (deck == null) {
+                    continue;
+                }
                 boolean changed =
                         removeMatching.test(deck.getMainDeck())
                                 | removeMatching.test(deck.getExtraDeck())
                                 | removeMatching.test(deck.getSideDeck());
-                if (changed) dirtyOwners.add(deck);
+                if (changed) {
+                    dirtyOwners.add(deck);
+                }
             }
         }
 
-        for (Object owner : dirtyOwners) UserInterfaceFunctions.markDirty(owner);
+        for (Object owner : dirtyOwners) {
+            UserInterfaceFunctions.markDirty(owner);
+        }
         if (!dirtyOwners.isEmpty()) {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
@@ -1305,15 +1726,22 @@ public final class MenuActionHandler {
     }
 
     /**
-     * Removes exactly the given CardElement instances (by object identity) from
-     * every list in the DecksAndCollectionsList. Unlike handleBulkRemoveFromDecksAndCollections,
-     * this never touches other elements that share the same Card/passCode.
+     * Removes exactly the given {@link CardElement} instances (by object identity)
+     * from every list in the {@link DecksAndCollectionsList}. Unlike
+     * {@link #handleBulkRemoveFromDecksAndCollections}, this never touches other
+     * elements that share the same {@link Card} / passCode.
+     *
+     * @param elementsToRemove the specific element instances to remove
      */
     public static void handleBulkRemoveElementsFromDecksAndCollections(
             java.util.Collection<CardElement> elementsToRemove) {
-        if (elementsToRemove == null || elementsToRemove.isEmpty()) return;
-        DecksAndCollectionsList dac = UserInterfaceFunctions.getDecksList();
-        if (dac == null) return;
+        if (elementsToRemove == null || elementsToRemove.isEmpty()) {
+            return;
+        }
+        DecksAndCollectionsList decksAndCollections = UserInterfaceFunctions.getDecksList();
+        if (decksAndCollections == null) {
+            return;
+        }
 
         // Identity-based set so two CardElements wrapping the same Card are treated independently
         java.util.Set<CardElement> identitySet =
@@ -1321,74 +1749,110 @@ public final class MenuActionHandler {
         identitySet.addAll(elementsToRemove);
 
         java.util.function.Predicate<List<CardElement>> removeMatching = list -> {
-            if (list == null) return false;
-            return list.removeIf(ce -> ce != null && identitySet.contains(ce));
+            if (list == null) {
+                return false;
+            }
+            return list.removeIf(cardElement ->
+                    cardElement != null && identitySet.contains(cardElement));
         };
 
         java.util.Set<Object> dirtyOwners = new java.util.LinkedHashSet<>();
 
-        if (dac.getCollections() != null) {
-            for (ThemeCollection tc : dac.getCollections()) {
-                if (tc == null) continue;
+        if (decksAndCollections.getCollections() != null) {
+            for (ThemeCollection themeCollection : decksAndCollections.getCollections()) {
+                if (themeCollection == null) {
+                    continue;
+                }
                 boolean tcChanged =
-                        removeMatching.test(tc.getCardsList())
-                                | removeMatching.test(tc.getExceptionsToNotAdd());
-                if (tcChanged) dirtyOwners.add(tc);
-                if (tc.getLinkedDecks() != null) {
-                    for (List<Deck> unit : tc.getLinkedDecks()) {
-                        if (unit == null) continue;
+                        removeMatching.test(themeCollection.getCardsList())
+                                | removeMatching.test(themeCollection.getExceptionsToNotAdd());
+                if (tcChanged) {
+                    dirtyOwners.add(themeCollection);
+                }
+                if (themeCollection.getLinkedDecks() != null) {
+                    for (List<Deck> unit : themeCollection.getLinkedDecks()) {
+                        if (unit == null) {
+                            continue;
+                        }
                         for (Deck deck : unit) {
-                            if (deck == null) continue;
+                            if (deck == null) {
+                                continue;
+                            }
                             boolean changed =
                                     removeMatching.test(deck.getMainDeck())
                                             | removeMatching.test(deck.getExtraDeck())
                                             | removeMatching.test(deck.getSideDeck());
-                            if (changed) dirtyOwners.add(deck);
+                            if (changed) {
+                                dirtyOwners.add(deck);
+                            }
                         }
                     }
                 }
             }
         }
-        if (dac.getDecks() != null) {
-            for (Deck deck : dac.getDecks()) {
-                if (deck == null) continue;
+        if (decksAndCollections.getDecks() != null) {
+            for (Deck deck : decksAndCollections.getDecks()) {
+                if (deck == null) {
+                    continue;
+                }
                 boolean changed =
                         removeMatching.test(deck.getMainDeck())
                                 | removeMatching.test(deck.getExtraDeck())
                                 | removeMatching.test(deck.getSideDeck());
-                if (changed) dirtyOwners.add(deck);
+                if (changed) {
+                    dirtyOwners.add(deck);
+                }
             }
         }
 
-        for (Object owner : dirtyOwners) UserInterfaceFunctions.markDirty(owner);
+        for (Object owner : dirtyOwners) {
+            UserInterfaceFunctions.markDirty(owner);
+        }
         if (!dirtyOwners.isEmpty()) {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
         }
     }
 
+    // ── Bulk remove from Decks & Collections ──────────────────────────────────
+
     /**
-     * Inserts copies of {@code cardsToInsert} immediately after {@code afterElement}.
-     * Returns true if the insertion succeeded, false if the containing group was not found.
+     * Inserts copies of {@code cardsToInsert} immediately after {@code afterElement}
+     * in the group that contains it.
+     * <p>
+     * When the host group is a main- or extra-deck section, cards are split by
+     * deck compatibility: compatible cards are inserted at the requested position
+     * while incompatible cards are appended to the appropriate sibling section of
+     * the same {@link Deck}.
+     * </p>
+     *
+     * @param cardsToInsert the cards to insert
+     * @param afterElement  the anchor element
+     * @return {@code true} if at least one card was inserted or redirected;
+     *         {@code false} if the containing group was not found
      */
     public static boolean handleInsertCardsAfterElement(
             List<Card> cardsToInsert, CardElement afterElement) {
-        if (cardsToInsert == null || cardsToInsert.isEmpty() || afterElement == null) return false;
+        if (cardsToInsert == null || cardsToInsert.isEmpty() || afterElement == null) {
+            return false;
+        }
 
-        CardsGroup hostGroup = View.CardTreeCell.findGroupForCardElement(afterElement);
+        CardsGroup hostGroup = CardTreeCell.findGroupForCardElement(afterElement);
         if (hostGroup == null) {
             OwnedCardsCollection owned = safeGetOwnedCollection();
-            if (owned != null) hostGroup = findGroupContainingElement(afterElement, owned);
+            if (owned != null) {
+                hostGroup = findGroupContainingElement(afterElement, owned);
+            }
         }
         if (hostGroup == null) {
             logger.warn("handleInsertCardsAfterElement: could not find group for element");
             return false;
         }
 
-        // ── Deck-compatibility redirect ────────────────────────────────────────
+        // ── Deck-compatibility redirect ────────────────────────────────────
         // When the host group is a main/extra deck section, split cards into
-        // compatible (stay in hostGroup, inserted after afterElement) and
-        // incompatible (appended to the sibling section of the same Deck).
+        // compatible (inserted after afterElement) and incompatible (appended
+        // to the sibling section of the same Deck).
         String groupName = hostGroup.getName();
         boolean targetIsMainOrExtra =
                 Utils.DeckCompatibility.isMainDeckSection(groupName)
@@ -1398,141 +1862,151 @@ public final class MenuActionHandler {
             List<Card> compatible = new ArrayList<>();
             List<Card> incompatible = new ArrayList<>();
             for (Card card : cardsToInsert) {
-                if (card == null) continue;
-                if (Utils.DeckCompatibility.isCompatibleWith(card, groupName))
+                if (card == null) {
+                    continue;
+                }
+                if (Utils.DeckCompatibility.isCompatibleWith(card, groupName)) {
                     compatible.add(card);
-                else
+                } else {
                     incompatible.add(card);
+                }
             }
 
             // Insert compatible cards after afterElement in hostGroup
             if (!compatible.isEmpty()) {
                 javafx.collections.ObservableList<CardElement> list =
-                        View.CardTreeCell.observableListFor(hostGroup);
-                int idx = list.indexOf(afterElement);
-                if (idx < 0) idx = list.size() - 1;
+                        CardTreeCell.observableListFor(hostGroup);
+                int insertionIndex = list.indexOf(afterElement);
+                if (insertionIndex < 0) {
+                    insertionIndex = list.size() - 1;
+                }
                 for (int i = 0; i < compatible.size(); i++) {
-                    int pos = Math.min(idx + 1 + i, list.size());
+                    int pos = Math.min(insertionIndex + 1 + i, list.size());
                     list.add(pos, new CardElement(compatible.get(i)));
                 }
-                View.CardTreeCell.triggerHeightAdjustment(hostGroup);
+                CardTreeCell.triggerHeightAdjustment(hostGroup);
             }
 
-            // Append incompatible cards at the END of the sibling section
+            // Append incompatible cards to the end of the sibling section
             if (!incompatible.isEmpty()) {
                 String redirect = Utils.DeckCompatibility.redirectSection(
                         incompatible.get(0), groupName);
                 if (redirect != null) {
-                    Model.CardsLists.Deck ownerDeck =
-                            View.CardTreeCell.findDeckOwnerForGroup(hostGroup);
+                    Deck ownerDeck = CardTreeCell.findDeckOwnerForGroup(hostGroup);
                     if (ownerDeck != null) {
-                        String key = redirect.toLowerCase(java.util.Locale.ROOT)
+                        String sectionKey = redirect.toLowerCase(java.util.Locale.ROOT)
                                 .replace(" deck", "").trim(); // "main" or "extra"
                         CardsGroup altGroup =
-                                View.CardTreeCell.getDeckSectionGroup(ownerDeck, key);
+                                CardTreeCell.getDeckSectionGroup(ownerDeck, sectionKey);
                         if (altGroup != null) {
                             javafx.collections.ObservableList<CardElement> altList =
-                                    View.CardTreeCell.observableListFor(altGroup);
-                            // Always append at the end — do not carry over the source index
-                            for (Card card : incompatible)
+                                    CardTreeCell.observableListFor(altGroup);
+                            for (Card card : incompatible) {
                                 altList.add(new CardElement(card));
-                            View.CardTreeCell.triggerHeightAdjustment(altGroup);
+                            }
+                            CardTreeCell.triggerHeightAdjustment(altGroup);
                         }
                     }
                 }
             }
             return !compatible.isEmpty() || !incompatible.isEmpty();
         }
-        // ──────────────────────────────────────────────────────────────────────
+        // ──────────────────────────────────────────────────────────────────
 
-        // Normal (non-deck-section) insertion — unchanged behaviour
+        // Normal (non-deck-section) insertion
         javafx.collections.ObservableList<CardElement> observableList =
-                View.CardTreeCell.observableListFor(hostGroup);
+                CardTreeCell.observableListFor(hostGroup);
         int insertionIndex = observableList.indexOf(afterElement);
-        if (insertionIndex < 0) insertionIndex = observableList.size() - 1;
+        if (insertionIndex < 0) {
+            insertionIndex = observableList.size() - 1;
+        }
 
         for (int i = 0; i < cardsToInsert.size(); i++) {
             Card card = cardsToInsert.get(i);
-            if (card == null) continue;
+            if (card == null) {
+                continue;
+            }
             int targetIndex = insertionIndex + 1 + i;
-            if (targetIndex > observableList.size()) targetIndex = observableList.size();
+            if (targetIndex > observableList.size()) {
+                targetIndex = observableList.size();
+            }
             observableList.add(targetIndex, new CardElement(card));
         }
-        View.CardTreeCell.triggerHeightAdjustment(hostGroup);
+        CardTreeCell.triggerHeightAdjustment(hostGroup);
         return true;
     }
 
     /**
-     * Returns the {@link Model.CardsLists.Deck} that owns {@code group} as one of
-     * its registered section groups (main / extra / side), or {@code null}.
-     * Delegates to {@link View.CardTreeCell#findDeckOwnerForGroup} which searches
-     * the live DECK_SECTION_GROUPS registry.
+     * Returns the {@link Deck} that owns {@code group} as one of its registered
+     * section groups (main / extra / side), or {@code null}.
+     * Delegates to {@link CardTreeCell#findDeckOwnerForGroup}.
+     *
+     * @param group the group to look up
+     * @return the owning deck, or {@code null}
      */
-    private static Model.CardsLists.Deck findDeckOwnerForGroup(CardsGroup group) {
-        if (group == null) return null;
-        // CardTreeCell exposes a public helper for exactly this lookup.
-        return View.CardTreeCell.findDeckOwnerForGroup(group);
+    private static Deck findDeckOwnerForGroup(CardsGroup group) {
+        if (group == null) {
+            return null;
+        }
+        return CardTreeCell.findDeckOwnerForGroup(group);
     }
 
-    // ── Swap ─────────────────────────────────────────────────────────────────
+    // ── Insert cards after element ────────────────────────────────────────────
 
     /**
      * Swaps {@code incoming} (an owned copy with better condition/rarity) into the
      * position currently occupied by {@code outgoing} (a degraded copy inside a deck
      * or collection), and moves {@code outgoing} back into the owned collection at the
      * position {@code incoming} came from.
-     *
-     * <p>Both positions are preserved so the order in the deck/collection and in the
-     * owned collection stays stable.</p>
-     *
-     * <p>Safe to call from any thread.</p>
+     * <p>
+     * Both positions are preserved so the order in the deck/collection and in the
+     * owned collection stays stable. Safe to call from any thread.
+     * </p>
      *
      * @param incoming the owned {@link CardElement} that is the quality upgrade
      * @param outgoing the deck/collection {@link CardElement} to be replaced
      */
     public static void handleSwap(CardElement incoming, CardElement outgoing) {
-        if (incoming == null || outgoing == null) return;
+        if (incoming == null || outgoing == null) {
+            return;
+        }
         try {
             if (Platform.isFxApplicationThread()) {
                 doSwap(incoming, outgoing);
             } else {
                 Platform.runLater(() -> doSwap(incoming, outgoing));
             }
-        } catch (Throwable t) {
-            logger.debug("handleSwap failed", t);
+        } catch (Throwable throwable) {
+            logger.debug("handleSwap failed", throwable);
         }
     }
 
     /**
      * Core swap logic — must be called on the FX Application Thread.
-     *
-     * <p>Steps:
      * <ol>
      *   <li>Locate {@code outgoing} in every DAC list and record its position.</li>
      *   <li>Locate {@code incoming} in the owned collection and record its position.</li>
      *   <li>Replace {@code outgoing} with {@code incoming} in the DAC list (same index).</li>
      *   <li>Replace {@code incoming} with {@code outgoing} in the owned collection
-     *       (same index) so the previous owner of that slot now lives in the owned
-     *       collection at the spot the upgrade copy came from.</li>
+     *       (same index).</li>
      *   <li>Mark both sides dirty and refresh both views.</li>
      * </ol>
-     * </p>
      */
     private static void doSwap(CardElement incoming, CardElement outgoing) {
         OwnedCardsCollection owned = safeGetOwnedCollection();
-        DecksAndCollectionsList dac = null;
+        DecksAndCollectionsList decksAndCollections = null;
         try {
-            dac = UserInterfaceFunctions.getDecksList();
+            decksAndCollections = UserInterfaceFunctions.getDecksList();
         } catch (Throwable ignored) {
         }
 
-        if (owned == null || dac == null) {
-            logger.warn("doSwap: owned collection or DAC not available");
+        if (owned == null || decksAndCollections == null) {
+            logger.warn("doSwap: owned collection or decksAndCollections not available");
             return;
         }
 
         // 1. Find outgoing's location in DAC
-        DacLocation outgoingLoc = findInDac(outgoing, dac);
+        DacLocation outgoingLoc = findInDac(outgoing, decksAndCollections);
         if (outgoingLoc == null) {
             logger.warn("doSwap: outgoing element not found in any DAC list");
             return;
@@ -1548,8 +2022,8 @@ public final class MenuActionHandler {
         // 3. Swap in DAC list (in-place, preserving index)
         try {
             outgoingLoc.list.set(outgoingLoc.index, incoming);
-        } catch (Throwable ex) {
-            logger.debug("doSwap: failed to replace outgoing in DAC list", ex);
+        } catch (Throwable exception) {
+            logger.debug("doSwap: failed to replace outgoing in DAC list", exception);
             return;
         }
 
@@ -1557,20 +2031,22 @@ public final class MenuActionHandler {
         try {
             javafx.collections.ObservableList<CardElement> srcObs =
                     CardTreeCell.observableListFor(incomingLoc.group);
-            int idx = incomingLoc.index;
-            if (idx >= 0 && idx < srcObs.size() && srcObs.get(idx) == incoming) {
-                srcObs.set(idx, outgoing);
+            int insertionIndex = incomingLoc.index;
+            if (insertionIndex >= 0
+                    && insertionIndex < srcObs.size()
+                    && srcObs.get(insertionIndex) == incoming) {
+                srcObs.set(insertionIndex, outgoing);
             } else {
-                int actualIdx = srcObs.indexOf(incoming);
-                if (actualIdx >= 0) {
-                    srcObs.set(actualIdx, outgoing);
+                int actualIndex = srcObs.indexOf(incoming);
+                if (actualIndex >= 0) {
+                    srcObs.set(actualIndex, outgoing);
                 } else {
                     srcObs.add(outgoing);
                 }
             }
             CardTreeCell.triggerHeightAdjustment(incomingLoc.group);
-        } catch (Throwable ex) {
-            logger.debug("doSwap: failed to replace incoming in owned collection", ex);
+        } catch (Throwable exception) {
+            logger.debug("doSwap: failed to replace incoming in owned collection", exception);
         }
 
         // 5. Mark dirty and refresh
@@ -1600,78 +2076,117 @@ public final class MenuActionHandler {
                 outgoing.getCard() != null ? outgoing.getCard().getName_EN() : "?");
     }
 
+    // ── Swap ──────────────────────────────────────────────────────────────────
+
     /**
      * Locates {@code element} (by object identity) in every card list in the DAC.
-     * Returns a {@link DacLocation} with the owning object, the list, and the index,
-     * or {@code null} if not found.
+     *
+     * @param element            the element to search for
+     * @param decksAndCollections the DAC to search
+     * @return a {@link DacLocation} with the owning object, the list, and the index,
+     *         or {@code null} if not found
      */
-    private static DacLocation findInDac(CardElement element, DecksAndCollectionsList dac) {
-        if (element == null || dac == null) return null;
-        if (dac.getCollections() != null) {
-            for (ThemeCollection tc : dac.getCollections()) {
-                if (tc == null) continue;
-                DacLocation loc;
-                loc = findInList(element, tc.getCardsList(), tc);
-                if (loc != null) return loc;
-                loc = findInList(element, tc.getExceptionsToNotAdd(), tc);
-                if (loc != null) return loc;
-                if (tc.getLinkedDecks() != null) {
-                    for (List<Deck> unit : tc.getLinkedDecks()) {
-                        if (unit == null) continue;
-                        for (Deck d : unit) {
-                            if (d == null) continue;
-                            loc = findInList(element, d.getMainDeck(), d);
-                            if (loc != null) return loc;
-                            loc = findInList(element, d.getExtraDeck(), d);
-                            if (loc != null) return loc;
-                            loc = findInList(element, d.getSideDeck(), d);
-                            if (loc != null) return loc;
+    private static DacLocation findInDac(CardElement element,
+                                         DecksAndCollectionsList decksAndCollections) {
+        if (element == null || decksAndCollections == null) {
+            return null;
+        }
+        if (decksAndCollections.getCollections() != null) {
+            for (ThemeCollection themeCollection : decksAndCollections.getCollections()) {
+                if (themeCollection == null) {
+                    continue;
+                }
+                DacLocation loc = findInList(element, themeCollection.getCardsList(),
+                        themeCollection);
+                if (loc != null) {
+                    return loc;
+                }
+                loc = findInList(element, themeCollection.getExceptionsToNotAdd(),
+                        themeCollection);
+                if (loc != null) {
+                    return loc;
+                }
+                if (themeCollection.getLinkedDecks() != null) {
+                    for (List<Deck> unit : themeCollection.getLinkedDecks()) {
+                        if (unit == null) {
+                            continue;
+                        }
+                        for (Deck deck : unit) {
+                            if (deck == null) {
+                                continue;
+                            }
+                            loc = findInList(element, deck.getMainDeck(), deck);
+                            if (loc != null) {
+                                return loc;
+                            }
+                            loc = findInList(element, deck.getExtraDeck(), deck);
+                            if (loc != null) {
+                                return loc;
+                            }
+                            loc = findInList(element, deck.getSideDeck(), deck);
+                            if (loc != null) {
+                                return loc;
+                            }
                         }
                     }
                 }
             }
         }
-        if (dac.getDecks() != null) {
-            for (Deck d : dac.getDecks()) {
-                if (d == null) continue;
-                DacLocation loc;
-                loc = findInList(element, d.getMainDeck(), d);
-                if (loc != null) return loc;
-                loc = findInList(element, d.getExtraDeck(), d);
-                if (loc != null) return loc;
-                loc = findInList(element, d.getSideDeck(), d);
-                if (loc != null) return loc;
+        if (decksAndCollections.getDecks() != null) {
+            for (Deck deck : decksAndCollections.getDecks()) {
+                if (deck == null) {
+                    continue;
+                }
+                DacLocation loc = findInList(element, deck.getMainDeck(), deck);
+                if (loc != null) {
+                    return loc;
+                }
+                loc = findInList(element, deck.getExtraDeck(), deck);
+                if (loc != null) {
+                    return loc;
+                }
+                loc = findInList(element, deck.getSideDeck(), deck);
+                if (loc != null) {
+                    return loc;
+                }
             }
         }
         return null;
     }
 
-    private static DacLocation findInList(CardElement element, List<CardElement> list, Object owner) {
-        if (list == null) return null;
+    private static DacLocation findInList(CardElement element, List<CardElement> list,
+                                          Object owner) {
+        if (list == null) {
+            return null;
+        }
         for (int i = 0; i < list.size(); i++) {
-            if (list.get(i) == element) return new DacLocation(owner, list, i);
+            if (list.get(i) == element) {
+                return new DacLocation(owner, list, i);
+            }
         }
         return null;
     }
 
     /**
-     * Opens the {@link View.CardEditPopup} for {@code element}, then refreshes
-     * all relevant views after the user confirms with OK.
-     *
-     * <p>Safe to call from any thread; the popup is always shown on the
-     * JavaFX Application Thread.</p>
+     * Opens the {@link View.CardEditPopup} for {@code element}, then refreshes all
+     * relevant views after the user confirms with OK.
+     * <p>
+     * Safe to call from any thread; the popup is always shown on the JavaFX
+     * Application Thread.
+     * </p>
      *
      * @param element the {@link CardElement} to edit (must not be {@code null})
      * @param anchor  any scene node used to centre the popup on the same window;
      *                may be {@code null} (popup will centre on screen)
      */
     public static void handleEditCard(CardElement element, javafx.scene.Node anchor) {
-        if (element == null) return;
+        if (element == null) {
+            return;
+        }
         Runnable show = () -> {
             try {
                 View.CardEditPopup popup = new View.CardEditPopup(element);
                 popup.setOnOk(() -> {
-                    // Refresh whichever collection is currently loaded
                     try {
                         UserInterfaceFunctions.refreshOwnedCollectionView();
                     } catch (Throwable ignored) {
@@ -1682,27 +2197,49 @@ public final class MenuActionHandler {
                     }
                 });
                 popup.showCenteredOn(anchor);
-            } catch (Throwable t) {
-                logger.error("handleEditCard failed", t);
+            } catch (Throwable throwable) {
+                logger.error("handleEditCard failed", throwable);
             }
         };
-        if (javafx.application.Platform.isFxApplicationThread()) {
+        if (Platform.isFxApplicationThread()) {
             show.run();
         } else {
-            javafx.application.Platform.runLater(show);
+            Platform.runLater(show);
         }
     }
 
-    // ── Edit Card ────────────────────────────────────────────────────────────
+    private static final class SourceLocation {
+        final Box box;
+        final CardsGroup group;
+        final CardElement element;
+        final int index;
+
+        SourceLocation(Box box, CardsGroup group, CardElement element, int index) {
+            this.box = box;
+            this.group = group;
+            this.element = element;
+            this.index = index;
+        }
+    }
+
+    // ── Edit card ─────────────────────────────────────────────────────────────
+
+    private static final class Destination {
+        final Box box;
+        final CardsGroup group;
+
+        Destination(Box box, CardsGroup group) {
+            this.box = box;
+            this.group = group;
+        }
+    }
+
+    // ── Private record-like holders ───────────────────────────────────────────
 
     private static final class DacLocation {
-        /**
-         * The Deck or ThemeCollection that owns the list.
-         */
+        /** The {@link Deck} or {@link ThemeCollection} that owns the list. */
         final Object owner;
-        /**
-         * The actual list (mainDeck, extraDeck, sideDeck, or cardsList).
-         */
+        /** The actual list (mainDeck, extraDeck, sideDeck, or cardsList). */
         final List<CardElement> list;
         final int index;
 
