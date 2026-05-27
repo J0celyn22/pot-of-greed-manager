@@ -1,0 +1,605 @@
+package Controller;
+
+import Model.CardsLists.*;
+import View.*;
+import View.SharedCollectionTab.TabType;
+import javafx.beans.property.DoubleProperty;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Node;
+import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TreeView;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
+import javafx.scene.layout.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.util.*;
+
+/**
+ * OuicheListController — manages all display and navigation logic for the
+ * "OuicheList" tab.
+ *
+ * <p>Responsibilities:
+ * <ul>
+ *   <li>Building the OuicheList unified TreeView (mirroring the Decks
+ *       structure but filtered to missing cards).</li>
+ *   <li>Populating the OuicheList navigation menu.</li>
+ *   <li>Rendering the compact OuicheList view (list or mosaic layout).</li>
+ *   <li>Async image loading for the compact mosaic/list views.</li>
+ *   <li>Wiring the OuicheList action buttons (compact / mosaic toggle).</li>
+ * </ul>
+ *
+ * <p>Compact view data comes from {@link OuicheList#getMaOuicheList()} and
+ * {@link OuicheList#getMaOuicheListCounts()}, matching the pattern used in the
+ * original {@code RealMainController.displayCompactOuicheList}.
+ */
+public class OuicheListController {
+
+    private static final Logger logger = LoggerFactory.getLogger(OuicheListController.class);
+
+    // ── Injected shared state ─────────────────────────────────────────────────
+
+    private final DoubleProperty cardWidthProperty;
+    private final DoubleProperty cardHeightProperty;
+    private final SharedCollectionTab ouicheListTab;
+    private final RealMainController coordinator;
+    private final DecksCollectionsController decksController;
+
+    // ── Live state ────────────────────────────────────────────────────────────
+
+    private TreeView<String> ouicheListTreeView;
+
+    // ── Constructor ───────────────────────────────────────────────────────────
+
+    /**
+     * Creates an OuicheListController.
+     *
+     * @param coordinator        the thin coordinator
+     * @param cardWidthProperty  shared card-width property
+     * @param cardHeightProperty shared card-height property
+     * @param ouicheListTab      the tab UI container for OuicheList
+     * @param decksController    the DecksCollectionsController used to build collection tree items
+     */
+    public OuicheListController(RealMainController coordinator,
+                                DoubleProperty cardWidthProperty,
+                                DoubleProperty cardHeightProperty,
+                                SharedCollectionTab ouicheListTab,
+                                DecksCollectionsController decksController) {
+        this.coordinator = coordinator;
+        this.cardWidthProperty = cardWidthProperty;
+        this.cardHeightProperty = cardHeightProperty;
+        this.ouicheListTab = ouicheListTab;
+        this.decksController = decksController;
+    }
+
+    // ── Display ───────────────────────────────────────────────────────────────
+
+    /**
+     * Builds and installs the OuicheList unified {@link TreeView} into the tab's
+     * content pane.
+     *
+     * <p>The tree mirrors the Decks & Collections tree but only shows collections
+     * that contain at least one missing card. If no cards are missing, a
+     * "Nothing missing!" placeholder label is shown instead.
+     *
+     * @throws Exception if the DecksAndCollectionsList cannot be loaded
+     */
+    public void displayOuicheListUnified() throws Exception {
+        AnchorPane contentPane = ouicheListTab.getContentPane();
+        contentPane.getChildren().clear();
+
+        if (UserInterfaceFunctions.getDecksList() == null) {
+            UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+        }
+        DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
+        if (decksList == null) {
+            throw new Exception(
+                    "DecksAndCollectionsList is null. Cannot build the OuicheList.");
+        }
+
+        DataTreeItem<Object> rootItem = new DataTreeItem<>("OuicheList", "ROOT");
+        rootItem.setExpanded(true);
+        boolean anyMissing = false;
+
+        if (decksList.getCollections() != null) {
+            for (ThemeCollection collection : decksList.getCollections()) {
+                Set<String> missingIds = buildMissingIdsForCollection(collection);
+                if (missingIds.isEmpty()) {
+                    continue;
+                }
+                DataTreeItem<Object> collectionItem =
+                        decksController.createThemeCollectionTreeItem(
+                                collection, TabType.OUICHE_LIST);
+                rootItem.getChildren().add(collectionItem);
+                anyMissing = true;
+            }
+        }
+
+        if (!anyMissing) {
+            Label nothingMissingLabel = new Label("Nothing missing!");
+            nothingMissingLabel.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 16px;");
+            contentPane.getChildren().add(nothingMissingLabel);
+            AnchorPane.setTopAnchor(nothingMissingLabel, 30.0);
+            AnchorPane.setLeftAnchor(nothingMissingLabel, 20.0);
+            logger.info("OuicheList: nothing missing.");
+            return;
+        }
+
+        ouicheListTreeView = new TreeView<>(rootItem);
+        ouicheListTreeView.setUserData("OUICHE_LIST");
+        ouicheListTreeView.setCellFactory(
+                param -> new CardTreeCell(cardWidthProperty, cardHeightProperty));
+        ouicheListTreeView.setStyle("-fx-background-color: #100317;");
+        ouicheListTreeView.setShowRoot(false);
+        ouicheListTreeView.addEventFilter(
+                javafx.scene.input.MouseEvent.MOUSE_CLICKED,
+                coordinator.buildMiddlePaneEmptySpaceFilter());
+
+        contentPane.getChildren().add(ouicheListTreeView);
+        AnchorPane.setTopAnchor(ouicheListTreeView, 0.0);
+        AnchorPane.setBottomAnchor(ouicheListTreeView, 0.0);
+        AnchorPane.setLeftAnchor(ouicheListTreeView, 0.0);
+        AnchorPane.setRightAnchor(ouicheListTreeView, 0.0);
+
+        String stylesheetPath = "src/main/resources/styles.css";
+        ouicheListTreeView.getStylesheets().add(new File(stylesheetPath).toURI().toString());
+
+        coordinator.setOuicheListTreeView(ouicheListTreeView);
+
+        logger.info("OuicheList unified view displayed.");
+    }
+
+    // ── Navigation menu ───────────────────────────────────────────────────────
+
+    /**
+     * Rebuilds the left-hand navigation menu for the OuicheList.
+     * Only collections that have at least one missing card are shown.
+     *
+     * @throws Exception if the model cannot be loaded
+     */
+    public void populateOuicheListMenu() throws Exception {
+        VBox menuVBox = ouicheListTab.getMenuVBox();
+        menuVBox.getChildren().clear();
+        NavigationMenu navigationMenu = new NavigationMenu();
+
+        if (UserInterfaceFunctions.getDecksList() == null) {
+            UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+        }
+        DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
+        if (decksList == null) {
+            menuVBox.getChildren().add(navigationMenu);
+            return;
+        }
+
+        if (decksList.getCollections() != null) {
+            for (ThemeCollection collection : decksList.getCollections()) {
+                Set<String> missingIds = buildMissingIdsForCollection(collection);
+                if (missingIds.isEmpty()) {
+                    continue;
+                }
+
+                NavigationItem collectionNavItem =
+                        NavigationHelper.createNavigationItem(collection.getName(), 0);
+                collectionNavItem.setUserData(collection);
+                collectionNavItem.setItemType(NavigationItem.ItemType.COLLECTION);
+                collectionNavItem.getLabel().setStyle("-fx-font-weight: bold;");
+                NavigationHelper.applyNavigationItemHighlight(collectionNavItem, true,
+                        "This collection has missing cards.");
+
+                collectionNavItem.setOnLabelClicked(evt -> {
+                    SelectionManager.setLastClickedNavigationItem(collection);
+                    NavigationHelper.navigateToTree(ouicheListTreeView, collection.getName());
+                });
+
+                if (collection.getLinkedDecks() != null) {
+                    for (List<Deck> unit : collection.getLinkedDecks()) {
+                        if (unit == null) {
+                            continue;
+                        }
+                        for (Deck deck : unit) {
+                            if (deck == null) {
+                                continue;
+                            }
+                            Set<String> deckMissing =
+                                    buildMissingIdsForDeck(deck, collection);
+                            if (deckMissing.isEmpty()) {
+                                continue;
+                            }
+
+                            NavigationItem deckNavItem =
+                                    NavigationHelper.createNavigationItem(deck.getName(), 1);
+                            deckNavItem.setUserData(deck);
+                            deckNavItem.setItemType(NavigationItem.ItemType.DECK);
+                            NavigationHelper.applyNavigationItemHighlight(deckNavItem, true,
+                                    "This deck has missing cards.");
+                            deckNavItem.setOnLabelClicked(evt -> {
+                                SelectionManager.setLastClickedNavigationItem(deck);
+                                NavigationHelper.navigateToTree(ouicheListTreeView,
+                                        collection.getName(), "Decks", deck.getName());
+                            });
+                            collectionNavItem.addSubItem(deckNavItem);
+                        }
+                    }
+                }
+
+                navigationMenu.addItem(collectionNavItem);
+            }
+        }
+
+        menuVBox.getChildren().add(navigationMenu);
+    }
+
+    // ── Compact view ──────────────────────────────────────────────────────────
+
+    /**
+     * Displays the compact OuicheList view. Data comes from the already-generated
+     * {@link OuicheList#getMaOuicheList()} and {@link OuicheList#getMaOuicheListCounts()}.
+     *
+     * @param mosaicMode {@code true} for an image-grid, {@code false} for a card-row list
+     * @throws Exception if the OuicheList data cannot be generated
+     */
+    public void displayCompactOuicheList(boolean mosaicMode) throws Exception {
+        AnchorPane contentPane = ouicheListTab.getContentPane();
+        contentPane.getChildren().clear();
+
+        if (OuicheList.getMaOuicheList() == null) {
+            UserInterfaceFunctions.generateOuicheListType();
+        }
+
+        Map<String, CardElement> uniqueCards = OuicheList.getMaOuicheList();
+        Map<String, Integer> cardCounts = OuicheList.getMaOuicheListCounts();
+
+        if (uniqueCards == null || uniqueCards.isEmpty()) {
+            Label emptyLabel = new Label("OuicheList is empty.");
+            emptyLabel.setStyle("-fx-text-fill: white;");
+            contentPane.getChildren().add(emptyLabel);
+            return;
+        }
+
+        Node content = mosaicMode
+                ? buildCompactMosaicView(uniqueCards)
+                : buildCompactListView(uniqueCards, cardCounts);
+
+        ScrollPane scrollPane = new ScrollPane(content);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setStyle("-fx-background-color: #100317; -fx-background: #100317;");
+        scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+
+        contentPane.getChildren().add(scrollPane);
+        AnchorPane.setTopAnchor(scrollPane, 0.0);
+        AnchorPane.setBottomAnchor(scrollPane, 0.0);
+        AnchorPane.setLeftAnchor(scrollPane, 0.0);
+        AnchorPane.setRightAnchor(scrollPane, 0.0);
+    }
+
+    /**
+     * Builds the compact list view: one row per unique card, showing image + FR/EN/JA names
+     * + count (top-right) + unit/total price (bottom-right).
+     *
+     * @param uniqueCards the unique-card map from {@link OuicheList#getMaOuicheList()}
+     * @param cardCounts  the count map from {@link OuicheList#getMaOuicheListCounts()}
+     * @return the root {@link Node} to place inside a ScrollPane
+     */
+    public Node buildCompactListView(Map<String, CardElement> uniqueCards,
+                                     Map<String, Integer> cardCounts) {
+        final double imageWidth = 80.0;
+        final double imageHeight = 116.0;
+
+        VBox listBox = new VBox(6);
+        listBox.setPadding(new Insets(10));
+        listBox.setStyle("-fx-background-color: #100317;");
+
+        for (Map.Entry<String, CardElement> entry : uniqueCards.entrySet()) {
+            CardElement cardElement = entry.getValue();
+            Card card = cardElement.getCard();
+            int count = cardCounts != null && cardCounts.containsKey(entry.getKey())
+                    ? cardCounts.get(entry.getKey()) : 1;
+
+            HBox row = new HBox(10);
+            row.setPadding(new Insets(8));
+            row.setAlignment(Pos.CENTER_LEFT);
+            row.setStyle(
+                    "-fx-border-color: white; -fx-border-width: 1; "
+                            + "-fx-border-radius: 5; -fx-background-radius: 5; "
+                            + "-fx-background-color: black;");
+
+            // ── Card image (left) ──────────────────────────────────────────
+            ImageView imageView = new ImageView();
+            imageView.setFitWidth(imageWidth);
+            imageView.setFitHeight(imageHeight);
+            imageView.setPreserveRatio(true);
+            loadCardImageInto(card, imageView, imageWidth, imageHeight);
+
+            // ── Names (centre, fills remaining space) ──────────────────────
+            VBox namesBox = new VBox(4);
+            HBox.setHgrow(namesBox, Priority.ALWAYS);
+            namesBox.setAlignment(Pos.CENTER_LEFT);
+
+            Label frLabel = new Label(card.getName_FR() != null ? card.getName_FR() : "");
+            Label enLabel = new Label(card.getName_EN() != null ? card.getName_EN() : "");
+            Label jaLabel = new Label(card.getName_JA() != null ? card.getName_JA() : "");
+            frLabel.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+            enLabel.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+            jaLabel.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
+            frLabel.setWrapText(true);
+            enLabel.setWrapText(true);
+            jaLabel.setWrapText(true);
+            namesBox.getChildren().addAll(frLabel, enLabel, jaLabel);
+
+            // ── Count + price (right, top-aligned) ────────────────────────
+            VBox valueBox = new VBox(4);
+            valueBox.setAlignment(Pos.TOP_RIGHT);
+
+            Label countLabel = new Label("\u00d7" + count);
+            countLabel.setStyle("-fx-text-fill: white; -fx-font-size: 14; -fx-font-weight: bold;");
+            valueBox.getChildren().add(countLabel);
+
+            if (card.getPrice() != null && !card.getPrice().trim().isEmpty()) {
+                try {
+                    float unitPrice = Float.parseFloat(card.getPrice().trim());
+                    float totalPrice = unitPrice * count;
+                    Label unitPriceLabel = new Label(String.format("%.2f\u20ac", unitPrice));
+                    Label totalPriceLabel = new Label(String.format("= %.2f\u20ac", totalPrice));
+                    unitPriceLabel.setStyle(
+                            "-fx-text-fill: white; -fx-font-size: 11; -fx-font-weight: bold;");
+                    totalPriceLabel.setStyle(
+                            "-fx-text-fill: white; -fx-font-size: 11; -fx-font-weight: bold;");
+                    valueBox.getChildren().addAll(unitPriceLabel, totalPriceLabel);
+                } catch (NumberFormatException ignored) {
+                }
+            }
+
+            row.getChildren().addAll(imageView, namesBox, valueBox);
+            listBox.getChildren().add(row);
+        }
+
+        return listBox;
+    }
+
+    /**
+     * Builds the compact mosaic view: one image per unique card, wrapped in a FlowPane.
+     * No titles, no categories — pure image grid.
+     *
+     * @param uniqueCards the unique-card map from {@link OuicheList#getMaOuicheList()}
+     * @return the root {@link Node} to place inside a ScrollPane
+     */
+    public Node buildCompactMosaicView(Map<String, CardElement> uniqueCards) {
+        double cellWidth = cardWidthProperty.get();
+        double cellHeight = cardHeightProperty.get();
+
+        FlowPane flow = new FlowPane();
+        flow.setHgap(5);
+        flow.setVgap(5);
+        flow.setPadding(new Insets(10));
+        flow.setStyle("-fx-background-color: #100317;");
+
+        for (Map.Entry<String, CardElement> entry : uniqueCards.entrySet()) {
+            Card card = entry.getValue().getCard();
+
+            ImageView imageView = new ImageView();
+            imageView.setFitWidth(cellWidth);
+            imageView.setFitHeight(cellHeight);
+            imageView.setPreserveRatio(true);
+            loadCardImageInto(card, imageView, cellWidth, cellHeight);
+
+            StackPane wrapper = new StackPane(imageView);
+            wrapper.setPadding(new Insets(2));
+            flow.getChildren().add(wrapper);
+        }
+
+        return flow;
+    }
+
+    /**
+     * Loads a card image asynchronously into the given {@link ImageView}, using
+     * {@link Utils.LruImageCache} and {@code DataBaseUpdate.getAddresses} exactly
+     * like the other cell renderers in the application.
+     *
+     * @param card      the card whose image to load
+     * @param imageView the ImageView to populate once the image is ready
+     * @param fitWidth  the target fit-width passed to the {@link Image} constructor
+     * @param fitHeight the target fit-height passed to the {@link Image} constructor
+     */
+    public void loadCardImageInto(Card card, ImageView imageView,
+                                  double fitWidth, double fitHeight) {
+        if (card == null || card.getImagePath() == null) {
+            return;
+        }
+
+        String imageKey = card.getImagePath();
+        String[] addresses =
+                Model.Database.DataBaseUpdate.getAddresses(imageKey + ".jpg");
+        if (addresses == null || addresses.length == 0) {
+            return;
+        }
+
+        final String resolvedPath = "file:" + addresses[0];
+
+        // Fast path: already cached on the FX thread.
+        Image cached = Utils.LruImageCache.getImage(resolvedPath);
+        if (cached != null) {
+            imageView.setImage(cached);
+            return;
+        }
+
+        // Background load — never block the FX thread.
+        Thread loaderThread = new Thread(() -> {
+            try {
+                Image loadedImage =
+                        new Image(resolvedPath, fitWidth, fitHeight, true, true);
+                Utils.LruImageCache.addImage(resolvedPath, loadedImage);
+                javafx.application.Platform.runLater(() -> imageView.setImage(loadedImage));
+            } catch (Exception exception) {
+                logger.debug("loadCardImageInto: failed to load image for {}",
+                        resolvedPath, exception);
+            }
+        }, "compact-ouiche-img-loader");
+        loaderThread.setDaemon(true);
+        loaderThread.start();
+    }
+
+    // ── OuicheList action buttons ─────────────────────────────────────────────
+
+    /**
+     * Wires the two toggle buttons that appear in the OuicheList tab header:
+     * <ul>
+     *   <li><b>Compact / Detailed</b> — toggles between compact (list) and unified tree.</li>
+     *   <li><b>Mosaic / List</b> — visible only in compact mode; switches between image
+     *       grid and card-row list.</li>
+     * </ul>
+     * The button instances are retrieved via
+     * {@link SharedCollectionTab#getCompactDetailedButton()} and
+     * {@link SharedCollectionTab#getMosaicListButton()}.
+     */
+    public void setupOuicheListButtons() {
+        Button compactDetailedButton = ouicheListTab.getCompactDetailedButton();
+        Button mosaicListButton = ouicheListTab.getMosaicListButton();
+        if (compactDetailedButton == null || mosaicListButton == null) {
+            return;
+        }
+
+        compactDetailedButton.setOnAction(event -> {
+            if ("Compact mode".equals(compactDetailedButton.getText())) {
+                // ── Switch to Compact mode ─────────────────────────────────
+                compactDetailedButton.setText("Detailed mode");
+                mosaicListButton.setVisible(true);
+                mosaicListButton.setManaged(true);
+                mosaicListButton.setText("Mosaic");
+                try {
+                    displayCompactOuicheList(false);
+                } catch (Exception exception) {
+                    logger.error("Error displaying compact OuicheList", exception);
+                }
+            } else {
+                // ── Switch back to Detailed mode ───────────────────────────
+                compactDetailedButton.setText("Compact mode");
+                mosaicListButton.setVisible(false);
+                mosaicListButton.setManaged(false);
+                mosaicListButton.setText("Mosaic");
+                try {
+                    displayOuicheListUnified();
+                } catch (Exception exception) {
+                    logger.error("Error displaying detailed OuicheList", exception);
+                }
+            }
+        });
+
+        mosaicListButton.setOnAction(event -> {
+            if ("Mosaic".equals(mosaicListButton.getText())) {
+                mosaicListButton.setText("List");
+                try {
+                    displayCompactOuicheList(true);
+                } catch (Exception exception) {
+                    logger.error("Error switching compact OuicheList to mosaic", exception);
+                }
+            } else {
+                mosaicListButton.setText("Mosaic");
+                try {
+                    displayCompactOuicheList(false);
+                } catch (Exception exception) {
+                    logger.error("Error switching compact OuicheList to list", exception);
+                }
+            }
+        });
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Computes the union of missing-card IDs for a single collection, considering
+     * all of its archetypes.
+     */
+    private Set<String> buildMissingIdsForCollection(ThemeCollection collection) {
+        return decksController.computeMissingIdsForElements(
+                collection, gatherAllArchetypeElements(collection));
+    }
+
+    /**
+     * Computes the missing-card IDs for a single deck within its collection context.
+     */
+    private Set<String> buildMissingIdsForDeck(Deck deck, ThemeCollection collection) {
+        Set<String> deckIds = new HashSet<>();
+        List<List<CardElement>> sections = new ArrayList<>();
+        if (deck.getMainDeck() != null) {
+            sections.add(deck.getMainDeck());
+        }
+        if (deck.getExtraDeck() != null) {
+            sections.add(deck.getExtraDeck());
+        }
+        if (deck.getSideDeck() != null) {
+            sections.add(deck.getSideDeck());
+        }
+        for (List<CardElement> section : sections) {
+            for (CardElement cardElement : section) {
+                if (cardElement == null || cardElement.getCard() == null) {
+                    continue;
+                }
+                Card card = cardElement.getCard();
+                String konamiId = card.getKonamiId();
+                String passCode = card.getPassCode();
+                boolean present = false;
+                if (konamiId != null && !konamiId.isBlank()) {
+                    present = decksController.isKonamiIdPresentInCollection(
+                            collection, konamiId);
+                }
+                if (!present && passCode != null && !passCode.isBlank()) {
+                    present = decksController.isPassCodePresentInCollection(
+                            collection, passCode);
+                }
+                if (!present) {
+                    if (konamiId != null && !konamiId.isBlank()) {
+                        deckIds.add(konamiId);
+                    }
+                    if (passCode != null && !passCode.isBlank()) {
+                        deckIds.add(passCode);
+                    }
+                }
+            }
+        }
+        return deckIds;
+    }
+
+    /**
+     * Gathers all {@link CardElement}s across all archetypes in a {@link ThemeCollection}.
+     */
+    private List<CardElement> gatherAllArchetypeElements(ThemeCollection collection) {
+        List<CardElement> elements = new ArrayList<>();
+        if (collection == null) {
+            return elements;
+        }
+        try {
+            java.lang.reflect.Method archetypesMethod =
+                    collection.getClass().getMethod("getArchetypes");
+            Object result = archetypesMethod.invoke(collection);
+            if (result instanceof List) {
+                for (Object archetypeObj : (List<?>) result) {
+                    if (archetypeObj instanceof String archetypeName) {
+                        elements.addAll(
+                                decksController.buildElementsFromGlobalArchetype(
+                                        archetypeName.trim()));
+                    }
+                }
+            }
+        } catch (NoSuchMethodException ignored) {
+        } catch (Exception exception) {
+            logger.debug("gatherAllArchetypeElements failed for {}: {}",
+                    collection.getName(), exception.getMessage());
+        }
+        return elements;
+    }
+
+    // ── Accessors ─────────────────────────────────────────────────────────────
+
+    /**
+     * Returns the currently displayed OuicheList TreeView (may be null).
+     */
+    public TreeView<String> getOuicheListTreeView() {
+        return ouicheListTreeView;
+    }
+}
