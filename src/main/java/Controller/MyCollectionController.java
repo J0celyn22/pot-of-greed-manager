@@ -78,10 +78,10 @@ public class MyCollectionController {
      * Creates a MyCollectionController and immediately registers the owned-collection
      * refreshers with {@link UserInterfaceFunctions}.
      *
-     * @param coordinator        the thin coordinator (used to route display callbacks)
-     * @param cardWidthProperty  shared card-width property (bound to all cell factories)
+     * @param coordinator       the thin coordinator (used to route display callbacks)
+     * @param cardWidthProperty shared card-width property (bound to all cell factories)
      * @param cardHeightProperty shared card-height property
-     * @param myCollectionTab    the tab UI container for My Collection
+     * @param myCollectionTab   the tab UI container for My Collection
      */
     public MyCollectionController(RealMainController coordinator,
                                   DoubleProperty cardWidthProperty,
@@ -913,6 +913,16 @@ public class MyCollectionController {
         if (group == null || group.getCardList() == null) {
             return false;
         }
+
+        // Check once whether this group's name is a known D&C name.
+        // This gates the reason-4 check (degraded copy in D&C-named category) so we
+        // don't call isDegradedCopyInDeckOrCollection on type groups like "Monstres Fusion".
+        boolean isDeckOrCollGroup = false;
+        try {
+            isDeckOrCollGroup = CardQualityService.isDeckOrCollectionName(groupDisplayName);
+        } catch (Throwable ignored) {
+        }
+
         for (CardElement cardElement : group.getCardList()) {
             if (cardElement == null || cardElement.getCard() == null) {
                 continue;
@@ -925,6 +935,16 @@ public class MyCollectionController {
                 if (CardQualityService.computeCardNeedsSortingWithUpgrade(
                         cardElement, groupDisplayName)) {
                     return true;
+                }
+                // Reason 4: card is in a D&C-named sorting category and a better
+                // outside copy exists in the owned collection.
+                // computeCardNeedsSortingWithUpgrade returns false for D&C-named groups
+                // by design (its isDeckOrCollectionName guard), so we check separately.
+                if (isDeckOrCollGroup) {
+                    if (CardQualityService.isDegradedCopyInDeckOrCollection(
+                            cardElement, groupDisplayName)) {
+                        return true;
+                    }
                 }
             } catch (Throwable ignored) {
             }
@@ -1197,9 +1217,7 @@ public class MyCollectionController {
         return result;
     }
 
-    /**
-     * Scans a raw (untyped) list for any entry that needs sorting.
-     */
+    /** Scans a raw (untyped) list for any entry that needs sorting. */
     private boolean containsUnsortedFromRawList(List<?> rawList, String elementName) {
         if (rawList == null || rawList.isEmpty()) {
             return false;
@@ -1341,9 +1359,7 @@ public class MyCollectionController {
 
     // ── Accessor ──────────────────────────────────────────────────────────────
 
-    /**
-     * Returns the currently displayed My Collection TreeView (may be null before first display).
-     */
+    /** Returns the currently displayed My Collection TreeView (may be null before first display). */
     public TreeView<String> getMyCollectionTreeView() {
         return myCollectionTreeView;
     }
