@@ -333,7 +333,7 @@ public final class CardGridCellContextMenuBuilder {
             if (currentItem == null) {
                 return;
             }
-            MenuActionHandler.handlePasteAfterElementInOwnedCollection(
+            MenuActionHandler.handlePasteElementsAfterElementInOwnedCollection(
                     CardClipboard.getContents(), currentItem);
         });
         return mi;
@@ -357,14 +357,18 @@ public final class CardGridCellContextMenuBuilder {
             if (insertionIndex < 0) {
                 insertionIndex = deckGroupItems.size() - 1;
             }
-            List<Card> clipboardCards = CardClipboard.getContents();
-            for (int cardIndex = 0; cardIndex < clipboardCards.size(); cardIndex++) {
-                Card card = clipboardCards.get(cardIndex);
-                if (card == null) {
+            // D&C deck sections only carry Card identity — extract the Card from
+            // each clipboard element (condition/rarity are not used in this context).
+            List<CardElement> clipboardElements = CardClipboard.getContents();
+            for (int cardIndex = 0; cardIndex < clipboardElements.size(); cardIndex++) {
+                CardElement clipboardElement = clipboardElements.get(cardIndex);
+                if (clipboardElement == null || clipboardElement.getCard() == null) {
                     continue;
                 }
-                int targetIndex = Math.min(insertionIndex + 1 + cardIndex, deckGroupItems.size());
-                deckGroupItems.add(targetIndex, new CardElement(card));
+                int targetIndex = Math.min(
+                        insertionIndex + 1 + cardIndex, deckGroupItems.size());
+                deckGroupItems.add(targetIndex,
+                        new CardElement(clipboardElement.getCard()));
             }
             for (Map.Entry<CardsGroup, ObservableList<CardElement>> registryEntry
                     : CardGroupRegistry.GROUP_OBSERVABLE_LISTS.entrySet()) {

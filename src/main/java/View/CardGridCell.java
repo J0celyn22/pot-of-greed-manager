@@ -408,10 +408,14 @@ class CardGridCell extends GridCell<CardElement> {
             pasteAfterCardMenuItem.setText("");
             pasteAfterCardMenuItem.setVisible(false);
             pasteAfterCardMenuItem.setOnAction(ae -> {
-                if (Controller.CardClipboard.isEmpty()) return;
+                if (Controller.CardClipboard.isEmpty()) {
+                    return;
+                }
                 CardElement currentItem = getItem();
-                if (currentItem == null) return;
-                Controller.MenuActionHandler.handlePasteAfterElementInOwnedCollection(
+                if (currentItem == null) {
+                    return;
+                }
+                Controller.MenuActionHandler.handlePasteElementsAfterElementInOwnedCollection(
                         Controller.CardClipboard.getContents(), currentItem);
             });
         }
@@ -546,21 +550,34 @@ class CardGridCell extends GridCell<CardElement> {
                 decksPasteMenuItem.setGraphic(g);
                 decksPasteMenuItem.setText("");
                 decksPasteMenuItem.setOnAction(ae -> {
-                    if (Controller.CardClipboard.isEmpty()) return;
+                    if (Controller.CardClipboard.isEmpty()) {
+                        return;
+                    }
                     CardElement currentItem = getItem();
-                    if (currentItem == null) return;
+                    if (currentItem == null) {
+                        return;
+                    }
                     @SuppressWarnings("unchecked")
                     javafx.collections.ObservableList<CardElement> deckGroupItems =
                             (javafx.collections.ObservableList<CardElement>) getGridView().getItems();
                     int insertionIndex = deckGroupItems.indexOf(currentItem);
-                    if (insertionIndex < 0) insertionIndex = deckGroupItems.size() - 1;
-                    List<Model.CardsLists.Card> clipboardCards = Controller.CardClipboard.getContents();
-                    for (int i = 0; i < clipboardCards.size(); i++) {
-                        Model.CardsLists.Card card = clipboardCards.get(i);
-                        if (card == null) continue;
+                    if (insertionIndex < 0) {
+                        insertionIndex = deckGroupItems.size() - 1;
+                    }
+                    // D&C deck sections only carry Card identity — extract the Card
+                    // from each clipboard element (condition/rarity are not used here).
+                    List<CardElement> clipboardElements = Controller.CardClipboard.getContents();
+                    for (int i = 0; i < clipboardElements.size(); i++) {
+                        CardElement clipboardElement = clipboardElements.get(i);
+                        if (clipboardElement == null || clipboardElement.getCard() == null) {
+                            continue;
+                        }
                         int targetIndex = insertionIndex + 1 + i;
-                        if (targetIndex > deckGroupItems.size()) targetIndex = deckGroupItems.size();
-                        deckGroupItems.add(targetIndex, new CardElement(card));
+                        if (targetIndex > deckGroupItems.size()) {
+                            targetIndex = deckGroupItems.size();
+                        }
+                        deckGroupItems.add(targetIndex,
+                                new CardElement(clipboardElement.getCard()));
                     }
                     for (Map.Entry<Model.CardsLists.CardsGroup,
                             javafx.collections.ObservableList<CardElement>> entry
@@ -1165,21 +1182,38 @@ class CardGridCell extends GridCell<CardElement> {
 
     void executeCopyAction() {
         CardElement currentItem = getItem();
-        if (currentItem == null || currentItem.getCard() == null) return;
+        if (currentItem == null || currentItem.getCard() == null) {
+            return;
+        }
         if (isMiddleMultiSelectActive()) {
-            java.util.List<Model.CardsLists.Card> cardsToCopy = new java.util.ArrayList<>();
+            // Multi-selection in the middle pane: copy full CardElement snapshots
+            // so condition, rarity, and custom tags are preserved.
+            java.util.List<CardElement> elementsToCopy = new java.util.ArrayList<>();
             for (CardElement element : Controller.SelectionManager.getSelectedMiddleElements()) {
-                if (element.getCard() != null) cardsToCopy.add(element.getCard());
+                if (element.getCard() != null) {
+                    elementsToCopy.add(element);
+                }
             }
-            Controller.CardClipboard.copyCards(cardsToCopy);
+            Controller.CardClipboard.copyElements(elementsToCopy);
         } else if ("RIGHT".equals(Controller.SelectionManager.getActivePart())
                 && Controller.SelectionManager.getSelectedCards().size() > 1
-                && Controller.SelectionManager.getSelectedCards().contains(currentItem.getCard())) {
+                && Controller.SelectionManager.getSelectedCards().contains(
+                currentItem.getCard())) {
+            // Right pane: only bare Card objects available; no per-copy metadata.
             Controller.CardClipboard.copyCards(
-                    new java.util.ArrayList<>(Controller.SelectionManager.getSelectedCards()));
+                    new java.util.ArrayList<>(
+                            Controller.SelectionManager.getSelectedCards()));
         } else {
-            Controller.CardClipboard.copyCards(
-                    Collections.singletonList(currentItem.getCard()));
+            // Single card: preserve full element if in the middle pane (My Collection,
+            // D&C non-archetype); use bare Card for right pane and archetype lists.
+            if ("MIDDLE".equals(Controller.SelectionManager.getActivePart())
+                    && !outer.isInArchetypeGroup()) {
+                Controller.CardClipboard.copyElements(
+                        Collections.singletonList(currentItem));
+            } else {
+                Controller.CardClipboard.copyCards(
+                        Collections.singletonList(currentItem.getCard()));
+            }
         }
     }
 

@@ -1646,16 +1646,20 @@ public class RealMainController {
 
     private void handleCopySelectionToClipboard() {
         if ("MIDDLE".equals(SelectionManager.getActivePart())) {
-            List<Card> cardsToCopy = new ArrayList<>();
+            // Copy full CardElement snapshots so that condition, rarity, and
+            // custom tags are preserved across the copy/paste cycle.
+            List<CardElement> elementsToCopy = new ArrayList<>();
             for (CardElement element : SelectionManager.getSelectedMiddleElements()) {
                 if (element.getCard() != null) {
-                    cardsToCopy.add(element.getCard());
+                    elementsToCopy.add(element);
                 }
             }
-            if (!cardsToCopy.isEmpty()) {
-                CardClipboard.copyCards(cardsToCopy);
+            if (!elementsToCopy.isEmpty()) {
+                CardClipboard.copyElements(elementsToCopy);
             }
         } else {
+            // Right pane: only Card objects are available; condition/rarity are
+            // not available in this context, so bare-card copy is unavoidable.
             java.util.Set<Card> selectedCards = SelectionManager.getSelectedCards();
             if (!selectedCards.isEmpty()) {
                 CardClipboard.copyCards(new ArrayList<>(selectedCards));
@@ -1687,12 +1691,11 @@ public class RealMainController {
             return;
         }
         CardElement lastElement = selectedInOrder.get(selectedInOrder.size() - 1);
-        List<Card> cardsToInsert = selectedInOrder.stream()
-                .map(CardElement::getCard)
-                .collect(Collectors.toList());
 
-        boolean inserted = MenuActionHandler.handleInsertCardsAfterElement(
-                cardsToInsert, lastElement);
+        // Pass CardElement snapshots (not bare Cards) so that condition, rarity,
+        // and custom tags are duplicated together with the card identity.
+        boolean inserted = MenuActionHandler.handleInsertElementsAfterElement(
+                selectedInOrder, lastElement);
         if (!inserted) {
             logger.warn("handleDuplicateMiddleSelection: insertion failed");
             return;
@@ -1717,7 +1720,7 @@ public class RealMainController {
         if (CardClipboard.isEmpty()) {
             return;
         }
-        List<Card> clipboardCards = CardClipboard.getContents();
+        List<CardElement> clipboardElements = CardClipboard.getContents();
 
         // Priority 1: after the last element of the current MIDDLE selection
         if ("MIDDLE".equals(SelectionManager.getActivePart())
@@ -1735,7 +1738,8 @@ public class RealMainController {
                         break;
                     }
                 }
-                if (lastElement != null && pasteCardsAfterElement(clipboardCards, lastElement)) {
+                if (lastElement != null
+                        && pasteElementsAfterElement(clipboardElements, lastElement)) {
                     return;
                 }
             }
@@ -1744,14 +1748,14 @@ public class RealMainController {
         // Priority 2: after the last MIDDLE element that was explicitly clicked
         CardElement lastMiddleElement = SelectionManager.getLastMiddleElement();
         if (lastMiddleElement != null
-                && pasteCardsAfterElement(clipboardCards, lastMiddleElement)) {
+                && pasteElementsAfterElement(clipboardElements, lastMiddleElement)) {
             return;
         }
 
         // Priority 3: into the last clicked navigation-menu item
         Object lastNavItem = SelectionManager.getLastClickedNavigationItem();
         if (lastNavItem != null) {
-            pasteCardsIntoNavigationItem(clipboardCards, lastNavItem);
+            pasteElementsIntoNavigationItem(clipboardElements, lastNavItem);
         }
     }
 
@@ -1969,6 +1973,41 @@ public class RealMainController {
         return new ArrayList<>();
     }
 
+    /**
+     * Inserts copy-constructed snapshots of {@code elements} immediately after
+     * {@code anchor} in the group that contains it, preserving {@code condition},
+     * {@code rarity}, {@code customTags}, and artwork flags.
+     *
+     * @param elements the element snapshots to paste (not {@code null} or empty)
+     * @param anchor   the element after which to insert
+     * @return {@code true} if at least one element was inserted
+     */
+    private boolean pasteElementsAfterElement(List<CardElement> elements,
+                                              CardElement anchor) {
+        if (anchor == null || elements == null || elements.isEmpty()) {
+            return false;
+        }
+        boolean inserted = MenuActionHandler.handleInsertElementsAfterElement(
+                elements, anchor);
+        if (!inserted) {
+            return false;
+        }
+        int activeTabIndex = mainTabPane.getSelectionModel().getSelectedIndex();
+        if (activeTabIndex == 0) {
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+        } else if (activeTabIndex == 1) {
+            Object owner = findDeckOrCollectionOwner(anchor);
+            if (owner != null) {
+                UserInterfaceFunctions.markDirty(owner);
+            }
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        }
+        return true;
+    }
+
     private boolean pasteCardsAfterElement(List<Card> cards, CardElement anchor) {
         if (anchor == null || cards == null || cards.isEmpty()) {
             return false;
@@ -1991,6 +2030,65 @@ public class RealMainController {
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
         }
         return true;
+    }
+
+    /**
+     * Inserts copy-constructed snapshots of {@code elements} into the group or
+     * deck section identified by {@code modelObj}, preserving {@code condition},
+     * {@code rarity}, {@code customTags}, and artwork flags.
+     *
+     * @param elements the element snapshots to paste
+     * @param modelObj a {@link Box}, {@link CardsGroup}, {@link Deck}, or
+     *                 {@link ThemeCollection} navigation-item model object
+     */
+    private void pasteElementsIntoNavigationItem(List<CardElement> elements,
+                                                 Object modelObj) {
+        if (elements == null || elements.isEmpty() || modelObj == null) {
+            return;
+        }
+
+        if (modelObj instanceof Box box) {
+            CardsGroup defaultGroup =
+                    MenuActionHandler.getOrCreateDefaultGroup(box);
+            if (defaultGroup == null) {
+                return;
+            }
+            javafx.collections.ObservableList<CardElement> observableList =
+                    CardTreeCell.observableListFor(defaultGroup);
+            for (CardElement element : elements) {
+                if (element != null) {
+                    observableList.add(new CardElement(element));
+                }
+            }
+            CardTreeCell.triggerHeightAdjustment(defaultGroup);
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+
+        } else if (modelObj instanceof CardsGroup group) {
+            javafx.collections.ObservableList<CardElement> observableList =
+                    CardTreeCell.observableListFor(group);
+            for (CardElement element : elements) {
+                if (element != null) {
+                    observableList.add(new CardElement(element));
+                }
+            }
+            CardTreeCell.triggerHeightAdjustment(group);
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+
+        } else {
+            // For Deck and ThemeCollection targets, condition/rarity/tags are not
+            // used by those contexts, so delegate to the Card-list path.
+            List<Card> cards = new ArrayList<>(elements.size());
+            for (CardElement element : elements) {
+                if (element != null && element.getCard() != null) {
+                    cards.add(element.getCard());
+                }
+            }
+            pasteCardsIntoNavigationItem(cards, modelObj);
+        }
     }
 
     private void pasteCardsIntoNavigationItem(List<Card> cards, Object modelObj) {

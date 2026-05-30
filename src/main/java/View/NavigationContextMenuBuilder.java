@@ -124,14 +124,21 @@ public final class NavigationContextMenuBuilder {
                 makeAddCategoryItem(box, null, owned),
                 makeRenameItem(box, null, owned),
                 makePasteItem(() -> {
-                    // Paste clipboard cards to the default group of this box
+                    // Paste clipboard elements to the default group of this box,
+                    // preserving condition, rarity, and custom tags.
                     Model.CardsLists.CardsGroup defaultGroup =
                             Controller.MenuActionHandler.getOrCreateDefaultGroup(box);
-                    if (defaultGroup == null) return;
+                    if (defaultGroup == null) {
+                        return;
+                    }
                     javafx.collections.ObservableList<Model.CardsLists.CardElement> observableList =
                             CardTreeCell.observableListFor(defaultGroup);
-                    for (Model.CardsLists.Card card : Controller.CardClipboard.getContents()) {
-                        if (card != null) observableList.add(new Model.CardsLists.CardElement(card));
+                    for (Model.CardsLists.CardElement clipboardElement
+                            : Controller.CardClipboard.getContents()) {
+                        if (clipboardElement != null) {
+                            observableList.add(
+                                    new Model.CardsLists.CardElement(clipboardElement));
+                        }
                     }
                     CardTreeCell.triggerHeightAdjustment(defaultGroup);
                     Controller.UserInterfaceFunctions.markMyCollectionDirty();
@@ -248,11 +255,16 @@ public final class NavigationContextMenuBuilder {
                 makeAddCategoryItem(parentBox, category, owned),
                 makeRenameItem(null, category, owned),
                 makePasteItem(() -> {
-                    // Paste clipboard cards at the end of this category
+                    // Paste clipboard elements at the end of this category,
+                    // preserving condition, rarity, and custom tags.
                     javafx.collections.ObservableList<Model.CardsLists.CardElement> observableList =
                             CardTreeCell.observableListFor(category);
-                    for (Model.CardsLists.Card card : Controller.CardClipboard.getContents()) {
-                        if (card != null) observableList.add(new Model.CardsLists.CardElement(card));
+                    for (Model.CardsLists.CardElement clipboardElement
+                            : Controller.CardClipboard.getContents()) {
+                        if (clipboardElement != null) {
+                            observableList.add(
+                                    new Model.CardsLists.CardElement(clipboardElement));
+                        }
                     }
                     CardTreeCell.triggerHeightAdjustment(category);
                     Controller.UserInterfaceFunctions.markMyCollectionDirty();
@@ -403,12 +415,20 @@ public final class NavigationContextMenuBuilder {
                 makeDecksAddArchetypeMenu(collection),
                 makeDecksRenameItem(collection),
                 makePasteItem(() -> {
-                    // Paste clipboard cards at the end of the collection's cards list
-                    if (collection.getCardsList() == null)
+                    // Paste clipboard cards at the end of the collection's cards list.
+                    // ThemeCollection only carries Card identity — extract from the
+                    // clipboard elements (condition/rarity are not used in this context).
+                    if (collection.getCardsList() == null) {
                         collection.setCardsList(new java.util.ArrayList<>());
-                    for (Model.CardsLists.Card card : Controller.CardClipboard.getContents()) {
-                        if (card != null)
-                            collection.getCardsList().add(new Model.CardsLists.CardElement(card));
+                    }
+                    for (Model.CardsLists.CardElement clipboardElement
+                            : Controller.CardClipboard.getContents()) {
+                        if (clipboardElement != null
+                                && clipboardElement.getCard() != null) {
+                            collection.getCardsList().add(
+                                    new Model.CardsLists.CardElement(
+                                            clipboardElement.getCard()));
+                        }
                     }
                     Controller.UserInterfaceFunctions.markDirty(collection);
                     Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
@@ -738,9 +758,15 @@ public final class NavigationContextMenuBuilder {
         }
         menuItems.add(makeDecksRenameItem(deck));
         menuItems.add(makePasteItem(() -> {
-            // Paste clipboard cards at the end of the deck's Main Deck
-            for (Model.CardsLists.Card card : Controller.CardClipboard.getContents()) {
-                if (card != null) deck.getMainDeck().add(new Model.CardsLists.CardElement(card));
+            // Paste clipboard cards at the end of the deck's Main Deck.
+            // Deck sections only carry Card identity — extract from the clipboard
+            // elements (condition/rarity are not used in this context).
+            for (Model.CardsLists.CardElement clipboardElement
+                    : Controller.CardClipboard.getContents()) {
+                if (clipboardElement != null && clipboardElement.getCard() != null) {
+                    deck.getMainDeck().add(
+                            new Model.CardsLists.CardElement(clipboardElement.getCard()));
+                }
             }
             Controller.UserInterfaceFunctions.markDirty(deck);
             Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
