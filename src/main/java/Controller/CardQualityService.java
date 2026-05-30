@@ -416,7 +416,18 @@ public final class CardQualityService {
                     return false;
                 };
 
-                // Search collections (cardsList + linked decks), skipping alreadyConsidered
+                // Load the owned collection once for placed-copy counts.
+                // Only return true when required copies exceed already-placed copies.
+                // If the slot is already fully filled, computeCardNeedsSortingWithUpgrade
+                // handles the upgrade-candidate check (reason 3) separately.
+                Model.CardsLists.OwnedCardsCollection ownedForSection3 = null;
+                try {
+                    ownedForSection3 = Model.CardsLists.OuicheList.getMyCardsCollection();
+                } catch (Exception ignored) {
+                }
+                final Model.CardsLists.OwnedCardsCollection ownedSection3 = ownedForSection3;
+
+                // Search collections (cardsList + linked decks), skipping alreadyConsidered.
                 if (decksList != null && decksList.getCollections() != null) {
                     for (Model.CardsLists.ThemeCollection collection : decksList.getCollections()) {
                         if (collection == null || collection.getName() == null) {
@@ -427,18 +438,24 @@ public final class CardQualityService {
                             continue;
                         }
 
-                        // Check collection's own card list
+                        // Check collection's own card list.
                         List<Model.CardsLists.CardElement> collCards = collection.getCardsList();
-                        if (collCards != null) {
-                            for (Model.CardsLists.CardElement cardElement : collCards) {
-                                if (matches.test(cardElement, card)) {
-                                    // This collection needs this specific card → needs sorting
-                                    return true;
-                                }
+                        List<Model.CardsLists.CardElement> collDefinitionMatches =
+                                collectMatchingElementsInList(collCards, card);
+                        if (!collDefinitionMatches.isEmpty()) {
+                            int requiredCount = collDefinitionMatches.size();
+                            int placedCount = ownedSection3 == null ? 0
+                                    : collectPlacedCopies(
+                                    ownedSection3, collection.getName(), card, normalizer)
+                                    .size();
+                            if (requiredCount > placedCount) {
+                                return true;
                             }
+                            // Fully sorted — mark considered so linked decks don't double-count.
+                            alreadyConsidered.add(collectionName);
                         }
 
-                        // Check every linked deck
+                        // Check every linked deck.
                         if (collection.getLinkedDecks() != null) {
                             for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
                                 if (unit == null) {
@@ -454,9 +471,19 @@ public final class CardQualityService {
                                     if (alreadyConsidered.contains(deckName)) {
                                         continue;
                                     }
-                                    if (deckNeedsThisCard.test(deck)) {
-                                        // Deck definition requires this specific card → needs sorting
-                                        return true;
+                                    int requiredTotal =
+                                            collectMatchingElementsInList(deck.getMainDeck(), card).size()
+                                                    + collectMatchingElementsInList(deck.getExtraDeck(), card).size()
+                                                    + collectMatchingElementsInList(deck.getSideDeck(), card).size();
+                                    if (requiredTotal > 0) {
+                                        int placedCount = ownedSection3 == null ? 0
+                                                : collectPlacedCopies(
+                                                ownedSection3, deck.getName(), card, normalizer)
+                                                .size();
+                                        if (requiredTotal > placedCount) {
+                                            return true;
+                                        }
+                                        alreadyConsidered.add(deckName);
                                     }
                                 }
                             }
@@ -464,7 +491,7 @@ public final class CardQualityService {
                     }
                 }
 
-                // Search loose decks
+                // Search loose decks.
                 if (decksList != null && decksList.getDecks() != null) {
                     for (Model.CardsLists.Deck deck : decksList.getDecks()) {
                         if (deck == null || deck.getName() == null) {
@@ -474,9 +501,17 @@ public final class CardQualityService {
                         if (alreadyConsidered.contains(deckName)) {
                             continue;
                         }
-                        if (deckNeedsThisCard.test(deck)) {
-                            // Loose deck requires this specific card → needs sorting
-                            return true;
+                        int requiredTotal =
+                                collectMatchingElementsInList(deck.getMainDeck(), card).size()
+                                        + collectMatchingElementsInList(deck.getExtraDeck(), card).size()
+                                        + collectMatchingElementsInList(deck.getSideDeck(), card).size();
+                        if (requiredTotal > 0) {
+                            int placedCount = ownedSection3 == null ? 0
+                                    : collectPlacedCopies(
+                                    ownedSection3, deck.getName(), card, normalizer).size();
+                            if (requiredTotal > placedCount) {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -486,8 +521,100 @@ public final class CardQualityService {
                 return false;
             }
 
-            // 4) Default: if no type matched, consider card unsorted (mark)
-            return true;
+            // 4) Default: element name did not match any known type.
+            // Still check whether any D&C genuinely needs this card and has unfilled
+            // placed copies before marking it as needing sorting.  If all D&C slots
+            // are already filled (or no D&C needs this card at all) we return false so
+            // that computeCardNeedsSortingWithUpgrade can evaluate the upgrade-candidate
+            // case without being blocked by a spurious true here.
+            try {
+                Function<String, String> defaultNormalizer = s -> s == null ? "" :
+                        java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+                                .replaceAll("\\p{M}", "").trim().toLowerCase(java.util.Locale.ROOT);
+
+                Model.CardsLists.OwnedCardsCollection ownedForDefault =
+                        Model.CardsLists.OuicheList.getMyCardsCollection();
+
+                if (decksList != null && decksList.getCollections() != null) {
+                    for (Model.CardsLists.ThemeCollection collection : decksList.getCollections()) {
+                        if (collection == null || collection.getName() == null) {
+                            continue;
+                        }
+                        if (alreadyConsidered.contains(defaultNormalizer.apply(collection.getName()))) {
+                            continue;
+                        }
+
+                        List<Model.CardsLists.CardElement> collDefinitionMatches =
+                                collectMatchingElementsInList(collection.getCardsList(), card);
+                        if (!collDefinitionMatches.isEmpty()) {
+                            int requiredCount = collDefinitionMatches.size();
+                            int placedCount = ownedForDefault == null ? 0
+                                    : collectPlacedCopies(
+                                    ownedForDefault, collection.getName(), card,
+                                    defaultNormalizer).size();
+                            if (requiredCount > placedCount) {
+                                return true;
+                            }
+                        }
+
+                        if (collection.getLinkedDecks() != null) {
+                            for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
+                                if (unit == null) {
+                                    continue;
+                                }
+                                for (Model.CardsLists.Deck deck : unit) {
+                                    if (deck == null || deck.getName() == null) {
+                                        continue;
+                                    }
+                                    if (alreadyConsidered.contains(
+                                            defaultNormalizer.apply(deck.getName()))) {
+                                        continue;
+                                    }
+                                    int requiredTotal =
+                                            collectMatchingElementsInList(deck.getMainDeck(), card).size()
+                                                    + collectMatchingElementsInList(deck.getExtraDeck(), card).size()
+                                                    + collectMatchingElementsInList(deck.getSideDeck(), card).size();
+                                    if (requiredTotal > 0) {
+                                        int placedCount = ownedForDefault == null ? 0
+                                                : collectPlacedCopies(
+                                                ownedForDefault, deck.getName(), card,
+                                                defaultNormalizer).size();
+                                        if (requiredTotal > placedCount) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (decksList != null && decksList.getDecks() != null) {
+                    for (Model.CardsLists.Deck deck : decksList.getDecks()) {
+                        if (deck == null || deck.getName() == null) {
+                            continue;
+                        }
+                        if (alreadyConsidered.contains(defaultNormalizer.apply(deck.getName()))) {
+                            continue;
+                        }
+                        int requiredTotal =
+                                collectMatchingElementsInList(deck.getMainDeck(), card).size()
+                                        + collectMatchingElementsInList(deck.getExtraDeck(), card).size()
+                                        + collectMatchingElementsInList(deck.getSideDeck(), card).size();
+                        if (requiredTotal > 0) {
+                            int placedCount = ownedForDefault == null ? 0
+                                    : collectPlacedCopies(
+                                    ownedForDefault, deck.getName(), card,
+                                    defaultNormalizer).size();
+                            if (requiredTotal > placedCount) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            return false;
         } catch (Exception ex) {
             // On unexpected error, be conservative and return false (do not mark as unsorted)
             logger.debug("computeCardNeedsSorting failed for element '{}': {}", elementName, ex.toString());
@@ -498,8 +625,9 @@ public final class CardQualityService {
     /**
      * Extended version of {@link #computeCardNeedsSorting} that additionally
      * returns {@code true} when the owned copy ({@code ownedElement}) would be a
-     * quality upgrade over copies already placed in a matching deck or collection —
-     * even if that deck/collection already holds the required number of copies.
+     * quality upgrade over copies <em>already physically placed</em> in any deck or
+     * collection whose slot is already fully filled — even if that deck/collection
+     * already holds the required number of copies (reason 3 marking).
      *
      * <p>A quality upgrade is defined as:
      * <ul>
@@ -511,12 +639,22 @@ public final class CardQualityService {
      * </ul>
      * </p>
      *
+     * <p>"Already placed" means owned copies that are stored in a
+     * {@link Model.CardsLists.CardsGroup} whose name matches the deck or collection
+     * name (the sorting category). Definition-slot entries (which carry no physical
+     * condition) are not treated as placed copies.</p>
+     *
+     * <p>If {@code elementName} itself is a recognised deck or collection name, the
+     * card is already sorted into that D&amp;C and this method returns {@code false}
+     * immediately — that situation is reason 4, handled by
+     * {@link #isDegradedCopyInDeckOrCollection}.</p>
+     *
      * @param ownedElement the concrete owned {@link Model.CardsLists.CardElement}
-     *                     being evaluated (may be {@code null}, in which case this
-     *                     falls back to {@link #computeCardNeedsSorting})
-     * @param elementName  the display name of the navigation element that owns
-     *                     this card in the collection
-     * @return {@code true} if the card needs sorting or is a quality upgrade
+     *                     being evaluated
+     * @param elementName  the display name of the navigation group that contains
+     *                     this card in the collection (e.g. "Fusion Monsters")
+     * @return {@code true} if the card needs sorting or is a quality-upgrade
+     *         candidate for a slot that is already filled
      */
     public static boolean computeCardNeedsSortingWithUpgrade(
             Model.CardsLists.CardElement ownedElement,
@@ -534,76 +672,94 @@ public final class CardQualityService {
             return true;
         }
 
-        // Standard check says "sorted". Now check for a quality-upgrade opportunity.
+        // Standard check says "sorted". Now check for a quality-upgrade opportunity
+        // (reason 3: owned copy is outside the D&C but is better than what is placed).
         try {
-            Model.CardsLists.DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
+            Model.CardsLists.DecksAndCollectionsList decksList =
+                    UserInterfaceFunctions.getDecksList();
             if (decksList == null) {
                 return false;
             }
-
-            String normalizedElement = java.text.Normalizer.normalize(elementName, java.text.Normalizer.Form.NFD)
-                    .replaceAll("\\p{M}", "").trim().toLowerCase(java.util.Locale.ROOT);
 
             Function<String, String> normalizer = s -> s == null ? "" :
                     java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
                             .replaceAll("\\p{M}", "").trim().toLowerCase(java.util.Locale.ROOT);
 
-            // Helper: collect all CardElements in a list that match `card`
-            Function<List<Model.CardsLists.CardElement>, List<Model.CardsLists.CardElement>>
-                    collectMatchingElements = list -> {
-                List<Model.CardsLists.CardElement> result = new ArrayList<>();
-                if (list == null) {
-                    return result;
-                }
-                for (Model.CardsLists.CardElement cardElement : list) {
-                    if (cardElement == null || cardElement.getCard() == null) {
-                        continue;
-                    }
-                    Model.CardsLists.Card candidateCard = cardElement.getCard();
-                    boolean same = (card.getPassCode() != null && card.getPassCode().equals(candidateCard.getPassCode()))
-                            || (card.getPrintCode() != null && card.getPrintCode().equals(candidateCard.getPrintCode()))
-                            || (card.getKonamiId() != null && card.getKonamiId().equals(candidateCard.getKonamiId()));
-                    if (same) {
-                        result.add(cardElement);
-                    }
-                }
-                return result;
-            };
+            String normalizedElement = normalizer.apply(elementName);
 
-            // --- Collections ---
+            // Guard: if the card is already placed inside a sorting category that IS
+            // named after a known D&C, this is reason-4 territory (a better outside copy
+            // should replace this one). Reason 3 does not apply here.
+            if (isDeckOrCollectionName(normalizedElement, decksList, normalizer)) {
+                return false;
+            }
+
+            // Load the owned collection so we can locate physically placed copies.
+            Model.CardsLists.OwnedCardsCollection owned =
+                    Model.CardsLists.OuicheList.getMyCardsCollection();
+            if (owned == null) {
+                return false;
+            }
+
+            // --- Collections (check ALL, no name filter) ---
             if (decksList.getCollections() != null) {
                 for (Model.CardsLists.ThemeCollection collection : decksList.getCollections()) {
                     if (collection == null || collection.getName() == null) {
                         continue;
                     }
-                    if (!normalizer.apply(collection.getName()).equals(normalizedElement)) {
-                        continue;
+
+                    // How many copies does the collection definition require?
+                    List<Model.CardsLists.CardElement> collDefinitionMatches =
+                            collectMatchingElementsInList(collection.getCardsList(), card);
+
+                    if (!collDefinitionMatches.isEmpty()) {
+                        // How many owned copies are physically in the sorting category?
+                        List<Model.CardsLists.CardElement> placedCopies =
+                                collectPlacedCopies(owned, collection.getName(), card, normalizer);
+                        // Only worth checking when the slot is fully filled.
+                        if (placedCopies.size() >= collDefinitionMatches.size()) {
+                            for (Model.CardsLists.CardElement placed : placedCopies) {
+                                if (isUpgradeOverPlacedCopy(
+                                        ownedElement, placed, collection.getCardsList())) {
+                                    return true;
+                                }
+                            }
+                        }
                     }
 
-                    // Check collection's own card list
-                    List<Model.CardsLists.CardElement> slotList = collection.getCardsList();
-                    List<Model.CardsLists.CardElement> existingInColl = collectMatchingElements.apply(slotList);
-                    if (!existingInColl.isEmpty()
-                            && isQualityUpgrade(existingInColl, slotList, ownedElement)) {
-                        return true;
-                    }
-
-                    // Check every linked deck
+                    // Check every linked deck inside this collection.
                     if (collection.getLinkedDecks() != null) {
                         for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
                             if (unit == null) {
                                 continue;
                             }
                             for (Model.CardsLists.Deck deck : unit) {
-                                if (deck == null) {
+                                if (deck == null || deck.getName() == null) {
                                     continue;
                                 }
-                                for (List<Model.CardsLists.CardElement> deckList :
-                                        java.util.Arrays.asList(deck.getMainDeck(), deck.getExtraDeck(), deck.getSideDeck())) {
-                                    List<Model.CardsLists.CardElement> existingInDeck = collectMatchingElements.apply(deckList);
-                                    if (!existingInDeck.isEmpty()
-                                            && isQualityUpgrade(existingInDeck, deckList, ownedElement)) {
-                                        return true;
+                                for (List<Model.CardsLists.CardElement> deckSection :
+                                        java.util.Arrays.asList(
+                                                deck.getMainDeck(),
+                                                deck.getExtraDeck(),
+                                                deck.getSideDeck())) {
+                                    if (deckSection == null) {
+                                        continue;
+                                    }
+                                    List<Model.CardsLists.CardElement> deckDefinitionMatches =
+                                            collectMatchingElementsInList(deckSection, card);
+                                    if (deckDefinitionMatches.isEmpty()) {
+                                        continue;
+                                    }
+                                    List<Model.CardsLists.CardElement> deckPlaced =
+                                            collectPlacedCopies(
+                                                    owned, deck.getName(), card, normalizer);
+                                    if (deckPlaced.size() >= deckDefinitionMatches.size()) {
+                                        for (Model.CardsLists.CardElement placed : deckPlaced) {
+                                            if (isUpgradeOverPlacedCopy(
+                                                    ownedElement, placed, deckSection)) {
+                                                return true;
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -612,28 +768,40 @@ public final class CardQualityService {
                 }
             }
 
-            // --- Loose decks ---
+            // --- Loose decks (check ALL, no name filter) ---
             if (decksList.getDecks() != null) {
                 for (Model.CardsLists.Deck deck : decksList.getDecks()) {
                     if (deck == null || deck.getName() == null) {
                         continue;
                     }
-                    if (!normalizer.apply(deck.getName()).equals(normalizedElement)) {
-                        continue;
-                    }
-
-                    for (List<Model.CardsLists.CardElement> deckList :
-                            java.util.Arrays.asList(deck.getMainDeck(), deck.getExtraDeck(), deck.getSideDeck())) {
-                        List<Model.CardsLists.CardElement> existingInDeck = collectMatchingElements.apply(deckList);
-                        if (!existingInDeck.isEmpty()
-                                && isQualityUpgrade(existingInDeck, deckList, ownedElement)) {
-                            return true;
+                    for (List<Model.CardsLists.CardElement> deckSection :
+                            java.util.Arrays.asList(
+                                    deck.getMainDeck(),
+                                    deck.getExtraDeck(),
+                                    deck.getSideDeck())) {
+                        if (deckSection == null) {
+                            continue;
+                        }
+                        List<Model.CardsLists.CardElement> deckDefinitionMatches =
+                                collectMatchingElementsInList(deckSection, card);
+                        if (deckDefinitionMatches.isEmpty()) {
+                            continue;
+                        }
+                        List<Model.CardsLists.CardElement> deckPlaced =
+                                collectPlacedCopies(owned, deck.getName(), card, normalizer);
+                        if (deckPlaced.size() >= deckDefinitionMatches.size()) {
+                            for (Model.CardsLists.CardElement placed : deckPlaced) {
+                                if (isUpgradeOverPlacedCopy(ownedElement, placed, deckSection)) {
+                                    return true;
+                                }
+                            }
                         }
                     }
                 }
             }
         } catch (Exception ex) {
-            logger.debug("computeCardNeedsSortingWithUpgrade failed for element '{}': {}", elementName, ex.toString());
+            logger.debug("computeCardNeedsSortingWithUpgrade failed for element '{}': {}",
+                    elementName, ex.toString());
         }
         return false;
     }
@@ -985,12 +1153,19 @@ public final class CardQualityService {
     /**
      * Given a {@link Model.CardsLists.CardElement} that is already placed inside a
      * deck or collection slot, returns {@code true} when the user's owned collection
-     * contains at least one copy of the same card that is a quality upgrade over this
-     * one — i.e. better physical condition, or the expected rarity that this copy lacks.
+     * contains at least one copy of the same card — <em>outside</em> the same sorting
+     * category — that is a quality upgrade over this one: i.e. better physical
+     * condition, or the expected rarity that this copy lacks.
+     *
+     * <p>Copies that are themselves physically stored in a sorting category named after
+     * the same deck or collection are excluded from consideration.  Swapping two copies
+     * that are both already inside the same D&amp;C category is pointless and must not
+     * trigger this warning.</p>
      *
      * @param deckElement          the element currently sitting in the deck/collection
+     *                             sorting category
      * @param deckOrCollectionName the display name of that deck or collection (used to
-     *                             locate the slot list and read the expected rarity)
+     *                             locate the slot list and to exclude same-category copies)
      */
     public static boolean isDegradedCopyInDeckOrCollection(
             Model.CardsLists.CardElement deckElement,
@@ -1017,7 +1192,25 @@ public final class CardQualityService {
             List<Model.CardsLists.CardElement> slotList =
                     findSlotListForCard(deckOrCollectionName, card);
 
+            // Build an identity set of every copy that is already sitting in the same
+            // D&C sorting category.  Those copies are excluded as upgrade candidates:
+            // swapping two copies within the same category accomplishes nothing.
+            Function<String, String> normalizer = s -> s == null ? "" :
+                    java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+                            .replaceAll("\\p{M}", "").trim().toLowerCase(java.util.Locale.ROOT);
+            List<Model.CardsLists.CardElement> sameCategoryPlaced =
+                    collectPlacedCopies(owned, deckOrCollectionName, card, normalizer);
+            java.util.IdentityHashMap<Model.CardsLists.CardElement, Boolean> sameCategorySet =
+                    new java.util.IdentityHashMap<>();
+            for (Model.CardsLists.CardElement placed : sameCategoryPlaced) {
+                sameCategorySet.put(placed, Boolean.TRUE);
+            }
+
             for (Model.CardsLists.CardElement ownedCopy : ownedCopies) {
+                if (sameCategorySet.containsKey(ownedCopy)) {
+                    // This copy lives in the same sorting category — skip it.
+                    continue;
+                }
                 if (isUpgradeOverPlacedCopy(ownedCopy, deckElement, slotList)) {
                     return true;
                 }
@@ -1030,11 +1223,21 @@ public final class CardQualityService {
 
     /**
      * Returns all owned {@link Model.CardsLists.CardElement}s that are quality
-     * upgrades over {@code deckElement} (the copy currently in a deck/collection).
+     * upgrades over {@code deckElement} (the copy currently in a deck/collection
+     * sorting category) and that are <em>not</em> themselves stored in that same
+     * sorting category.
+     *
+     * <p>Copies already sitting in the same D&amp;C-named sorting category are
+     * excluded: swapping two copies within the same category accomplishes nothing,
+     * and including them would cause the lesser-quality copy to be spuriously marked
+     * with the downgrade warning.</p>
      *
      * @param deckElement          the element currently sitting in the deck/collection
-     * @param deckOrCollectionName the display name of that deck or collection
-     * @return a (possibly empty) list of owned elements that would improve this slot
+     *                             sorting category
+     * @param deckOrCollectionName the display name of that deck or collection (used to
+     *                             locate the slot list and to exclude same-category copies)
+     * @return a (possibly empty) list of owned elements outside the sorting category
+     *         that would improve this slot
      */
     public static List<Model.CardsLists.CardElement> findOwnedUpgradeCandidates(
             Model.CardsLists.CardElement deckElement,
@@ -1063,7 +1266,24 @@ public final class CardQualityService {
             List<Model.CardsLists.CardElement> slotList =
                     findSlotListForCard(deckOrCollectionName, card);
 
+            // Build an identity set of every copy already in the same sorting category
+            // so we can exclude them — same logic as isDegradedCopyInDeckOrCollection.
+            Function<String, String> normalizer = s -> s == null ? "" :
+                    java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+                            .replaceAll("\\p{M}", "").trim().toLowerCase(java.util.Locale.ROOT);
+            List<Model.CardsLists.CardElement> sameCategoryPlaced =
+                    collectPlacedCopies(owned, deckOrCollectionName, card, normalizer);
+            java.util.IdentityHashMap<Model.CardsLists.CardElement, Boolean> sameCategorySet =
+                    new java.util.IdentityHashMap<>();
+            for (Model.CardsLists.CardElement placed : sameCategoryPlaced) {
+                sameCategorySet.put(placed, Boolean.TRUE);
+            }
+
             for (Model.CardsLists.CardElement ownedCopy : ownedCopies) {
+                if (sameCategorySet.containsKey(ownedCopy)) {
+                    // Already in the same sorting category — skip.
+                    continue;
+                }
                 if (isUpgradeOverPlacedCopy(ownedCopy, deckElement, slotList)) {
                     result.add(ownedCopy);
                 }
@@ -1075,11 +1295,177 @@ public final class CardQualityService {
     }
 
     /**
+     * Returns {@code true} when {@code normalizedName} matches the display name of
+     * any {@link Model.CardsLists.ThemeCollection}, any linked
+     * {@link Model.CardsLists.Deck}, or any loose {@link Model.CardsLists.Deck} in
+     * {@code decksList}.
+     *
+     * <p>This is the canonical test used to distinguish a "sorting category" group
+     * (a group named after a D&amp;C) from a generic type group ("Fusion Monsters",
+     * "Unsorted", …).  It is called by {@link #computeCardNeedsSortingWithUpgrade}
+     * as a guard and is also exposed so that view code can use it without duplicating
+     * the iteration logic.</p>
+     *
+     * @param elementName the raw (un-normalised) group name to test
+     * @return {@code true} if {@code elementName} is a known deck or collection name
+     */
+    public static boolean isDeckOrCollectionName(String elementName) {
+        try {
+            Model.CardsLists.DecksAndCollectionsList decksList =
+                    UserInterfaceFunctions.getDecksList();
+            if (decksList == null) {
+                return false;
+            }
+            Function<String, String> normalizer = s -> s == null ? "" :
+                    java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+                            .replaceAll("\\p{M}", "").trim().toLowerCase(java.util.Locale.ROOT);
+            return isDeckOrCollectionName(normalizer.apply(elementName), decksList, normalizer);
+        } catch (Exception ex) {
+            logger.debug("isDeckOrCollectionName failed for '{}': {}", elementName, ex.toString());
+            return false;
+        }
+    }
+
+    /**
+     * Internal overload that accepts an already-normalised name and a shared
+     * {@code decksList} / {@code normalizer} to avoid redundant loading.
+     */
+    private static boolean isDeckOrCollectionName(
+            String normalizedName,
+            Model.CardsLists.DecksAndCollectionsList decksList,
+            Function<String, String> normalizer) {
+        if (decksList == null || normalizedName == null || normalizedName.isEmpty()) {
+            return false;
+        }
+        if (decksList.getCollections() != null) {
+            for (Model.CardsLists.ThemeCollection themeCollection : decksList.getCollections()) {
+                if (themeCollection == null) {
+                    continue;
+                }
+                if (normalizer.apply(themeCollection.getName()).equals(normalizedName)) {
+                    return true;
+                }
+                if (themeCollection.getLinkedDecks() != null) {
+                    for (List<Model.CardsLists.Deck> unit : themeCollection.getLinkedDecks()) {
+                        if (unit == null) {
+                            continue;
+                        }
+                        for (Model.CardsLists.Deck deck : unit) {
+                            if (deck != null
+                                    && normalizer.apply(deck.getName()).equals(normalizedName)) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (decksList.getDecks() != null) {
+            for (Model.CardsLists.Deck deck : decksList.getDecks()) {
+                if (deck != null && normalizer.apply(deck.getName()).equals(normalizedName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Collects owned {@link Model.CardsLists.CardElement}s that match {@code card}
+     * and are physically placed in a sorting category whose name matches
+     * {@code dcName} (i.e. a {@link Model.CardsLists.CardsGroup} whose raw name,
+     * after stripping leading/trailing {@code '-'} decorators and normalising, equals
+     * the normalised form of {@code dcName}).
+     *
+     * <p>This is used by {@link #computeCardNeedsSortingWithUpgrade} to find the
+     * copies actually sitting in the D&amp;C sorting category, as opposed to the
+     * definition-slot entries from the deck/collection file which carry no physical
+     * condition.</p>
+     */
+    private static List<Model.CardsLists.CardElement> collectPlacedCopies(
+            Model.CardsLists.OwnedCardsCollection owned,
+            String dcName,
+            Model.CardsLists.Card card,
+            Function<String, String> normalizer) {
+        List<Model.CardsLists.CardElement> result = new ArrayList<>();
+        if (owned == null || dcName == null || card == null) {
+            return result;
+        }
+        String normalizedDcName = normalizer.apply(dcName);
+        for (Model.CardsLists.Box box : owned.getOwnedCollection()) {
+            if (box == null) {
+                continue;
+            }
+            for (Model.CardsLists.CardsGroup cardsGroup : box.getContent()) {
+                if (cardsGroup == null) {
+                    continue;
+                }
+                String rawName = cardsGroup.getName() == null ? "" : cardsGroup.getName();
+                String normalizedGroupName = normalizer.apply(
+                        Model.CardsLists.OwnedCardsCollection.extractName(rawName, '-'));
+                if (!normalizedGroupName.equals(normalizedDcName)) {
+                    continue;
+                }
+                for (Model.CardsLists.CardElement cardElement : cardsGroup.getCardList()) {
+                    if (cardElement == null || cardElement.getCard() == null) {
+                        continue;
+                    }
+                    Model.CardsLists.Card ownedCard = cardElement.getCard();
+                    boolean same = (card.getPassCode() != null
+                            && card.getPassCode().equals(ownedCard.getPassCode()))
+                            || (card.getPrintCode() != null
+                            && card.getPrintCode().equals(ownedCard.getPrintCode()))
+                            || (card.getKonamiId() != null
+                            && card.getKonamiId().equals(ownedCard.getKonamiId()));
+                    if (same) {
+                        result.add(cardElement);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Returns all elements in {@code list} whose card matches {@code card} by
+     * passCode, printCode, or konamiId.
+     *
+     * <p>This is a static helper equivalent of the {@code collectMatchingElements}
+     * lambda used inside earlier versions of
+     * {@link #computeCardNeedsSortingWithUpgrade}, extracted so it can be shared
+     * with the new implementation without re-declaring the lambda in every loop.</p>
+     */
+    private static List<Model.CardsLists.CardElement> collectMatchingElementsInList(
+            List<Model.CardsLists.CardElement> list,
+            Model.CardsLists.Card card) {
+        List<Model.CardsLists.CardElement> result = new ArrayList<>();
+        if (list == null || card == null) {
+            return result;
+        }
+        for (Model.CardsLists.CardElement cardElement : list) {
+            if (cardElement == null || cardElement.getCard() == null) {
+                continue;
+            }
+            Model.CardsLists.Card candidateCard = cardElement.getCard();
+            boolean same = (card.getPassCode() != null
+                    && card.getPassCode().equals(candidateCard.getPassCode()))
+                    || (card.getPrintCode() != null
+                    && card.getPrintCode().equals(candidateCard.getPrintCode()))
+                    || (card.getKonamiId() != null
+                    && card.getKonamiId().equals(candidateCard.getKonamiId()));
+            if (same) {
+                result.add(cardElement);
+            }
+        }
+        return result;
+    }
+
+    /**
      * Collects all {@link Model.CardsLists.CardElement}s in the owned collection that
      * refer to the same card as {@code card} (matched by passCode, printCode, or
      * konamiId).
      */
-    static List<Model.CardsLists.CardElement> collectOwnedCopies(
+    public static List<Model.CardsLists.CardElement> collectOwnedCopies(
             Model.CardsLists.OwnedCardsCollection owned,
             Model.CardsLists.Card card) {
         List<Model.CardsLists.CardElement> result = new ArrayList<>();

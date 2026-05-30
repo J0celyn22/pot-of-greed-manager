@@ -2208,6 +2208,116 @@ public final class MenuActionHandler {
         }
     }
 
+    /**
+     * Swaps two {@link CardElement} objects that are both in the owned collection,
+     * exchanging their positions in-place.
+     * <p>
+     * This is used when the user swaps two owned copies with each other (My Collection
+     * context), where neither element is a D&amp;C definition entry.
+     * {@link #handleSwap} cannot be used in that case because {@code doSwap} requires
+     * {@code outgoing} to be a DAC element.
+     * </p>
+     * <p>
+     * Safe to call from any thread; the actual swap is always dispatched on the
+     * JavaFX Application Thread.
+     * </p>
+     *
+     * @param elementA the first owned element
+     * @param elementB the second owned element
+     */
+    public static void handleSwapOwned(CardElement elementA, CardElement elementB) {
+        if (elementA == null || elementB == null || elementA == elementB) {
+            return;
+        }
+        try {
+            if (Platform.isFxApplicationThread()) {
+                doSwapOwned(elementA, elementB);
+            } else {
+                Platform.runLater(() -> doSwapOwned(elementA, elementB));
+            }
+        } catch (Throwable throwable) {
+            logger.debug("handleSwapOwned failed", throwable);
+        }
+    }
+
+    /**
+     * Core owned-to-owned swap logic — must be called on the FX Application Thread.
+     * <ol>
+     *   <li>Locate both elements in the owned collection by reference identity.</li>
+     *   <li>Replace element A with element B in A's group (same index).</li>
+     *   <li>Replace element B with element A in B's group (same index).</li>
+     *   <li>Mark dirty and refresh the owned-collection view.</li>
+     * </ol>
+     */
+    private static void doSwapOwned(CardElement elementA, CardElement elementB) {
+        OwnedCardsCollection owned = safeGetOwnedCollection();
+        if (owned == null) {
+            logger.warn("doSwapOwned: owned collection not available");
+            return;
+        }
+
+        SourceLocation locA = findSource(elementA, owned);
+        SourceLocation locB = findSource(elementB, owned);
+
+        if (locA == null) {
+            logger.warn("doSwapOwned: elementA not found in owned collection");
+            return;
+        }
+        if (locB == null) {
+            logger.warn("doSwapOwned: elementB not found in owned collection");
+            return;
+        }
+
+        if (locA.group == locB.group) {
+            // Same group: swap in one ObservableList operation.
+            javafx.collections.ObservableList<CardElement> obs =
+                    CardTreeCell.observableListFor(locA.group);
+            int idxA = (locA.index >= 0 && locA.index < obs.size()
+                    && obs.get(locA.index) == elementA)
+                    ? locA.index : obs.indexOf(elementA);
+            int idxB = (locB.index >= 0 && locB.index < obs.size()
+                    && obs.get(locB.index) == elementB)
+                    ? locB.index : obs.indexOf(elementB);
+            if (idxA >= 0 && idxB >= 0) {
+                obs.set(idxA, elementB);
+                obs.set(idxB, elementA);
+            }
+            CardTreeCell.triggerHeightAdjustment(locA.group);
+        } else {
+            // Different groups: replace each element with the other.
+            javafx.collections.ObservableList<CardElement> obsA =
+                    CardTreeCell.observableListFor(locA.group);
+            javafx.collections.ObservableList<CardElement> obsB =
+                    CardTreeCell.observableListFor(locB.group);
+            int idxA = (locA.index >= 0 && locA.index < obsA.size()
+                    && obsA.get(locA.index) == elementA)
+                    ? locA.index : obsA.indexOf(elementA);
+            int idxB = (locB.index >= 0 && locB.index < obsB.size()
+                    && obsB.get(locB.index) == elementB)
+                    ? locB.index : obsB.indexOf(elementB);
+            if (idxA >= 0) {
+                obsA.set(idxA, elementB);
+            } else {
+                obsA.add(elementB);
+            }
+            if (idxB >= 0) {
+                obsB.set(idxB, elementA);
+            } else {
+                obsB.add(elementA);
+            }
+            CardTreeCell.triggerHeightAdjustment(locA.group);
+            CardTreeCell.triggerHeightAdjustment(locB.group);
+        }
+
+        UserInterfaceFunctions.markMyCollectionDirty();
+        UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+        UserInterfaceFunctions.refreshOwnedCollectionView();
+
+        logger.debug("doSwapOwned: swapped '{}' <-> '{}'",
+                elementA.getCard() != null ? elementA.getCard().getName_EN() : "?",
+                elementB.getCard() != null ? elementB.getCard().getName_EN() : "?");
+    }
+
     private static final class SourceLocation {
         final Box box;
         final CardsGroup group;

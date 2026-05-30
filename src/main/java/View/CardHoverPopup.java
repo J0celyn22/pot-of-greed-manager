@@ -57,6 +57,15 @@ public final class CardHoverPopup {
                     "-fx-border-radius: 6;";
 
     /**
+     * Warning text appended to cards that can be sorted to a deck or collection
+     * that needs them (reason 2 glow).  Single canonical string used in both
+     * the archetype/explicit-missing path and the computeCardNeedsSorting path
+     * so the tooltip is always identical regardless of which code path fires.
+     */
+    public static final String NEEDS_SORTING_WARNING =
+            "This card can be sorted to a deck or collection that needs it.";
+
+    /**
      * Warning text appended to upgrade-candidate owned cards.
      */
     public static final String UPGRADE_CANDIDATE_WARNING =

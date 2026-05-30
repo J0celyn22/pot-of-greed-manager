@@ -161,20 +161,41 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
         Card tooltipCard = (cardElement.getCard() != null) ? cardElement.getCard() : new Card();
         final String baseTooltipText = CardHoverPopup.buildTooltipText(cardElement);
         finalPane.setOnMouseEntered(e -> {
-            // Re-check degraded status at hover time so the style is always current.
+            // Re-check warning status at hover time so the label is always current.
+            // All three reasons (needs-sorting, upgrade-candidate, degraded) are
+            // My Collection tab only. D&C tab has archetype marking only, which is
+            // handled by the missingSet path and does not use the hover warning suffix.
+            boolean upgradeNow = false;
             boolean degradedNow = false;
             try {
-                if (!elementNameFromUD_hover.isEmpty() && isDecksAndCollectionsTabSelected()) {
-                    degradedNow = Controller.CardQualityService
-                            .isDegradedCopyInDeckOrCollection(finalCardElement, elementNameFromUD_hover);
+                if (!elementNameFromUD_hover.isEmpty() && isMyCollectionTabSelected()) {
+                    boolean genuinelyNeeded = Controller.CardQualityService
+                            .computeCardNeedsSorting(
+                                    finalCardElement.getCard(), elementNameFromUD_hover);
+                    if (!genuinelyNeeded) {
+                        upgradeNow = Controller.CardQualityService
+                                .computeCardNeedsSortingWithUpgrade(
+                                        finalCardElement, elementNameFromUD_hover);
+                        if (!upgradeNow) {
+                            boolean isDeckName = Controller.CardQualityService
+                                    .isDeckOrCollectionName(elementNameFromUD_hover);
+                            if (isDeckName) {
+                                degradedNow = Controller.CardQualityService
+                                        .isDegradedCopyInDeckOrCollection(
+                                                finalCardElement, elementNameFromUD_hover);
+                            }
+                        }
+                    }
                 }
             } catch (Throwable ignored) {
             }
-            String tooltipText = degradedNow
-                    ? baseTooltipText + "\n" + CardHoverPopup.DOWNGRADE_WARNING
-                    : baseTooltipText;
-            hoverLabel.setText(tooltipText);
-            hoverLabel.setStyle(degradedNow
+
+            String suffix = upgradeNow
+                    ? "\n" + CardHoverPopup.UPGRADE_CANDIDATE_WARNING
+                    : (degradedNow ? "\n" + CardHoverPopup.DOWNGRADE_WARNING : "");
+            hoverLabel.setText(baseTooltipText + suffix);
+            boolean isOrange = upgradeNow || degradedNow;
+            hoverLabel.setStyle(isOrange
                     ? CardHoverPopup.LABEL_STYLE_ORANGE
                     : CardHoverPopup.LABEL_STYLE);
             hoverPopup.show(finalPane, e.getScreenX() + 14, e.getScreenY() + 14);
@@ -278,14 +299,22 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                         elementNameFromUD = (String) ud;
                     }
 
-                    // Archetype missing-set logic (unchanged)
+                    // Archetype missing-set logic: fire for archetype groups on any tab.
+                    // Non-archetype needs-sorting: My Collection tab only.
                     if (missingSet != null && !missingSet.isEmpty()) {
                         String konamiId = finalCardElement.getCard() == null ? null : finalCardElement.getCard().getKonamiId();
                         String passCode = finalCardElement.getCard() == null ? null : finalCardElement.getCard().getPassCode();
                         boolean missing = false;
                         if (konamiId != null && missingSet.contains(konamiId)) missing = true;
                         if (!missing && passCode != null && missingSet.contains(passCode)) missing = true;
-                        needsSorting = missing;
+                        if (missing) {
+                            boolean isMyCollection = false;
+                            try {
+                                isMyCollection = isMyCollectionSelected.get();
+                            } catch (Exception ignored) {
+                            }
+                            needsSorting = isImmutableCell() || isMyCollection;
+                        }
                     } else {
                         // If no missing set, compute unsorted only when "My Collection" tab is selected
                         boolean isMyCollection = false;
@@ -305,20 +334,24 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                         }
                     }
 
-                    // --- Degraded-in-deck check (Decks & Collections tab) ---
-                    // When this card is inside a deck/collection and the owned collection
-                    // contains a better copy, glow orange.
+                    // --- Degraded-in-deck check (My Collection tab only) ---
+                    // Reason 4: card is in a D&C sorting category and a better outside copy exists.
+                    // Guard: isDeckOrCollectionName prevents false positives on type groups.
                     boolean isDegraded = false;
                     if (!needsSorting && elementNameFromUD != null && !elementNameFromUD.trim().isEmpty()) {
-                        boolean isDecksTab = false;
+                        boolean isMyCollection = false;
                         try {
-                            isDecksTab = isDecksAndCollectionsTabSelected();
+                            isMyCollection = isMyCollectionSelected.get();
                         } catch (Exception ignored) {
                         }
-                        if (isDecksTab) {
+                        if (isMyCollection) {
                             try {
-                                isDegraded = Controller.CardQualityService
-                                        .isDegradedCopyInDeckOrCollection(finalCardElement, elementNameFromUD);
+                                boolean isDeckName = Controller.CardQualityService
+                                        .isDeckOrCollectionName(elementNameFromUD);
+                                if (isDeckName) {
+                                    isDegraded = Controller.CardQualityService
+                                            .isDegradedCopyInDeckOrCollection(finalCardElement, elementNameFromUD);
+                                }
                             } catch (Throwable t) {
                                 isDegraded = false;
                             }

@@ -922,32 +922,23 @@ public final class CardGridCellContextMenuBuilder {
                     if (countInCollection <= 0) {
                         continue;
                     }
-                    boolean collectionProposed = false;
-                    for (Box box : ownedCollection.getOwnedCollection()) {
-                        if (box == null || box.getContent() == null) {
-                            continue;
-                        }
-                        for (CardsGroup group : box.getContent()) {
-                            int countInGroup = countCardInList(group.getCardList(), card);
-                            boolean needsMore = countInCollection > countInGroup;
-                            boolean qualityUpgrade = !needsMore
-                                    && isQualityUpgradeFor(themeCollection.getCardsList(),
-                                    clickedElement);
-                            if (needsMore || qualityUpgrade) {
-                                String target = CardTreeCell.sanitizeDisplayName(
-                                        themeCollection.getName());
-                                boolean existsInOwned = locationExistsInOwned(
-                                        themeCollection.getName(), ownedCollection);
-                                proposedTargets.put(target, existsInOwned);
-                                if (qualityUpgrade) {
-                                    upgradeOnlyTargets.add(target);
-                                }
-                                collectionProposed = true;
-                                break;
-                            }
-                        }
-                        if (collectionProposed) {
-                            break;
+                    // Compare the TC's required count against the total copies
+                    // already placed in the TC-named group(s) of the owned collection,
+                    // not against any single group in isolation (Bug 3B fix).
+                    int countInOwned = countInOwnedForDeckCombined(
+                            ownedCollection, themeCollection.getName(), card);
+                    boolean needsMore = countInCollection > countInOwned;
+                    boolean qualityUpgrade = !needsMore
+                            && isQualityUpgradeFor(themeCollection.getCardsList(),
+                            clickedElement);
+                    if (needsMore || qualityUpgrade) {
+                        String target = CardTreeCell.sanitizeDisplayName(
+                                themeCollection.getName());
+                        boolean existsInOwned = locationExistsInOwned(
+                                themeCollection.getName(), ownedCollection);
+                        proposedTargets.put(target, existsInOwned);
+                        if (qualityUpgrade) {
+                            upgradeOnlyTargets.add(target);
                         }
                     }
 
@@ -1363,27 +1354,26 @@ public final class CardGridCellContextMenuBuilder {
             }
         }
 
-        // 2) Box contains a group named like the deck
+        // 2) Box contains a group named like the deck — sum only that group, not all groups
+        // in the box. Summing all groups was Bug 3A: cards in unrelated groups like "Unsorted"
+        // would inflate the count and hide a real deficit.
         for (Box box : owned.getOwnedCollection()) {
             if (box == null || box.getContent() == null) {
                 continue;
             }
+            int sum = 0;
             boolean hasDeckGroup = false;
             for (CardsGroup group : box.getContent()) {
-                if (group != null
-                        && CardTreeCell.sanitizeDisplayName(group.getName()).toLowerCase()
+                if (group == null) {
+                    continue;
+                }
+                if (CardTreeCell.sanitizeDisplayName(group.getName()).toLowerCase()
                         .equals(deckNorm)) {
                     hasDeckGroup = true;
-                    break;
+                    sum += countCardInList(group.getCardList(), card);
                 }
             }
             if (hasDeckGroup) {
-                int sum = 0;
-                for (CardsGroup group : box.getContent()) {
-                    if (group != null) {
-                        sum += countCardInList(group.getCardList(), card);
-                    }
-                }
                 return sum;
             }
         }

@@ -28,10 +28,11 @@ import java.util.concurrent.Future;
  * top-level class. All shared state is accessed through the {@link #outer} reference.
  */
 class CardGridCell extends GridCell<CardElement> {
-    private static final Logger logger = LoggerFactory.getLogger(CardGridCell.class);
     final CardTreeCell outer;
-    final StackPane wrapper;
+    private static final Logger logger = LoggerFactory.getLogger(CardGridCell.class);
+
     private final ImageView cardImageView;
+    final StackPane wrapper;
     private Future<?> imageLoadFuture;
     private String currentImageKey;
     /**
@@ -1335,12 +1336,19 @@ class CardGridCell extends GridCell<CardElement> {
                             || CardGroupRegistry.LEGACY_GLOBAL_MISSING_SET.contains(konamiId)
                             || CardGroupRegistry.LEGACY_GLOBAL_MISSING_SET.contains(passCode);
                     if (missing) {
-                        if (glowPriority == 0) glowPriority = 1;
-                        tooltips.add(new String[]{
-                                outer.isInArchetypeGroup()
-                                        ? "This card is missing in the collection."
-                                        : "This card can be sorted to a deck or collection it is needed in.",
-                                "#EB9E34"});
+                        if (outer.isInArchetypeGroup()) {
+                            // Archetype missing-card marking: active on any tab.
+                            if (glowPriority == 0) glowPriority = 1;
+                            tooltips.add(new String[]{
+                                    "This card is missing in the collection.",
+                                    "#EB9E34"});
+                        } else if (myCollTab) {
+                            // Non-archetype needs-sorting: My Collection tab only.
+                            if (glowPriority == 0) glowPriority = 1;
+                            tooltips.add(new String[]{
+                                    CardHoverPopup.NEEDS_SORTING_WARNING,
+                                    "#EB9E34"});
+                        }
                     }
                 }
 
@@ -1380,34 +1388,45 @@ class CardGridCell extends GridCell<CardElement> {
                         if (genuinelyNeeded) {
                             if (glowPriority == 0) glowPriority = 1;
                             tooltips.add(new String[]{
-                                    "This card can be sorted to a deck or collection that needs it.",
+                                    CardHoverPopup.NEEDS_SORTING_WARNING,
                                     "#EB9E34"});
                         } else if (upgradeNeeded) {
                             if (glowPriority == 0) glowPriority = 1;
                             tooltips.add(new String[]{
                                     CardHoverPopup.UPGRADE_CANDIDATE_WARNING,
                                     "#EB9E34"});
+                        } else {
+                            // Reason 4: this card IS in a D&C-named sorting category and
+                            // a better outside copy exists in the owned collection.
+                            // Guard: only fire when the element name is a recognised D&C
+                            // name, to avoid false positives on type groups such as
+                            // "Fusion Monsters".  computeCardNeedsSortingWithUpgrade already
+                            // returns false for D&C-named groups (its internal guard), so
+                            // upgradeNeeded is false here in both cases — we use
+                            // isDeckOrCollectionName to distinguish them.
+                            try {
+                                boolean isDeckName = Controller.CardQualityService
+                                        .isDeckOrCollectionName(elementNameFromUD);
+                                if (isDeckName) {
+                                    boolean isDegraded = Controller.CardQualityService
+                                            .isDegradedCopyInDeckOrCollection(
+                                                    cardElement, elementNameFromUD);
+                                    if (isDegraded) {
+                                        if (glowPriority == 0) {
+                                            glowPriority = 1;
+                                        }
+                                        tooltips.add(new String[]{
+                                                CardHoverPopup.DOWNGRADE_WARNING,
+                                                "#EB9E34"});
+                                    }
+                                }
+                            } catch (Throwable ignored) {
+                            }
                         }
                     } catch (Throwable ignored) {
                     }
                 }
 
-                // 1d — degraded-in-deck check: only on D&C tab.
-                //      Shows DOWNGRADE_WARNING when a better owned copy exists for this slot.
-                if (elementNameFromUD != null && !elementNameFromUD.trim().isEmpty()
-                        && outer.isDecksAndCollectionsTabSelected()) {
-                    try {
-                        boolean degraded = Controller.CardQualityService
-                                .isDegradedCopyInDeckOrCollection(cardElement, elementNameFromUD);
-                        if (degraded) {
-                            if (glowPriority == 0) glowPriority = 1;
-                            tooltips.add(new String[]{
-                                    CardHoverPopup.DOWNGRADE_WARNING,
-                                    "#EB9E34"});
-                        }
-                    } catch (Throwable ignored) {
-                    }
-                }
             }
         } catch (Exception e) {
             logger.debug("Failed to compute glow in CardGridCell.updateItem", e);

@@ -932,23 +932,21 @@ public class CardTreeCell extends TreeCell<String> {
             }
         }
 
-        // 2) If a Box contains a group named deckName, sum groups in that Box (deck represented as a group owner)
+        // 2) If a Box contains a group named deckName, sum only that group (not all groups in the box).
+        // Summing all groups was Bug 3A: cards in unrelated groups like "Unsorted" or "Fusion Monsters"
+        // would inflate the count and hide a real deficit.
         for (Box b : owned.getOwnedCollection()) {
             if (b == null || b.getContent() == null) continue;
+            int sum = 0;
             boolean hasDeckGroup = false;
             for (CardsGroup g : b.getContent()) {
                 if (g == null) continue;
                 if (sanitizeDisplayName(g.getName()).toLowerCase().equals(deckNorm)) {
                     hasDeckGroup = true;
-                    break;
+                    sum += countCardInList(g.getCardList(), card);
                 }
             }
             if (hasDeckGroup) {
-                int sum = 0;
-                for (CardsGroup g : b.getContent()) {
-                    if (g == null) continue;
-                    sum += countCardInList(g.getCardList(), card);
-                }
                 return sum;
             }
         }
@@ -1843,117 +1841,101 @@ public class CardTreeCell extends TreeCell<String> {
                 inDeckContext = true;
             }
 
+            Model.CardsLists.OwnedCardsCollection owned =
+                    Model.CardsLists.OuicheList.getMyCardsCollection();
+            List<Model.CardsLists.CardElement> allOwnedCopies =
+                    Controller.CardQualityService.collectOwnedCopies(owned, card);
+            Model.CardsLists.DecksAndCollectionsList dac =
+                    Controller.UserInterfaceFunctions.getDecksList();
+
             if (inDeckContext) {
-                // D&C card — find owned upgrade candidates
+                // ── D&C branch ────────────────────────────────────────────────────────
+                // clicked is a D&C element (in a DECK_SECTION_GROUPS group).
+                // Show ALL owned copies as swap candidates.
+                //   lime   — neutral swap
+                //   orange — strictly better quality than clicked
                 String elemName = elementNameFromUDForContextMenu();
-                if (elemName == null || elemName.trim().isEmpty()) return items;
-                List<Model.CardsLists.CardElement> candidates =
+                if (elemName == null || elemName.trim().isEmpty()) {
+                    return items;
+                }
+
+                // Upgrade set: owned copies that are a quality improvement over clicked.
+                List<Model.CardsLists.CardElement> upgradeCandidates =
                         Controller.CardQualityService.findOwnedUpgradeCandidates(clicked, elemName);
-                if (candidates.isEmpty()) return items;
-                for (Model.CardsLists.CardElement candidate : candidates) {
-                    String label = buildSwapCandidateLabel(candidate);
+                java.util.IdentityHashMap<Model.CardsLists.CardElement, Boolean> upgradeSet =
+                        new java.util.IdentityHashMap<>();
+                for (Model.CardsLists.CardElement upgradeCandidate : upgradeCandidates) {
+                    upgradeSet.put(upgradeCandidate, Boolean.TRUE);
+                }
+
+                for (Model.CardsLists.CardElement candidate : allOwnedCopies) {
+                    if (candidate == clicked) {
+                        continue;
+                    }
+                    Model.CardsLists.CardsGroup candidateGroup = findGroupOf(owned, candidate);
+                    int groupIndex = findIndexInOwnerGroup(owned, candidate);
+                    String groupName = (candidateGroup != null) ? candidateGroup.getName() : null;
+                    boolean isUpgrade = upgradeSet.containsKey(candidate);
+                    String locationSuffix = (groupName != null && !groupName.trim().isEmpty())
+                            ? " in " + groupName : "";
+                    String label = buildSwapCandidateLabel(candidate)
+                            + locationSuffix
+                            + (groupIndex > 0 ? " #" + groupIndex : "");
                     MenuItem mi = new MenuItem(label);
-                    mi.setStyle("-fx-text-fill: #EB9E34;");
+                    mi.setStyle(isUpgrade ? "-fx-text-fill: #EB9E34;" : "-fx-text-fill: #cdfc04;");
                     final CardElement finalCandidate = candidate;
+                    // incoming = owned candidate, outgoing = clicked D&C element
                     mi.setOnAction(ev ->
                             Controller.MenuActionHandler.handleSwap(finalCandidate, clicked));
                     items.add(mi);
                 }
+
             } else {
-                // My Collection card — find D&C degraded entries this card can upgrade
-                // Use computeCardNeedsSortingWithUpgrade to find matching deck/collection,
-                // then find the specific degraded element in it.
-                Model.CardsLists.DecksAndCollectionsList dac =
-                        Controller.UserInterfaceFunctions.getDecksList();
-                if (dac == null) return items;
+                // ── My Collection branch ──────────────────────────────────────────────
+                // Both clicked and every candidate are owned-collection elements.
+                // handleSwap cannot be used here (it requires outgoing to be in the DAC).
+                // We use handleSwapOwned instead, which swaps two owned elements in-place.
+                //   lime   — neutral swap
+                //   orange — candidate is in a deck-named group AND clicked is a strictly
+                //             better quality copy (i.e. it would improve the deck)
 
-                java.util.function.BiPredicate<Model.CardsLists.Card, Model.CardsLists.Card> sameCard =
-                        (a, b) -> a != null && b != null
-                                && ((a.getPassCode() != null && a.getPassCode().equals(b.getPassCode()))
-                                || (a.getPrintCode() != null && b.getPrintCode() != null
-                                && a.getPrintCode().equals(b.getPrintCode())));
+                for (Model.CardsLists.CardElement candidate : allOwnedCopies) {
+                    if (candidate == clicked) {
+                        continue;
+                    }
+                    Model.CardsLists.CardsGroup candidateGroup = findGroupOf(owned, candidate);
+                    int groupIndex = findIndexInOwnerGroup(owned, candidate);
+                    String groupName = (candidateGroup != null) ? candidateGroup.getName() : null;
 
-                // Collect all deck/collection elements for the same card that are degraded
-                List<Model.CardsLists.CardElement> degradedSlots = new ArrayList<>();
-                List<String> degradedNames = new ArrayList<>();
-
-                if (dac.getCollections() != null) {
-                    for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
-                        if (tc == null) continue;
-                        if (tc.getCardsList() != null) {
-                            for (Model.CardsLists.CardElement ce : tc.getCardsList()) {
-                                if (ce == null || !sameCard.test(ce.getCard(), card)) continue;
-                                if (Controller.CardQualityService
-                                        .isDegradedCopyInDeckOrCollection(ce, tc.getName())) {
-                                    List<Model.CardsLists.CardElement> candidates =
-                                            Controller.CardQualityService
-                                                    .findOwnedUpgradeCandidates(ce, tc.getName());
-                                    if (candidates.stream().anyMatch(c -> c == clicked)) {
-                                        degradedSlots.add(ce);
-                                        degradedNames.add(tc.getName());
-                                    }
-                                }
-                            }
-                        }
-                        if (tc.getLinkedDecks() != null) {
-                            for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
-                                if (unit == null) continue;
-                                for (Model.CardsLists.Deck d : unit) {
-                                    if (d == null) continue;
-                                    for (List<Model.CardsLists.CardElement> lst :
-                                            java.util.Arrays.asList(d.getMainDeck(), d.getExtraDeck(), d.getSideDeck())) {
-                                        if (lst == null) continue;
-                                        for (Model.CardsLists.CardElement ce : lst) {
-                                            if (ce == null || !sameCard.test(ce.getCard(), card)) continue;
-                                            if (Controller.CardQualityService
-                                                    .isDegradedCopyInDeckOrCollection(ce, d.getName())) {
-                                                List<Model.CardsLists.CardElement> candidates =
-                                                        Controller.CardQualityService
-                                                                .findOwnedUpgradeCandidates(ce, d.getName());
-                                                if (candidates.stream().anyMatch(c -> c == clicked)) {
-                                                    degradedSlots.add(ce);
-                                                    degradedNames.add(d.getName());
-                                                }
-                                            }
-                                        }
-                                    }
+                    // Orange only when the candidate sits in a deck-named group and
+                    // clicked is a quality upgrade over it for that deck/collection.
+                    boolean isUpgrade = false;
+                    if (dac != null && groupName != null && !groupName.trim().isEmpty()) {
+                        String dcName = findDcNameForGroup(dac, groupName);
+                        if (dcName != null) {
+                            List<Model.CardsLists.CardElement> upgradeCandidates =
+                                    Controller.CardQualityService.findOwnedUpgradeCandidates(
+                                            candidate, dcName);
+                            for (Model.CardsLists.CardElement upgradeCandidate : upgradeCandidates) {
+                                if (upgradeCandidate == clicked) {
+                                    isUpgrade = true;
+                                    break;
                                 }
                             }
                         }
                     }
-                }
-                if (dac.getDecks() != null) {
-                    for (Model.CardsLists.Deck d : dac.getDecks()) {
-                        if (d == null) continue;
-                        for (List<Model.CardsLists.CardElement> lst :
-                                java.util.Arrays.asList(d.getMainDeck(), d.getExtraDeck(), d.getSideDeck())) {
-                            if (lst == null) continue;
-                            for (Model.CardsLists.CardElement ce : lst) {
-                                if (ce == null || !sameCard.test(ce.getCard(), card)) continue;
-                                if (Controller.CardQualityService
-                                        .isDegradedCopyInDeckOrCollection(ce, d.getName())) {
-                                    List<Model.CardsLists.CardElement> candidates =
-                                            Controller.CardQualityService
-                                                    .findOwnedUpgradeCandidates(ce, d.getName());
-                                    if (candidates.stream().anyMatch(c -> c == clicked)) {
-                                        degradedSlots.add(ce);
-                                        degradedNames.add(d.getName());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
 
-                for (int i = 0; i < degradedSlots.size(); i++) {
-                    Model.CardsLists.CardElement slot = degradedSlots.get(i);
-                    String name = degradedNames.get(i);
-                    String label = "Swap into " + name + buildSlotConditionSuffix(slot);
+                    String locationSuffix = (groupName != null && !groupName.trim().isEmpty())
+                            ? " in " + groupName : "";
+                    String label = buildSwapCandidateLabel(candidate)
+                            + locationSuffix
+                            + (groupIndex > 0 ? " #" + groupIndex : "");
                     MenuItem mi = new MenuItem(label);
-                    mi.setStyle("-fx-text-fill: #EB9E34;");
-                    final CardElement finalSlot = slot;
+                    mi.setStyle(isUpgrade ? "-fx-text-fill: #EB9E34;" : "-fx-text-fill: #cdfc04;");
+                    final Model.CardsLists.CardElement finalCandidate = candidate;
+                    // Both elements are in the owned collection — use handleSwapOwned.
                     mi.setOnAction(ev ->
-                            Controller.MenuActionHandler.handleSwap(clicked, finalSlot));
+                            Controller.MenuActionHandler.handleSwapOwned(clicked, finalCandidate));
                     items.add(mi);
                 }
             }
@@ -1961,6 +1943,116 @@ public class CardTreeCell extends TreeCell<String> {
             logger.debug("buildSwapProposals failed", t);
         }
         return items;
+    }
+
+    /**
+     * Returns the {@link CardsGroup} that physically contains {@code element}
+     * in the owned collection (reference identity), or {@code null} if not found.
+     */
+    private Model.CardsLists.CardsGroup findGroupOf(
+            Model.CardsLists.OwnedCardsCollection owned,
+            Model.CardsLists.CardElement element) {
+        if (owned == null || element == null) {
+            return null;
+        }
+        for (Model.CardsLists.Box box : owned.getOwnedCollection()) {
+            if (box == null || box.getContent() == null) {
+                continue;
+            }
+            for (Model.CardsLists.CardsGroup group : box.getContent()) {
+                if (group == null) {
+                    continue;
+                }
+                for (Model.CardsLists.CardElement ce : group.getCardList()) {
+                    if (ce == element) {
+                        return group;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns the canonical deck or collection name whose sanitized lowercase
+     * name matches {@code groupName}, or {@code null} if none matches.
+     * Used to decide whether a swap candidate in a named group deserves orange
+     * colouring (i.e. it is placed in a group named like a known deck or collection).
+     */
+    private String findDcNameForGroup(
+            Model.CardsLists.DecksAndCollectionsList dac,
+            String groupName) {
+        if (dac == null || groupName == null) {
+            return null;
+        }
+        String normalizedGroup = sanitizeDisplayName(groupName).toLowerCase();
+        if (dac.getCollections() != null) {
+            for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
+                if (tc == null) {
+                    continue;
+                }
+                if (sanitizeDisplayName(tc.getName()).toLowerCase().equals(normalizedGroup)) {
+                    return tc.getName();
+                }
+                if (tc.getLinkedDecks() != null) {
+                    for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                        if (unit == null) {
+                            continue;
+                        }
+                        for (Model.CardsLists.Deck deck : unit) {
+                            if (deck == null) {
+                                continue;
+                            }
+                            if (sanitizeDisplayName(deck.getName()).toLowerCase()
+                                    .equals(normalizedGroup)) {
+                                return deck.getName();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (dac.getDecks() != null) {
+            for (Model.CardsLists.Deck deck : dac.getDecks()) {
+                if (deck == null) {
+                    continue;
+                }
+                if (sanitizeDisplayName(deck.getName()).toLowerCase().equals(normalizedGroup)) {
+                    return deck.getName();
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns the 1-based position of {@code element} within its
+     * {@link CardsGroup} in the owned collection, or {@code -1} if not found.
+     * Uses reference identity ({@code ==}) to locate the element.
+     */
+    private int findIndexInOwnerGroup(
+            Model.CardsLists.OwnedCardsCollection owned,
+            Model.CardsLists.CardElement element) {
+        if (owned == null || element == null) {
+            return -1;
+        }
+        for (Model.CardsLists.Box box : owned.getOwnedCollection()) {
+            if (box == null || box.getContent() == null) {
+                continue;
+            }
+            for (Model.CardsLists.CardsGroup group : box.getContent()) {
+                if (group == null) {
+                    continue;
+                }
+                List<Model.CardsLists.CardElement> groupList = group.getCardList();
+                for (int i = 0; i < groupList.size(); i++) {
+                    if (groupList.get(i) == element) {
+                        return i + 1;
+                    }
+                }
+            }
+        }
+        return -1;
     }
 
     Image getPlaceholderImage() {
@@ -2445,24 +2537,18 @@ public class CardTreeCell extends TreeCell<String> {
                     int countInCollection = countCardInList(tc.toList(), card);
                     if (countInCollection <= 0) continue;
 
-                    boolean collectionProposed = false;
-                    for (Box box : owned.getOwnedCollection()) {
-                        if (box == null || box.getContent() == null) continue;
-                        for (CardsGroup group : box.getContent()) {
-                            int countInBoxGroup = countCardInList(group.getCardList(), card);
-                            boolean needsMore = countInCollection > countInBoxGroup;
-                            boolean qualityUpgrade = !needsMore
-                                    && isQualityUpgradeFor(tc.getCardsList(), clickedElement);
-                            if (needsMore || qualityUpgrade) {
-                                String target = sanitizeDisplayName(tc.getName());
-                                boolean exists = existsLocation.test(tc.getName());
-                                proposedTargets.put(target, exists);
-                                if (qualityUpgrade) upgradeOnlyTargets.add(target);
-                                collectionProposed = true;
-                                break;
-                            }
-                        }
-                        if (collectionProposed) break;
+                    // Compare the TC's required count against the total copies
+                    // already placed in the TC-named group(s) of the owned collection,
+                    // not against any single group in isolation (Bug 3B fix).
+                    int countInOwned = countInOwnedForDeckCombined(owned, tc.getName(), card);
+                    boolean tcNeedsMore = countInCollection > countInOwned;
+                    boolean qualityUpgrade = !tcNeedsMore
+                            && isQualityUpgradeFor(tc.getCardsList(), clickedElement);
+                    if (tcNeedsMore || qualityUpgrade) {
+                        String target = sanitizeDisplayName(tc.getName());
+                        boolean exists = existsLocation.test(tc.getName());
+                        proposedTargets.put(target, exists);
+                        if (qualityUpgrade) upgradeOnlyTargets.add(target);
                     }
 
                     if (tc.getLinkedDecks() != null) {
@@ -2478,33 +2564,34 @@ public class CardTreeCell extends TreeCell<String> {
                                 int requiredTotal = countMain + countExtra + countSide;
                                 if (requiredTotal > 0) {
                                     int presentTotal = countInOwnedForDeckCombined(owned, deck.getName(), card);
-                                    boolean needsMore = requiredTotal > presentTotal;
+                                    // Renamed to deckNeedsMore to avoid shadowing the outer tcNeedsMore variable.
+                                    boolean deckNeedsMore = requiredTotal > presentTotal;
                                     // Also propose when the owned copy is a quality upgrade for any sub-list
-                                    boolean upgradeMain = !needsMore && countMain > 0 && isQualityUpgradeFor(deck.getMainDeck(), clickedElement);
-                                    boolean upgradeExtra = !needsMore && countExtra > 0 && isQualityUpgradeFor(deck.getExtraDeck(), clickedElement);
-                                    boolean upgradeSide = !needsMore && countSide > 0 && isQualityUpgradeFor(deck.getSideDeck(), clickedElement);
-                                    if (needsMore || upgradeMain || upgradeExtra || upgradeSide) {
+                                    boolean upgradeMain = !deckNeedsMore && countMain > 0 && isQualityUpgradeFor(deck.getMainDeck(), clickedElement);
+                                    boolean upgradeExtra = !deckNeedsMore && countExtra > 0 && isQualityUpgradeFor(deck.getExtraDeck(), clickedElement);
+                                    boolean upgradeSide = !deckNeedsMore && countSide > 0 && isQualityUpgradeFor(deck.getSideDeck(), clickedElement);
+                                    if (deckNeedsMore || upgradeMain || upgradeExtra || upgradeSide) {
                                         if (countMain > 0
                                                 && Utils.DeckCompatibility.isCompatibleWith(card, "Main Deck")
-                                                && (needsMore || upgradeMain)) {
+                                                && (deckNeedsMore || upgradeMain)) {
                                             String target = sanitizeDisplayName(deck.getName()) + "/Main Deck";
                                             boolean exists = existsLocation.test(deck.getName());
                                             proposedTargets.put(target, exists);
-                                            if (!needsMore && upgradeMain) upgradeOnlyTargets.add(target);
+                                            if (!deckNeedsMore && upgradeMain) upgradeOnlyTargets.add(target);
                                         }
                                         if (countExtra > 0
                                                 && Utils.DeckCompatibility.isCompatibleWith(card, "Extra Deck")
-                                                && (needsMore || upgradeExtra)) {
+                                                && (deckNeedsMore || upgradeExtra)) {
                                             String target = sanitizeDisplayName(deck.getName()) + "/Extra Deck";
                                             boolean exists = existsLocation.test(deck.getName());
                                             proposedTargets.put(target, exists);
-                                            if (!needsMore && upgradeExtra) upgradeOnlyTargets.add(target);
+                                            if (!deckNeedsMore && upgradeExtra) upgradeOnlyTargets.add(target);
                                         }
-                                        if (countSide > 0 && (needsMore || upgradeSide)) {
+                                        if (countSide > 0 && (deckNeedsMore || upgradeSide)) {
                                             String target = sanitizeDisplayName(deck.getName()) + "/Side Deck";
                                             boolean exists = existsLocation.test(deck.getName());
                                             proposedTargets.put(target, exists);
-                                            if (!needsMore && upgradeSide) upgradeOnlyTargets.add(target);
+                                            if (!deckNeedsMore && upgradeSide) upgradeOnlyTargets.add(target);
                                         }
                                     }
                                 }
