@@ -1397,6 +1397,53 @@ public class RealMainController {
             });
         }
 
+        if (decksTab.getHideArchetypesButton() != null) {
+            Button hideArchetypesButton = decksTab.getHideArchetypesButton();
+            final String hideArchetypesOnStyle =
+                    "-fx-background-color: #cdfc04;"
+                            + "-fx-text-fill: black;"
+                            + "-fx-border-color: #cdfc04;"
+                            + "-fx-border-width: 1;"
+                            + "-fx-border-radius: 4;"
+                            + "-fx-background-radius: 4;"
+                            + "-fx-font-size: 12px;"
+                            + "-fx-padding: 4 10 4 10;"
+                            + "-fx-cursor: hand;";
+            final String hideArchetypesOffStyle =
+                    "-fx-background-color: #100317;"
+                            + "-fx-text-fill: #cdfc04;"
+                            + "-fx-border-color: #cdfc04;"
+                            + "-fx-border-width: 1;"
+                            + "-fx-border-radius: 4;"
+                            + "-fx-background-radius: 4;"
+                            + "-fx-font-size: 12px;"
+                            + "-fx-padding: 4 10 4 10;"
+                            + "-fx-cursor: hand;";
+
+            hideArchetypesButton.setOnAction(event -> {
+                boolean nowHiding =
+                        !DecksCollectionsController.isHideArchetypesEnabled();
+                DecksCollectionsController.setHideArchetypesEnabled(nowHiding);
+
+                if (nowHiding) {
+                    hideArchetypesButton.setText("Show archetypes & exceptions");
+                    hideArchetypesButton.setStyle(hideArchetypesOnStyle);
+                } else {
+                    hideArchetypesButton.setText("Hide archetypes & exceptions");
+                    hideArchetypesButton.setStyle(hideArchetypesOffStyle);
+                }
+
+                // A full tree rebuild is required because the archetypes/exceptions
+                // sections are DataTreeItem subtrees, not FilteredList-backed GridViews.
+                try {
+                    decksController.displayDecksAndCollections();
+                } catch (Exception exception) {
+                    logger.error("Error rebuilding Decks & Collections tree after "
+                            + "archetypes toggle", exception);
+                }
+            });
+        }
+
         if (ouicheListTab.getSaveButton() != null) {
             ouicheListTab.getSaveButton().setOnAction(event -> {
                 try {

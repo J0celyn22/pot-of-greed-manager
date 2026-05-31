@@ -192,6 +192,10 @@ public class SharedCollectionTab extends HBox {
      */
     private Button hideOwnedCardsButton;
     private Button incompleteMarkButton;
+    /**
+     * Toggle button that hides / shows Archetypes and Exceptions sections in the Decks tab.
+     */
+    private Button hideArchetypesButton;
 
     public Button getIncompleteMarkButton() {
         return incompleteMarkButton;
@@ -213,6 +217,15 @@ public class SharedCollectionTab extends HBox {
      */
     public Button getHideOwnedCardsButton() {
         return hideOwnedCardsButton;
+    }
+
+    /**
+     * Returns the "Hide archetypes &amp; exceptions / Show archetypes &amp; exceptions" toggle
+     * button placed in the Decks &amp; Collections tab header.
+     * Only non-null when this tab was constructed with {@link TabType#DECKS}.
+     */
+    public Button getHideArchetypesButton() {
+        return hideArchetypesButton;
     }
 
     public void setOnDecksLoad(Runnable onDecksLoad) {
@@ -309,6 +322,9 @@ public class SharedCollectionTab extends HBox {
                 break;
             }
             case DECKS: {
+                VBox decksGroup = new VBox(8);
+                decksGroup.setAlignment(Pos.CENTER_LEFT);
+
                 HBox groupRow = new HBox(5);
                 TextField decksAndCollectionDirectoryField = new TextField();
                 decksAndCollectionDirectoryField.setPromptText("Enter decks/collections directory");
@@ -355,7 +371,27 @@ public class SharedCollectionTab extends HBox {
                         logger.error("Error generating decks/collections HTML", ex);
                     }
                 });
-                headerContent.getChildren().add(groupRow);
+                headerContent.getChildren().add(decksGroup);
+                decksGroup.getChildren().add(groupRow);
+
+                // ── Row 2: Hide / Show archetypes & exceptions toggle ─────────
+                // OFF (default): dark background + green-yellow border/text  → "Hide archetypes & exceptions"
+                // ON:            green-yellow background + black text         → "Show archetypes & exceptions"
+                HBox groupRow2 = new HBox(5);
+                groupRow2.setAlignment(Pos.CENTER_LEFT);
+                hideArchetypesButton = new Button("Hide archetypes & exceptions");
+                hideArchetypesButton.setStyle(
+                        "-fx-background-color: #100317;"
+                                + "-fx-text-fill: #cdfc04;"
+                                + "-fx-border-color: #cdfc04;"
+                                + "-fx-border-width: 1;"
+                                + "-fx-border-radius: 4;"
+                                + "-fx-background-radius: 4;"
+                                + "-fx-font-size: 12px;"
+                                + "-fx-padding: 4 10 4 10;"
+                                + "-fx-cursor: hand;");
+                groupRow2.getChildren().add(hideArchetypesButton);
+                decksGroup.getChildren().add(groupRow2);
                 break;
             }
             case OUICHE_LIST: {

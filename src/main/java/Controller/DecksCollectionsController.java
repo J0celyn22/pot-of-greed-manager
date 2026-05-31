@@ -48,6 +48,33 @@ public class DecksCollectionsController {
     private static final Logger logger =
             LoggerFactory.getLogger(DecksCollectionsController.class);
 
+    // ── Static display flag ───────────────────────────────────────────────────
+
+    /**
+     * When {@code true}, the "Archetypes" and "Cards not to add" (Exceptions) sections
+     * are omitted from every collection's tree node in the Decks &amp; Collections tab.
+     * Defaults to {@code false} so both sections are visible by default.
+     */
+    private static boolean hideArchetypesEnabled = false;
+
+    /**
+     * Returns whether archetype/exception hiding is currently active.
+     */
+    public static boolean isHideArchetypesEnabled() {
+        return hideArchetypesEnabled;
+    }
+
+    /**
+     * Enables or disables archetype/exception hiding.
+     * After changing this flag the caller must trigger a full tree rebuild so that
+     * the sections appear or disappear.
+     *
+     * @param enabled {@code true} to hide archetypes &amp; exceptions, {@code false} to show them
+     */
+    public static void setHideArchetypesEnabled(boolean enabled) {
+        hideArchetypesEnabled = enabled;
+    }
+
     // ── Injected shared state ─────────────────────────────────────────────────
     private final DoubleProperty cardWidthProperty;
     private final DoubleProperty cardHeightProperty;
@@ -869,10 +896,14 @@ public class DecksCollectionsController {
 
         if (tabType != TabType.OUICHE_LIST) {
             // ── Archetypes section ────────────────────────────────────────────
-            addArchetypesSectionToCollection(collection, collectionItem, missingArtworkSet);
+            // Suppressed when the "Hide archetypes & exceptions" toggle is on.
+            if (!hideArchetypesEnabled) {
+                addArchetypesSectionToCollection(collection, collectionItem, missingArtworkSet);
+            }
 
             // ── Exceptions section ────────────────────────────────────────────
-            {
+            // Suppressed when the "Hide archetypes & exceptions" toggle is on.
+            if (!hideArchetypesEnabled) {
                 List<CardElement> exceptions = collection.getExceptionsToNotAdd();
                 if (exceptions == null) {
                     exceptions = new ArrayList<>();
