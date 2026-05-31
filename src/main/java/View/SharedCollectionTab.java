@@ -186,6 +186,11 @@ public class SharedCollectionTab extends HBox {
     private Button compactDetailedButton;
     private Button mosaicListButton;
     private Button saveButton;
+
+    /**
+     * Toggle button that hides / shows owned (gray) cards in the OuicheList.
+     */
+    private Button hideOwnedCardsButton;
     private Button incompleteMarkButton;
 
     public Button getIncompleteMarkButton() {
@@ -198,6 +203,16 @@ public class SharedCollectionTab extends HBox {
 
     public Button getMosaicListButton() {
         return mosaicListButton;
+    }
+
+    /**
+     * Returns the "Hide owned cards / Show owned cards" toggle button
+     * that is placed in the OuicheList tab header.
+     * The button is only non-null when this tab was constructed with
+     * {@link TabType#OUICHE_LIST}.
+     */
+    public Button getHideOwnedCardsButton() {
+        return hideOwnedCardsButton;
     }
 
     public void setOnDecksLoad(Runnable onDecksLoad) {
@@ -429,6 +444,26 @@ public class SharedCollectionTab extends HBox {
 
                 groupRow6.getChildren().addAll(compactDetailedButton, mosaicListButton);
                 ouicheGroup.getChildren().add(groupRow6);
+
+                // ── Row 7: Hide / Show owned cards toggle ─────────────────────
+                // Default state: owned cards are visible (shown in gray).
+                // OFF (default): dark background + green-yellow border/text  → label "Hide owned cards"
+                // ON:            green-yellow background + black text         → label "Show owned cards"
+                HBox groupRow7 = new HBox(5);
+                groupRow7.setAlignment(Pos.CENTER_LEFT);
+                hideOwnedCardsButton = new Button("Hide owned cards");
+                hideOwnedCardsButton.setStyle(
+                        "-fx-background-color: #100317;"
+                                + "-fx-text-fill: #cdfc04;"
+                                + "-fx-border-color: #cdfc04;"
+                                + "-fx-border-width: 1;"
+                                + "-fx-border-radius: 4;"
+                                + "-fx-background-radius: 4;"
+                                + "-fx-font-size: 12px;"
+                                + "-fx-padding: 4 10 4 10;"
+                                + "-fx-cursor: hand;");
+                groupRow7.getChildren().add(hideOwnedCardsButton);
+                ouicheGroup.getChildren().add(groupRow7);
 
                 headerContent.getChildren().add(ouicheGroup);
                 break;

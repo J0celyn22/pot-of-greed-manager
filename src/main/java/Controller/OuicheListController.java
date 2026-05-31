@@ -18,7 +18,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
 
 /**
  * OuicheListController — manages all display and navigation logic for the
@@ -41,6 +42,34 @@ import java.util.*;
 public class OuicheListController {
 
     private static final Logger logger = LoggerFactory.getLogger(OuicheListController.class);
+
+    // ── Static display flag ───────────────────────────────────────────────────
+
+    /**
+     * When {@code true}, owned cards (those the user already has) are hidden
+     * from the OuicheList view instead of being shown in gray.
+     * Defaults to {@code false} so the existing gray-display behaviour is
+     * preserved on first load.
+     */
+    private static boolean hideOwnedCardsEnabled = false;
+
+    /**
+     * Returns whether owned-card hiding is currently active.
+     */
+    public static boolean isHideOwnedCardsEnabled() {
+        return hideOwnedCardsEnabled;
+    }
+
+    /**
+     * Enables or disables owned-card hiding.
+     * After changing this flag the caller is responsible for triggering a
+     * view refresh so that the tree cells re-render.
+     *
+     * @param enabled {@code true} to hide owned cards, {@code false} to show them in gray
+     */
+    public static void setHideOwnedCardsEnabled(boolean enabled) {
+        hideOwnedCardsEnabled = enabled;
+    }
 
     // ── Injected shared state ─────────────────────────────────────────────────
 
@@ -93,29 +122,46 @@ public class OuicheListController {
         AnchorPane contentPane = ouicheListTab.getContentPane();
         contentPane.getChildren().clear();
 
-        if (UserInterfaceFunctions.getDecksList() == null) {
-            UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+        // Use the pre-computed detailed OuicheList. After the ownership-removal pass,
+        // each deck/collection's card lists contain only the cards that are still
+        // missing (owned cards are either removed or flagged owned=true).
+        DecksAndCollectionsList detailedOuicheList = OuicheList.getDetailedOuicheList();
+        if (detailedOuicheList == null) {
+            UserInterfaceFunctions.generateOuicheList();
+            detailedOuicheList = OuicheList.getDetailedOuicheList();
         }
-        DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
-        if (decksList == null) {
+        if (detailedOuicheList == null) {
             throw new Exception(
-                    "DecksAndCollectionsList is null. Cannot build the OuicheList.");
+                    "DetailedOuicheList is null. Cannot build the OuicheList view.");
         }
 
         DataTreeItem<Object> rootItem = new DataTreeItem<>("OuicheList", "ROOT");
         rootItem.setExpanded(true);
         boolean anyMissing = false;
 
-        if (decksList.getCollections() != null) {
-            for (ThemeCollection collection : decksList.getCollections()) {
-                Set<String> missingIds = buildMissingIdsForCollection(collection);
-                if (missingIds.isEmpty()) {
+        // ── Collections ────────────────────────────────────────────────────────
+        if (detailedOuicheList.getCollections() != null) {
+            for (ThemeCollection collection : detailedOuicheList.getCollections()) {
+                if (!collectionHasMissingCards(collection)) {
                     continue;
                 }
                 DataTreeItem<Object> collectionItem =
                         decksController.createThemeCollectionTreeItem(
                                 collection, TabType.OUICHE_LIST);
                 rootItem.getChildren().add(collectionItem);
+                anyMissing = true;
+            }
+        }
+
+        // ── Standalone decks ───────────────────────────────────────────────────
+        if (detailedOuicheList.getDecks() != null) {
+            for (Deck deck : detailedOuicheList.getDecks()) {
+                if (!deckHasMissingCards(deck)) {
+                    continue;
+                }
+                DataTreeItem<Object> deckItem =
+                        decksController.createDeckTreeItem(deck);
+                rootItem.getChildren().add(deckItem);
                 anyMissing = true;
             }
         }
@@ -167,19 +213,16 @@ public class OuicheListController {
         menuVBox.getChildren().clear();
         NavigationMenu navigationMenu = new NavigationMenu();
 
-        if (UserInterfaceFunctions.getDecksList() == null) {
-            UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
-        }
-        DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
-        if (decksList == null) {
+        DecksAndCollectionsList detailedOuicheList = OuicheList.getDetailedOuicheList();
+        if (detailedOuicheList == null) {
             menuVBox.getChildren().add(navigationMenu);
             return;
         }
 
-        if (decksList.getCollections() != null) {
-            for (ThemeCollection collection : decksList.getCollections()) {
-                Set<String> missingIds = buildMissingIdsForCollection(collection);
-                if (missingIds.isEmpty()) {
+        // ── Collections ────────────────────────────────────────────────────────
+        if (detailedOuicheList.getCollections() != null) {
+            for (ThemeCollection collection : detailedOuicheList.getCollections()) {
+                if (!collectionHasMissingCards(collection)) {
                     continue;
                 }
 
@@ -202,15 +245,9 @@ public class OuicheListController {
                             continue;
                         }
                         for (Deck deck : unit) {
-                            if (deck == null) {
+                            if (deck == null || !deckHasMissingCards(deck)) {
                                 continue;
                             }
-                            Set<String> deckMissing =
-                                    buildMissingIdsForDeck(deck, collection);
-                            if (deckMissing.isEmpty()) {
-                                continue;
-                            }
-
                             NavigationItem deckNavItem =
                                     NavigationHelper.createNavigationItem(deck.getName(), 1);
                             deckNavItem.setUserData(deck);
@@ -228,6 +265,26 @@ public class OuicheListController {
                 }
 
                 navigationMenu.addItem(collectionNavItem);
+            }
+        }
+
+        // ── Standalone decks ───────────────────────────────────────────────────
+        if (detailedOuicheList.getDecks() != null) {
+            for (Deck deck : detailedOuicheList.getDecks()) {
+                if (!deckHasMissingCards(deck)) {
+                    continue;
+                }
+                NavigationItem deckNavItem =
+                        NavigationHelper.createNavigationItem(deck.getName(), 0);
+                deckNavItem.setUserData(deck);
+                deckNavItem.setItemType(NavigationItem.ItemType.DECK);
+                NavigationHelper.applyNavigationItemHighlight(deckNavItem, true,
+                        "This deck has missing cards.");
+                deckNavItem.setOnLabelClicked(evt -> {
+                    SelectionManager.setLastClickedNavigationItem(deck);
+                    NavigationHelper.navigateToTree(ouicheListTreeView, deck.getName());
+                });
+                navigationMenu.addItem(deckNavItem);
             }
         }
 
@@ -259,6 +316,31 @@ public class OuicheListController {
             emptyLabel.setStyle("-fx-text-fill: white;");
             contentPane.getChildren().add(emptyLabel);
             return;
+        }
+
+        // When hiding is active, remove the owned cards from the display maps so
+        // that neither the list view nor the mosaic view renders them at all.
+        if (hideOwnedCardsEnabled) {
+            Map<String, CardElement> filteredCards = new java.util.LinkedHashMap<>();
+            Map<String, Integer> filteredCounts =
+                    (cardCounts != null) ? new java.util.LinkedHashMap<>() : null;
+
+            for (Map.Entry<String, CardElement> entry : uniqueCards.entrySet()) {
+                CardElement cardElement = entry.getValue();
+                if (cardElement == null) {
+                    continue;
+                }
+                boolean isOwned = cardElement.getCard() != null
+                        && CardTreeCell.isCardOwnedInCollection(cardElement.getCard());
+                if (!isOwned) {
+                    filteredCards.put(entry.getKey(), cardElement);
+                    if (filteredCounts != null && cardCounts.containsKey(entry.getKey())) {
+                        filteredCounts.put(entry.getKey(), cardCounts.get(entry.getKey()));
+                    }
+                }
+            }
+            uniqueCards = filteredCards;
+            cardCounts = filteredCounts;
         }
 
         Node content = mosaicMode
@@ -460,6 +542,8 @@ public class OuicheListController {
     public void setupOuicheListButtons() {
         Button compactDetailedButton = ouicheListTab.getCompactDetailedButton();
         Button mosaicListButton = ouicheListTab.getMosaicListButton();
+        Button hideOwnedCardsButton = ouicheListTab.getHideOwnedCardsButton();
+
         if (compactDetailedButton == null || mosaicListButton == null) {
             return;
         }
@@ -507,91 +591,120 @@ public class OuicheListController {
                 }
             }
         });
+
+        // ── Hide / Show owned cards toggle ────────────────────────────────────
+        if (hideOwnedCardsButton != null) {
+            hideOwnedCardsButton.setOnAction(event -> {
+                boolean nowHiding = !hideOwnedCardsEnabled;
+                hideOwnedCardsEnabled = nowHiding;
+
+                if (nowHiding) {
+                    // Active state: yellow-green background, black text
+                    hideOwnedCardsButton.setText("Show owned cards");
+                    hideOwnedCardsButton.setStyle(
+                            "-fx-background-color: #cdfc04;"
+                                    + "-fx-text-fill: black;"
+                                    + "-fx-border-color: #cdfc04;"
+                                    + "-fx-border-width: 1;"
+                                    + "-fx-border-radius: 4;"
+                                    + "-fx-background-radius: 4;"
+                                    + "-fx-font-size: 12px;"
+                                    + "-fx-padding: 4 10 4 10;"
+                                    + "-fx-cursor: hand;");
+                } else {
+                    // Default state: dark background, yellow-green text/border
+                    hideOwnedCardsButton.setText("Hide owned cards");
+                    hideOwnedCardsButton.setStyle(
+                            "-fx-background-color: #100317;"
+                                    + "-fx-text-fill: #cdfc04;"
+                                    + "-fx-border-color: #cdfc04;"
+                                    + "-fx-border-width: 1;"
+                                    + "-fx-border-radius: 4;"
+                                    + "-fx-background-radius: 4;"
+                                    + "-fx-font-size: 12px;"
+                                    + "-fx-padding: 4 10 4 10;"
+                                    + "-fx-cursor: hand;");
+                }
+
+                // Refresh whichever view is currently showing.
+                boolean isCompactMode = "Detailed mode".equals(compactDetailedButton.getText());
+                if (isCompactMode) {
+                    boolean isMosaicMode = "List".equals(mosaicListButton.getText());
+                    try {
+                        displayCompactOuicheList(isMosaicMode);
+                    } catch (Exception exception) {
+                        logger.error("Error refreshing compact OuicheList after hide-owned toggle",
+                                exception);
+                    }
+                } else {
+                    // For the unified tree view, re-applying the FilteredList predicate is
+                    // sufficient: owned cards are removed from (or restored to) every live
+                    // GridView without rebuilding the whole tree.
+                    CardTreeCell.applyHideOwnedToAllGroups();
+                }
+            });
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /**
-     * Computes the union of missing-card IDs for a single collection, considering
-     * all of its archetypes.
+     * Returns {@code true} when the collection has at least one card element that
+     * is not yet owned, across all its linked deck sections and its own cards list.
+     *
+     * <p>Operates on the <em>detailedOuicheList</em> copy produced by
+     * {@link OuicheList#CreateDetailedOuicheList}, where owned cards have already
+     * been removed from the lists (or flagged {@code owned=true}).
      */
-    private Set<String> buildMissingIdsForCollection(ThemeCollection collection) {
-        return decksController.computeMissingIdsForElements(
-                collection, gatherAllArchetypeElements(collection));
-    }
-
-    /**
-     * Computes the missing-card IDs for a single deck within its collection context.
-     */
-    private Set<String> buildMissingIdsForDeck(Deck deck, ThemeCollection collection) {
-        Set<String> deckIds = new HashSet<>();
-        List<List<CardElement>> sections = new ArrayList<>();
-        if (deck.getMainDeck() != null) {
-            sections.add(deck.getMainDeck());
+    private boolean collectionHasMissingCards(ThemeCollection collection) {
+        if (collection == null) {
+            return false;
         }
-        if (deck.getExtraDeck() != null) {
-            sections.add(deck.getExtraDeck());
-        }
-        if (deck.getSideDeck() != null) {
-            sections.add(deck.getSideDeck());
-        }
-        for (List<CardElement> section : sections) {
-            for (CardElement cardElement : section) {
-                if (cardElement == null || cardElement.getCard() == null) {
+        if (collection.getLinkedDecks() != null) {
+            for (List<Deck> unit : collection.getLinkedDecks()) {
+                if (unit == null) {
                     continue;
                 }
-                Card card = cardElement.getCard();
-                String konamiId = card.getKonamiId();
-                String passCode = card.getPassCode();
-                boolean present = false;
-                if (konamiId != null && !konamiId.isBlank()) {
-                    present = decksController.isKonamiIdPresentInCollection(
-                            collection, konamiId);
-                }
-                if (!present && passCode != null && !passCode.isBlank()) {
-                    present = decksController.isPassCodePresentInCollection(
-                            collection, passCode);
-                }
-                if (!present) {
-                    if (konamiId != null && !konamiId.isBlank()) {
-                        deckIds.add(konamiId);
-                    }
-                    if (passCode != null && !passCode.isBlank()) {
-                        deckIds.add(passCode);
+                for (Deck deck : unit) {
+                    if (deckHasMissingCards(deck)) {
+                        return true;
                     }
                 }
             }
         }
-        return deckIds;
+        if (collection.getCardsList() != null) {
+            for (CardElement cardElement : collection.getCardsList()) {
+                if (!Boolean.TRUE.equals(cardElement.getOwned())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
-     * Gathers all {@link CardElement}s across all archetypes in a {@link ThemeCollection}.
+     * Returns {@code true} when the deck has at least one card element that is not
+     * yet owned, across its main, extra, and side deck lists.
+     *
+     * <p>Same contract as {@link #collectionHasMissingCards}: operates on the
+     * post-ownership-removal copy inside {@code detailedOuicheList}.
      */
-    private List<CardElement> gatherAllArchetypeElements(ThemeCollection collection) {
-        List<CardElement> elements = new ArrayList<>();
-        if (collection == null) {
-            return elements;
+    private boolean deckHasMissingCards(Deck deck) {
+        if (deck == null) {
+            return false;
         }
-        try {
-            java.lang.reflect.Method archetypesMethod =
-                    collection.getClass().getMethod("getArchetypes");
-            Object result = archetypesMethod.invoke(collection);
-            if (result instanceof List) {
-                for (Object archetypeObj : (List<?>) result) {
-                    if (archetypeObj instanceof String archetypeName) {
-                        elements.addAll(
-                                decksController.buildElementsFromGlobalArchetype(
-                                        archetypeName.trim()));
-                    }
+        for (List<CardElement> section : java.util.Arrays.asList(
+                deck.getMainDeck(), deck.getExtraDeck(), deck.getSideDeck())) {
+            if (section == null) {
+                continue;
+            }
+            for (CardElement cardElement : section) {
+                if (!Boolean.TRUE.equals(cardElement.getOwned())) {
+                    return true;
                 }
             }
-        } catch (NoSuchMethodException ignored) {
-        } catch (Exception exception) {
-            logger.debug("gatherAllArchetypeElements failed for {}: {}",
-                    collection.getName(), exception.getMessage());
         }
-        return elements;
+        return false;
     }
 
     // ── Accessors ─────────────────────────────────────────────────────────────

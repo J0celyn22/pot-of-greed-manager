@@ -1510,6 +1510,28 @@ class CardGridCell extends GridCell<CardElement> {
         boolean ouicheSelected = outer.isOuicheListTabSelected();
         boolean owned = cardElement.getOwned() != null && cardElement.getOwned();
         if (ouicheSelected && owned) {
+            // When "Hide owned cards" is active, suppress the cell entirely instead of
+            // showing it in gray. The flag is baked into the GridView userData at
+            // tree-build time by CardTreeCell.createCardsGroupCell.
+            boolean hideOwned = false;
+            try {
+                Object userData = getGridView() != null ? getGridView().getUserData() : null;
+                if (userData instanceof Map) {
+                    Object flag = ((Map<?, ?>) userData).get("hideOwnedCards");
+                    if (flag instanceof Boolean) {
+                        hideOwned = (Boolean) flag;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            if (hideOwned) {
+                cardImageView.setImage(null);
+                cardImageView.setEffect(null);
+                wrapper.setEffect(null);
+                wrapper.setStyle("-fx-background-color: transparent;");
+                setGraphic(null);
+                return;
+            }
             javafx.scene.effect.ColorAdjust grayscale = new javafx.scene.effect.ColorAdjust();
             grayscale.setSaturation(-0.7);   // 70% desaturation
             grayscale.setBrightness(-0.5);   // darken by 50%

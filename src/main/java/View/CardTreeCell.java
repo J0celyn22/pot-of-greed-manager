@@ -180,6 +180,74 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     /**
+     * Returns {@code true} when at least one copy of {@code card} is present in
+     * the user's owned collection, using the same {@link CardMatcher#cardsMatch}
+     * identity check that {@code CardGridCell} uses to decide gray-rendering in
+     * the OuicheList view.
+     *
+     * <p>Called by {@link Controller.OuicheListController#displayCompactOuicheList}
+     * to filter owned cards out of the compact view when the "Hide owned cards"
+     * toggle is active.
+     *
+     * @param card the card to look up; must not be {@code null}
+     * @return {@code true} if the card is found in the owned collection
+     */
+    public static boolean isCardOwnedInCollection(Card card) {
+        if (card == null) {
+            return false;
+        }
+        Model.CardsLists.OwnedCardsCollection ownedCollection = null;
+        try {
+            ownedCollection = Model.CardsLists.OuicheList.getMyCardsCollection();
+        } catch (Throwable ignored) {
+        }
+        if (ownedCollection == null || ownedCollection.getOwnedCollection() == null) {
+            return false;
+        }
+        for (Box box : ownedCollection.getOwnedCollection()) {
+            if (box == null) {
+                continue;
+            }
+            if (box.getContent() != null) {
+                for (CardsGroup group : box.getContent()) {
+                    if (group == null || group.getCardList() == null) {
+                        continue;
+                    }
+                    for (CardElement cardElement : group.getCardList()) {
+                        if (cardElement == null || cardElement.getCard() == null) {
+                            continue;
+                        }
+                        if (CardMatcher.cardsMatch(cardElement.getCard(), card)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            if (box.getSubBoxes() != null) {
+                for (Box subBox : box.getSubBoxes()) {
+                    if (subBox == null || subBox.getContent() == null) {
+                        continue;
+                    }
+                    for (CardsGroup group : subBox.getContent()) {
+                        if (group == null || group.getCardList() == null) {
+                            continue;
+                        }
+                        for (CardElement cardElement : group.getCardList()) {
+                            if (cardElement == null || cardElement.getCard() == null) {
+                                continue;
+                            }
+                            if (CardMatcher.cardsMatch(cardElement.getCard(), card)) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * Public accessors used by RealMainController and MenuActionHandler paths.
      */
     public static void registerCollectionCardsGroup(
@@ -754,18 +822,68 @@ public class CardTreeCell extends TreeCell<String> {
                 continue;
             }
 
-            if (activeMiddleFilter == null) {
-                fl.setPredicate(null);
-            } else {
-                final java.util.function.Predicate<Card> captured = activeMiddleFilter;
-                fl.setPredicate(ce -> ce != null && ce.getCard() != null && captured.test(ce.getCard()));
-            }
+            fl.setPredicate(buildCombinedPredicate(activeMiddleFilter));
 
             // Recompute height using the post-filter count
             java.lang.ref.WeakReference<GridView<CardElement>> gridRef = CardGroupRegistry.GROUP_GRID_VIEWS.get(group);
             GridView<CardElement> grid = gridRef != null ? gridRef.get() : null;
             adjustGridViewHeightStatic(grid, fl.size());
         }
+    }
+
+    /**
+     * Builds a combined {@link java.util.function.Predicate} for the middle-pane
+     * {@link javafx.collections.transformation.FilteredList} of a cards group.
+     *
+     * <p>The predicate ANDs two independent concerns:
+     * <ol>
+     *   <li>The active middle-pane card filter (may be {@code null} = pass all).</li>
+     *   <li>When "Hide owned cards" is active in the OuicheList, {@link CardElement}s
+     *       whose {@link CardElement#getOwned()} is {@code true} are excluded so they
+     *       occupy zero space in the {@link GridView} — not just rendered invisible.</li>
+     * </ol>
+     *
+     * @param middleFilter the currently active card filter, or {@code null} for none
+     * @return a predicate to pass to
+     * {@link javafx.collections.transformation.FilteredList#setPredicate},
+     * or {@code null} when neither filter is active (show everything)
+     */
+    private static java.util.function.Predicate<CardElement> buildCombinedPredicate(
+            java.util.function.Predicate<Card> middleFilter) {
+
+        boolean hideOwned = Controller.OuicheListController.isHideOwnedCardsEnabled();
+
+        if (!hideOwned && middleFilter == null) {
+            return null; // fastest path — no filtering at all
+        }
+
+        final java.util.function.Predicate<Card> capturedFilter = middleFilter;
+
+        return ce -> {
+            if (ce == null) {
+                return false;
+            }
+            if (hideOwned && Boolean.TRUE.equals(ce.getOwned())) {
+                return false;
+            }
+            if (capturedFilter != null) {
+                return ce.getCard() != null && capturedFilter.test(ce.getCard());
+            }
+            return true;
+        };
+    }
+
+    /**
+     * Re-applies the combined predicate (hide-owned + active middle filter) to every
+     * live {@link javafx.collections.transformation.FilteredList} and recalculates
+     * each GridView's preferred height.
+     *
+     * <p>Called by {@link Controller.OuicheListController} after toggling the
+     * "Hide owned cards" flag so that owned-card slots are removed or restored
+     * without rebuilding the whole tree.
+     */
+    public static void applyHideOwnedToAllGroups() {
+        Platform.runLater(CardTreeCell::applyFilterToAllGroups);
     }
 
     private void updateCustomTriangle(boolean isExpanded) {
@@ -2784,10 +2902,7 @@ public class CardTreeCell extends TreeCell<String> {
         // touching the underlying model list (which is used by drag-drop and save).
         javafx.collections.transformation.FilteredList<CardElement> filteredItems =
                 new javafx.collections.transformation.FilteredList<>(groupItems);
-        if (activeMiddleFilter != null) {
-            final java.util.function.Predicate<Card> captured = activeMiddleFilter;
-            filteredItems.setPredicate(ce -> ce != null && ce.getCard() != null && captured.test(ce.getCard()));
-        }
+        filteredItems.setPredicate(buildCombinedPredicate(activeMiddleFilter));
         CardGroupRegistry.GROUP_FILTERED_LISTS.put(group, new java.lang.ref.WeakReference<>(filteredItems));
         grid.setItems(filteredItems);
         // Register as the current renderer so triggerHeightAdjustment() can find it.
@@ -2814,6 +2929,7 @@ public class CardTreeCell extends TreeCell<String> {
         ud.put("elementName", displayName);
         ud.put("isArchetype", isArchetype);
         ud.put("missingArtworkSet", missingArtworkSet == null ? Collections.emptySet() : missingArtworkSet);
+        ud.put("hideOwnedCards", Controller.OuicheListController.isHideOwnedCardsEnabled());
         grid.setUserData(ud);
 
         this.cardGridView = grid;
