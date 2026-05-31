@@ -95,30 +95,6 @@ public class CardClipboard {
         return Collections.unmodifiableList(contents);
     }
 
-    /**
-     * Returns an unmodifiable view of the clipboard contents as plain
-     * {@link Card} references extracted from the stored element snapshots.
-     * <p>
-     * Provided for callers that have not yet been updated to work with
-     * {@link CardElement} snapshots. Prefer {@link #getContents()} to
-     * avoid discarding per-copy metadata.
-     * </p>
-     *
-     * @return immutable list of cards; never {@code null}
-     * @deprecated Use {@link #getContents()} to retrieve the full
-     *             {@link CardElement} snapshots, including condition and rarity.
-     */
-    @Deprecated
-    public static List<Card> getCardContents() {
-        List<Card> cards = new ArrayList<>(contents.size());
-        for (CardElement element : contents) {
-            if (element.getCard() != null) {
-                cards.add(element.getCard());
-            }
-        }
-        return Collections.unmodifiableList(cards);
-    }
-
     // ── Utilities ─────────────────────────────────────────────────────────────
 
     /**
@@ -140,7 +116,9 @@ public class CardClipboard {
     }
 
     /**
-     * Registers a listener that is invoked whenever the clipboard contents
+     * Registers a listener that is invoked whenever the clipboard con
+     *
+     * tents
      * change (on copy or clear). Duplicate registrations are silently ignored.
      *
      * @param listener the callback to register; ignored if {@code null}

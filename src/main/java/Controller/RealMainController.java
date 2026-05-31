@@ -52,9 +52,6 @@ import java.util.stream.Collectors;
  * </ul>
  *
  * <p>{@link NavigationHelper} provides shared static nav utilities used by all sub-controllers.
- *
- * <p>The {@code @Deprecated} forwarding stubs for CardQualityService are kept here until
- * all external callers in untouched files have been updated.
  */
 public class RealMainController {
 
@@ -141,83 +138,6 @@ public class RealMainController {
      * Values: "TREE" | "COMPACT_LIST" | "COMPACT_MOSAIC".
      */
     private String activeOuicheListView = "TREE";
-
-    // =========================================================================
-    // Deprecated forwarding stubs (kept for callers in untouched files)
-    // =========================================================================
-
-    /**
-     * @deprecated Use {@link CardQualityService#computeCardNeedsSorting} instead.
-     */
-    @Deprecated
-    public static boolean computeCardNeedsSorting(Card card, String elementName) {
-        return CardQualityService.computeCardNeedsSorting(card, elementName);
-    }
-
-    /**
-     * @deprecated Use {@link CardQualityService#computeCardNeedsSortingWithUpgrade} instead.
-     */
-    @Deprecated
-    public static boolean computeCardNeedsSortingWithUpgrade(CardElement ownedElement,
-                                                             String elementName) {
-        return CardQualityService.computeCardNeedsSortingWithUpgrade(ownedElement, elementName);
-    }
-
-    /**
-     * @deprecated Use {@link CardQualityService#computeNetCopiesNeeded} instead.
-     */
-    @Deprecated
-    public static int computeNetCopiesNeeded(Card card, String elementName) {
-        return CardQualityService.computeNetCopiesNeeded(card, elementName);
-    }
-
-    /**
-     * @deprecated Use {@link CardQualityService#isBetterCondition} instead.
-     */
-    @Deprecated
-    public static boolean isBetterCondition(CardCondition candidate, CardCondition existing) {
-        return CardQualityService.isBetterCondition(candidate, existing);
-    }
-
-    /**
-     * @deprecated Use {@link CardQualityService#satisfiesExpectedRarityBetter} instead.
-     */
-    @Deprecated
-    public static boolean satisfiesExpectedRarityBetter(CardRarity candidateRarity,
-                                                        CardRarity existingRarity,
-                                                        CardRarity expectedRarity) {
-        return CardQualityService.satisfiesExpectedRarityBetter(
-                candidateRarity, existingRarity, expectedRarity);
-    }
-
-    /**
-     * @deprecated Use {@link CardQualityService#isQualityUpgrade} instead.
-     */
-    @Deprecated
-    public static boolean isQualityUpgrade(List<CardElement> existingInTarget,
-                                           List<CardElement> targetSlotElements,
-                                           CardElement candidate) {
-        return CardQualityService.isQualityUpgrade(existingInTarget, targetSlotElements, candidate);
-    }
-
-    /**
-     * @deprecated Use {@link CardQualityService#isDegradedCopyInDeckOrCollection} instead.
-     */
-    @Deprecated
-    public static boolean isDegradedCopyInDeckOrCollection(CardElement deckElement,
-                                                           String deckOrCollectionName) {
-        return CardQualityService.isDegradedCopyInDeckOrCollection(deckElement,
-                deckOrCollectionName);
-    }
-
-    /**
-     * @deprecated Use {@link CardQualityService#findOwnedUpgradeCandidates} instead.
-     */
-    @Deprecated
-    public static List<CardElement> findOwnedUpgradeCandidates(CardElement deckElement,
-                                                               String deckOrCollectionName) {
-        return CardQualityService.findOwnedUpgradeCandidates(deckElement, deckOrCollectionName);
-    }
 
     // =========================================================================
     // FXML lifecycle

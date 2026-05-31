@@ -144,18 +144,6 @@ public class SelectionManager {
     }
 
     /**
-     * Returns the {@link Card} wrapped by the last interacted MIDDLE-pane element.
-     *
-     * @return the card of the last MIDDLE-pane element, or {@code null}
-     * @deprecated Use {@link #getLastMiddleElement()} to access the full
-     *             {@link CardElement} including print-code information.
-     */
-    @Deprecated
-    public static Card getLastMiddleCard() {
-        return lastMiddleElement != null ? lastMiddleElement.getCard() : null;
-    }
-
-    /**
      * Returns the last navigation item (e.g. a tree node or nav-menu entry) that
      * was clicked by the user.
      *
@@ -446,36 +434,6 @@ public class SelectionManager {
         activePart = null;
         rangeAnchorMiddleElement = null;
         rangeAnchorRightCard = null;
-        notifySelectionChanged();
-    }
-
-    // ── Legacy compatibility ──────────────────────────────────────────────────
-
-    /**
-     * Toggles selection of the given card in the specified pane. Delegates
-     * directly to {@link #toggleSelection(Card, String)}.
-     *
-     * @param card the card to toggle
-     * @param part the pane identifier
-     * @deprecated Use {@link #toggleElementSelection(CardElement)} for the MIDDLE
-     *             pane, or {@link #toggleSelection(Card, String)} for the RIGHT pane.
-     */
-    @Deprecated
-    public static void addToSelection(Card card, String part) {
-        toggleSelection(card, part);
-    }
-
-    /**
-     * Removes the given card from the RIGHT-pane selection. Has no effect if the
-     * card is not currently selected.
-     *
-     * @param card the card to deselect
-     */
-    public static void removeFromSelection(Card card) {
-        selectedRightCards.remove(card);
-        if (selectedRightCards.isEmpty() && "RIGHT".equals(activePart)) {
-            activePart = null;
-        }
         notifySelectionChanged();
     }
 

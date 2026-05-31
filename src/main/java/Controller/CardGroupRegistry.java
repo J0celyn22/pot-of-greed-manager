@@ -25,8 +25,7 @@ import java.util.function.Predicate;
  *
  * <p>Callers outside the View package that previously used
  * {@code CardTreeCell.someStaticMethod()} should be updated to call
- * {@code CardGroupRegistry.someStaticMethod()} instead.
- * {@code CardTreeCell} retains {@code @Deprecated} forwarding stubs for the transition period.</p>
+ * {@code CardGroupRegistry.someStaticMethod()} instead.</p>
  */
 public final class CardGroupRegistry {
 
