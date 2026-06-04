@@ -1299,6 +1299,17 @@ class CardGridCell extends GridCell<CardElement> {
         try {
             Card card = cardElement.getCard();
             boolean myCollTab = outer.isMyCollectionTabSelected();
+            boolean ouicheTab = outer.isOuicheListTabSelected();
+
+            // ── OuicheList: substandard-quality red glow (priority 4, highest) ─────────
+            // A slot marked OWNED_SUBSTANDARD means the user owns a copy of this card
+            // but it does not meet the condition or rarity requirement of this slot.
+            // The card is shown with a red glow (same colour as "no printCode" in My
+            // Collection) so the user knows to seek a better copy.
+            if (ouicheTab
+                    && cardElement.getOwnershipStatus() == OwnershipStatus.OWNED_SUBSTANDARD) {
+                glowPriority = 4;
+            }
 
             // ── My Collection completeness warnings (always shown in tooltip) ─────────
             // Glow is only applied when outer.incompleteMarkingEnabled; tooltip always shows.
@@ -1467,7 +1478,24 @@ class CardGridCell extends GridCell<CardElement> {
         }
 
         // ── Apply glow effect to the wrapper StackPane ────────────────────────────────
-        if (glowPriority >= 3) {
+        if (glowPriority >= 4) {
+            // Red — OWNED_SUBSTANDARD in OuicheList tab
+            // Signals that the user owns this card but not at the required quality.
+            DropShadow inner = new DropShadow();
+            inner.setColor(javafx.scene.paint.Color.web("#FF3333", 1.0));
+            inner.setOffsetX(0);
+            inner.setOffsetY(0);
+            inner.setRadius(4);
+            inner.setSpread(0.9);
+            DropShadow outer = new DropShadow();
+            outer.setColor(javafx.scene.paint.Color.web("#FF3333", 0.40));
+            outer.setOffsetX(0);
+            outer.setOffsetY(0);
+            outer.setRadius(14);
+            outer.setSpread(0.12);
+            outer.setInput(inner);
+            wrapper.setEffect(outer);
+        } else if (glowPriority >= 3) {
             // Red — no printCode
             DropShadow inner = new DropShadow();
             inner.setColor(javafx.scene.paint.Color.web("#ff3333", 1.0));
@@ -1508,7 +1536,7 @@ class CardGridCell extends GridCell<CardElement> {
         // This is intentionally applied to cardImageView, not wrapper, so it is independent
         // of the glow effect above and does not affect other tabs.
         boolean ouicheSelected = outer.isOuicheListTabSelected();
-        boolean owned = cardElement.getOwned() != null && cardElement.getOwned();
+        boolean owned = cardElement.getOwnershipStatus() != null && cardElement.getOwnershipStatus() == OwnershipStatus.OWNED;
         if (ouicheSelected && owned) {
             // When "Hide owned cards" is active, suppress the cell entirely instead of
             // showing it in gray. The flag is baked into the GridView userData at

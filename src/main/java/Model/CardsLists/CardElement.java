@@ -7,19 +7,22 @@ public class CardElement {
     Card card;
     Boolean specificArtwork;
     int artwork;
-    Boolean isOwned;
     Boolean dontRemove;
     Boolean isInDeck;
 
     private String rawCode;
 
     /**
-     * Computed/transient flag set during OuicheList generation.
-     * {@code true} means the user owns a copy of this card but it does not
-     * satisfy the condition or rarity requirement attached to this wanted slot.
+     * Computed/transient ownership status set during OuicheList generation.
+     * <ul>
+     *   <li>{@link OwnershipStatus#MISSING} — no owned copy fills this slot.</li>
+     *   <li>{@link OwnershipStatus#OWNED_SUBSTANDARD} — an owned copy exists but
+     *       does not meet the condition or rarity requirement of this slot.</li>
+     *   <li>{@link OwnershipStatus#OWNED} — an owned copy fully satisfies this slot.</li>
+     * </ul>
      * Never persisted to file.
      */
-    private Boolean isOwnedSubstandard;
+    private OwnershipStatus ownershipStatus;
 
     // ── New per-copy fields (collection / owned-cards context only) ─────────
 
@@ -48,8 +51,9 @@ public class CardElement {
     public CardElement(Card card, Boolean specificArtwork, Boolean isOwned, Boolean dontRemove, Boolean isInDeck) {
         this.card = card;
         this.specificArtwork = specificArtwork;
-        this.isOwned = isOwned;
-        this.isOwnedSubstandard = false;
+        this.ownershipStatus = Boolean.TRUE.equals(isOwned)
+                ? OwnershipStatus.OWNED
+                : OwnershipStatus.MISSING;
         this.dontRemove = dontRemove;
         this.isInDeck = isInDeck;
         this.condition = null;
@@ -82,8 +86,7 @@ public class CardElement {
         this.specificArtwork = source.specificArtwork;
         this.artwork = source.artwork;
         this.rawCode = source.rawCode;
-        this.isOwned = false;
-        this.isOwnedSubstandard = false;
+        this.ownershipStatus = OwnershipStatus.MISSING;
         this.dontRemove = source.dontRemove;
         this.isInDeck = source.isInDeck;
         this.condition = source.condition;
@@ -121,10 +124,10 @@ public class CardElement {
             String part2 = parts[1];
             this.rawCode = part1;   // ← preserve original ID
             if (part2.contains("O")) {
-                this.isOwned = true;
+                this.ownershipStatus = OwnershipStatus.OWNED;
                 part2 = part2.replace("O", "");
             } else {
-                this.isOwned = false;
+                this.ownershipStatus = OwnershipStatus.MISSING;
             }
             if (part2.contains("D")) {
                 this.isInDeck = true;
@@ -150,7 +153,7 @@ public class CardElement {
             }
         } else {
             this.rawCode = string;  // ← preserve original ID
-            this.isOwned = false;
+            this.ownershipStatus = OwnershipStatus.MISSING;
             this.isInDeck = false;
             this.dontRemove = false;
             this.specificArtwork = false;
@@ -200,29 +203,32 @@ public class CardElement {
     }
 
     /**
-     * Gets whether this card element is owned.
-     * <p>
-     * If this element was created with the flag 'O' in the string, this method
-     * returns true. Otherwise, this method returns false.
-     * </p>
+     * Returns the ownership status of this card element slot.
      *
-     * @return true if this element is owned, false otherwise
+     * @return the {@link OwnershipStatus}; never {@code null}
      */
-    public Boolean getOwned() {
-        return isOwned;
+    public OwnershipStatus getOwnershipStatus() {
+        return ownershipStatus != null ? ownershipStatus : OwnershipStatus.MISSING;
     }
 
     /**
-     * Sets whether this card element is owned.
-     * <p>
-     * If true, this element was created with the flag 'O' in the string.
-     * Otherwise, this element was created without the flag 'O' in the string.
-     * </p>
+     * Sets the ownership status of this card element slot.
      *
-     * @param owned a Boolean indicating if this element should be marked as owned.
+     * @param ownershipStatus the new {@link OwnershipStatus}; must not be {@code null}
      */
-    public void setOwned(Boolean owned) {
-        isOwned = owned;
+    public void setOwnershipStatus(OwnershipStatus ownershipStatus) {
+        this.ownershipStatus = ownershipStatus != null ? ownershipStatus : OwnershipStatus.MISSING;
+    }
+
+    /**
+     * Returns {@code true} when this slot is fully satisfied by an owned copy.
+     *
+     * @return {@code true} if {@link #getOwnershipStatus()} is {@link OwnershipStatus#OWNED}
+     * @deprecated Use {@link #getOwnershipStatus()} instead.
+     */
+    @Deprecated
+    public Boolean getOwned() {
+        return ownershipStatus == OwnershipStatus.OWNED;
     }
 
     /**
@@ -313,10 +319,10 @@ public class CardElement {
      */
     public void setValues(String string) {
         if (string.contains("O")) {
-            this.isOwned = true;
+            this.ownershipStatus = OwnershipStatus.OWNED;
             string = string.replace("O", "");
         } else {
-            this.isOwned = false;
+            this.ownershipStatus = OwnershipStatus.MISSING;
         }
 
         if (string.contains("D")) {
@@ -345,36 +351,6 @@ public class CardElement {
         }
     }
 
-    // ── New per-copy fields ─────────────────────────────────────────────────
-
-    /**
-     * Returns whether this wanted-card slot is satisfied by a copy that exists
-     * in the owned collection but does not meet the condition or rarity
-     * requirement of this slot.
-     * <p>
-     * This is a transient/computed flag set during OuicheList generation.
-     * It is never persisted to file.
-     * </p>
-     *
-     * @return {@code true} if a substandard copy was matched, {@code false}
-     * otherwise (including when the slot is fully satisfied via
-     * {@link #isOwned})
-     */
-    public Boolean getIsOwnedSubstandard() {
-        return Boolean.TRUE.equals(isOwnedSubstandard);
-    }
-
-    /**
-     * Sets the substandard-ownership flag. Called by the OuicheList generator
-     * during the second (quality-relaxed) ownership pass.
-     *
-     * @param ownedSubstandard {@code true} to mark this slot as matched by a
-     *                         substandard owned copy
-     */
-    public void setIsOwnedSubstandard(Boolean ownedSubstandard) {
-        this.isOwnedSubstandard = ownedSubstandard;
-    }
-
     /**
      * Returns the physical condition of this copy, or {@code null} if not set.
      *
@@ -382,6 +358,16 @@ public class CardElement {
      */
     public CardCondition getCondition() {
         return condition;
+    }
+
+    /**
+     * Returns the effective condition, defaulting to {@link CardCondition#GOOD}
+     * when none has been explicitly set.  Used by quality-matching logic so that
+     * ungraded owned copies and slots without an explicit requirement both
+     * default to the GOOD baseline.
+     */
+    public CardCondition getEffectiveCondition() {
+        return condition != null ? condition : CardCondition.GOOD;
     }
 
     /**
@@ -486,14 +472,14 @@ public class CardElement {
         if (returnValue == null) {
             returnValue = "";
         }
-        if (specificArtwork || isOwned || dontRemove) {
+        if (specificArtwork || ownershipStatus == OwnershipStatus.OWNED || dontRemove) {
             returnValue += ",";
         }
         if (specificArtwork) {
             returnValue += "*";
             returnValue += this.getCard().getArtNumber();
         }
-        if (isOwned) {
+        if (ownershipStatus == OwnershipStatus.OWNED) {
             returnValue += "O";
         }
         if (isInDeck) {
@@ -533,14 +519,22 @@ public class CardElement {
         if (id == null) id = this.rawCode;
         if (id == null) id = "";
 
-        if (specificArtwork || isOwned || dontRemove) id += ",";
+        if (specificArtwork || ownershipStatus == OwnershipStatus.OWNED || dontRemove) {
+            id += ",";
+        }
         if (specificArtwork) {
             id += "*";
             id += this.card.getArtNumber();
         }
-        if (isOwned) id += "O";
-        if (isInDeck) id += "D";
-        if (dontRemove) id += "+";
+        if (ownershipStatus == OwnershipStatus.OWNED) {
+            id += "O";
+        }
+        if (isInDeck) {
+            id += "D";
+        }
+        if (dontRemove) {
+            id += "+";
+        }
 
         // ── Append new fields ──────────────────────────────────────────────
         boolean hasCondition = condition != null;
@@ -575,24 +569,42 @@ public class CardElement {
     public String toThemeCollectionString() {
         // ThemeCollection format: passCode first, printCode as fallback
         String id = this.getCard().getPassCode();
-        if (id == null) id = this.getCard().getPrintCode();
-        if (id == null) id = "";
-
-        // Explicitly-flagged artwork (from .ytc file import)
-        if (this.specificArtwork && this.artwork > 0) {
-            return id + ",*" + this.artwork;
+        if (id == null) {
+            id = this.getCard().getPrintCode();
+        }
+        if (id == null) {
+            id = "";
         }
 
-        // Artwork picked in AllExistingCardsPane (stored in card.artNumber)
-        String cardArtNumber = this.getCard().getArtNumber();
-        if (cardArtNumber != null && !cardArtNumber.isEmpty()) {
-            try {
-                int artNum = Integer.parseInt(cardArtNumber);
-                if (artNum > 1) {
-                    // Non-default artwork — save the marker so it round-trips correctly
-                    return id + ",*" + artNum;
+        // Artwork marker
+        if (this.specificArtwork && this.artwork > 0) {
+            id = id + ",*" + this.artwork;
+        } else {
+            String cardArtNumber = this.getCard().getArtNumber();
+            if (cardArtNumber != null && !cardArtNumber.isEmpty()) {
+                try {
+                    int artNum = Integer.parseInt(cardArtNumber);
+                    if (artNum > 1) {
+                        id = id + ",*" + artNum;
+                    }
+                } catch (NumberFormatException ignored) {
                 }
-            } catch (NumberFormatException ignored) {
+            }
+        }
+
+        // Append quality / tag fields — same pipe format as toCollectionString().
+        // Only written when at least one field is set (backward-compatible).
+        boolean hasCondition = condition != null;
+        boolean hasRarity = rarity != null;
+        boolean hasTags = customTags != null && !customTags.isEmpty();
+
+        if (hasCondition || hasRarity || hasTags) {
+            id += "|";
+            id += hasCondition ? condition.getCode() : "";
+            id += "|";
+            id += hasRarity ? rarity.getCode() : "";
+            if (hasTags) {
+                id += "|" + String.join(";", customTags);
             }
         }
 

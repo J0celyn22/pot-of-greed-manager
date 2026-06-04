@@ -674,7 +674,7 @@ public class OuicheListController {
         }
         if (collection.getCardsList() != null) {
             for (CardElement cardElement : collection.getCardsList()) {
-                if (!Boolean.TRUE.equals(cardElement.getOwned())) {
+                if (cardElement.getOwnershipStatus() != OwnershipStatus.OWNED) {
                     return true;
                 }
             }
@@ -699,7 +699,7 @@ public class OuicheListController {
                 continue;
             }
             for (CardElement cardElement : section) {
-                if (!Boolean.TRUE.equals(cardElement.getOwned())) {
+                if (cardElement.getOwnershipStatus() != OwnershipStatus.OWNED) {
                     return true;
                 }
             }

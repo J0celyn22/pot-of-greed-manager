@@ -863,7 +863,7 @@ public class CardTreeCell extends TreeCell<String> {
             if (ce == null) {
                 return false;
             }
-            if (hideOwned && Boolean.TRUE.equals(ce.getOwned())) {
+            if (hideOwned && OwnershipStatus.OWNED.equals(ce.getOwnershipStatus())) {
                 return false;
             }
             if (capturedFilter != null) {
@@ -1536,8 +1536,8 @@ public class CardTreeCell extends TreeCell<String> {
             boolean sb = b.getSpecificArtwork() == null ? false : b.getSpecificArtwork();
             if (sa != sb) return false;
             if (a.getArtwork() != b.getArtwork()) return false;
-            boolean oa = a.getOwned() == null ? false : a.getOwned();
-            boolean ob = b.getOwned() == null ? false : b.getOwned();
+            boolean oa = a.getOwnershipStatus() == null ? false : a.getOwned();
+            boolean ob = b.getOwnershipStatus() == null ? false : b.getOwned();
             if (oa != ob) return false;
             boolean ida = a.getIsInDeck() == null ? false : a.getIsInDeck();
             boolean idb = b.getIsInDeck() == null ? false : b.getIsInDeck();

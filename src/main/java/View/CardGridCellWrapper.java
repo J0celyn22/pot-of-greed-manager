@@ -213,14 +213,19 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
         // Lightweight detection for My Collection tab (explicit name)
         final java.util.function.Supplier<Boolean> isMyCollectionSelected = () -> isMyCollectionTabSelected();
 
-        // Apply grayscale to the imageView if this is OuicheList and the CardElement is owned.
+        // Apply grayscale to the imageView if this is OuicheList and the CardElement is OWNED.
+        // OWNED_SUBSTANDARD cards are NOT grayed — they are highlighted red instead (see applyGlowIfNeeded).
         final Runnable applyGrayscaleIfNeeded = () -> {
-            logger.debug("applyGrayscaleIfNeeded called for item={}, owned={}", finalCardElement, finalCardElement == null ? "<null>" : finalCardElement.getOwned());
+            logger.debug("applyGrayscaleIfNeeded called for item={}, ownershipStatus={}",
+                    finalCardElement,
+                    finalCardElement == null ? "<null>" : finalCardElement.getOwnershipStatus());
             Platform.runLater(() -> {
                 // Guard against cell reuse
-                if (getItem() != finalCardElement) return;
+                if (getItem() != finalCardElement) {
+                    return;
+                }
                 try {
-                    boolean owned = finalCardElement.getOwned() != null && finalCardElement.getOwned();
+                    boolean fullyOwned = finalCardElement.getOwnershipStatus() == Model.CardsLists.OwnershipStatus.OWNED;
                     boolean ouiche = false;
                     try {
                         ouiche = isOuicheListSelected.get();
@@ -239,8 +244,8 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                         }
                     } catch (Exception ignored) {
                     }
-                    logger.debug("Cell sees selected tab='{}' (owned={}) for item={}", detectedTab, owned, finalCardElement);
-                    if (owned && ouiche) {
+                    logger.debug("Cell sees selected tab='{}' (fullyOwned={}) for item={}", detectedTab, fullyOwned, finalCardElement);
+                    if (fullyOwned && ouiche) {
                         ColorAdjust grayscale = new ColorAdjust();
                         grayscale.setSaturation(-0.7);   // 70% desaturation
                         grayscale.setBrightness(-0.5);   // darken by 50%
@@ -334,6 +339,18 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                         }
                     }
 
+                    // --- OuicheList substandard-quality glow ---
+                    // Cards marked OWNED_SUBSTANDARD are displayed in the OuicheList tab
+                    // with a red glow to signal that the owned copy does not satisfy the
+                    // quality requirement of this slot and should be replaced.
+                    boolean isSubstandard = false;
+                    try {
+                        isSubstandard = isOuicheListSelected.get()
+                                && finalCardElement.getOwnershipStatus()
+                                == Model.CardsLists.OwnershipStatus.OWNED_SUBSTANDARD;
+                    } catch (Exception ignored) {
+                    }
+
                     // --- Degraded-in-deck check (My Collection tab only) ---
                     // Reason 4: card is in a D&C sorting category and a better outside copy exists.
                     // Guard: isDeckOrCollectionName prevents false positives on type groups.
@@ -358,10 +375,21 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                         }
                     }
 
-                    // Apply glow to the finalPane (keeps other visuals intact)
-                    if (needsSorting || isDegraded) {
-                        String glowColor = isDegraded ? "#EB9E34" : "#ffffff";
-                        double outerAlpha = isDegraded ? 0.35 : 0.22;
+                    // Apply glow to the finalPane (keeps other visuals intact).
+                    // Priority: substandard (red) > needsSorting (white) > isDegraded (orange).
+                    if (isSubstandard || needsSorting || isDegraded) {
+                        String glowColor;
+                        double outerAlpha;
+                        if (isSubstandard) {
+                            glowColor = "#FF3333";
+                            outerAlpha = 0.40;
+                        } else if (isDegraded) {
+                            glowColor = "#EB9E34";
+                            outerAlpha = 0.35;
+                        } else {
+                            glowColor = "#ffffff";
+                            outerAlpha = 0.22;
+                        }
                         DropShadow innerGlow = new DropShadow();
                         innerGlow.setColor(javafx.scene.paint.Color.web(glowColor, 1.0));
                         innerGlow.setOffsetX(0);
@@ -379,8 +407,8 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                         outerGlow.setInput(innerGlow);
                         finalPane.setEffect(outerGlow);
 
-                        // Orange hover label for degraded cards
-                        hoverLabel.setStyle(isDegraded
+                        // Tint the hover label to match the glow colour.
+                        hoverLabel.setStyle((isSubstandard || isDegraded)
                                 ? CardHoverPopup.LABEL_STYLE_ORANGE
                                 : CardHoverPopup.LABEL_STYLE);
                     } else {
@@ -636,11 +664,12 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
             try {
                 if (getItem() != current) return;
 
-                // GRAYSCALE
-                boolean owned = current.getOwned() != null && current.getOwned();
+                // GRAYSCALE — only for OWNED cards; OWNED_SUBSTANDARD cards get red glow instead.
+                boolean fullyOwned = current.getOwnershipStatus() == Model.CardsLists.OwnershipStatus.OWNED;
                 boolean ouiche = isOuicheListTabSelected();
-                logger.debug("reapplyEffectsForCurrentItem: owned={} ouicheSelected={}", owned, ouiche);
-                if (owned && ouiche) {
+                logger.debug("reapplyEffectsForCurrentItem: ownershipStatus={} ouicheSelected={}",
+                        current.getOwnershipStatus(), ouiche);
+                if (fullyOwned && ouiche) {
                     ColorAdjust grayscale = new ColorAdjust();
                     grayscale.setSaturation(-0.8);   // 80% desaturation
                     grayscale.setBrightness(-0.3);   // darken by 30%
@@ -701,7 +730,7 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                     }
                 }
 
-                // Degraded-in-deck check
+                // Degraded-in-deck check (Decks & Collections tab only)
                 boolean isDegraded = false;
                 if (!needsSorting && elementNameFromUD != null && !elementNameFromUD.trim().isEmpty()) {
                     try {
@@ -714,9 +743,25 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                     }
                 }
 
-                if (needsSorting || isDegraded) {
-                    String glowColor = isDegraded ? "#EB9E34" : "#ffffff";
-                    double outerAlpha = isDegraded ? 0.35 : 0.22;
+                // OuicheList substandard-quality glow (red)
+                boolean isSubstandard = ouiche
+                        && current.getOwnershipStatus()
+                        == Model.CardsLists.OwnershipStatus.OWNED_SUBSTANDARD;
+
+                // Priority: substandard (red) > needsSorting (white) > isDegraded (orange)
+                if (isSubstandard || needsSorting || isDegraded) {
+                    String glowColor;
+                    double outerAlpha;
+                    if (isSubstandard) {
+                        glowColor = "#FF3333";
+                        outerAlpha = 0.40;
+                    } else if (isDegraded) {
+                        glowColor = "#EB9E34";
+                        outerAlpha = 0.35;
+                    } else {
+                        glowColor = "#ffffff";
+                        outerAlpha = 0.22;
+                    }
                     DropShadow innerGlow = new DropShadow();
                     innerGlow.setColor(javafx.scene.paint.Color.web(glowColor, 1.0));
                     innerGlow.setOffsetX(0);
@@ -732,27 +777,31 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
                     outerGlow.setSpread(0.12);
 
                     outerGlow.setInput(innerGlow);
-                    Node g = getGraphic();
-                    if (g instanceof StackPane) {
-                        ((StackPane) g).setEffect(outerGlow);
+                    Node glowNode = getGraphic();
+                    if (glowNode instanceof StackPane) {
+                        ((StackPane) glowNode).setEffect(outerGlow);
                     } else {
                         try {
                             StackPane pane = (StackPane) getGraphic();
-                            if (pane != null) pane.setEffect(outerGlow);
+                            if (pane != null) {
+                                pane.setEffect(outerGlow);
+                            }
                         } catch (Exception ignored) {
                         }
                     }
-                    hoverLabel.setStyle(isDegraded
+                    hoverLabel.setStyle((isSubstandard || isDegraded)
                             ? CardHoverPopup.LABEL_STYLE_ORANGE
                             : CardHoverPopup.LABEL_STYLE);
                 } else {
-                    Node g = getGraphic();
-                    if (g instanceof StackPane) {
-                        ((StackPane) g).setEffect(null);
+                    Node glowNode = getGraphic();
+                    if (glowNode instanceof StackPane) {
+                        ((StackPane) glowNode).setEffect(null);
                     } else {
                         try {
                             StackPane pane = (StackPane) getGraphic();
-                            if (pane != null) pane.setEffect(null);
+                            if (pane != null) {
+                                pane.setEffect(null);
+                            }
                         } catch (Exception ignored) {
                         }
                     }
