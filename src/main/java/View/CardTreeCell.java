@@ -14,6 +14,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.*;
+import javafx.scene.effect.ColorAdjust;
 import javafx.scene.effect.DropShadow;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
@@ -2894,134 +2895,267 @@ public class CardTreeCell extends TreeCell<String> {
         vBox.getStyleClass().add("card-group-vbox");
         vBox.getChildren().add(hbox);
 
-        GridView<CardElement> grid = new GridView<>();
-        grid.getStyleClass().add("card-grid-view");
-        grid.setCellFactory(gridView -> new CardGridCell(this));
+        // ── Card items: shared setup for both display modes ──────────────────────
         javafx.collections.ObservableList<CardElement> groupItems = observableListFor(group);
-        // Wrap in a FilteredList so the active middle-pane filter can be applied without
-        // touching the underlying model list (which is used by drag-drop and save).
         javafx.collections.transformation.FilteredList<CardElement> filteredItems =
                 new javafx.collections.transformation.FilteredList<>(groupItems);
         filteredItems.setPredicate(buildCombinedPredicate(activeMiddleFilter));
         CardGroupRegistry.GROUP_FILTERED_LISTS.put(group, new java.lang.ref.WeakReference<>(filteredItems));
-        grid.setItems(filteredItems);
-        // Register as the current renderer so triggerHeightAdjustment() can find it.
-        CardGroupRegistry.GROUP_GRID_VIEWS.put(group, new java.lang.ref.WeakReference<>(grid));
-        grid.cellWidthProperty().bind(cardWidthProperty);
-        grid.cellHeightProperty().bind(cardHeightProperty);
-        grid.setHorizontalCellSpacing(6);
-        grid.setVerticalCellSpacing(6);
-        grid.setPadding(new Insets(5));
-        grid.prefWidthProperty().bind(getTreeView().widthProperty().subtract(50));
 
-        /*
-         * Store a Map as userData so the renderer has both pieces of information:
-         *  - "missingSet" : Set<String> (may be empty or null)
-         *  - "elementName": String (displayName)
-         *
-         * This preserves the archetype missing-set behavior (used by Decks & Collections / Archetypes)
-         * while also providing the element name for My Collection compute logic.
-         */
-        Set<String> missingArtworkSet = CardGroupRegistry.MISSING_ARTWORK_SETS.get(group);
+        boolean useListMode = isOuicheListTabSelected()
+                && Controller.OuicheListController.isDetailedListMode();
 
-        Map<String, Object> ud = new HashMap<>();
-        ud.put("missingSet", missingForThisGroup == null ? Collections.emptySet() : missingForThisGroup);
-        ud.put("elementName", displayName);
-        ud.put("isArchetype", isArchetype);
-        ud.put("missingArtworkSet", missingArtworkSet == null ? Collections.emptySet() : missingArtworkSet);
-        ud.put("hideOwnedCards", Controller.OuicheListController.isHideOwnedCardsEnabled());
-        grid.setUserData(ud);
+        if (useListMode) {
+            // ── List mode (OuicheList tab only) ──────────────────────────────────
+            // One bordered row per card.  MISSING → white border.
+            // OWNED_SUBSTANDARD → red border + required condition / rarity.
+            // OWNED → grayed (hideOwned filter already removes them when active).
+            VBox listBox = new VBox(4);
+            listBox.setPadding(new Insets(5));
+            listBox.setStyle("-fx-background-color: #100317;");
 
-        this.cardGridView = grid;
+            for (CardElement cardElement : filteredItems) {
+                if (cardElement == null || cardElement.getCard() == null) {
+                    continue;
+                }
 
-        // Initial call: best-effort using prefWidth (grid not yet laid out)
-        adjustGridViewHeight(group);
-        // Deferred correction: re-runs after the first layout pass when grid.getWidth() is valid
-        Platform.runLater(() -> adjustGridViewHeight(group));
+                OwnershipStatus status = cardElement.getOwnershipStatus();
+                boolean isOwned = status == OwnershipStatus.OWNED;
+                boolean isSubstandard = status == OwnershipStatus.OWNED_SUBSTANDARD;
 
-        // Listeners: deferred so grid.getWidth() reflects the new size after layout
-        cardWidthProperty.addListener((obs, oldVal, newVal) ->
-                Platform.runLater(() -> adjustGridViewHeight(group)));
-        getTreeView().widthProperty().addListener((obs, oldVal, newVal) ->
-                Platform.runLater(() -> adjustGridViewHeight(group)));
+                String borderColor = isSubstandard ? "#FF3333" : "white";
 
-        customTriangleLabel.setOnMouseClicked(event -> {
-            boolean isExpanded = !grid.isVisible();
-            grid.setVisible(isExpanded);
-            grid.setManaged(isExpanded);
-            updateCustomTriangle(isExpanded);
-            event.consume();
-        });
-        grid.setVisible(true);
-        grid.setManaged(true);
-        updateCustomTriangle(true);
+                HBox row = new HBox(8);
+                row.setPadding(new Insets(4, 6, 4, 6));
+                row.setAlignment(Pos.CENTER_LEFT);
+                row.setStyle(
+                        "-fx-border-color: " + borderColor + "; "
+                                + "-fx-border-width: 1; "
+                                + "-fx-border-radius: 4; "
+                                + "-fx-background-radius: 4; "
+                                + "-fx-background-color: #0a0012;");
 
-        vBox.getChildren().add(grid);
-        VBox.setVgrow(grid, Priority.ALWAYS);
+                // Thumbnail
+                ImageView img = new ImageView();
+                img.setFitWidth(40.0);
+                img.setFitHeight(58.0);
+                img.setPreserveRatio(true);
 
-        // ── GridView drop target: between-card gaps ───────────────────────────────
-        // The wrapper inside each CardGridCell consumes card-level events; the
-        // GridView only receives events that land in gaps between or below cards.
-        grid.setOnDragOver(event -> {
-            if (!isArchetype
-                    && event.getDragboard().hasString()
-                    && Controller.DragDropManager.getDragSourcePane() != null) {
-                event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
+                String imageKey = safeImageKey(cardElement);
+                String cachedFullPath = imageKey == null ? null : imagePathCache.get(imageKey);
+                if (cachedFullPath != null) {
+                    Image cached = LruImageCache.getImage(cachedFullPath);
+                    if (cached != null) {
+                        img.setImage(cached);
+                    } else {
+                        img.setImage(getPlaceholderImage());
+                        Future<?> f = loadImageWithResolvedPathAsync(cardElement, img, cachedFullPath);
+                        if (f != null) {
+                            outstandingLoads.put(img, f);
+                        }
+                    }
+                } else {
+                    img.setImage(getPlaceholderImage());
+                    final ImageView finalImg = img;
+                    final CardElement finalCardElement = cardElement;
+                    resolveImagePathAsync(imageKey, resolvedPath -> {
+                        if (resolvedPath == null) {
+                            return;
+                        }
+                        Image cached = LruImageCache.getImage(resolvedPath);
+                        if (cached != null) {
+                            Platform.runLater(() -> finalImg.setImage(cached));
+                        } else {
+                            finalImg.getProperties().put("expectedImagePath", resolvedPath);
+                            Future<?> f = loadImageWithResolvedPathAsync(finalCardElement, finalImg, resolvedPath);
+                            if (f != null) {
+                                outstandingLoads.put(finalImg, f);
+                            }
+                        }
+                    });
+                }
+
+                // Grayscale for fully-owned cards
+                if (isOwned) {
+                    ColorAdjust grayscale = new ColorAdjust();
+                    grayscale.setSaturation(-0.7);
+                    grayscale.setBrightness(-0.5);
+                    img.setEffect(grayscale);
+                }
+
+                // Names + quality requirements
+                VBox namesBox = new VBox(2);
+                HBox.setHgrow(namesBox, Priority.ALWAYS);
+                namesBox.setAlignment(Pos.CENTER_LEFT);
+
+                String nameEN = cardElement.getCard().getName_EN();
+                String nameFR = cardElement.getCard().getName_FR();
+                String displayNameText = (nameEN != null && !nameEN.isEmpty()) ? nameEN
+                        : (nameFR != null ? nameFR : "");
+                Label nameLabel = new Label(displayNameText);
+                nameLabel.setStyle("-fx-text-fill: "
+                        + (isOwned ? "#888888" : "white")
+                        + "; -fx-font-size: 12;");
+                nameLabel.setWrapText(true);
+                namesBox.getChildren().add(nameLabel);
+
+                if (isSubstandard) {
+                    Model.CardsLists.CardCondition condition = cardElement.getCondition();
+                    Model.CardsLists.CardRarity rarity = cardElement.getRarity();
+                    if (condition != null) {
+                        Label condLabel = new Label(
+                                "Required condition: " + condition.getDisplayName());
+                        condLabel.setStyle("-fx-text-fill: #EB9E34; -fx-font-size: 11;");
+                        namesBox.getChildren().add(condLabel);
+                    }
+                    if (rarity != null) {
+                        Label rarLabel = new Label(
+                                "Required rarity: " + rarity.getDisplayName());
+                        rarLabel.setStyle("-fx-text-fill: #EB9E34; -fx-font-size: 11;");
+                        namesBox.getChildren().add(rarLabel);
+                    }
+                }
+
+                row.getChildren().addAll(img, namesBox);
+                listBox.getChildren().add(row);
             }
-            event.consume();
-        });
 
-        grid.setOnDragDropped(event -> {
-            if (isArchetype) {
-                event.setDropCompleted(false);
+            this.cardGridView = null;
+            customTriangleLabel.setOnMouseClicked(event -> {
+                boolean isExpanded = !listBox.isVisible();
+                listBox.setVisible(isExpanded);
+                listBox.setManaged(isExpanded);
+                updateCustomTriangle(isExpanded);
                 event.consume();
-                return;
-            }
+            });
+            listBox.setVisible(true);
+            listBox.setManaged(true);
+            updateCustomTriangle(true);
+            vBox.getChildren().add(listBox);
 
-            // wrapper.setOnDragDropped fires first (child before parent).
-            // If it handled the drop it sets CardGroupRegistry.dropHandledByCell = true.
-            // Consume the flag immediately so it never persists past this point.
-            if (CardGroupRegistry.dropHandledByCell) {
-                CardGroupRegistry.dropHandledByCell = false; // always reset so next drag starts clean
+        } else {
+            // ── Mosaic (grid) mode — default for all tabs ────────────────────────
+            GridView<CardElement> grid = new GridView<>();
+            grid.getStyleClass().add("card-grid-view");
+            grid.setCellFactory(gridView -> new CardGridCell(this));
+            CardGroupRegistry.GROUP_GRID_VIEWS.put(group, new java.lang.ref.WeakReference<>(grid));
+            grid.setItems(filteredItems);
+            grid.cellWidthProperty().bind(cardWidthProperty);
+            grid.cellHeightProperty().bind(cardHeightProperty);
+            grid.setHorizontalCellSpacing(6);
+            grid.setVerticalCellSpacing(6);
+            grid.setPadding(new Insets(5));
+            grid.prefWidthProperty().bind(getTreeView().widthProperty().subtract(50));
+
+            /*
+             * Store a Map as userData so the renderer has both pieces of information:
+             *  - "missingSet" : Set<String> (may be empty or null)
+             *  - "elementName": String (displayName)
+             *
+             * This preserves the archetype missing-set behavior (used by Decks & Collections / Archetypes)
+             * while also providing the element name for My Collection compute logic.
+             */
+            Set<String> missingArtworkSet = CardGroupRegistry.MISSING_ARTWORK_SETS.get(group);
+
+            Map<String, Object> ud = new HashMap<>();
+            ud.put("missingSet", missingForThisGroup == null ? Collections.emptySet() : missingForThisGroup);
+            ud.put("elementName", displayName);
+            ud.put("isArchetype", isArchetype);
+            ud.put("missingArtworkSet", missingArtworkSet == null ? Collections.emptySet() : missingArtworkSet);
+            ud.put("hideOwnedCards", Controller.OuicheListController.isHideOwnedCardsEnabled());
+            grid.setUserData(ud);
+
+            this.cardGridView = grid;
+
+            // Initial call: best-effort using prefWidth (grid not yet laid out)
+            adjustGridViewHeight(group);
+            // Deferred correction: re-runs after the first layout pass when grid.getWidth() is valid
+            Platform.runLater(() -> adjustGridViewHeight(group));
+
+            // Listeners: deferred so grid.getWidth() reflects the new size after layout
+            cardWidthProperty.addListener((obs, oldVal, newVal) ->
+                    Platform.runLater(() -> adjustGridViewHeight(group)));
+            getTreeView().widthProperty().addListener((obs, oldVal, newVal) ->
+                    Platform.runLater(() -> adjustGridViewHeight(group)));
+
+            customTriangleLabel.setOnMouseClicked(event -> {
+                boolean isExpanded = !grid.isVisible();
+                grid.setVisible(isExpanded);
+                grid.setManaged(isExpanded);
+                updateCustomTriangle(isExpanded);
+                event.consume();
+            });
+            grid.setVisible(true);
+            grid.setManaged(true);
+            updateCustomTriangle(true);
+
+            vBox.getChildren().add(grid);
+            VBox.setVgrow(grid, Priority.ALWAYS);
+
+            // ── GridView drop target: between-card gaps ───────────────────────────────
+            // The wrapper inside each CardGridCell consumes card-level events; the
+            // GridView only receives events that land in gaps between or below cards.
+            grid.setOnDragOver(event -> {
+                if (!isArchetype
+                        && event.getDragboard().hasString()
+                        && Controller.DragDropManager.getDragSourcePane() != null) {
+                    event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
+                }
+                event.consume();
+            });
+
+            grid.setOnDragDropped(event -> {
+                if (isArchetype) {
+                    event.setDropCompleted(false);
+                    event.consume();
+                    return;
+                }
+
+                // wrapper.setOnDragDropped fires first (child before parent).
+                // If it handled the drop it sets CardGroupRegistry.dropHandledByCell = true.
+                // Consume the flag immediately so it never persists past this point.
+                if (CardGroupRegistry.dropHandledByCell) {
+                    CardGroupRegistry.dropHandledByCell = false; // always reset so next drag starts clean
+                    event.setDropCompleted(true);
+                    event.consume();
+                    return;
+                }
+
+                int insertionIndex = computeGapInsertionIndex(
+                        grid, group, event.getX(), event.getY());
+                if (insertionIndex < 0) {
+                    // Click is outside the card rows — treat as append
+                    insertionIndex = group.getCardList() == null ? 0 : group.getCardList().size();
+                }
+
+                String srcPane = Controller.DragDropManager.getDragSourcePane();
+                if (srcPane == null) {
+                    event.setDropCompleted(false);
+                    event.consume();
+                    return;
+                }
+
+                boolean isMiddle = "MIDDLE".equals(srcPane);
+                if (isMiddle) {
+                    java.util.List<CardElement> srcElements =
+                            new java.util.ArrayList<>(Controller.DragDropManager.getDraggedElements());
+                    java.util.Set<CardsGroup> srcGroups =
+                            dropInsertIntoGroup(group, insertionIndex, srcElements, null);
+                    for (CardsGroup sg : srcGroups) markDirtyAndRefreshForGroup(sg);
+                } else {
+                    java.util.List<Model.CardsLists.Card> srcCards =
+                            new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
+                    dropInsertIntoGroup(group, insertionIndex, null, srcCards);
+                    // My Collection only: open edit popup for cards dropped without a printCode.
+                    if (isMyCollectionTabSelected()) {
+                        openEditPopupsForNoPrintCode(srcCards, group, this);
+                    }
+                }
+                markDirtyAndRefreshForGroup(group);
                 event.setDropCompleted(true);
                 event.consume();
-                return;
-            }
-
-            int insertionIndex = computeGapInsertionIndex(
-                    grid, group, event.getX(), event.getY());
-            if (insertionIndex < 0) {
-                // Click is outside the card rows — treat as append
-                insertionIndex = group.getCardList() == null ? 0 : group.getCardList().size();
-            }
-
-            String srcPane = Controller.DragDropManager.getDragSourcePane();
-            if (srcPane == null) {
-                event.setDropCompleted(false);
-                event.consume();
-                return;
-            }
-
-            boolean isMiddle = "MIDDLE".equals(srcPane);
-            if (isMiddle) {
-                java.util.List<CardElement> srcElements =
-                        new java.util.ArrayList<>(Controller.DragDropManager.getDraggedElements());
-                java.util.Set<CardsGroup> srcGroups =
-                        dropInsertIntoGroup(group, insertionIndex, srcElements, null);
-                for (CardsGroup sg : srcGroups) markDirtyAndRefreshForGroup(sg);
-            } else {
-                java.util.List<Model.CardsLists.Card> srcCards =
-                        new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
-                dropInsertIntoGroup(group, insertionIndex, null, srcCards);
-                // My Collection only: open edit popup for cards dropped without a printCode.
-                if (isMyCollectionTabSelected()) {
-                    openEditPopupsForNoPrintCode(srcCards, group, this);
-                }
-            }
-            markDirtyAndRefreshForGroup(group);
-            event.setDropCompleted(true);
-            event.consume();
-        });
+            });
+        } // end mosaic branch
 
         setGraphic(vBox);
 

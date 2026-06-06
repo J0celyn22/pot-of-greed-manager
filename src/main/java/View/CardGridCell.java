@@ -903,13 +903,13 @@ class CardGridCell extends GridCell<CardElement> {
             outer.hoverLabel.setText(
                     CardHoverPopup.buildTooltipText(item));
 
-            // Switch popup border to orange when this card is an upgrade candidate
-            // or a degraded D&C card (both use orange tooltips).
-            boolean isOrangePopup = currentGlowPriority == 1
-                    && !currentTooltips.isEmpty()
+            // Switch popup border to orange when this card has an orange-level warning:
+            // upgrade candidate, degraded D&C card, or substandard-quality OuicheList slot.
+            boolean isOrangePopup = !currentTooltips.isEmpty()
                     && currentTooltips.stream().anyMatch(t ->
                     t[0] != null && (t[0].equals(CardHoverPopup.UPGRADE_CANDIDATE_WARNING)
-                            || t[0].equals(CardHoverPopup.DOWNGRADE_WARNING)));
+                            || t[0].equals(CardHoverPopup.DOWNGRADE_WARNING)
+                            || t[0].equals(CardHoverPopup.SUBSTANDARD_QUALITY_WARNING)));
             outer.hoverPopupBox.setStyle(
                     isOrangePopup
                             ? CardHoverPopup.POPUP_BOX_STYLE_ORANGE
@@ -1304,11 +1304,13 @@ class CardGridCell extends GridCell<CardElement> {
             // ── OuicheList: substandard-quality red glow (priority 4, highest) ─────────
             // A slot marked OWNED_SUBSTANDARD means the user owns a copy of this card
             // but it does not meet the condition or rarity requirement of this slot.
-            // The card is shown with a red glow (same colour as "no printCode" in My
-            // Collection) so the user knows to seek a better copy.
+            // Priority 4 is above all My Collection priorities (max 3) and is only
+            // active on the OuicheList tab, so the two sets of glows never conflict.
             if (ouicheTab
                     && cardElement.getOwnershipStatus() == OwnershipStatus.OWNED_SUBSTANDARD) {
                 glowPriority = 4;
+                tooltips.add(new String[]{
+                        CardHoverPopup.SUBSTANDARD_QUALITY_WARNING, "#EB9E34"});
             }
 
             // ── My Collection completeness warnings (always shown in tooltip) ─────────
@@ -1480,7 +1482,6 @@ class CardGridCell extends GridCell<CardElement> {
         // ── Apply glow effect to the wrapper StackPane ────────────────────────────────
         if (glowPriority >= 4) {
             // Red — OWNED_SUBSTANDARD in OuicheList tab
-            // Signals that the user owns this card but not at the required quality.
             DropShadow inner = new DropShadow();
             inner.setColor(javafx.scene.paint.Color.web("#FF3333", 1.0));
             inner.setOffsetX(0);

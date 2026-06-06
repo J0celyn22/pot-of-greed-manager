@@ -15,12 +15,18 @@ public class OuicheList {
     private static DecksAndCollectionsList decksList;
 
     // The canonical compact form of the OuicheList ("maOuicheList" is a word play on "wishlist").
-    // Key = passCode if available, otherwise imagePath.
+    // Key = imagePath + "|" + printCode + "|" + conditionCode + "|" + rarityCode.
     // Storing the Map directly means consumers never have to rebuild it themselves.
     // The CardElement instances stored here are INDEPENDENT COPIES of those in detailedOuicheList,
     // so that mutations made by downstream generators cannot affect the detailed view.
     private static LinkedHashMap<String, CardElement> maOuicheList;
     private static LinkedHashMap<String, Integer> maOuicheListCounts;
+
+    // Parallel compact list for OWNED_SUBSTANDARD slots: cards the user owns but
+    // at insufficient condition or rarity, keyed by the same composite key.
+    private static LinkedHashMap<String, CardElement> maOuicheListSubstandard;
+    private static LinkedHashMap<String, Integer> maOuicheListSubstandardCounts;
+
     private static List<CardElement> unusedCards;
     private static List<CardElement> listsIntersection;
     private static DecksAndCollectionsList detailedOuicheList;
@@ -41,12 +47,33 @@ public class OuicheList {
 
     /**
      * Returns the required count for each card in the OuicheList,
-     * keyed by the same passCode ?? imagePath key as {@link #getMaOuicheList()}.
+     * keyed by the same composite key as {@link #getMaOuicheList()}.
      *
      * @return the count map, or {@code null} if not yet generated.
      */
     public static LinkedHashMap<String, Integer> getMaOuicheListCounts() {
         return maOuicheListCounts;
+    }
+
+    /**
+     * Returns the compact substandard-quality list: cards for which the user
+     * owns a copy but it does not meet the condition or rarity requirement of
+     * the slot.  Keyed by the same composite key as {@link #getMaOuicheList()}.
+     *
+     * @return the substandard map, or {@code null} if not yet generated.
+     */
+    public static LinkedHashMap<String, CardElement> getMaOuicheListSubstandard() {
+        return maOuicheListSubstandard;
+    }
+
+    /**
+     * Returns the required count for each card in the substandard list,
+     * keyed by the same composite key as {@link #getMaOuicheListSubstandard()}.
+     *
+     * @return the substandard count map, or {@code null} if not yet generated.
+     */
+    public static LinkedHashMap<String, Integer> getMaOuicheListSubstandardCounts() {
+        return maOuicheListSubstandardCounts;
     }
 
     /**
@@ -206,9 +233,29 @@ public class OuicheList {
      * Returns the canonical key used to identify a card in the OuicheList map.
      * Prefers passCode for uniqueness; falls back to imagePath when passCode is absent.
      */
+    /**
+     * Builds the grouping key for a {@link CardElement} in the compact OuicheList.
+     *
+     * <p>Two slots are grouped together when they share all of: artwork (imagePath),
+     * printCode, condition requirement, and rarity requirement.  Absent fields are
+     * treated as "no constraint" and represented as empty strings so that two slots
+     * with the same artwork but no printCode are still grouped together.
+     *
+     * <p>Key format: {@code imagePath|printCode|conditionCode|rarityCode}
+     */
     private static String cardKey(CardElement ce) {
         Card card = ce.getCard();
-        return card.getPassCode() != null ? card.getPassCode() : card.getImagePath();
+        // Artwork base: imagePath preferred; passCode or KonamiId as fallbacks.
+        String base = card.getImagePath() != null ? card.getImagePath()
+                : card.getPassCode() != null ? card.getPassCode()
+                : card.getKonamiId();
+        if (base == null) {
+            return null;
+        }
+        String printPart = card.getPrintCode() != null ? card.getPrintCode() : "";
+        String condPart = ce.getCondition() != null ? ce.getCondition().getCode() : "";
+        String rarPart = ce.getRarity() != null ? ce.getRarity().getCode() : "";
+        return base + "|" + printPart + "|" + condPart + "|" + rarPart;
     }
 
     /**
@@ -217,9 +264,7 @@ public class OuicheList {
      * instance, so that {@code setValues()} calls on the copies never affect the originals.
      */
     private static List<CardElement> copyCardElements(List<CardElement> original) {
-        if (original == null) {
-            return new ArrayList<>();
-        }
+        if (original == null) return new ArrayList<>();
         List<CardElement> copy = new ArrayList<>(original.size());
         for (CardElement ce : original) {
             copy.add(new CardElement(ce));
@@ -277,13 +322,40 @@ public class OuicheList {
 
         maOuicheList = new LinkedHashMap<>();
         maOuicheListCounts = new LinkedHashMap<>();
+        buildCompactMapForStatus(OwnershipStatus.MISSING, maOuicheList, maOuicheListCounts);
+
+        maOuicheListSubstandard = new LinkedHashMap<>();
+        maOuicheListSubstandardCounts = new LinkedHashMap<>();
+        buildCompactMapForStatus(
+                OwnershipStatus.OWNED_SUBSTANDARD,
+                maOuicheListSubstandard,
+                maOuicheListSubstandardCounts);
+    }
+
+    /**
+     * Populates {@code targetMap} / {@code targetCounts} with entries from the
+     * detailed OuicheList whose {@link OwnershipStatus} equals {@code targetStatus}.
+     *
+     * <p>The same three counting rules as described in the {@link #CreateOuicheList}
+     * Javadoc apply:
+     * <ol>
+     *   <li>Group-max within a deck group, sum across groups.</li>
+     *   <li>Non-dontRemove cardsList shares with decks (max of the two).</li>
+     *   <li>Loose-collection keys only added if not already in {@code targetMap}.</li>
+     * </ol>
+     */
+    private static void buildCompactMapForStatus(
+            OwnershipStatus targetStatus,
+            LinkedHashMap<String, CardElement> targetMap,
+            LinkedHashMap<String, Integer> targetCounts) {
 
         // ── Non-loose collections ─────────────────────────────────────────────────
         if (detailedOuicheList.getCollections() != null) {
             for (ThemeCollection col : detailedOuicheList.getCollections()) {
-                if (Boolean.TRUE.equals(col.getConnectToWholeCollection())) continue;
+                if (Boolean.TRUE.equals(col.getConnectToWholeCollection())) {
+                    continue;
+                }
 
-                // Per-key unowned counts from deck groups (Rule 1: max within group, sum across groups)
                 Map<String, Integer> deckNormalContrib = new LinkedHashMap<>();
                 Map<String, Integer> deckDontRemoveContrib = new LinkedHashMap<>();
                 Map<String, CardElement> repCards = new LinkedHashMap<>();
@@ -297,35 +369,43 @@ public class OuicheList {
                         Map<String, Integer> deckDontRemove = new HashMap<>();
 
                         for (CardElement ce : deck.toList()) {
-                            if (ce.getOwnershipStatus() != OwnershipStatus.MISSING) continue;
+                            if (ce.getOwnershipStatus() != targetStatus) {
+                                continue;
+                            }
                             String key = cardKey(ce);
-                            if (key == null) continue;
+                            if (key == null) {
+                                continue;
+                            }
                             repCards.putIfAbsent(key, ce);
-                            if (Boolean.TRUE.equals(ce.getDontRemove()))
+                            if (Boolean.TRUE.equals(ce.getDontRemove())) {
                                 deckDontRemove.merge(key, 1, Integer::sum);
-                            else
+                            } else {
                                 deckNormal.merge(key, 1, Integer::sum);
+                            }
                         }
                         deckNormal.forEach((k, v) -> groupMaxNormal.merge(k, v, Math::max));
                         deckDontRemove.forEach((k, v) -> groupMaxDontRemove.merge(k, v, Math::max));
                     }
-                    // Sum group contributions (groups are independent configurations)
                     groupMaxNormal.forEach((k, v) -> deckNormalContrib.merge(k, v, Integer::sum));
                     groupMaxDontRemove.forEach((k, v) -> deckDontRemoveContrib.merge(k, v, Integer::sum));
                 }
 
-                // Per-key unowned counts from cardsList
                 Map<String, Integer> listNormal = new LinkedHashMap<>();
                 Map<String, Integer> listDontRemove = new LinkedHashMap<>();
                 for (CardElement ce : col.getCardsList()) {
-                    if (ce.getOwnershipStatus() != OwnershipStatus.MISSING) continue;
+                    if (ce.getOwnershipStatus() != targetStatus) {
+                        continue;
+                    }
                     String key = cardKey(ce);
-                    if (key == null) continue;
+                    if (key == null) {
+                        continue;
+                    }
                     repCards.putIfAbsent(key, ce);
-                    if (Boolean.TRUE.equals(ce.getDontRemove()))
+                    if (Boolean.TRUE.equals(ce.getDontRemove())) {
                         listDontRemove.merge(key, 1, Integer::sum);
-                    else
+                    } else {
                         listNormal.merge(key, 1, Integer::sum);
+                    }
                 }
 
                 // Rule 2: non-dontRemove key needs max(deckContrib, cardsListContrib)
@@ -335,17 +415,16 @@ public class OuicheList {
                     int needed = Math.max(
                             deckNormalContrib.getOrDefault(key, 0),
                             listNormal.getOrDefault(key, 0));
-                    if (needed <= 0) continue;
-                    addToGlobalMap(key, needed, repCards.get(key));
+                    if (needed <= 0) {
+                        continue;
+                    }
+                    addToMap(targetMap, targetCounts, key, needed, repCards.get(key));
                 }
 
-                // dontRemove deck slots: group-max already applied; sum across collections
                 deckDontRemoveContrib.forEach((key, needed) ->
-                        addToGlobalMap(key, needed, repCards.get(key)));
-
-                // dontRemove cardsList: always independent
+                        addToMap(targetMap, targetCounts, key, needed, repCards.get(key)));
                 listDontRemove.forEach((key, needed) ->
-                        addToGlobalMap(key, needed, repCards.get(key)));
+                        addToMap(targetMap, targetCounts, key, needed, repCards.get(key)));
             }
         }
 
@@ -353,21 +432,24 @@ public class OuicheList {
         if (detailedOuicheList.getDecks() != null) {
             for (Deck deck : detailedOuicheList.getDecks()) {
                 for (CardElement ce : deck.toList()) {
-                    if (ce.getOwnershipStatus() != OwnershipStatus.MISSING) continue;
+                    if (ce.getOwnershipStatus() != targetStatus) {
+                        continue;
+                    }
                     String key = cardKey(ce);
-                    if (key == null) continue;
-                    addToGlobalMap(key, 1, ce);
+                    if (key == null) {
+                        continue;
+                    }
+                    addToMap(targetMap, targetCounts, key, 1, ce);
                 }
             }
         }
 
         // ── Loose collections (Rule 3) ────────────────────────────────────────────
-        // Build each loose collection's contribution exactly like a non-loose one
-        // (group-max for decks, max with cardsList), then only add keys that are
-        // NOT already in the map from the non-loose pass above.
         if (detailedOuicheList.getCollections() != null) {
             for (ThemeCollection col : detailedOuicheList.getCollections()) {
-                if (!Boolean.TRUE.equals(col.getConnectToWholeCollection())) continue;
+                if (!Boolean.TRUE.equals(col.getConnectToWholeCollection())) {
+                    continue;
+                }
 
                 Map<String, Integer> looseContrib = new LinkedHashMap<>();
                 Map<String, CardElement> repCards = new LinkedHashMap<>();
@@ -377,9 +459,13 @@ public class OuicheList {
                     for (Deck deck : group) {
                         Map<String, Integer> deckCounts = new HashMap<>();
                         for (CardElement ce : deck.toList()) {
-                            if (ce.getOwnershipStatus() != OwnershipStatus.MISSING) continue;
+                            if (ce.getOwnershipStatus() != targetStatus) {
+                                continue;
+                            }
                             String key = cardKey(ce);
-                            if (key == null) continue;
+                            if (key == null) {
+                                continue;
+                            }
                             repCards.putIfAbsent(key, ce);
                             deckCounts.merge(key, 1, Integer::sum);
                         }
@@ -388,20 +474,23 @@ public class OuicheList {
                     groupMax.forEach((k, v) -> looseContrib.merge(k, v, Integer::sum));
                 }
                 for (CardElement ce : col.getCardsList()) {
-                    if (ce.getOwnershipStatus() != OwnershipStatus.MISSING) continue;
+                    if (ce.getOwnershipStatus() != targetStatus) {
+                        continue;
+                    }
                     String key = cardKey(ce);
-                    if (key == null) continue;
+                    if (key == null) {
+                        continue;
+                    }
                     repCards.putIfAbsent(key, ce);
                     looseContrib.merge(key, 1, Integer::sum);
                 }
 
-                // Rule 3: only contribute keys not already in the map
+                // Rule 3: only add keys not already in the target map
                 looseContrib.forEach((key, count) -> {
-                    if (!maOuicheList.containsKey(key)) {
-                        maOuicheList.put(key, new CardElement(repCards.get(key).getCard()));
-                        maOuicheListCounts.put(key, count);
+                    if (!targetMap.containsKey(key)) {
+                        targetMap.put(key, new CardElement(repCards.get(key)));
+                        targetCounts.put(key, count);
                     }
-                    // else: already needed for a non-loose context — don't add
                 });
             }
         }
@@ -409,15 +498,28 @@ public class OuicheList {
 
     /**
      * Adds {@code count} copies of the card identified by {@code key} to the global
-     * OuicheList map, creating a fresh representative entry on the first insertion and
-     * accumulating (summing) counts on subsequent ones.
+     * OuicheList map, delegating to {@link #addToMap}.
      */
     private static void addToGlobalMap(String key, int count, CardElement rep) {
-        if (!maOuicheList.containsKey(key)) {
-            maOuicheList.put(key, new CardElement(rep.getCard()));
-            maOuicheListCounts.put(key, count);
+        addToMap(maOuicheList, maOuicheListCounts, key, count, rep);
+    }
+
+    /**
+     * Adds {@code count} copies of the card identified by {@code key} to
+     * {@code map} / {@code countsMap}.  Creates a fresh representative entry
+     * via the copy constructor (preserving condition, rarity, and artwork flags)
+     * on the first insertion, and accumulates counts on subsequent ones.
+     */
+    private static void addToMap(
+            LinkedHashMap<String, CardElement> map,
+            LinkedHashMap<String, Integer> countsMap,
+            String key, int count, CardElement rep) {
+
+        if (!map.containsKey(key)) {
+            map.put(key, new CardElement(rep));
+            countsMap.put(key, count);
         } else {
-            maOuicheListCounts.merge(key, count, Integer::sum);
+            countsMap.merge(key, count, Integer::sum);
         }
     }
 
@@ -561,7 +663,7 @@ public class OuicheList {
                         }
                         // (b) Bug 2: free within-group propagation (no pool consumed)
                         if (deckGroup.size() > 1) {
-                            propagateGroupValidation(deckGroup, roundStatus);
+                            propagateGroupValidation(deckGroup);
                         }
                         // (c) Bug 4: dontRemove passes, independent per deck
                         for (Deck deck : deckGroup) {
@@ -571,7 +673,7 @@ public class OuicheList {
 
                     // (d) Bug 3: free satisfaction of cardsList from deck validations, then
                     //     remaining cardsList passes (non-dontRemove, then dontRemove).
-                    col.setCardsList(satisfyCardsListFromDeckValidations(col.getCardsList(), col, roundStatus));
+                    col.setCardsList(satisfyCardsListFromDeckValidations(col.getCardsList(), col));
 
                     List<List<CardElement>> sectionResult;
                     sectionResult = applySectionPass(col.getCardsList(), unusedCards, false, qualityRequired, roundStatus);
@@ -645,44 +747,50 @@ public class OuicheList {
     /**
      * Bug 2 fix — within-group propagation for non-loose collections.
      *
-     * <p>Only slots resolved in the <em>current</em> round (status ==
-     * {@code roundStatus}) are propagated. Slots from earlier rounds are
-     * excluded so their status cannot bleed into a later round.
+     * <p>After ownership passes have resolved some cards (status ≠ MISSING,
+     * dontRemove = false) in the decks of a group, propagates those resolutions
+     * for free to the sibling decks in the same group.  One resolved card in
+     * deck D1 satisfies one slot of the same KonamiId in every sibling deck Dk
+     * without consuming an additional owned copy.
+     *
+     * <p>Only cards that were resolved before this call (snapshot) are
+     * propagated; slots that become resolved as a result of propagation are
+     * never re-propagated, so there is no risk of cascading or double-counting.
+     *
+     * <p>Propagated slots always receive {@link OwnershipStatus#OWNED} — free
+     * within-group propagation only applies to confirmed ownership.
      */
-    private static void propagateGroupValidation(
-            List<Deck> deckGroup, OwnershipStatus roundStatus) {
-
-        List<List<String>> idsPerDeck = new ArrayList<>();
+    private static void propagateGroupValidation(List<Deck> deckGroup) {
+        // Snapshot the already-resolved (non-dontRemove) KonamiIds per deck.
+        List<List<String>> validatedKonamiIdsPerDeck = new ArrayList<>();
         for (Deck deck : deckGroup) {
             List<String> ids = new ArrayList<>();
-            collectKonamiIdsByStatus(deck.getMainDeck(), ids, roundStatus);
-            collectKonamiIdsByStatus(deck.getExtraDeck(), ids, roundStatus);
-            collectKonamiIdsByStatus(deck.getSideDeck(), ids, roundStatus);
-            idsPerDeck.add(ids);
+            collectValidatedKonamiIds(deck.getMainDeck(), ids);
+            collectValidatedKonamiIds(deck.getExtraDeck(), ids);
+            collectValidatedKonamiIds(deck.getSideDeck(), ids);
+            validatedKonamiIdsPerDeck.add(ids);
         }
 
         for (int srcIdx = 0; srcIdx < deckGroup.size(); srcIdx++) {
+            List<String> toPropagate = validatedKonamiIdsPerDeck.get(srcIdx);
             for (int dstIdx = 0; dstIdx < deckGroup.size(); dstIdx++) {
                 if (dstIdx == srcIdx) {
                     continue;
                 }
-                List<String> remaining = new ArrayList<>(idsPerDeck.get(srcIdx));
-                propagateToSections(deckGroup.get(dstIdx), remaining, roundStatus);
+                Deck dst = deckGroup.get(dstIdx);
+                List<String> remaining = new ArrayList<>(toPropagate);
+                propagateToSections(dst, remaining);
             }
         }
     }
 
     /**
-     * Collects KonamiIds of non-dontRemove cards whose status equals
-     * {@code status} into {@code out}, preserving duplicates.
+     * Collects KonamiIds of non-MISSING, non-dontRemove cards from
+     * {@code section} into {@code out}.  Used by Bug-2 and Bug-3 propagation.
      */
-    private static void collectKonamiIdsByStatus(
-            List<CardElement> section,
-            List<String> out,
-            OwnershipStatus status) {
-
+    private static void collectValidatedKonamiIds(List<CardElement> section, List<String> out) {
         for (CardElement ce : section) {
-            if (ce.getOwnershipStatus() != status) {
+            if (ce.getOwnershipStatus() == OwnershipStatus.MISSING) {
                 continue;
             }
             if (Boolean.TRUE.equals(ce.getDontRemove())) {
@@ -695,19 +803,19 @@ public class OuicheList {
         }
     }
 
-    private static void propagateToSections(
-            Deck dst, List<String> remainingIds, OwnershipStatus roundStatus) {
-
-        propagateSectionPass(dst.getMainDeck(), remainingIds, roundStatus);
-        propagateSectionPass(dst.getExtraDeck(), remainingIds, roundStatus);
-        propagateSectionPass(dst.getSideDeck(), remainingIds, roundStatus);
+    /**
+     * For each KonamiId still in {@code remaining}, finds the first matching
+     * MISSING, non-dontRemove slot across the deck's three sections and marks
+     * it {@link OwnershipStatus#OWNED} (free propagation always grants full
+     * ownership), then removes that KonamiId from {@code remaining}.
+     */
+    private static void propagateToSections(Deck dst, List<String> remaining) {
+        propagateSectionPass(dst.getMainDeck(), remaining);
+        propagateSectionPass(dst.getExtraDeck(), remaining);
+        propagateSectionPass(dst.getSideDeck(), remaining);
     }
 
-    private static void propagateSectionPass(
-            List<CardElement> section,
-            List<String> remaining,
-            OwnershipStatus roundStatus) {
-
+    private static void propagateSectionPass(List<CardElement> section, List<String> remaining) {
         for (CardElement ce : section) {
             if (remaining.isEmpty()) {
                 return;
@@ -721,9 +829,10 @@ public class OuicheList {
             if (ce.getCard() == null || ce.getCard().getKonamiId() == null) {
                 continue;
             }
-            int idx = remaining.indexOf(ce.getCard().getKonamiId());
+            String konamiId = ce.getCard().getKonamiId();
+            int idx = remaining.indexOf(konamiId);
             if (idx >= 0) {
-                ce.setOwnershipStatus(roundStatus);
+                ce.setOwnershipStatus(OwnershipStatus.OWNED);
                 remaining.remove(idx);
             }
         }
@@ -732,39 +841,26 @@ public class OuicheList {
     /**
      * Bug 3 fix — free cardsList satisfaction from deck validations.
      *
-     * <p>Only deck slots resolved in the current round ({@code roundStatus})
-     * are collected. Slots from earlier rounds were already used in their
-     * own round's call and must not re-satisfy collection slots.
+     * <p>For each non-dontRemove entry in {@code cardsList} that is still
+     * {@link OwnershipStatus#MISSING}, checks whether a matching card (by
+     * KonamiId) was already resolved in any deck of {@code col}.  If so, that
+     * deck resolution satisfies the cardsList entry for free (one resolved copy
+     * → one cardsList entry, consumed so it cannot satisfy a second entry).
      *
-     * <p>Per-group deduplication: the group contributes
-     * {@code max(resolved count in any single deck)} entries per KonamiId,
-     * so two decks in the same group each resolving the same card count as one.
+     * <p>dontRemove cards are intentionally skipped: they must be validated
+     * independently in each context (Bug 4).
+     *
+     * @return the updated cardsList (mutated in place; also returned for chaining)
      */
     private static List<CardElement> satisfyCardsListFromDeckValidations(
-            List<CardElement> cardsList,
-            ThemeCollection col,
-            OwnershipStatus roundStatus) {
+            List<CardElement> cardsList, ThemeCollection col) {
 
-        List<String> poolIds = new ArrayList<>();
-
+        List<String> deckValidatedPool = new ArrayList<>();
         for (List<Deck> group : col.getLinkedDecks()) {
-            Map<String, Integer> groupMaxCounts = new LinkedHashMap<>();
-
             for (Deck deck : group) {
-                Map<String, Integer> deckCounts = new LinkedHashMap<>();
-                countKonamiIdsByStatus(deck.getMainDeck(), deckCounts, roundStatus);
-                countKonamiIdsByStatus(deck.getExtraDeck(), deckCounts, roundStatus);
-                countKonamiIdsByStatus(deck.getSideDeck(), deckCounts, roundStatus);
-
-                for (Map.Entry<String, Integer> entry : deckCounts.entrySet()) {
-                    groupMaxCounts.merge(entry.getKey(), entry.getValue(), Math::max);
-                }
-            }
-
-            for (Map.Entry<String, Integer> entry : groupMaxCounts.entrySet()) {
-                for (int i = 0; i < entry.getValue(); i++) {
-                    poolIds.add(entry.getKey());
-                }
+                collectValidatedKonamiIds(deck.getMainDeck(), deckValidatedPool);
+                collectValidatedKonamiIds(deck.getExtraDeck(), deckValidatedPool);
+                collectValidatedKonamiIds(deck.getSideDeck(), deckValidatedPool);
             }
         }
 
@@ -776,40 +872,16 @@ public class OuicheList {
                 continue;
             }
             if (Boolean.TRUE.equals(colCard.getDontRemove())) {
-                continue;
+                continue;  // handled separately by dontRemove passes
             }
-            int idx = poolIds.indexOf(colCard.getCard().getKonamiId());
+            int idx = deckValidatedPool.indexOf(colCard.getCard().getKonamiId());
             if (idx >= 0) {
-                colCard.setOwnershipStatus(roundStatus);
-                poolIds.remove(idx);
+                colCard.setOwnershipStatus(OwnershipStatus.OWNED);
+                deckValidatedPool.remove(idx);
             }
         }
         return cardsList;
     }
-
-    /**
-     * Counts non-dontRemove cards with {@code status} per KonamiId in
-     * {@code section}, accumulating into {@code counts}.
-     */
-    private static void countKonamiIdsByStatus(
-            List<CardElement> section,
-            Map<String, Integer> counts,
-            OwnershipStatus status) {
-
-        for (CardElement ce : section) {
-            if (ce.getOwnershipStatus() != status) {
-                continue;
-            }
-            if (Boolean.TRUE.equals(ce.getDontRemove())) {
-                continue;
-            }
-            if (ce.getCard() == null || ce.getCard().getKonamiId() == null) {
-                continue;
-            }
-            counts.merge(ce.getCard().getKonamiId(), 1, Integer::sum);
-        }
-    }
-
 
     // =========================================================================
     // Quality helpers
@@ -840,18 +912,12 @@ public class OuicheList {
     private static boolean ownedCopySatisfiesQuality(
             CardElement wantedSlot, CardElement ownedCopy) {
 
-        // Use the effective condition on both sides so that unset values default
-        // to CardCondition.GOOD (see CardElement.getEffectiveCondition()).
-        // Lower ordinal = better condition (MINT=0 … DAMAGED=6).
-        // A copy satisfies the requirement when its ordinal is ≤ the required ordinal.
         CardCondition requiredCondition = wantedSlot.getEffectiveCondition();
         CardCondition ownedCondition = ownedCopy.getEffectiveCondition();
         if (ownedCondition.ordinal() > requiredCondition.ordinal()) {
             return false;
         }
 
-        // Rarity: explicit requirement must match exactly.
-        // No requirement (null) means any rarity is accepted.
         CardRarity requiredRarity = wantedSlot.getRarity();
         if (requiredRarity != null) {
             if (requiredRarity != ownedCopy.getRarity()) {
@@ -889,13 +955,13 @@ public class OuicheList {
      *       consumed.</li>
      * </ul>
      *
-     * @param section         the wanted-card section to process (modified in place
-     *                        via the returned replacement list)
-     * @param pool            the available owned cards (modified in place via the
-     *                        returned replacement list)
-     * @param dontRemoveOnly  {@code true} to process only {@code "+"}-flagged slots
+     * @param section        the wanted-card section to process (modified in place
+     *                       via the returned replacement list)
+     * @param pool           the available owned cards (modified in place via the
+     *                       returned replacement list)
+     * @param dontRemoveOnly {@code true} to process only {@code "+"}-flagged slots
      * @param qualityRequired {@code true} to enforce quality matching
-     * @param status          the {@link OwnershipStatus} to assign on a match
+     * @param status         the {@link OwnershipStatus} to assign on a match
      * @return a two-element list: {@code [updatedSection, remainingPool]}
      */
     private static List<List<CardElement>> applySectionPass(
@@ -1070,14 +1136,14 @@ public class OuicheList {
      * <p>Slots already resolved from a previous round (status ≠ {@code MISSING})
      * are passed through unchanged.
      *
-     * @param section         the wanted-card section (artwork pass only touches
-     *                        {@code "*"}-flagged slots; KonamiId pass touches the rest)
-     * @param loosePool       the fresh per-collection owned pool (preferred source)
-     * @param unusedPool      the depleted global pool (fallback source)
+     * @param section       the wanted-card section (artwork pass only touches
+     *                      {@code "*"}-flagged slots; KonamiId pass touches the rest)
+     * @param loosePool     the fresh per-collection owned pool (preferred source)
+     * @param unusedPool    the depleted global pool (fallback source)
      * @param qualityRequired {@code true} to enforce quality matching
-     * @param status          the {@link OwnershipStatus} to assign on a match
+     * @param status        the {@link OwnershipStatus} to assign on a match
      * @return a three-element list: {@code [updatedSection, remainingLoosePool,
-     * remainingUnusedPool]}
+     *         remainingUnusedPool]}
      */
     private static List<List<CardElement>> applyLoosePasses(
             List<CardElement> section,
@@ -1245,6 +1311,8 @@ public class OuicheList {
         detailedOuicheList = new DecksAndCollectionsList();
         maOuicheList = new LinkedHashMap<>();
         maOuicheListCounts = new LinkedHashMap<>();
+        maOuicheListSubstandard = new LinkedHashMap<>();
+        maOuicheListSubstandardCounts = new LinkedHashMap<>();
 
         ThemeCollection currentCollection = null;
         Deck currentDeck = null;

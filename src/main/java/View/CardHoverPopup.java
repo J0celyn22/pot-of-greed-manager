@@ -77,6 +77,16 @@ public final class CardHoverPopup {
     public static final String DOWNGRADE_WARNING =
             "⬇ A better copy exists in your collection — consider swapping this one out.";
 
+    /**
+     * Warning text appended to OuicheList slots that are satisfied by a copy
+     * that does not meet the condition or rarity requirement of the slot.
+     * The required condition / rarity are already shown above this line by
+     * {@link #buildTooltipText(Model.CardsLists.CardElement)}, so this message
+     * only needs to explain that the owned copy falls short.
+     */
+    public static final String SUBSTANDARD_QUALITY_WARNING =
+            "⚠ The copy you own does not meet the condition or rarity requirements.";
+
     private CardHoverPopup() {
     }
 

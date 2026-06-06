@@ -12,6 +12,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.Semaphore;
 
@@ -127,6 +129,48 @@ public class FileFetcher {
             // from the stored local path — this is what getAddresses() expects.
             String element = Paths.get(localPath).getFileName().toString();
             fetchFile(element);
+        }
+    }
+
+    /**
+     * Marks the local file for {@code element} as stale if it is at least
+     * {@code maxAgeDays} days old, or if it does not exist yet.
+     *
+     * <p>This is the update mechanism for databases that have no revision
+     * system (ygoprodeck, mdpro3).  Calling this on every startup means the
+     * file is re-fetched at most once per day when the application is online;
+     * if it is offline the existing file continues to be used and the path
+     * stays in the persisted stale set so the next online startup retries.
+     *
+     * @param element    the filename to look up in {@code addresses.json}
+     *                   (e.g. {@code "cardinfo.json"}, {@code "cards_Lite.json"})
+     * @param maxAgeDays files older than this many days are marked stale
+     */
+    public static void markStaleIfOlderThan(String element, int maxAgeDays) {
+        String[] addresses = DataBaseUpdate.getAddresses(element);
+        if (addresses.length == 0) {
+            System.out.println("markStaleIfOlderThan: element not found in addresses.json: " + element);
+            return;
+        }
+        String localPath = addresses[0];
+        Path file = Paths.get(localPath);
+
+        if (!Files.exists(file)) {
+            // File has never been downloaded — treat it as maximally stale.
+            addInvalidatedPath(localPath);
+            System.out.println("File absent, marked stale: " + localPath);
+            return;
+        }
+
+        try {
+            Instant lastModified = Files.getLastModifiedTime(file).toInstant();
+            long ageInDays = ChronoUnit.DAYS.between(lastModified, Instant.now());
+            if (ageInDays >= maxAgeDays) {
+                addInvalidatedPath(localPath);
+                System.out.println("File is " + ageInDays + " day(s) old, marked stale: " + localPath);
+            }
+        } catch (IOException e) {
+            System.out.println("Could not check age of file: " + localPath + " — " + e.getMessage());
         }
     }
 

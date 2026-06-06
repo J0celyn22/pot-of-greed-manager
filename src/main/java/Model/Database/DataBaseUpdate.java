@@ -44,6 +44,12 @@ public class DataBaseUpdate {
 
             updateLocalRevision(remoteRevision);
 
+            // Mark ygoprodeck / mdpro3 files stale if they are at least one day
+            // old.  These databases have no revision system of their own, so they
+            // must be refreshed on a time basis rather than being tied to the
+            // ygoresources manifest.
+            checkTimeBasedUpdates();
+
             // Eagerly attempt to re-fetch every stale file.
             // If the app is offline the old files remain usable and the stale
             // set is persisted so the next startup retries automatically.
@@ -132,12 +138,6 @@ public class DataBaseUpdate {
             }
         }
 
-        // Always invalidate the YGOProDeck aggregate files so that newly-added
-        // or renamed cards are picked up even when they are not listed
-        // individually in the ygoresources manifest.
-        markStale("cardinfo.json");
-        markStale("archetypes.json");
-        markStale("_sets.txt");
     }
 
     /**
@@ -202,6 +202,24 @@ public class DataBaseUpdate {
             Files.createFile(revisionFilePath);
         }
         Files.write(revisionFilePath, String.valueOf(newRevision).getBytes());
+    }
+
+    /**
+     * Marks ygoprodeck and mdpro3 files as stale when they are at least one day
+     * old (or absent).  These databases expose no revision mechanism, so they
+     * are refreshed purely on a time basis, independently of the ygoresources
+     * manifest.
+     *
+     * <p>Adding them to the invalidated-paths set here feeds them into the same
+     * {@link FileFetcher#refetchInvalidatedFiles()} call that handles all other
+     * stale files, so offline behaviour is consistent: the old file remains
+     * usable and the path is persisted for the next retry.
+     */
+    private static void checkTimeBasedUpdates() {
+        final int MAX_AGE_DAYS = 1;
+        FileFetcher.markStaleIfOlderThan("cardinfo.json", MAX_AGE_DAYS);
+        FileFetcher.markStaleIfOlderThan("archetypes.json", MAX_AGE_DAYS);
+        FileFetcher.markStaleIfOlderThan("cards_Lite.json", MAX_AGE_DAYS);
     }
 
     /**

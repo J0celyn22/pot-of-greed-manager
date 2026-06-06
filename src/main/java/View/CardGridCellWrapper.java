@@ -190,11 +190,23 @@ public class CardGridCellWrapper extends GridCell<CardElement> {
             } catch (Throwable ignored) {
             }
 
-            String suffix = upgradeNow
+            // OuicheList: substandard-quality warning — the owned copy does not
+            // meet the condition or rarity requirement shown above in the tooltip.
+            boolean isSubstandardOuiche = false;
+            try {
+                isSubstandardOuiche = isOuicheListTabSelected()
+                        && finalCardElement.getOwnershipStatus()
+                        == Model.CardsLists.OwnershipStatus.OWNED_SUBSTANDARD;
+            } catch (Throwable ignored) {
+            }
+
+            String suffix = isSubstandardOuiche
+                    ? "\n" + CardHoverPopup.SUBSTANDARD_QUALITY_WARNING
+                    : (upgradeNow
                     ? "\n" + CardHoverPopup.UPGRADE_CANDIDATE_WARNING
-                    : (degradedNow ? "\n" + CardHoverPopup.DOWNGRADE_WARNING : "");
+                    : (degradedNow ? "\n" + CardHoverPopup.DOWNGRADE_WARNING : ""));
             hoverLabel.setText(baseTooltipText + suffix);
-            boolean isOrange = upgradeNow || degradedNow;
+            boolean isOrange = isSubstandardOuiche || upgradeNow || degradedNow;
             hoverLabel.setStyle(isOrange
                     ? CardHoverPopup.LABEL_STYLE_ORANGE
                     : CardHoverPopup.LABEL_STYLE);

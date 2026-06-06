@@ -54,6 +54,21 @@ public class OuicheListController {
     private static boolean hideOwnedCardsEnabled = false;
 
     /**
+     * When {@code true}, the detailed (unified-tree) OuicheList renders each card group
+     * as a list of rows instead of a mosaic grid.  {@code false} means grid/mosaic mode.
+     * Toggled by the Mosaic/List button when the detailed view is active.
+     */
+    private static boolean isDetailedListMode = false;
+
+    /**
+     * Returns {@code true} when the detailed OuicheList is in list mode (rows),
+     * {@code false} for the default mosaic/grid mode.
+     */
+    public static boolean isDetailedListMode() {
+        return isDetailedListMode;
+    }
+
+    /**
      * Returns whether owned-card hiding is currently active.
      */
     public static boolean isHideOwnedCardsEnabled() {
@@ -308,24 +323,20 @@ public class OuicheListController {
             UserInterfaceFunctions.generateOuicheListType();
         }
 
-        Map<String, CardElement> uniqueCards = OuicheList.getMaOuicheList();
-        Map<String, Integer> cardCounts = OuicheList.getMaOuicheListCounts();
+        Map<String, CardElement> missingCards = OuicheList.getMaOuicheList();
+        Map<String, Integer> missingCounts = OuicheList.getMaOuicheListCounts();
+        Map<String, CardElement> substandardCards = OuicheList.getMaOuicheListSubstandard();
+        Map<String, Integer> substandardCounts = OuicheList.getMaOuicheListSubstandardCounts();
 
-        if (uniqueCards == null || uniqueCards.isEmpty()) {
-            Label emptyLabel = new Label("OuicheList is empty.");
-            emptyLabel.setStyle("-fx-text-fill: white;");
-            contentPane.getChildren().add(emptyLabel);
-            return;
-        }
-
-        // When hiding is active, remove the owned cards from the display maps so
-        // that neither the list view nor the mosaic view renders them at all.
-        if (hideOwnedCardsEnabled) {
+        // Apply the hideOwned filter to the MISSING section only.
+        // OWNED_SUBSTANDARD cards always need attention (the user needs better copies)
+        // so they are never hidden regardless of this setting.
+        if (hideOwnedCardsEnabled && missingCards != null) {
             Map<String, CardElement> filteredCards = new java.util.LinkedHashMap<>();
             Map<String, Integer> filteredCounts =
-                    (cardCounts != null) ? new java.util.LinkedHashMap<>() : null;
+                    (missingCounts != null) ? new java.util.LinkedHashMap<>() : null;
 
-            for (Map.Entry<String, CardElement> entry : uniqueCards.entrySet()) {
+            for (Map.Entry<String, CardElement> entry : missingCards.entrySet()) {
                 CardElement cardElement = entry.getValue();
                 if (cardElement == null) {
                     continue;
@@ -334,20 +345,46 @@ public class OuicheListController {
                         && CardTreeCell.isCardOwnedInCollection(cardElement.getCard());
                 if (!isOwned) {
                     filteredCards.put(entry.getKey(), cardElement);
-                    if (filteredCounts != null && cardCounts.containsKey(entry.getKey())) {
-                        filteredCounts.put(entry.getKey(), cardCounts.get(entry.getKey()));
+                    if (filteredCounts != null && missingCounts.containsKey(entry.getKey())) {
+                        filteredCounts.put(entry.getKey(), missingCounts.get(entry.getKey()));
                     }
                 }
             }
-            uniqueCards = filteredCards;
-            cardCounts = filteredCounts;
+            missingCards = filteredCards;
+            missingCounts = filteredCounts;
         }
 
-        Node content = mosaicMode
-                ? buildCompactMosaicView(uniqueCards)
-                : buildCompactListView(uniqueCards, cardCounts);
+        boolean missingEmpty = missingCards == null || missingCards.isEmpty();
+        boolean substandardEmpty = substandardCards == null || substandardCards.isEmpty();
 
-        ScrollPane scrollPane = new ScrollPane(content);
+        if (missingEmpty && substandardEmpty) {
+            Label emptyLabel = new Label("OuicheList is empty.");
+            emptyLabel.setStyle("-fx-text-fill: white;");
+            contentPane.getChildren().add(emptyLabel);
+            return;
+        }
+
+        VBox combinedContent = new VBox(0);
+        combinedContent.setStyle("-fx-background-color: #100317;");
+
+        // ── MISSING section ────────────────────────────────────────────────────────
+        if (!missingEmpty) {
+            combinedContent.getChildren().add(buildSectionHeader("Cards to acquire", false));
+            combinedContent.getChildren().add(mosaicMode
+                    ? buildCompactMosaicView(missingCards, false)
+                    : buildCompactListView(missingCards, missingCounts, false));
+        }
+
+        // ── OWNED_SUBSTANDARD section ──────────────────────────────────────────────
+        if (!substandardEmpty) {
+            combinedContent.getChildren().add(
+                    buildSectionHeader("Copies to upgrade (owned but below required quality)", true));
+            combinedContent.getChildren().add(mosaicMode
+                    ? buildCompactMosaicView(substandardCards, true)
+                    : buildCompactListView(substandardCards, substandardCounts, true));
+        }
+
+        ScrollPane scrollPane = new ScrollPane(combinedContent);
         scrollPane.setFitToWidth(true);
         scrollPane.setStyle("-fx-background-color: #100317; -fx-background: #100317;");
         scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
@@ -361,17 +398,53 @@ public class OuicheListController {
     }
 
     /**
-     * Builds the compact list view: one row per unique card, showing image + FR/EN/JA names
-     * + count (top-right) + unit/total price (bottom-right).
+     * Builds a styled section-header label for the compact view.
      *
-     * @param uniqueCards the unique-card map from {@link OuicheList#getMaOuicheList()}
-     * @param cardCounts  the count map from {@link OuicheList#getMaOuicheListCounts()}
-     * @return the root {@link Node} to place inside a ScrollPane
+     * @param title         the header text
+     * @param isSubstandard {@code true} for orange styling (substandard section),
+     *                      {@code false} for the default white styling (missing section)
+     */
+    private Label buildSectionHeader(String title, boolean isSubstandard) {
+        Label header = new Label(title);
+        String color = isSubstandard ? "#EB9E34" : "white";
+        header.setStyle(
+                "-fx-text-fill: " + color + "; "
+                        + "-fx-font-size: 15; "
+                        + "-fx-font-weight: bold; "
+                        + "-fx-padding: 12 10 8 10; "
+                        + "-fx-border-color: transparent transparent " + color + " transparent; "
+                        + "-fx-border-width: 0 0 1 0;");
+        header.setMaxWidth(Double.MAX_VALUE);
+        return header;
+    }
+
+    /**
+     * Builds the compact list view for the MISSING section.
+     * Delegates to {@link #buildCompactListView(Map, Map, boolean)}.
      */
     public Node buildCompactListView(Map<String, CardElement> uniqueCards,
                                      Map<String, Integer> cardCounts) {
+        return buildCompactListView(uniqueCards, cardCounts, false);
+    }
+
+    /**
+     * Builds the compact list view with optional substandard styling.
+     *
+     * <p>When {@code isSubstandard} is {@code true}:
+     * <ul>
+     *   <li>Row borders are orange instead of white.</li>
+     *   <li>The count label is orange.</li>
+     *   <li>If the representative {@link CardElement} carries a condition or
+     *       rarity requirement, those are shown below the price in orange so
+     *       the user knows exactly what quality they need to acquire.</li>
+     * </ul>
+     */
+    public Node buildCompactListView(Map<String, CardElement> uniqueCards,
+                                     Map<String, Integer> cardCounts,
+                                     boolean isSubstandard) {
         final double imageWidth = 80.0;
         final double imageHeight = 116.0;
+        final String rowBorderColor = isSubstandard ? "#EB9E34" : "white";
 
         VBox listBox = new VBox(6);
         listBox.setPadding(new Insets(10));
@@ -387,7 +460,7 @@ public class OuicheListController {
             row.setPadding(new Insets(8));
             row.setAlignment(Pos.CENTER_LEFT);
             row.setStyle(
-                    "-fx-border-color: white; -fx-border-width: 1; "
+                    "-fx-border-color: " + rowBorderColor + "; -fx-border-width: 1; "
                             + "-fx-border-radius: 5; -fx-background-radius: 5; "
                             + "-fx-background-color: black;");
 
@@ -419,7 +492,8 @@ public class OuicheListController {
             valueBox.setAlignment(Pos.TOP_RIGHT);
 
             Label countLabel = new Label("\u00d7" + count);
-            countLabel.setStyle("-fx-text-fill: white; -fx-font-size: 14; -fx-font-weight: bold;");
+            countLabel.setStyle("-fx-text-fill: " + rowBorderColor
+                    + "; -fx-font-size: 14; -fx-font-weight: bold;");
             valueBox.getChildren().add(countLabel);
 
             if (card.getPrice() != null && !card.getPrice().trim().isEmpty()) {
@@ -437,6 +511,26 @@ public class OuicheListController {
                 }
             }
 
+            // ── Quality requirement (substandard section only, below price) ─
+            if (isSubstandard) {
+                Model.CardsLists.CardCondition condition = cardElement.getCondition();
+                Model.CardsLists.CardRarity rarity = cardElement.getRarity();
+                if (condition != null || rarity != null) {
+                    if (condition != null) {
+                        Label condLabel = new Label(
+                                "Req. condition: " + condition.getDisplayName());
+                        condLabel.setStyle("-fx-text-fill: #EB9E34; -fx-font-size: 11;");
+                        valueBox.getChildren().add(condLabel);
+                    }
+                    if (rarity != null) {
+                        Label rarLabel = new Label(
+                                "Req. rarity: " + rarity.getDisplayName());
+                        rarLabel.setStyle("-fx-text-fill: #EB9E34; -fx-font-size: 11;");
+                        valueBox.getChildren().add(rarLabel);
+                    }
+                }
+            }
+
             row.getChildren().addAll(imageView, namesBox, valueBox);
             listBox.getChildren().add(row);
         }
@@ -445,13 +539,21 @@ public class OuicheListController {
     }
 
     /**
-     * Builds the compact mosaic view: one image per unique card, wrapped in a FlowPane.
-     * No titles, no categories — pure image grid.
-     *
-     * @param uniqueCards the unique-card map from {@link OuicheList#getMaOuicheList()}
-     * @return the root {@link Node} to place inside a ScrollPane
+     * Builds the compact mosaic view for the MISSING section.
+     * Delegates to {@link #buildCompactMosaicView(Map, boolean)}.
      */
     public Node buildCompactMosaicView(Map<String, CardElement> uniqueCards) {
+        return buildCompactMosaicView(uniqueCards, false);
+    }
+
+    /**
+     * Builds the compact mosaic view with optional substandard styling.
+     *
+     * <p>When {@code isSubstandard} is {@code true}, each image wrapper receives
+     * an orange border to signal that the card needs a quality upgrade.
+     */
+    public Node buildCompactMosaicView(Map<String, CardElement> uniqueCards,
+                                       boolean isSubstandard) {
         double cellWidth = cardWidthProperty.get();
         double cellHeight = cardHeightProperty.get();
 
@@ -472,6 +574,12 @@ public class OuicheListController {
 
             StackPane wrapper = new StackPane(imageView);
             wrapper.setPadding(new Insets(2));
+            if (isSubstandard) {
+                wrapper.setStyle(
+                        "-fx-border-color: #EB9E34; "
+                                + "-fx-border-width: 2; "
+                                + "-fx-border-radius: 3;");
+            }
             flow.getChildren().add(wrapper);
         }
 
@@ -554,7 +662,7 @@ public class OuicheListController {
                 compactDetailedButton.setText("Detailed mode");
                 mosaicListButton.setVisible(true);
                 mosaicListButton.setManaged(true);
-                mosaicListButton.setText("Mosaic");
+                mosaicListButton.setText("Mosaic");   // currently in list; offers mosaic
                 try {
                     displayCompactOuicheList(false);
                 } catch (Exception exception) {
@@ -563,9 +671,10 @@ public class OuicheListController {
             } else {
                 // ── Switch back to Detailed mode ───────────────────────────
                 compactDetailedButton.setText("Compact mode");
-                mosaicListButton.setVisible(false);
-                mosaicListButton.setManaged(false);
-                mosaicListButton.setText("Mosaic");
+                isDetailedListMode = false;           // default to mosaic/grid
+                mosaicListButton.setVisible(true);    // visible in detailed mode too
+                mosaicListButton.setManaged(true);
+                mosaicListButton.setText("List");     // currently in mosaic; offers list
                 try {
                     displayOuicheListUnified();
                 } catch (Exception exception) {
@@ -575,19 +684,44 @@ public class OuicheListController {
         });
 
         mosaicListButton.setOnAction(event -> {
-            if ("Mosaic".equals(mosaicListButton.getText())) {
-                mosaicListButton.setText("List");
-                try {
-                    displayCompactOuicheList(true);
-                } catch (Exception exception) {
-                    logger.error("Error switching compact OuicheList to mosaic", exception);
+            boolean isCompactMode = "Detailed mode".equals(compactDetailedButton.getText());
+            if (isCompactMode) {
+                // ── Compact mode: toggle compact list ↔ compact mosaic ─────
+                if ("Mosaic".equals(mosaicListButton.getText())) {
+                    mosaicListButton.setText("List");
+                    try {
+                        displayCompactOuicheList(true);
+                    } catch (Exception exception) {
+                        logger.error("Error switching compact OuicheList to mosaic", exception);
+                    }
+                } else {
+                    mosaicListButton.setText("Mosaic");
+                    try {
+                        displayCompactOuicheList(false);
+                    } catch (Exception exception) {
+                        logger.error("Error switching compact OuicheList to list", exception);
+                    }
                 }
             } else {
-                mosaicListButton.setText("Mosaic");
-                try {
-                    displayCompactOuicheList(false);
-                } catch (Exception exception) {
-                    logger.error("Error switching compact OuicheList to list", exception);
+                // ── Detailed mode: toggle detailed mosaic ↔ detailed list ──
+                if ("List".equals(mosaicListButton.getText())) {
+                    // Currently in mosaic; switch to list
+                    mosaicListButton.setText("Mosaic");
+                    isDetailedListMode = true;
+                    try {
+                        displayOuicheListUnified();
+                    } catch (Exception exception) {
+                        logger.error("Error switching detailed OuicheList to list mode", exception);
+                    }
+                } else {
+                    // Currently in list; switch to mosaic
+                    mosaicListButton.setText("List");
+                    isDetailedListMode = false;
+                    try {
+                        displayOuicheListUnified();
+                    } catch (Exception exception) {
+                        logger.error("Error switching detailed OuicheList to mosaic mode", exception);
+                    }
                 }
             }
         });
