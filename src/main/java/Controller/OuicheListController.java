@@ -513,21 +513,19 @@ public class OuicheListController {
 
             // ── Quality requirement (substandard section only, below price) ─
             if (isSubstandard) {
-                Model.CardsLists.CardCondition condition = cardElement.getCondition();
+                // Always show condition: OWNED_SUBSTANDARD cards failed the quality
+                // check, so the effective minimum (GOOD when unset) is always relevant.
+                Model.CardsLists.CardCondition condition = cardElement.getEffectiveCondition();
                 Model.CardsLists.CardRarity rarity = cardElement.getRarity();
-                if (condition != null || rarity != null) {
-                    if (condition != null) {
-                        Label condLabel = new Label(
-                                "Req. condition: " + condition.getDisplayName());
-                        condLabel.setStyle("-fx-text-fill: #EB9E34; -fx-font-size: 11;");
-                        valueBox.getChildren().add(condLabel);
-                    }
-                    if (rarity != null) {
-                        Label rarLabel = new Label(
-                                "Req. rarity: " + rarity.getDisplayName());
-                        rarLabel.setStyle("-fx-text-fill: #EB9E34; -fx-font-size: 11;");
-                        valueBox.getChildren().add(rarLabel);
-                    }
+
+                Label condLabel = new Label("Req. condition: " + condition.getDisplayName());
+                condLabel.setStyle("-fx-text-fill: #EB9E34; -fx-font-size: 11;");
+                valueBox.getChildren().add(condLabel);
+
+                if (rarity != null) {
+                    Label rarLabel = new Label("Req. rarity: " + rarity.getDisplayName());
+                    rarLabel.setStyle("-fx-text-fill: #EB9E34; -fx-font-size: 11;");
+                    valueBox.getChildren().add(rarLabel);
                 }
             }
 

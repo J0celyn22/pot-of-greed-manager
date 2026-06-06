@@ -200,6 +200,7 @@ public class RealMainController {
             CardDetailPane cdp = tab.getCardDetailPane();
             cdp.setOnMinusOne(this::handleDeleteMiddleSelection);
             cdp.setOnPlusOne(this::handleDuplicateMiddleSelection);
+            cdp.setOnCompleteToThree(this::handleCompleteToThree);
             cdp.setOnEdit(() -> {
                 java.util.Set<CardElement> sel =
                         SelectionManager.getSelectedMiddleElements();
@@ -1657,17 +1658,27 @@ public class RealMainController {
         if (selectedInOrder.isEmpty()) {
             return;
         }
-        CardElement lastElement = selectedInOrder.get(selectedInOrder.size() - 1);
 
-        // Pass CardElement snapshots (not bare Cards) so that condition, rarity,
-        // and custom tags are duplicated together with the card identity.
-        boolean inserted = MenuActionHandler.handleInsertElementsAfterElement(
-                selectedInOrder, lastElement);
-        if (!inserted) {
-            logger.warn("handleDuplicateMiddleSelection: insertion failed");
+        // Insert one copy of each selected element immediately after itself,
+        // processing in tree order so earlier insertions don't shift later anchors.
+        boolean anyInserted = false;
+        for (CardElement selectedElement : selectedInOrder) {
+            List<CardElement> singleCopy = new ArrayList<>();
+            singleCopy.add(new CardElement(selectedElement));
+            boolean inserted = MenuActionHandler.handleInsertElementsAfterElement(
+                    singleCopy, selectedElement);
+            if (inserted) {
+                anyInserted = true;
+            } else {
+                logger.warn("handleDuplicateMiddleSelection: insertion failed for element");
+            }
+        }
+
+        if (!anyInserted) {
             return;
         }
 
+        CardElement lastElement = selectedInOrder.get(selectedInOrder.size() - 1);
         int activeTabIndex = mainTabPane.getSelectionModel().getSelectedIndex();
         if (activeTabIndex == 0) {
             UserInterfaceFunctions.markMyCollectionDirty();
@@ -1681,6 +1692,188 @@ public class RealMainController {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
         }
+    }
+
+    /**
+     * For each selected card element, counts how many copies of the same card
+     * (by konamiId) are already in that element's direct container (a CardsGroup,
+     * a deck section, or a ThemeCollection cardsList), then inserts copies after
+     * the element until the container holds exactly 3.  Elements whose container
+     * already has 3 or more copies are skipped; no cards are ever removed.
+     */
+    public void handleCompleteToThree() {
+        TreeView<String> activeTreeView = getActiveMiddleTreeView();
+        if (activeTreeView == null) {
+            return;
+        }
+        java.util.Set<CardElement> selectedElements =
+                SelectionManager.getSelectedMiddleElements();
+        if (selectedElements.isEmpty()) {
+            return;
+        }
+
+        // Process elements in tree order so insertions are stable.
+        List<CardElement> allElementsInOrder =
+                View.CardTreeCell.collectAllElementsInTreeOrder(activeTreeView.getRoot());
+        List<CardElement> selectedInOrder = allElementsInOrder.stream()
+                .filter(selectedElements::contains)
+                .collect(Collectors.toList());
+        if (selectedInOrder.isEmpty()) {
+            return;
+        }
+
+        boolean anyInserted = false;
+        int activeTabIndex = mainTabPane.getSelectionModel().getSelectedIndex();
+
+        for (CardElement selectedElement : selectedInOrder) {
+            if (selectedElement.getCard() == null) {
+                continue;
+            }
+            String konamiId = selectedElement.getCard().getKonamiId();
+
+            // Find the direct container list that holds this element.
+            List<CardElement> directContainer = findDirectContainer(selectedElement, activeTabIndex);
+            if (directContainer == null) {
+                continue;
+            }
+
+            // Count copies of the same card already in that container.
+            int existingCount = 0;
+            for (CardElement containerElement : directContainer) {
+                if (containerElement == null || containerElement.getCard() == null) {
+                    continue;
+                }
+                String containerKonamiId = containerElement.getCard().getKonamiId();
+                if (konamiId != null && konamiId.equals(containerKonamiId)) {
+                    existingCount++;
+                }
+            }
+
+            int copiesToAdd = 3 - existingCount;
+            if (copiesToAdd <= 0) {
+                continue;
+            }
+
+            // Build the list of copies to insert after the selected element.
+            List<CardElement> copies = new ArrayList<>();
+            for (int i = 0; i < copiesToAdd; i++) {
+                copies.add(new CardElement(selectedElement));
+            }
+
+            boolean inserted = MenuActionHandler.handleInsertElementsAfterElement(
+                    copies, selectedElement);
+            if (inserted) {
+                anyInserted = true;
+            } else {
+                logger.warn("handleCompleteToThree: insertion failed for element with konamiId={}", konamiId);
+            }
+        }
+
+        if (!anyInserted) {
+            return;
+        }
+
+        if (activeTabIndex == 0) {
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+        } else if (activeTabIndex == 1) {
+            CardElement lastElement = selectedInOrder.get(selectedInOrder.size() - 1);
+            Object owner = findDeckOrCollectionOwner(lastElement);
+            if (owner != null) {
+                UserInterfaceFunctions.markDirty(owner);
+            }
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        }
+    }
+
+    /**
+     * Returns the {@link List} that directly contains {@code element},
+     * depending on the active tab:
+     * <ul>
+     *   <li>Tab 0 (My Collection): the {@link CardsGroup} cardList that holds the element.</li>
+     *   <li>Tab 1 (Decks and Collections): the specific deck-section list (main/extra/side)
+     *       that holds the element, or the ThemeCollection cardsList.</li>
+     * </ul>
+     * Returns {@code null} when no container is found.
+     */
+    private List<CardElement> findDirectContainer(CardElement element, int activeTabIndex) {
+        if (element == null) {
+            return null;
+        }
+        if (activeTabIndex == 0) {
+            // My Collection: search CardsGroups inside every Box.
+            OwnedCardsCollection ownedCollection = Model.CardsLists.OuicheList.getMyCardsCollection();
+            if (ownedCollection == null) {
+                return null;
+            }
+            for (Box box : ownedCollection.getOwnedCollection()) {
+                List<CardsGroup> groups = box.getContent();
+                if (groups == null) {
+                    continue;
+                }
+                for (CardsGroup group : groups) {
+                    List<CardElement> cardList = group.getCardList();
+                    if (cardList != null && cardList.contains(element)) {
+                        return cardList;
+                    }
+                }
+            }
+        } else if (activeTabIndex == 1) {
+            DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
+            if (decksList == null) {
+                return null;
+            }
+            // Search deck sections of standalone decks.
+            for (Deck deck : decksList.getDecks()) {
+                if (deck == null) {
+                    continue;
+                }
+                if (deck.getMainDeck() != null && deck.getMainDeck().contains(element)) {
+                    return deck.getMainDeck();
+                }
+                if (deck.getExtraDeck() != null && deck.getExtraDeck().contains(element)) {
+                    return deck.getExtraDeck();
+                }
+                if (deck.getSideDeck() != null && deck.getSideDeck().contains(element)) {
+                    return deck.getSideDeck();
+                }
+            }
+            // Search ThemeCollection cardsLists and linked deck sections.
+            for (ThemeCollection collection : decksList.getCollections()) {
+                if (collection == null) {
+                    continue;
+                }
+                List<CardElement> cardsList = collection.getCardsList();
+                if (cardsList != null && cardsList.contains(element)) {
+                    return cardsList;
+                }
+                if (collection.getLinkedDecks() == null) {
+                    continue;
+                }
+                for (List<Deck> unit : collection.getLinkedDecks()) {
+                    if (unit == null) {
+                        continue;
+                    }
+                    for (Deck deck : unit) {
+                        if (deck == null) {
+                            continue;
+                        }
+                        if (deck.getMainDeck() != null && deck.getMainDeck().contains(element)) {
+                            return deck.getMainDeck();
+                        }
+                        if (deck.getExtraDeck() != null && deck.getExtraDeck().contains(element)) {
+                            return deck.getExtraDeck();
+                        }
+                        if (deck.getSideDeck() != null && deck.getSideDeck().contains(element)) {
+                            return deck.getSideDeck();
+                        }
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private void handlePasteFromKeyboard() {

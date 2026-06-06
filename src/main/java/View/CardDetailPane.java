@@ -86,6 +86,7 @@ public class CardDetailPane extends VBox {
     // ── Action callbacks (wired by RealMainController) ───────────────────────
     private Runnable onMinusOne;
     private Runnable onPlusOne;
+    private Runnable onCompleteToThree;
     private Runnable onEdit;
 
     public CardDetailPane() {
@@ -324,6 +325,13 @@ public class CardDetailPane extends VBox {
         this.onPlusOne = r;
     }
 
+    /**
+     * Called when the user clicks "↑3" (complete to 3 copies in the direct container).
+     */
+    public void setOnCompleteToThree(Runnable r) {
+        this.onCompleteToThree = r;
+    }
+
     // ── Multiple cards ────────────────────────────────────────────────────────
 
     /**
@@ -556,7 +564,12 @@ public class CardDetailPane extends VBox {
             if (onPlusOne != null) onPlusOne.run();
         });
 
-        bar.getChildren().addAll(minusBtn, plusBtn);
+        Button completeToThreeBtn = makeActionButton("↑3", false);
+        completeToThreeBtn.setOnAction(e -> {
+            if (onCompleteToThree != null) onCompleteToThree.run();
+        });
+
+        bar.getChildren().addAll(minusBtn, plusBtn, completeToThreeBtn);
 
         if (showEdit) {
             // ✏ = pencil (U+270F); no external icon library needed
