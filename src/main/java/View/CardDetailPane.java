@@ -180,9 +180,105 @@ public class CardDetailPane extends VBox {
                 int w = desc.trim().split("\\s+").length;
                 panel.getChildren().add(makeMetaEntry("Words", String.valueOf(w)));
             }
+
+            // Level / Rank / Link — single monster card only
+            if (card.getCardType() != null && card.getCardType().contains("Monster")) {
+                Node levelEntry = makeMonsterLevelEntry(card);
+                if (levelEntry != null) {
+                    panel.getChildren().add(levelEntry);
+                }
+            }
         }
 
         return panel;
+    }
+
+    /**
+     * Builds the level, rank, or link-value metadata row for a single monster card.
+     *
+     * <ul>
+     *   <li>Link monsters: "L " prefix followed by the link value as a plain label.</li>
+     *   <li>Xyz monsters: RankIcon.png image followed by the rank number.</li>
+     *   <li>All other monsters: LevelIcon.png image followed by the level number.</li>
+     * </ul>
+     * <p>
+     * Returns {@code null} when no relevant value is available for the card.
+     */
+    private static Node makeMonsterLevelEntry(Card card) {
+        java.util.List<String> properties = card.getCardProperties();
+
+        boolean isLink = properties != null && properties.contains("Link");
+        boolean isXyz = properties != null && properties.contains("Xyz");
+
+        Label headerLabel = new Label("LINK");
+        headerLabel.setStyle(
+                "-fx-text-fill: #888888; " +
+                        "-fx-font-size: 9; " +
+                        "-fx-font-weight: bold;");
+
+        if (isLink) {
+            Integer linkVal = card.getLinkVal();
+            if (linkVal == null || linkVal == 0) {
+                return null;
+            }
+            headerLabel.setText("LINK");
+
+            Label valueLabel = new Label("L " + linkVal);
+            valueLabel.setStyle(
+                    "-fx-text-fill: #cdfc04; " +
+                            "-fx-font-size: 11; " +
+                            "-fx-font-weight: bold;");
+
+            return new VBox(1, headerLabel, valueLabel);
+        }
+
+        // Xyz or regular level — both use an icon image
+        String iconPath;
+        String labelText;
+        if (isXyz) {
+            Integer rank = card.getRank();
+            if (rank == null || rank == 0) {
+                rank = card.getLevel();
+            }
+            if (rank == null || rank == 0) {
+                return null;
+            }
+            iconPath = "file:./src/main/resources/RankIcon.png";
+            labelText = String.valueOf(rank);
+            headerLabel.setText("RANK");
+        } else {
+            Integer level = card.getLevel();
+            if (level == null || level == 0) {
+                return null;
+            }
+            iconPath = "file:./src/main/resources/LevelIcon.png";
+            labelText = String.valueOf(level);
+            headerLabel.setText("LEVEL");
+        }
+
+        ImageView iconView = new ImageView();
+        try {
+            Image iconImage = new Image(iconPath, 12, 12, true, true);
+            if (!iconImage.isError()) {
+                iconView.setImage(iconImage);
+                iconView.setFitWidth(12);
+                iconView.setFitHeight(12);
+                iconView.setPreserveRatio(true);
+            }
+        } catch (Exception ignored) {
+            // Icon not available — fall through with empty ImageView
+        }
+
+        Label valueLabel = new Label(labelText);
+        valueLabel.setStyle(
+                "-fx-text-fill: #cdfc04; " +
+                        "-fx-font-size: 11; " +
+                        "-fx-font-weight: bold;");
+
+        HBox valueRow = new HBox(4, iconView, valueLabel);
+        valueRow.setAlignment(Pos.CENTER_LEFT);
+
+        return new VBox(1, headerLabel, valueRow);
     }
 
     /**
