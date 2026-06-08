@@ -50,6 +50,26 @@ public class CardListToHtml {
                 writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, relativeImagePath);
             }
 
+            // ── Substandard section (OuicheList only) ────────────────────────────────
+            // Read directly from the static OuicheList maps — no caller change required.
+            if ("OuicheList".equals(outputFileName)) {
+                java.util.LinkedHashMap<String, CardElement> substandardMap =
+                        Model.CardsLists.OuicheList.getMaOuicheListSubstandard();
+                java.util.LinkedHashMap<String, Integer> substandardCounts =
+                        Model.CardsLists.OuicheList.getMaOuicheListSubstandardCounts();
+                if (substandardMap != null && !substandardMap.isEmpty()) {
+                    writer.write("<h2 style=\"color:#EB9E34;\">"
+                            + "Copies to upgrade (owned but below required quality)</h2>\n");
+                    for (Map.Entry<String, CardElement> entry : substandardMap.entrySet()) {
+                        int count = (substandardCounts != null
+                                && substandardCounts.containsKey(entry.getKey()))
+                                ? substandardCounts.get(entry.getKey()) : 1;
+                        writeCardElementSubstandardList(writer, entry.getValue(), count,
+                                imagesDirPath, relativeImagePath);
+                    }
+                }
+            }
+
             addFooter(writer);
 
             //If Menu.html doesn't exist, create it using generateMenu method
@@ -95,6 +115,173 @@ public class CardListToHtml {
             // Write one image per unique card
             for (CardElement ce : byImagePath.values()) {
                 writeCardElement(writer, ce, imagesDirPath, relativeImagePath);
+            }
+
+            // ── Substandard section ───────────────────────────────────────────────────
+            // Read directly from the static OuicheList maps — no caller change required.
+            java.util.LinkedHashMap<String, CardElement> substandardMap =
+                    Model.CardsLists.OuicheList.getMaOuicheListSubstandard();
+            if (substandardMap != null && !substandardMap.isEmpty()) {
+                writer.write("<h2 style=\"color:#EB9E34;\">"
+                        + "Copies to upgrade (owned but below required quality)</h2>\n");
+                for (CardElement ce : substandardMap.values()) {
+                    if (ce.getCard() != null) {
+                        writeCardElementSubstandardMosaic(writer, ce.getCard(),
+                                imagesDirPath, relativeImagePath);
+                    }
+                }
+            }
+
+            addFooter(writer);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Generates "OuicheList.html" with two sections: MISSING cards first (yellow-green
+     * borders), then OWNED_SUBSTANDARD cards (orange borders + required quality labels).
+     * The caller should supply the flat compact maps produced by
+     * {@link Model.CardsLists.OuicheList#getMaOuicheList()} and
+     * {@link Model.CardsLists.OuicheList#getMaOuicheListSubstandard()}.
+     *
+     * @param missingCards     flat list of MISSING card elements (may be null)
+     * @param substandardCards flat list of OWNED_SUBSTANDARD card elements (may be null)
+     * @param dirPath          output directory
+     * @throws IOException if the file cannot be written
+     */
+    public static void generateOuicheListHtml(
+            List<CardElement> missingCards,
+            List<CardElement> substandardCards,
+            String dirPath) throws IOException {
+
+        String outputFileName = "OuicheList";
+        String filePath = dirPath + outputFileName + ".html";
+        createHtmlFile(filePath);
+        String relativeImagePath = "..\\Images\\";
+        String imagesDirPath = dirPath + relativeImagePath;
+
+        try (BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
+
+            int totalCount = (missingCards != null ? missingCards.size() : 0)
+                    + (substandardCards != null ? substandardCards.size() : 0);
+            String totalPrice = missingCards != null
+                    ? getPriceCardElement(missingCards) : "0.00";
+
+            addHeader(writer, outputFileName, relativeImagePath, dirPath);
+            addTitle(writer, outputFileName, totalCount, totalPrice);
+            addOuicheListMosaicButton(writer);
+            addLinkButtons(writer);
+
+            // ── Missing cards section ──────────────────────────────────────
+            if (missingCards != null && !missingCards.isEmpty()) {
+                writer.write("<h2>Cards to acquire</h2>\n");
+                Map<Card, Integer> missingCount = createCardsMap(missingCards);
+                for (Map.Entry<Card, Integer> entry : missingCount.entrySet()) {
+                    writeCardElement(writer, entry.getKey(), entry.getValue(),
+                            false, imagesDirPath, relativeImagePath);
+                }
+            }
+
+            // ── Substandard cards section ──────────────────────────────────
+            if (substandardCards != null && !substandardCards.isEmpty()) {
+                writer.write("<h2 style=\"color:#EB9E34;\">"
+                        + "Copies to upgrade (owned but below required quality)</h2>\n");
+
+                Map<CardElement, Integer> subCount = new java.util.LinkedHashMap<>();
+                for (CardElement ce : substandardCards) {
+                    if (ce.getCard() == null) {
+                        continue;
+                    }
+                    boolean found = false;
+                    for (Map.Entry<CardElement, Integer> entry : subCount.entrySet()) {
+                        if (entry.getKey().getCard().getImagePath() != null
+                                && ce.getCard().getImagePath() != null
+                                && entry.getKey().getCard().getImagePath()
+                                .equals(ce.getCard().getImagePath())) {
+                            subCount.put(entry.getKey(), entry.getValue() + 1);
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        subCount.put(ce, 1);
+                    }
+                }
+                for (Map.Entry<CardElement, Integer> entry : subCount.entrySet()) {
+                    writeCardElementSubstandardList(writer, entry.getKey(), entry.getValue(),
+                            imagesDirPath, relativeImagePath);
+                }
+            }
+
+            addFooter(writer);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Generates "OuicheList - Mosaic.html" with two sections: MISSING cards first
+     * (normal images), then OWNED_SUBSTANDARD cards (red glow).
+     *
+     * @param missingCards     flat list of MISSING card elements (may be null)
+     * @param substandardCards flat list of OWNED_SUBSTANDARD card elements (may be null)
+     * @param dirPath          output directory
+     * @throws IOException if the file cannot be written
+     */
+    public static void generateOuicheListMosaicHtml(
+            List<CardElement> missingCards,
+            List<CardElement> substandardCards,
+            String dirPath) throws IOException {
+
+        String outputFileName = "OuicheList - Mosaic";
+        String filePath = dirPath + outputFileName + ".html";
+        createHtmlFile(filePath);
+        String relativeImagePath = "..\\Images\\";
+        String imagesDirPath = dirPath + relativeImagePath;
+
+        try (BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
+
+            int totalCount = (missingCards != null ? missingCards.size() : 0)
+                    + (substandardCards != null ? substandardCards.size() : 0);
+            String totalPrice = missingCards != null
+                    ? getPriceCardElement(missingCards) : "0.00";
+
+            addHeader(writer, outputFileName, relativeImagePath, dirPath);
+            addTitle(writer, outputFileName, totalCount, totalPrice);
+            addOuicheListButton(writer);
+            addLinkButtons(writer);
+
+            // ── Missing cards section ──────────────────────────────────────
+            if (missingCards != null && !missingCards.isEmpty()) {
+                writer.write("<h2>Cards to acquire</h2>\n");
+                java.util.Map<String, CardElement> byImagePath = new java.util.LinkedHashMap<>();
+                for (CardElement ce : missingCards) {
+                    if (ce.getCard() != null && ce.getCard().getImagePath() != null) {
+                        byImagePath.putIfAbsent(ce.getCard().getImagePath(), ce);
+                    }
+                }
+                for (CardElement ce : byImagePath.values()) {
+                    writeCardElement(writer, ce, imagesDirPath, relativeImagePath);
+                }
+            }
+
+            // ── Substandard cards section ──────────────────────────────────
+            if (substandardCards != null && !substandardCards.isEmpty()) {
+                writer.write("<h2 style=\"color:#EB9E34;\">"
+                        + "Copies to upgrade (owned but below required quality)</h2>\n");
+                java.util.Map<String, CardElement> byImagePath = new java.util.LinkedHashMap<>();
+                for (CardElement ce : substandardCards) {
+                    if (ce.getCard() != null && ce.getCard().getImagePath() != null) {
+                        byImagePath.putIfAbsent(ce.getCard().getImagePath(), ce);
+                    }
+                }
+                for (CardElement ce : byImagePath.values()) {
+                    writeCardElementSubstandardMosaic(writer, ce.getCard(),
+                            imagesDirPath, relativeImagePath);
+                }
             }
 
             addFooter(writer);

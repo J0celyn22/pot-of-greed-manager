@@ -3,6 +3,7 @@ package Model.FormatList;
 import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
 import Model.CardsLists.Deck;
+import Model.CardsLists.OwnershipStatus;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -202,6 +203,31 @@ public class HtmlGenerator {
                 "\n" +
                 ".grayscale {\n" +
                 "\tfilter: grayscale(70%) brightness(50%);\n" +
+                "}\n" +
+                "\n" +
+                ".card-element-orange {\n" +
+                "\tborder: 2px solid #EB9E34;\n" +
+                "\tborder-radius: 5px;\n" +
+                "\tbackground-color: black;\n" +
+                "\tmargin-bottom: 8px;\n" +
+                "\tdisplay: flex;\n" +
+                "\talign-items: center;\n" +
+                "\tpadding-left: 5px;\n" +
+                "\tpadding-right: 5px;\n" +
+                "\twidth: 650px;\n" +
+                "}\n" +
+                "\n" +
+                ".rectangle-beginning-orange {\n" +
+                "\tborder: 2px solid #EB9E34;\n" +
+                "\tborder-radius: 5px;\n" +
+                "\tbackground-color: black;\n" +
+                "\tmargin-bottom: 8px;\n" +
+                "\tpadding-left: 5px;\n" +
+                "\tpadding-right: 5px;\n" +
+                "}\n" +
+                "\n" +
+                ".glow-red {\n" +
+                "\tfilter: drop-shadow(0 0 5px #FF3333) drop-shadow(0 0 12px rgba(255, 51, 51, 0.5));\n" +
                 "}\n</style>\n</head>\n<body>\n");
     }
 
@@ -906,11 +932,228 @@ public class HtmlGenerator {
             }
         }
         writer.write(
-                //"<a href=\"" + "..\\CardDetails\\" + imageFileName.replaceAll("\\.[^.]+$", "") + ".html\">" +
-                "<a href=\"" + "https://yugioh.fandom.com/wiki/" + card.getPassCode() + /*"..\\CardDetails\\" + imageFileName.replaceAll("\\.[^.]+$", "") + ".html\">"*/"\">" +
+                "<a href=\"" + "https://yugioh.fandom.com/wiki/" + card.getPassCode() + "\">" +
                         "<img src=\"" + imagesRelativePath + imageFileName + "\" alt=\"" + cardName + "\" class=\"" + imgStyle + "\">" +
                         "</a>\n");
 
         //generateCardDetailsHtml(dirPath, card);
+    }
+
+    /**
+     * Adds the beginning of an orange-bordered rectangle to the HTML file.
+     * Used to visually group OWNED_SUBSTANDARD sections in the OuicheList.
+     */
+    public static void addRectangleBeginningOrange(BufferedWriter writer) throws IOException {
+        writer.write("<div class=\"rectangle-beginning-orange\">\n" +
+                "<img src=\"\" alt=\"\">\n");
+    }
+
+    /**
+     * Splits {@code cardsList} into three maps by {@link OwnershipStatus}: MISSING,
+     * OWNED_SUBSTANDARD, and OWNED.  Within each map cards are deduplicated by imagePath
+     * (same grouping key as {@link #createCardsMap}).
+     *
+     * @return an array of three maps: [0] MISSING, [1] OWNED_SUBSTANDARD, [2] OWNED
+     */
+    @SuppressWarnings("unchecked")
+    static Map<CardElement, Integer>[] createCardsMapWithStatus(List<CardElement> cardsList) {
+        Map<CardElement, Integer> missingMap = new LinkedHashMap<>();
+        Map<CardElement, Integer> substandardMap = new LinkedHashMap<>();
+        Map<CardElement, Integer> ownedMap = new LinkedHashMap<>();
+
+        for (CardElement card : cardsList) {
+            OwnershipStatus status = card.getOwnershipStatus();
+            Map<CardElement, Integer> target;
+            if (status == OwnershipStatus.OWNED) {
+                target = ownedMap;
+            } else if (status == OwnershipStatus.OWNED_SUBSTANDARD) {
+                target = substandardMap;
+            } else {
+                target = missingMap;
+            }
+
+            boolean found = false;
+            for (Map.Entry<CardElement, Integer> entry : target.entrySet()) {
+                if (entry.getKey().getCard().getImagePath() != null
+                        && card.getCard().getImagePath() != null
+                        && entry.getKey().getCard().getImagePath()
+                        .equals(card.getCard().getImagePath())) {
+                    target.put(entry.getKey(), entry.getValue() + 1);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                target.put(card, 1);
+            }
+        }
+
+        return new Map[]{missingMap, substandardMap, ownedMap};
+    }
+
+    /**
+     * Writes a list of CardElements to the writer as an HTML list, distinguishing
+     * all three ownership states:
+     * <ul>
+     *   <li>MISSING — normal yellow-green border (card-element)</li>
+     *   <li>OWNED_SUBSTANDARD — orange border (card-element-orange) plus required
+     *       condition / rarity labels</li>
+     *   <li>OWNED — grayed (card-image grayscale)</li>
+     * </ul>
+     * Used for the detailed OuicheList list view.
+     */
+    public static void displayListWithOwnershipStatus(List<CardElement> cardsList, String name,
+                                                      BufferedWriter writer, String dirPath, String imagesRelativePath) throws IOException {
+        if (cardsList == null || cardsList.isEmpty()) {
+            return;
+        }
+        String imagesDirPath = dirPath + imagesRelativePath;
+        addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
+
+        Map<CardElement, Integer>[] maps = createCardsMapWithStatus(cardsList);
+        Map<CardElement, Integer> missingMap = maps[0];
+        Map<CardElement, Integer> substandardMap = maps[1];
+        Map<CardElement, Integer> ownedMap = maps[2];
+
+        // MISSING — yellow-green border
+        for (Map.Entry<CardElement, Integer> entry : missingMap.entrySet()) {
+            writeCardElement(writer, entry.getKey(), entry.getValue(),
+                    imagesDirPath, imagesRelativePath);
+        }
+        // OWNED_SUBSTANDARD — orange border + required quality labels
+        for (Map.Entry<CardElement, Integer> entry : substandardMap.entrySet()) {
+            writeCardElementSubstandardList(writer, entry.getKey(), entry.getValue(),
+                    imagesDirPath, imagesRelativePath);
+        }
+        // OWNED — grayscale
+        for (Map.Entry<CardElement, Integer> entry : ownedMap.entrySet()) {
+            writeCardElement(writer, entry.getKey(), entry.getValue(),
+                    imagesDirPath, imagesRelativePath);
+        }
+    }
+
+    /**
+     * Writes a mosaic of CardElements to the writer, distinguishing all three
+     * ownership states:
+     * <ul>
+     *   <li>MISSING — normal image</li>
+     *   <li>OWNED_SUBSTANDARD — red glow (glow-red CSS class)</li>
+     *   <li>OWNED — grayscale</li>
+     * </ul>
+     * Used for the detailed OuicheList mosaic view.
+     */
+    public static void displayMosaicWithOwnershipStatus(List<CardElement> cardsList, String name,
+                                                        BufferedWriter writer, String dirPath, String imagesRelativePath) throws IOException {
+        if (cardsList == null || cardsList.isEmpty()) {
+            return;
+        }
+        String imagesDirPath = dirPath + imagesRelativePath;
+        addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
+
+        for (CardElement entry : cardsList) {
+            OwnershipStatus status = entry.getOwnershipStatus();
+            if (status == OwnershipStatus.OWNED) {
+                writeCardElement(writer, entry.getCard(), true, imagesDirPath, imagesRelativePath);
+            } else if (status == OwnershipStatus.OWNED_SUBSTANDARD) {
+                writeCardElementSubstandardMosaic(writer, entry.getCard(),
+                        imagesDirPath, imagesRelativePath);
+            } else {
+                writeCardElement(writer, entry.getCard(), false, imagesDirPath, imagesRelativePath);
+            }
+        }
+    }
+
+    /**
+     * Writes a single OWNED_SUBSTANDARD card as a list element with an orange border
+     * and required condition / rarity labels below the card names.
+     */
+    public static void writeCardElementSubstandardList(BufferedWriter writer,
+                                                       CardElement entryKey, Integer entryValue,
+                                                       String imagesDirPath, String imagesRelativePath) throws IOException {
+
+        Card card = entryKey.getCard();
+        String imagePath = "";
+        if (getAddresses(card.getImagePath() + ".jpg").length != 0) {
+            imagePath = getAddresses(card.getImagePath() + ".jpg")[0];
+        }
+
+        String imageFileName = "";
+        String cardName = card.getNameOrNumber();
+        if (imagePath != null && !imagePath.isEmpty()) {
+            java.nio.file.Path sourcePath = java.nio.file.Paths.get(imagePath);
+            imageFileName = sourcePath.getFileName().toString();
+            java.nio.file.Path targetDirPath = java.nio.file.Paths.get(imagesDirPath);
+            if (!java.nio.file.Files.exists(targetDirPath)) {
+                java.nio.file.Files.createDirectories(targetDirPath);
+            }
+            java.nio.file.Files.copy(sourcePath, targetDirPath.resolve(imageFileName),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        writer.write("<div class=\"card-element card-element-orange\">\n");
+        writer.write(
+                "<a href=\"https://yugioh.fandom.com/wiki/" + card.getPassCode() + "\">" +
+                        "<img src=\"" + imagesRelativePath + imageFileName + "\" alt=\"" +
+                        cardName + "\" class=\"card-image\">" +
+                        "</a>\n");
+
+        writer.write("<div class=\"card-details\">\n");
+        writer.write("<p>" + card.getName_FR() + "</p>\n");
+        writer.write("<p>" + card.getName_EN() + "</p>\n");
+        writer.write("<p>" + card.getName_JA() + "</p>\n");
+
+        // Required condition (always present via effective default)
+        Model.CardsLists.CardCondition condition = entryKey.getEffectiveCondition();
+        writer.write("<p style=\"color:#EB9E34;\">Req. condition: "
+                + condition.getDisplayName() + "</p>\n");
+
+        // Required rarity (only when explicitly set)
+        Model.CardsLists.CardRarity rarity = entryKey.getRarity();
+        if (rarity != null) {
+            writer.write("<p style=\"color:#EB9E34;\">Req. rarity: "
+                    + rarity.getDisplayName() + "</p>\n");
+        }
+
+        writer.write("</div>\n");
+        writer.write("<div class=\"card-value\">\n");
+        writer.write("<p><b>" + entryValue + "</b></p>\n");
+        if (card.getPrice() != null) {
+            float unitPrice = Float.parseFloat(card.getPrice());
+            writer.write("<b>" + String.format("%.2f", unitPrice) + "€ / "
+                    + String.format("%.2f", entryValue * unitPrice) + "€</b>\n");
+        }
+        writer.write("</div>\n");
+        writer.write("</div>\n");
+    }
+
+    /**
+     * Writes a single OWNED_SUBSTANDARD card as a mosaic image with a red glow.
+     */
+    public static void writeCardElementSubstandardMosaic(BufferedWriter writer,
+                                                         Card card, String imagesDirPath, String imagesRelativePath) throws IOException {
+
+        String imagePath = "";
+        if (getAddresses(card.getImagePath() + ".jpg").length != 0) {
+            imagePath = getAddresses(card.getImagePath() + ".jpg")[0];
+        }
+
+        String imageFileName = "";
+        String cardName = card.getNameOrNumber();
+        if (imagePath != null && !imagePath.isEmpty()) {
+            java.nio.file.Path sourcePath = java.nio.file.Paths.get(imagePath);
+            imageFileName = sourcePath.getFileName().toString();
+            java.nio.file.Path targetDirPath = java.nio.file.Paths.get(imagesDirPath);
+            if (!java.nio.file.Files.exists(targetDirPath)) {
+                java.nio.file.Files.createDirectories(targetDirPath);
+            }
+            java.nio.file.Files.copy(sourcePath, targetDirPath.resolve(imageFileName),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        writer.write(
+                "<a href=\"https://yugioh.fandom.com/wiki/" + card.getPassCode() + "\">" +
+                        "<img src=\"" + imagesRelativePath + imageFileName + "\" alt=\"" +
+                        cardName + "\" class=\"card-image-large glow-red\">" +
+                        "</a>\n");
     }
 }
