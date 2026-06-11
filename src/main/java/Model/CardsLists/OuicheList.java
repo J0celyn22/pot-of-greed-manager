@@ -645,6 +645,7 @@ public class OuicheList {
         //   (3) Loose collections: looseOwnedPool first, then unusedCards fallback
         // -----------------------------------------------------------------------
         unusedCards = copyCardElements(ownedCardsCollection.toList());
+        PoolIndex unusedPool = new PoolIndex(unusedCards);
 
         for (OwnershipStatus roundStatus : new OwnershipStatus[]{OwnershipStatus.OWNED, OwnershipStatus.OWNED_SUBSTANDARD}) {
             boolean qualityRequired = (roundStatus == OwnershipStatus.OWNED);
@@ -659,7 +660,7 @@ public class OuicheList {
                     for (List<Deck> deckGroup : col.getLinkedDecks()) {
                         // (a) non-dontRemove passes for each deck in the group
                         for (Deck deck : deckGroup) {
-                            unusedCards = applyNonDontRemovePassesToDeck(deck, unusedCards, qualityRequired, roundStatus);
+                            applyNonDontRemovePassesToDeck(deck, unusedPool, qualityRequired, roundStatus);
                         }
                         // (b) Bug 2: free within-group propagation (no pool consumed)
                         if (deckGroup.size() > 1) {
@@ -667,7 +668,7 @@ public class OuicheList {
                         }
                         // (c) Bug 4: dontRemove passes, independent per deck
                         for (Deck deck : deckGroup) {
-                            unusedCards = applyDontRemovePassesToDeck(deck, unusedCards, qualityRequired, roundStatus);
+                            applyDontRemovePassesToDeck(deck, unusedPool, qualityRequired, roundStatus);
                         }
                     }
 
@@ -675,22 +676,16 @@ public class OuicheList {
                     //     remaining cardsList passes (non-dontRemove, then dontRemove).
                     col.setCardsList(satisfyCardsListFromDeckValidations(col.getCardsList(), col));
 
-                    List<List<CardElement>> sectionResult;
-                    sectionResult = applySectionPass(col.getCardsList(), unusedCards, false, qualityRequired, roundStatus);
-                    col.setCardsList(sectionResult.get(0));
-                    unusedCards = sectionResult.get(1);
-
-                    sectionResult = applySectionPass(col.getCardsList(), unusedCards, true, qualityRequired, roundStatus);
-                    col.setCardsList(sectionResult.get(0));
-                    unusedCards = sectionResult.get(1);
+                    col.setCardsList(applySectionPass(col.getCardsList(), unusedPool, false, qualityRequired, roundStatus));
+                    col.setCardsList(applySectionPass(col.getCardsList(), unusedPool, true, qualityRequired, roundStatus));
                 }
             }
 
             // --- (2) Standalone decks ---
             if (detailedOuicheList.getDecks() != null) {
                 for (Deck deck : detailedOuicheList.getDecks()) {
-                    unusedCards = applyNonDontRemovePassesToDeck(deck, unusedCards, qualityRequired, roundStatus);
-                    unusedCards = applyDontRemovePassesToDeck(deck, unusedCards, qualityRequired, roundStatus);
+                    applyNonDontRemovePassesToDeck(deck, unusedPool, qualityRequired, roundStatus);
+                    applyDontRemovePassesToDeck(deck, unusedPool, qualityRequired, roundStatus);
                 }
             }
 
@@ -702,7 +697,7 @@ public class OuicheList {
             // Unlike non-loose passes, matched slots are REPLACED by the actual owned
             // CardElement instance from the pool, preserving the identity link to the
             // original owned card so CreateOuicheList can deduplicate by instance.
-            List<CardElement> looseOwnedPool = copyCardElements(ownedCardsCollection.toList());
+            PoolIndex looseOwnedPool = new PoolIndex(copyCardElements(ownedCardsCollection.toList()));
 
             if (detailedOuicheList.getCollections() != null) {
                 for (ThemeCollection col : detailedOuicheList.getCollections()) {
@@ -712,34 +707,22 @@ public class OuicheList {
 
                     for (List<Deck> deckGroup : col.getLinkedDecks()) {
                         for (Deck deck : deckGroup) {
-                            List<List<CardElement>> mainResult = applyLoosePasses(
-                                    deck.getMainDeck(), looseOwnedPool, unusedCards, qualityRequired, roundStatus);
-                            deck.setMainDeck(mainResult.get(0));
-                            looseOwnedPool = mainResult.get(1);
-                            unusedCards = mainResult.get(2);
-
-                            List<List<CardElement>> extraResult = applyLoosePasses(
-                                    deck.getExtraDeck(), looseOwnedPool, unusedCards, qualityRequired, roundStatus);
-                            deck.setExtraDeck(extraResult.get(0));
-                            looseOwnedPool = extraResult.get(1);
-                            unusedCards = extraResult.get(2);
-
-                            List<List<CardElement>> sideResult = applyLoosePasses(
-                                    deck.getSideDeck(), looseOwnedPool, unusedCards, qualityRequired, roundStatus);
-                            deck.setSideDeck(sideResult.get(0));
-                            looseOwnedPool = sideResult.get(1);
-                            unusedCards = sideResult.get(2);
+                            deck.setMainDeck(applyLoosePasses(
+                                    deck.getMainDeck(), looseOwnedPool, unusedPool, qualityRequired, roundStatus));
+                            deck.setExtraDeck(applyLoosePasses(
+                                    deck.getExtraDeck(), looseOwnedPool, unusedPool, qualityRequired, roundStatus));
+                            deck.setSideDeck(applyLoosePasses(
+                                    deck.getSideDeck(), looseOwnedPool, unusedPool, qualityRequired, roundStatus));
                         }
                     }
 
-                    List<List<CardElement>> cardsListResult = applyLoosePasses(
-                            col.getCardsList(), looseOwnedPool, unusedCards, qualityRequired, roundStatus);
-                    col.setCardsList(cardsListResult.get(0));
-                    looseOwnedPool = cardsListResult.get(1);
-                    unusedCards = cardsListResult.get(2);
+                    col.setCardsList(applyLoosePasses(
+                            col.getCardsList(), looseOwnedPool, unusedPool, qualityRequired, roundStatus));
                 }
             }
         }
+
+        unusedCards = unusedPool.toList();
 
         return detailedOuicheList;
     }
@@ -929,7 +912,7 @@ public class OuicheList {
     }
 
     // =========================================================================
-    // Section-level pass helpers (non-loose collections and standalone decks)
+    // Pool indexing
     // =========================================================================
 
     /**
@@ -957,22 +940,21 @@ public class OuicheList {
      *
      * @param section        the wanted-card section to process (modified in place
      *                       via the returned replacement list)
-     * @param pool           the available owned cards (modified in place via the
-     *                       returned replacement list)
+     * @param pool           the available owned cards, indexed by artwork and
+     *                       KonamiId for O(1) average lookups (mutated in place)
      * @param dontRemoveOnly {@code true} to process only {@code "+"}-flagged slots
      * @param qualityRequired {@code true} to enforce quality matching
      * @param status         the {@link OwnershipStatus} to assign on a match
-     * @return a two-element list: {@code [updatedSection, remainingPool]}
+     * @return the updated section list
      */
-    private static List<List<CardElement>> applySectionPass(
+    private static List<CardElement> applySectionPass(
             List<CardElement> section,
-            List<CardElement> pool,
+            PoolIndex pool,
             boolean dontRemoveOnly,
             boolean qualityRequired,
             OwnershipStatus status) {
 
         List<CardElement> updatedSection = new ArrayList<>(section.size());
-        List<CardElement> remainingPool = new ArrayList<>(pool);
 
         for (CardElement wantedSlot : section) {
             // Already resolved in this round or a previous one — skip.
@@ -999,59 +981,36 @@ public class OuicheList {
             // Artwork sub-pass: only for specific-artwork slots.
             boolean matched = false;
             if (hasSpecificArtwork) {
-                java.util.Iterator<CardElement> it = remainingPool.iterator();
-                while (it.hasNext()) {
-                    CardElement poolCard = it.next();
-                    if (poolCard.getCard() == null) {
-                        continue;
+                String wantedPath = wantedSlot.getCard().getImagePath();
+                if (wantedPath != null) {
+                    CardElement poolCard = pool.takeByImagePath(wantedPath, wantedSlot, qualityRequired);
+                    if (poolCard != null) {
+                        wantedSlot.setOwnershipStatus(status);
+                        matched = true;
                     }
-                    String wantedPath = wantedSlot.getCard().getImagePath();
-                    String poolPath = poolCard.getCard().getImagePath();
-                    if (wantedPath == null || poolPath == null) {
-                        continue;
-                    }
-                    if (!wantedPath.equals(poolPath)) {
-                        continue;
-                    }
-                    if (qualityRequired && !ownedCopySatisfiesQuality(wantedSlot, poolCard)) {
-                        continue;
-                    }
-                    wantedSlot.setOwnershipStatus(status);
-                    it.remove();
-                    matched = true;
-                    break;
                 }
             }
 
             // KonamiId sub-pass: for all non-artwork slots (and artwork slots that
             // did not match above).
             if (!matched) {
-                java.util.Iterator<CardElement> it = remainingPool.iterator();
-                while (it.hasNext()) {
-                    CardElement poolCard = it.next();
-                    if (poolCard.getCard() == null
-                            || poolCard.getCard().getKonamiId() == null) {
-                        continue;
-                    }
-                    if (!wantedSlot.getCard().getKonamiId()
-                            .equals(poolCard.getCard().getKonamiId())) {
-                        continue;
-                    }
-                    if (qualityRequired && !ownedCopySatisfiesQuality(wantedSlot, poolCard)) {
-                        continue;
-                    }
+                String wantedKonamiId = wantedSlot.getCard().getKonamiId();
+                CardElement poolCard = pool.takeByKonamiId(wantedKonamiId, wantedSlot, qualityRequired);
+                if (poolCard != null) {
                     wantedSlot.setOwnershipStatus(status);
-                    it.remove();
                     matched = true;
-                    break;
                 }
             }
 
             updatedSection.add(wantedSlot);
         }
 
-        return List.of(updatedSection, remainingPool);
+        return updatedSection;
     }
+
+    // =========================================================================
+    // Section-level pass helpers (non-loose collections and standalone decks)
+    // =========================================================================
 
     /**
      * Applies the non-dontRemove passes (artwork then KonamiId) to all three
@@ -1064,25 +1023,15 @@ public class OuicheList {
      * @param status          the {@link OwnershipStatus} to assign on a match
      * @return the pool as it stands after all three sections have been processed
      */
-    private static List<CardElement> applyNonDontRemovePassesToDeck(
+    private static PoolIndex applyNonDontRemovePassesToDeck(
             Deck deck,
-            List<CardElement> pool,
+            PoolIndex pool,
             boolean qualityRequired,
             OwnershipStatus status) {
 
-        List<List<CardElement>> result;
-
-        result = applySectionPass(deck.getMainDeck(), pool, false, qualityRequired, status);
-        deck.setMainDeck(result.get(0));
-        pool = result.get(1);
-
-        result = applySectionPass(deck.getExtraDeck(), pool, false, qualityRequired, status);
-        deck.setExtraDeck(result.get(0));
-        pool = result.get(1);
-
-        result = applySectionPass(deck.getSideDeck(), pool, false, qualityRequired, status);
-        deck.setSideDeck(result.get(0));
-        pool = result.get(1);
+        deck.setMainDeck(applySectionPass(deck.getMainDeck(), pool, false, qualityRequired, status));
+        deck.setExtraDeck(applySectionPass(deck.getExtraDeck(), pool, false, qualityRequired, status));
+        deck.setSideDeck(applySectionPass(deck.getSideDeck(), pool, false, qualityRequired, status));
 
         return pool;
     }
@@ -1097,32 +1046,18 @@ public class OuicheList {
      * @param status          the {@link OwnershipStatus} to assign on a match
      * @return the pool as it stands after all three sections have been processed
      */
-    private static List<CardElement> applyDontRemovePassesToDeck(
+    private static PoolIndex applyDontRemovePassesToDeck(
             Deck deck,
-            List<CardElement> pool,
+            PoolIndex pool,
             boolean qualityRequired,
             OwnershipStatus status) {
 
-        List<List<CardElement>> result;
-
-        result = applySectionPass(deck.getMainDeck(), pool, true, qualityRequired, status);
-        deck.setMainDeck(result.get(0));
-        pool = result.get(1);
-
-        result = applySectionPass(deck.getExtraDeck(), pool, true, qualityRequired, status);
-        deck.setExtraDeck(result.get(0));
-        pool = result.get(1);
-
-        result = applySectionPass(deck.getSideDeck(), pool, true, qualityRequired, status);
-        deck.setSideDeck(result.get(0));
-        pool = result.get(1);
+        deck.setMainDeck(applySectionPass(deck.getMainDeck(), pool, true, qualityRequired, status));
+        deck.setExtraDeck(applySectionPass(deck.getExtraDeck(), pool, true, qualityRequired, status));
+        deck.setSideDeck(applySectionPass(deck.getSideDeck(), pool, true, qualityRequired, status));
 
         return pool;
     }
-
-    // =========================================================================
-    // Loose-collection pass helper
-    // =========================================================================
 
     /**
      * Applies one full artwork+KonamiId loose pass to {@code section}, trying
@@ -1138,57 +1073,47 @@ public class OuicheList {
      *
      * @param section       the wanted-card section (artwork pass only touches
      *                      {@code "*"}-flagged slots; KonamiId pass touches the rest)
-     * @param loosePool     the fresh per-collection owned pool (preferred source)
-     * @param unusedPool    the depleted global pool (fallback source)
+     * @param loosePool     the fresh per-collection owned pool, indexed for O(1)
+     *                      average lookups (preferred source, mutated in place)
+     * @param unusedPool    the depleted global pool, indexed for O(1) average
+     *                      lookups (fallback source, mutated in place)
      * @param qualityRequired {@code true} to enforce quality matching
      * @param status        the {@link OwnershipStatus} to assign on a match
-     * @return a three-element list: {@code [updatedSection, remainingLoosePool,
-     *         remainingUnusedPool]}
+     * @return the updated section list
      */
-    private static List<List<CardElement>> applyLoosePasses(
+    private static List<CardElement> applyLoosePasses(
             List<CardElement> section,
-            List<CardElement> loosePool,
-            List<CardElement> unusedPool,
+            PoolIndex loosePool,
+            PoolIndex unusedPool,
             boolean qualityRequired,
             OwnershipStatus status) {
-
-        java.util.function.BiPredicate<Card, Card> artworkComparator =
-                (c1, c2) -> c1.getImagePath() != null
-                        && c2.getImagePath() != null
-                        && c1.getImagePath().equals(c2.getImagePath());
-        java.util.function.BiPredicate<Card, Card> konamiComparator =
-                (c1, c2) -> c1.getKonamiId() != null
-                        && c2.getKonamiId() != null
-                        && c1.getKonamiId().equals(c2.getKonamiId());
 
         List<String> artMustContain = List.of("*");
         List<String> artMustNotContain = List.of("+");
         List<String> idMustNotContain = List.of("+", "*");
 
         // Artwork sub-pass: loosePool first, then unusedPool fallback.
-        List<List<CardElement>> artLoose = loosePassReplace(
-                section, loosePool, artworkComparator,
+        List<CardElement> afterArtLoose = loosePassReplace(
+                section, loosePool, true,
                 artMustContain, artMustNotContain, qualityRequired, status);
-        loosePool = artLoose.get(1);
 
-        List<List<CardElement>> artUnused = loosePassReplace(
-                artLoose.get(0), unusedPool, artworkComparator,
+        List<CardElement> afterArtUnused = loosePassReplace(
+                afterArtLoose, unusedPool, true,
                 artMustContain, artMustNotContain, qualityRequired, status);
-        unusedPool = artUnused.get(1);
 
         // KonamiId sub-pass: loosePool first, then unusedPool fallback.
-        List<List<CardElement>> idLoose = loosePassReplace(
-                artUnused.get(0), loosePool, konamiComparator,
+        List<CardElement> afterIdLoose = loosePassReplace(
+                afterArtUnused, loosePool, false,
                 null, idMustNotContain, qualityRequired, status);
-        loosePool = idLoose.get(1);
 
-        List<List<CardElement>> idUnused = loosePassReplace(
-                idLoose.get(0), unusedPool, konamiComparator,
+        return loosePassReplace(
+                afterIdLoose, unusedPool, false,
                 null, idMustNotContain, qualityRequired, status);
-        unusedPool = idUnused.get(1);
-
-        return List.of(idUnused.get(0), loosePool, unusedPool);
     }
+
+    // =========================================================================
+    // Loose-collection pass helper
+    // =========================================================================
 
     /**
      * Loose-collection pass: for each element in {@code sectionList}, tries to find
@@ -1201,23 +1126,25 @@ public class OuicheList {
      * {@code ListDifIntersect} helpers). Already-resolved elements (status ≠
      * {@code MISSING}) are always passed through unchanged.
      *
+     * @param byArtwork       {@code true} to match by imagePath (and require a
+     *                        KonamiId on the candidate), {@code false} to match
+     *                        by KonamiId
      * @param qualityRequired when {@code true} a pool card is only accepted when
      *                        {@link #ownedCopySatisfiesQuality} returns {@code true}
      * @param status          the {@link OwnershipStatus} to assign to the pool
      *                        instance on a match
-     * @return [modified sectionList, remaining pool]
+     * @return the updated sectionList
      */
-    private static List<List<CardElement>> loosePassReplace(
+    private static List<CardElement> loosePassReplace(
             List<CardElement> sectionList,
-            List<CardElement> pool,
-            java.util.function.BiPredicate<Card, Card> comparator,
+            PoolIndex pool,
+            boolean byArtwork,
             List<String> mustContain,
             List<String> mustNotContain,
             boolean qualityRequired,
             OwnershipStatus status) {
 
         List<CardElement> result = new ArrayList<>(sectionList.size());
-        List<CardElement> remainingPool = new ArrayList<>(pool);
 
         for (CardElement sectionCard : sectionList) {
             // Already resolved in this round or a previous one — keep as-is.
@@ -1244,34 +1171,154 @@ public class OuicheList {
             }
 
             // Try to find a match in the pool.
-            boolean matched = false;
-            java.util.Iterator<CardElement> it = remainingPool.iterator();
-            while (it.hasNext()) {
-                CardElement poolCard = it.next();
-                if (poolCard.getCard() == null
-                        || poolCard.getCard().getKonamiId() == null) {
-                    continue;
-                }
-                if (!comparator.test(sectionCard.getCard(), poolCard.getCard())) {
-                    continue;
-                }
-                if (qualityRequired
-                        && !ownedCopySatisfiesQuality(sectionCard, poolCard)) {
-                    continue;
-                }
-                poolCard.setOwnershipStatus(status);
-                result.add(poolCard);   // replace the slot with the real pool instance
-                it.remove();
-                matched = true;
-                break;
+            CardElement poolCard;
+            if (byArtwork) {
+                String imagePath = sectionCard.getCard().getImagePath();
+                poolCard = imagePath != null
+                        ? pool.takeByImagePath(imagePath, sectionCard, qualityRequired, true)
+                        : null;
+            } else {
+                poolCard = pool.takeByKonamiId(sectionCard.getCard().getKonamiId(), sectionCard, qualityRequired);
             }
 
-            if (!matched) {
+            if (poolCard != null) {
+                poolCard.setOwnershipStatus(status);
+                result.add(poolCard);   // replace the slot with the real pool instance
+            } else {
                 result.add(sectionCard);    // no match — keep the MISSING slot as-is
             }
         }
 
-        return List.of(result, remainingPool);
+        return result;
+    }
+
+    /**
+     * Indexed view over a pool of owned {@link CardElement} instances, allowing
+     * artwork (imagePath) and KonamiId lookups in O(1) average instead of the
+     * O(pool size) linear scans previously performed for every wanted slot.
+     *
+     * <p>Both indexes preserve the original pool ordering for each key, so that
+     * "first eligible match" semantics are identical to the previous
+     * implementation. Removing a card updates both indexes and the backing list
+     * consistently.
+     */
+    private static final class PoolIndex {
+        private final List<CardElement> cards;
+        private final LinkedHashMap<String, LinkedList<CardElement>> byImagePath;
+        private final LinkedHashMap<String, LinkedList<CardElement>> byKonamiId;
+
+        private PoolIndex(List<CardElement> source) {
+            this.cards = new ArrayList<>(source);
+            this.byImagePath = new LinkedHashMap<>();
+            this.byKonamiId = new LinkedHashMap<>();
+            for (CardElement card : this.cards) {
+                index(card);
+            }
+        }
+
+        private void index(CardElement card) {
+            if (card.getCard() == null) {
+                return;
+            }
+            String imagePath = card.getCard().getImagePath();
+            if (imagePath != null) {
+                byImagePath.computeIfAbsent(imagePath, key -> new LinkedList<>()).add(card);
+            }
+            String konamiId = card.getCard().getKonamiId();
+            if (konamiId != null) {
+                byKonamiId.computeIfAbsent(konamiId, key -> new LinkedList<>()).add(card);
+            }
+        }
+
+        /**
+         * Removes {@code card} from the backing list and from both indexes.
+         */
+        private void remove(CardElement card) {
+            cards.remove(card);
+            if (card.getCard() == null) {
+                return;
+            }
+            String imagePath = card.getCard().getImagePath();
+            if (imagePath != null) {
+                LinkedList<CardElement> bucket = byImagePath.get(imagePath);
+                if (bucket != null) {
+                    bucket.remove(card);
+                    if (bucket.isEmpty()) {
+                        byImagePath.remove(imagePath);
+                    }
+                }
+            }
+            String konamiId = card.getCard().getKonamiId();
+            if (konamiId != null) {
+                LinkedList<CardElement> bucket = byKonamiId.get(konamiId);
+                if (bucket != null) {
+                    bucket.remove(card);
+                    if (bucket.isEmpty()) {
+                        byKonamiId.remove(konamiId);
+                    }
+                }
+            }
+        }
+
+        /**
+         * Finds and removes the first card sharing the given imagePath that
+         * satisfies {@code qualityRequired} (when applicable), in original pool
+         * order. When {@code requireKonamiId} is {@code true}, candidates without
+         * a KonamiId are skipped (used by the loose-collection passes, which
+         * require a KonamiId on both the artwork and KonamiId sub-passes).
+         * Returns {@code null} if no eligible card is found.
+         */
+        private CardElement takeByImagePath(String imagePath, CardElement wantedSlot, boolean qualityRequired, boolean requireKonamiId) {
+            LinkedList<CardElement> bucket = byImagePath.get(imagePath);
+            if (bucket == null) {
+                return null;
+            }
+            for (CardElement candidate : bucket) {
+                if (requireKonamiId && (candidate.getCard() == null || candidate.getCard().getKonamiId() == null)) {
+                    continue;
+                }
+                if (qualityRequired && !ownedCopySatisfiesQuality(wantedSlot, candidate)) {
+                    continue;
+                }
+                remove(candidate);
+                return candidate;
+            }
+            return null;
+        }
+
+        private CardElement takeByImagePath(String imagePath, CardElement wantedSlot, boolean qualityRequired) {
+            return takeByImagePath(imagePath, wantedSlot, qualityRequired, false);
+        }
+
+        /**
+         * Finds and removes the first card sharing the given KonamiId that
+         * satisfies {@code qualityRequired} (when applicable), in original pool
+         * order. Returns {@code null} if no eligible card is found.
+         */
+        private CardElement takeByKonamiId(String konamiId, CardElement wantedSlot, boolean qualityRequired) {
+            LinkedList<CardElement> bucket = byKonamiId.get(konamiId);
+            if (bucket == null) {
+                return null;
+            }
+            for (CardElement candidate : bucket) {
+                if (candidate.getCard() == null || candidate.getCard().getKonamiId() == null) {
+                    continue;
+                }
+                if (qualityRequired && !ownedCopySatisfiesQuality(wantedSlot, candidate)) {
+                    continue;
+                }
+                remove(candidate);
+                return candidate;
+            }
+            return null;
+        }
+
+        /**
+         * Returns the remaining pool as a flat list, preserving original order.
+         */
+        private List<CardElement> toList() {
+            return cards;
+        }
     }
 
 
