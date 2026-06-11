@@ -764,8 +764,11 @@ public class RealMainController {
 
         if (activeStates.isEmpty()) {
             CardTreeCell.setMiddleFilter(null);
+            CardTreeCell.setMiddleElementFilter(null);
         } else {
             final List<FilterPane.FilterPageState> captured = activeStates;
+
+            // Card-level predicate: all filters except Tags (Tags needs CardElement granularity).
             CardTreeCell.setMiddleFilter(card -> {
                 for (FilterPane.FilterPageState pageState : captured) {
                     if (!matchesPageFilter(card, pageState)) {
@@ -774,6 +777,27 @@ public class RealMainController {
                 }
                 return true;
             });
+
+            // Element-level predicate: Tags filter, applied per-copy so that only
+            // elements whose customTags actually match are shown, not all copies of
+            // a card that happens to have at least one matching copy.
+            boolean anyTagsFilter = captured.stream()
+                    .anyMatch(ps -> ps.tags != null && !ps.tags.isBlank());
+            if (anyTagsFilter) {
+                CardTreeCell.setMiddleElementFilter(element -> {
+                    if (element == null) {
+                        return false;
+                    }
+                    for (FilterPane.FilterPageState pageState : captured) {
+                        if (!matchesTagsFilter(element, pageState.tags)) {
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+            } else {
+                CardTreeCell.setMiddleElementFilter(null);
+            }
         }
     }
 
@@ -1065,7 +1089,63 @@ public class RealMainController {
             }
         }
 
+        // ── Multiple artworks filter ──────────────────────────────────────────
+        if (pageState.multipleArtworks) {
+            boolean hasMultipleArtworks = false;
+            String passCodeString = card.getPassCode();
+            if (passCodeString != null && !passCodeString.isBlank()) {
+                try {
+                    List<Model.CardsLists.Card> aliases =
+                            Model.Database.CardDatabaseManager.getAliasCards(
+                                    Integer.parseInt(passCodeString));
+                    hasMultipleArtworks = aliases != null && aliases.size() > 1;
+                } catch (NumberFormatException ignored) {
+                    // Non-numeric passCode: treat as no multiple artworks.
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+            if (!hasMultipleArtworks) {
+                return false;
+            }
+        }
+
         return true;
+    }
+
+    /**
+     * Returns true when the given element passes the Tags filter.
+     *
+     * <p>Inactive (returns true) when {@code tagsFilter} is blank.
+     * Otherwise splits on {@code ","}, trims each token, and returns true if
+     * at least one token is a case-insensitive substring of at least one of the
+     * element's {@link CardElement#getCustomTags() customTags}. OR semantics:
+     * any single matching token is sufficient.
+     *
+     * @param element    the individual owned copy being tested
+     * @param tagsFilter the raw filter string from the Tags text field
+     */
+    private boolean matchesTagsFilter(CardElement element, String tagsFilter) {
+        if (tagsFilter == null || tagsFilter.isBlank()) {
+            return true;
+        }
+        List<String> elementTags = element.getCustomTags();
+        if (elementTags == null || elementTags.isEmpty()) {
+            return false;
+        }
+        String[] tokens = tagsFilter.split(",");
+        for (String token : tokens) {
+            String trimmedToken = token.trim().toLowerCase();
+            if (trimmedToken.isEmpty()) {
+                continue;
+            }
+            for (String ownedTag : elementTags) {
+                if (ownedTag != null && ownedTag.toLowerCase().contains(trimmedToken)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private boolean matchesIntField(String filterText, Integer cardValue) {
@@ -1363,6 +1443,69 @@ public class RealMainController {
                             + "archetypes toggle", exception);
                 }
             });
+        }
+
+        // ── "Show condition / rarity" toggle (shared across all three tabs) ──
+        // The same static flag in CardTreeCell drives all three mosaic views,
+        // but each tab has its own button instance so they all need to be wired.
+        final String conditionRarityOnStyle =
+                "-fx-background-color: #cdfc04;"
+                        + "-fx-text-fill: black;"
+                        + "-fx-border-color: #cdfc04;"
+                        + "-fx-border-width: 1;"
+                        + "-fx-border-radius: 4;"
+                        + "-fx-background-radius: 4;"
+                        + "-fx-font-size: 12px;"
+                        + "-fx-padding: 4 10 4 10;"
+                        + "-fx-cursor: hand;";
+        final String conditionRarityOffStyle =
+                "-fx-background-color: #100317;"
+                        + "-fx-text-fill: #cdfc04;"
+                        + "-fx-border-color: #cdfc04;"
+                        + "-fx-border-width: 1;"
+                        + "-fx-border-radius: 4;"
+                        + "-fx-background-radius: 4;"
+                        + "-fx-font-size: 12px;"
+                        + "-fx-padding: 4 10 4 10;"
+                        + "-fx-cursor: hand;";
+
+        javafx.event.EventHandler<javafx.event.ActionEvent> conditionRarityToggleHandler =
+                event -> {
+                    boolean nowEnabled = !CardTreeCell.isShowConditionRarityOverlayEnabled();
+                    CardTreeCell.setShowConditionRarityOverlayEnabled(nowEnabled);
+                    String newStyle = nowEnabled ? conditionRarityOnStyle : conditionRarityOffStyle;
+                    if (myCollectionTab.getShowConditionRarityButton() != null) {
+                        myCollectionTab.getShowConditionRarityButton().setStyle(newStyle);
+                    }
+                    if (decksTab.getShowConditionRarityButton() != null) {
+                        decksTab.getShowConditionRarityButton().setStyle(newStyle);
+                    }
+                    if (ouicheListTab.getShowConditionRarityButton() != null) {
+                        ouicheListTab.getShowConditionRarityButton().setStyle(newStyle);
+                    }
+                    if (myCollectionTreeView != null) {
+                        myCollectionTreeView.refresh();
+                    }
+                    if (decksAndCollectionsTreeView != null) {
+                        decksAndCollectionsTreeView.refresh();
+                    }
+                    if (ouicheListTreeView != null) {
+                        ouicheListTreeView.refresh();
+                    }
+                    CardTreeCell.refreshAllGridViews();
+                };
+
+        if (myCollectionTab.getShowConditionRarityButton() != null) {
+            myCollectionTab.getShowConditionRarityButton()
+                    .setOnAction(conditionRarityToggleHandler);
+        }
+        if (decksTab.getShowConditionRarityButton() != null) {
+            decksTab.getShowConditionRarityButton()
+                    .setOnAction(conditionRarityToggleHandler);
+        }
+        if (ouicheListTab.getShowConditionRarityButton() != null) {
+            ouicheListTab.getShowConditionRarityButton()
+                    .setOnAction(conditionRarityToggleHandler);
         }
 
         if (ouicheListTab.getSaveButton() != null) {

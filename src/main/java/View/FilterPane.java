@@ -72,6 +72,8 @@ public class FilterPane extends VBox {
     private TextField scaleField;
     private TextField atkField;
     private ComboBox<String> archetypeCombo;
+    private TextField tagsField;
+    private Button multipleArtworksButton;
     private List<String> allArchetypeNames = new java.util.ArrayList<>();
     private static final double COL3_LABEL_WIDTH = 82;
 
@@ -505,7 +507,17 @@ public class FilterPane extends VBox {
         attributeCombo.getItems().addAll(
                 "Fire", "Water", "Wind", "Earth", "Light", "Dark", "Divine"
         );
-        HBox line2 = makeRow(makeFixedLabel("Attribute :", COL1_LABEL_WIDTH), attributeCombo);
+
+        multipleArtworksButton = new Button("Multiple artworks");
+        multipleArtworksButton.getStyleClass().add("toggle-filter-button");
+        multipleArtworksButton.setFocusTraversable(false);
+        applyMultipleArtworksButtonStyle(false);
+
+        HBox line2 = makeRow(
+                makeFixedLabel("Attribute :", COL1_LABEL_WIDTH),
+                attributeCombo,
+                multipleArtworksButton
+        );
 
         typeCombo = makeCombo();
         typeCombo.getItems().addAll(
@@ -566,7 +578,21 @@ public class FilterPane extends VBox {
             }
         });
 
-        HBox line6 = makeRightRow(makeLabel("Archetype :"), archetypeCombo);
+        tagsField = makeNarrowField(null, 72);
+
+        // A growing spacer pushes "Archetype :" as far right as possible while
+        // keeping it immediately before its combo box. "Tags :" and its field
+        // are appended after the combo, filling the remaining space.
+        Region archetypeSpacer = new Region();
+        HBox.setHgrow(archetypeSpacer, Priority.ALWAYS);
+
+        HBox line6 = makeRow(
+                archetypeSpacer,
+                makeLabel("Archetype :"),
+                archetypeCombo,
+                makeLabel("Tags :"),
+                tagsField
+        );
 
         col.getChildren().addAll(line1, line2, line3, line4, line5, line6);
         return col;
@@ -756,6 +782,20 @@ public class FilterPane extends VBox {
         // ── Price field ──────────────────────────────────────────────────────────
         wireTextField(priceField);
 
+        // ── Tags field ───────────────────────────────────────────────────────────
+        wireTextField(tagsField);
+
+        // ── Multiple artworks toggle ──────────────────────────────────────────
+        multipleArtworksButton.setOnAction(e -> {
+            boolean nowActive = !pageStates[currentPage].multipleArtworks;
+            pageStates[currentPage].multipleArtworks = nowActive;
+            applyMultipleArtworksButtonStyle(nowActive);
+            enableCurrentPage();
+            saveCurrentPageState();
+            fireRightFilterChange();
+            fireLeftFilterChange();
+        });
+
         // ── Archetype combo (editable: wire both value selection and typed text) ─
         archetypeCombo.setOnShowing(e -> ensureArchetypeNamesLoaded());
 
@@ -883,6 +923,8 @@ public class FilterPane extends VBox {
         ps.state = comboVal(stateCombo);
         ps.rarity = comboVal(rarityCombo);
         ps.linkMarkers   = new java.util.LinkedHashSet<>(linkMarkerPopup.getEnabledMarkers());
+        ps.tags = text(tagsField);
+        // multipleArtworks is toggled directly on ps in the button handler; no UI read needed.
     }
 
     /**
@@ -922,6 +964,8 @@ public class FilterPane extends VBox {
             setCB(stateCombo,            ps.state);
             setCB(rarityCombo,           ps.rarity);
             linkMarkerPopup.setEnabledMarkers(ps.linkMarkers);
+            setTF(tagsField, ps.tags);
+            applyMultipleArtworksButtonStyle(ps.multipleArtworks);
         } finally {
             suppressListeners = false;
         }
@@ -1174,6 +1218,36 @@ public class FilterPane extends VBox {
     private void updateDisableButtonText() {
         if (disableButton != null) {
             disableButton.setText(pageStates[currentPage].enabled ? "Disable" : "Enable");
+        }
+    }
+
+    /**
+     * Applies the correct inline style to {@link #multipleArtworksButton} based on
+     * whether the filter is currently active.
+     *
+     * @param active true when the filter is on (yellow-green background, black text);
+     *               false when off (dark background, yellow-green text)
+     */
+    private void applyMultipleArtworksButtonStyle(boolean active) {
+        if (multipleArtworksButton == null) {
+            return;
+        }
+        if (active) {
+            multipleArtworksButton.setStyle(
+                    "-fx-background-color: #cdfc04;"
+                            + "-fx-text-fill: black;"
+                            + "-fx-font-size: 11px;"
+                            + "-fx-padding: 2 6 2 6;"
+                            + "-fx-cursor: hand;"
+            );
+        } else {
+            multipleArtworksButton.setStyle(
+                    "-fx-background-color: #1a1a1a;"
+                            + "-fx-text-fill: #cdfc04;"
+                            + "-fx-font-size: 11px;"
+                            + "-fx-padding: 2 6 2 6;"
+                            + "-fx-cursor: hand;"
+            );
         }
     }
 
@@ -1500,6 +1574,20 @@ public class FilterPane extends VBox {
     }
 
     /**
+     * Returns the Tags text field (middle-pane filter on {@code CardElement.customTags}).
+     */
+    public TextField getTagsField() {
+        return tagsField;
+    }
+
+    /**
+     * Returns the Multiple Artworks toggle button.
+     */
+    public Button getMultipleArtworksButton() {
+        return multipleArtworksButton;
+    }
+
+    /**
      * Populates the archetype filter combo with the given archetype names.
      * Call this from the controller once archetypes are known (or whenever
      * the list changes).  Always prepends "(All)" automatically.
@@ -1631,6 +1719,19 @@ public class FilterPane extends VBox {
          * Enabled link markers. Empty = no filter.
          */
         public java.util.Set<String> linkMarkers = new java.util.LinkedHashSet<>();
+
+        /**
+         * Comma-separated tag tokens to match against CardElement.customTags.
+         * Each token must appear in at least one owned copy's tag list.
+         * Empty string = no filter.
+         */
+        public String tags = "";
+
+        /**
+         * When true, only cards with more than one available artwork are shown.
+         * Evaluated via {@code CardDatabaseManager.getAliasCards}.
+         */
+        public boolean multipleArtworks = false;
 
         FilterPageState(boolean bottomLeftEnabled, boolean bottomRightEnabled) {
             this.bottomLeftEnabled = bottomLeftEnabled;

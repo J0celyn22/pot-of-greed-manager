@@ -4,9 +4,7 @@ import Model.CardsLists.CardElement;
 import Model.CardsLists.DecksAndCollectionsList;
 import Model.CardsLists.OwnedCardsCollection;
 import Model.CardsLists.SubListCreator;
-import Model.FormatList.ArchetypesListsToHtml;
-import Model.FormatList.DeckToHtml;
-import Model.FormatList.OwnedCardsCollectionToHtml;
+import Model.FormatList.*;
 import javafx.application.Platform;
 import javafx.collections.ObservableList;
 import javafx.scene.Node;
@@ -146,6 +144,14 @@ public class UserInterfaceFunctions {
             java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
     private static volatile boolean myCollectionDirty = false;
     private static volatile boolean ouicheListDirty = false;
+
+    /**
+     * Set to {@code true} once {@link CardToHtml#generateAllCardPages(String)} has
+     * been run during the current application session. Prevents the (slow) full-database
+     * pass from being repeated on every individual export action.
+     * Reset by {@link #resetCardPagesGenerated()} when the output directory changes.
+     */
+    private static volatile boolean cardPagesGenerated = false;
     // ── Tab dirty-indicator callback ──────────────────────────────────────────────
     private static Runnable tabDirtyIndicatorUpdater = null;
 
@@ -194,6 +200,33 @@ public class UserInterfaceFunctions {
     }
 
     // ── Save methods ──────────────────────────────────────────────────────────────
+
+    /**
+     * Generates HTML detail pages for every card in the database, if this has
+     * not already been done in the current session.
+     *
+     * <p>The generation is guarded by {@link #cardPagesGenerated}: the full-database
+     * pass runs at most once per session regardless of how many export actions the
+     * user triggers. Call {@link #resetCardPagesGenerated()} when the output directory
+     * changes so that the next export re-generates against the new location.</p>
+     */
+    private static void ensureCardPagesGenerated() {
+        if (cardPagesGenerated) {
+            return;
+        }
+        HtmlGenerator.resetExportSession();
+        CardToHtml.generateAllCardPages(outputPath);
+        cardPagesGenerated = true;
+    }
+
+    /**
+     * Clears the card-pages-generated flag so that the next export action
+     * triggers a fresh {@link CardToHtml#generateAllCardPages(String)} pass.
+     * Call this whenever {@link Model.FilePaths#outputPath} changes.
+     */
+    public static void resetCardPagesGenerated() {
+        cardPagesGenerated = false;
+    }
 
     /**
      * Marks every deck and collection in the currently loaded DAC as dirty.
@@ -458,6 +491,8 @@ public class UserInterfaceFunctions {
                 loadDecksAndCollectionsDirectory();
             }
 
+            ensureCardPagesGenerated();
+
             setDetailedOuicheList(Model.CardsLists.OuicheList.CreateDetailedOuicheList(getMyCardsCollection(), getDecksList()));
 
             //String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
@@ -556,6 +591,8 @@ public class UserInterfaceFunctions {
             loadCollectionFile();
         }
 
+        ensureCardPagesGenerated();
+
         Files.createDirectories(Paths.get(outputPathLists));
 
         OwnedCardsCollectionToHtml.generateListHtml(getMyCardsCollection(), outputPathLists, "Collection Complete List");
@@ -611,6 +648,8 @@ public class UserInterfaceFunctions {
         if (!decksAndCollectionIsLoaded) {
             loadDecksAndCollectionsDirectory();
         }
+
+        ensureCardPagesGenerated();
 
         List<CardElement> decksCardsList = new ArrayList<>();
         for (int i = 0; i < getDecksList().getDecks().size(); i++) {
@@ -794,6 +833,8 @@ public class UserInterfaceFunctions {
             // CreateOuicheList is now void and builds the internal LinkedHashMap directly.
             // All callers that need a List<CardElement> use getMaOuicheListAsFlatList().
             Model.CardsLists.OuicheList.CreateOuicheList(getMyCardsCollection(), getDecksList());
+
+            ensureCardPagesGenerated();
 
             // Create the output directory.
             //String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));

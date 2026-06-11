@@ -332,15 +332,20 @@ public class Database {
 
     /**
      * Retrieves the list of all cards in the database.
-     * <p>
-     * If the list is empty, it will be created first.
-     * </p>
      *
-     * @return the list of all cards in the database
+     * <p>If the list is empty, it will be created first. After creation the
+     * {@code jsonContentMap} is cleared because it is no longer needed: all
+     * data has been extracted into the typed maps held by
+     * {@link CardDatabaseManager} and {@link KonamiIdToNames}. Clearing it
+     * frees several hundred MB of heap that would otherwise be retained for
+     * the lifetime of the JVM.</p>
+     *
+     * @return the map of all cards in the database, keyed by passCode
      */
     public static Map<Integer, Card> getAllCardsList() {
         if (allCardsList.isEmpty()) {
             createAllCardsList();
+            jsonContentMap.clear();
         }
         return allCardsList;
     }

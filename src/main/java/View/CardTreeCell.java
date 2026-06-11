@@ -59,6 +59,12 @@ public class CardTreeCell extends TreeCell<String> {
      */
     static volatile boolean incompleteMarkingEnabled = true;
 
+    /**
+     * When {@code true}, the condition/rarity overlay is rendered on cards
+     * in the grid views. Toggled by the "Show condition/rarity" button in the header.
+     */
+    private static volatile boolean showConditionRarityOverlayEnabled = false;
+
     private static final ExecutorService imageLoadingExecutor = Executors.newFixedThreadPool(4);
     private static final ExecutorService pathResolverExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "image-path-resolver");
@@ -179,6 +185,21 @@ public class CardTreeCell extends TreeCell<String> {
     public static void setIncompleteMarkingEnabled(boolean enabled) {
         incompleteMarkingEnabled = enabled;
     }
+    /**
+     * Optional element-level filter ANDed into every FilteredList predicate.
+     * Unlike {@link #activeMiddleFilter} (which operates on {@link Card}), this
+     * predicate receives the individual {@link CardElement} so per-copy fields
+     * such as {@code customTags} can be tested precisely.
+     * {@code null} means inactive (pass all elements).
+     */
+    private static java.util.function.Predicate<CardElement> activeMiddleElementFilter = null;
+
+    /**
+     * Returns whether the condition/rarity overlay is currently active.
+     */
+    public static boolean isShowConditionRarityOverlayEnabled() {
+        return showConditionRarityOverlayEnabled;
+    }
 
     /**
      * Returns {@code true} when at least one copy of {@code card} is present in
@@ -296,6 +317,13 @@ public class CardTreeCell extends TreeCell<String> {
      * When null all cards are shown (no filter).
      */
     private static java.util.function.Predicate<Card> activeMiddleFilter = null;
+
+    /**
+     * Enables or disables the condition/rarity overlay on card grid cells.
+     */
+    public static void setShowConditionRarityOverlayEnabled(boolean enabled) {
+        showConditionRarityOverlayEnabled = enabled;
+    }
     /**
      * The StackPane wrapper inside every GridCell has Insets(5) padding on each side,
      * adding 2×5 = 10 px to both the rendered cell width and height beyond the bound
@@ -798,6 +826,20 @@ public class CardTreeCell extends TreeCell<String> {
         Platform.runLater(CardTreeCell::applyFilterToAllGroups);
     }
 
+    /**
+     * Registers (or clears) a {@link CardElement}-level filter for the middle pane.
+     *
+     * <p>This predicate is ANDed with the card-level {@link #activeMiddleFilter} inside
+     * {@link #buildCombinedPredicate}, allowing per-copy fields (e.g. {@code customTags})
+     * to be tested on individual elements rather than on the shared {@link Card} object.
+     *
+     * @param predicate a predicate on {@link CardElement}, or {@code null} to remove the filter
+     */
+    public static void setMiddleElementFilter(java.util.function.Predicate<CardElement> predicate) {
+        activeMiddleElementFilter = predicate;
+        Platform.runLater(CardTreeCell::applyFilterToAllGroups);
+    }
+
     public static void shutdownImageLoadingExecutor() {
         imageLoadingExecutor.shutdownNow();
         pathResolverExecutor.shutdownNow();
@@ -854,11 +896,12 @@ public class CardTreeCell extends TreeCell<String> {
 
         boolean hideOwned = Controller.OuicheListController.isHideOwnedCardsEnabled();
 
-        if (!hideOwned && middleFilter == null) {
+        if (!hideOwned && middleFilter == null && activeMiddleElementFilter == null) {
             return null; // fastest path — no filtering at all
         }
 
         final java.util.function.Predicate<Card> capturedFilter = middleFilter;
+        final java.util.function.Predicate<CardElement> capturedElementFilter = activeMiddleElementFilter;
 
         return ce -> {
             if (ce == null) {
@@ -868,7 +911,12 @@ public class CardTreeCell extends TreeCell<String> {
                 return false;
             }
             if (capturedFilter != null) {
-                return ce.getCard() != null && capturedFilter.test(ce.getCard());
+                if (ce.getCard() == null || !capturedFilter.test(ce.getCard())) {
+                    return false;
+                }
+            }
+            if (capturedElementFilter != null) {
+                return capturedElementFilter.test(ce);
             }
             return true;
         };

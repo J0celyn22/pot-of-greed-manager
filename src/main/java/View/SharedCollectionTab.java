@@ -196,9 +196,18 @@ public class SharedCollectionTab extends HBox {
      * Toggle button that hides / shows Archetypes and Exceptions sections in the Decks tab.
      */
     private Button hideArchetypesButton;
+    /**
+     * Toggle button that shows / hides the condition and rarity corner badges on card images.
+     * Present on the My Collection, Decks and Collections, and OuicheList tabs.
+     */
+    private Button showConditionRarityButton;
 
     public Button getIncompleteMarkButton() {
         return incompleteMarkButton;
+    }
+
+    public Button getShowConditionRarityButton() {
+        return showConditionRarityButton;
     }
 
     public Button getCompactDetailedButton() {
@@ -292,6 +301,21 @@ public class SharedCollectionTab extends HBox {
                                 "-fx-cursor: hand;");
                 row3.getChildren().add(incompleteMarkButton);
 
+                // ── Row 4: "Show condition / rarity" toggle ───────────────────
+                HBox row4 = new HBox(5);
+                showConditionRarityButton = new Button("Show condition / rarity");
+                showConditionRarityButton.setStyle(
+                        "-fx-background-color: #cdfc04;"
+                                + "-fx-text-fill: black;"
+                                + "-fx-border-color: #cdfc04;"
+                                + "-fx-border-width: 1;"
+                                + "-fx-border-radius: 4;"
+                                + "-fx-background-radius: 4;"
+                                + "-fx-font-size: 12px;"
+                                + "-fx-padding: 4 10 4 10;"
+                                + "-fx-cursor: hand;");
+                row4.getChildren().add(showConditionRarityButton);
+
                 // ── Handlers ─────────────────────────────────────────────────
                 collectionFileButton.setOnAction(e -> {
                     Stage stage = (Stage) collectionFileButton.getScene().getWindow();
@@ -317,7 +341,7 @@ public class SharedCollectionTab extends HBox {
                     }
                 });
 
-                myCollectionGroup.getChildren().addAll(row1, row2, row3);
+                myCollectionGroup.getChildren().addAll(row1, row2, row3, row4);
                 headerContent.getChildren().add(myCollectionGroup);
                 break;
             }
@@ -392,6 +416,23 @@ public class SharedCollectionTab extends HBox {
                                 + "-fx-cursor: hand;");
                 groupRow2.getChildren().add(hideArchetypesButton);
                 decksGroup.getChildren().add(groupRow2);
+
+                // ── Row 3: "Show condition / rarity" toggle ───────────────────
+                HBox groupRow3Decks = new HBox(5);
+                groupRow3Decks.setAlignment(Pos.CENTER_LEFT);
+                showConditionRarityButton = new Button("Show condition / rarity");
+                showConditionRarityButton.setStyle(
+                        "-fx-background-color: #cdfc04;"
+                                + "-fx-text-fill: black;"
+                                + "-fx-border-color: #cdfc04;"
+                                + "-fx-border-width: 1;"
+                                + "-fx-border-radius: 4;"
+                                + "-fx-background-radius: 4;"
+                                + "-fx-font-size: 12px;"
+                                + "-fx-padding: 4 10 4 10;"
+                                + "-fx-cursor: hand;");
+                groupRow3Decks.getChildren().add(showConditionRarityButton);
+                decksGroup.getChildren().add(groupRow3Decks);
                 break;
             }
             case OUICHE_LIST: {
@@ -500,6 +541,23 @@ public class SharedCollectionTab extends HBox {
                                 + "-fx-cursor: hand;");
                 groupRow7.getChildren().add(hideOwnedCardsButton);
                 ouicheGroup.getChildren().add(groupRow7);
+
+                // ── Row 8: "Show condition / rarity" toggle ───────────────────
+                HBox groupRow8 = new HBox(5);
+                groupRow8.setAlignment(Pos.CENTER_LEFT);
+                showConditionRarityButton = new Button("Show condition / rarity");
+                showConditionRarityButton.setStyle(
+                        "-fx-background-color: #cdfc04;"
+                                + "-fx-text-fill: black;"
+                                + "-fx-border-color: #cdfc04;"
+                                + "-fx-border-width: 1;"
+                                + "-fx-border-radius: 4;"
+                                + "-fx-background-radius: 4;"
+                                + "-fx-font-size: 12px;"
+                                + "-fx-padding: 4 10 4 10;"
+                                + "-fx-cursor: hand;");
+                groupRow8.getChildren().add(showConditionRarityButton);
+                ouicheGroup.getChildren().add(groupRow8);
 
                 headerContent.getChildren().add(ouicheGroup);
                 break;

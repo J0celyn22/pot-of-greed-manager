@@ -1589,8 +1589,62 @@ class CardGridCell extends GridCell<CardElement> {
         currentGlowPriority = glowPriority;
         currentTooltips = tooltips;
 
+        // ── Condition / rarity corner badges ─────────────────────────────────────────
+        // Rebuild the badge nodes on every updateItem call so they always match
+        // the current CardElement and the current toggle state.
+        // Badges are shown in: My Collection, Decks & Collections, OuicheList mosaic.
+        // They are NOT shown on the Archetypes tab (read-only, no ownership metadata).
+        wrapper.getChildren().removeIf(node -> Boolean.TRUE.equals(
+                node.getProperties().get("conditionRarityBadge")));
+
+        boolean isOverlayTab = outer.isMyCollectionTabSelected()
+                || outer.isDecksAndCollectionsTabSelected()
+                || outer.isOuicheListTabSelected();
+        boolean shouldShowBadges = isOverlayTab
+                && CardTreeCell.isShowConditionRarityOverlayEnabled()
+                && !outer.isInArchetypeGroup();
+
+        if (shouldShowBadges) {
+            CardCondition condition = cardElement.getCondition();
+            CardRarity rarity = cardElement.getRarity();
+
+            if (condition != null) {
+                Label conditionLabel = buildCornerBadge(condition.getCode());
+                StackPane.setAlignment(conditionLabel, javafx.geometry.Pos.TOP_LEFT);
+                conditionLabel.getProperties().put("conditionRarityBadge", Boolean.TRUE);
+                wrapper.getChildren().add(conditionLabel);
+            }
+
+            if (rarity != null) {
+                Label rarityLabel = buildCornerBadge(rarity.getCode());
+                StackPane.setAlignment(rarityLabel, javafx.geometry.Pos.TOP_RIGHT);
+                rarityLabel.getProperties().put("conditionRarityBadge", Boolean.TRUE);
+                wrapper.getChildren().add(rarityLabel);
+            }
+        }
+
         // Finalize graphic
         setGraphic(wrapper);
+    }
+
+    /**
+     * Creates a small badge label with the app's dark-purple background and white
+     * text, used for the condition and rarity corner indicators.
+     *
+     * @param text the short code to display (e.g. {@code "NM"}, {@code "StR"})
+     * @return a styled {@link Label} ready to be added to the card wrapper
+     */
+    private Label buildCornerBadge(String text) {
+        Label label = new Label(text);
+        label.setStyle(
+                "-fx-background-color: #0e0140; "
+                        + "-fx-text-fill: white; "
+                        + "-fx-font-size: 9px; "
+                        + "-fx-font-weight: bold; "
+                        + "-fx-padding: 1 3 1 3; "
+                        + "-fx-background-radius: 2;");
+        label.setMouseTransparent(true);
+        return label;
     }
 
     /**

@@ -16,6 +16,18 @@ import static Model.FilePaths.databaseDir;
 
 public class DataBaseUpdate {
 
+    /*
+     * JVM HEAP CONFIGURATION NOTE
+     * The application should be launched with a max heap of 2–3 GB, not higher.
+     * Example: -Xmx2048m
+     *
+     * Setting -Xmx8192m (8 GB) causes the JVM to reserve 8 GB of virtual address
+     * space upfront. Combined with native memory used by JavaFX's Direct3D renderer
+     * and the C2 JIT compiler, this can exhaust the system page file and crash the
+     * process with a native malloc failure even when Java heap usage is low.
+     * The actual heap usage of this application at steady state is well under 1 GB.
+     */
+
     /**
      * Updates the local cache to the latest revision available online.
      *
@@ -223,10 +235,24 @@ public class DataBaseUpdate {
     }
 
     /**
+     * Cache mapping each element name to its resolved {@code [localPath, remotePath]} pair.
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<String, String[]> addressCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Object addressesJsonLock = new Object();
+    /**
+     * Parsed representation of {@code addresses.json}, loaded once on first use.
+     * Guarded by {@link #addressesJsonLock}.
+     */
+    private static JSONObject addressesJson = null;
+
+    /**
      * Retrieves the local and remote paths for a given filename from
      * {@code addresses.json}.
      *
-     * <p>Template keys in the filename are handled automatically:
+     * <p>Results are cached after the first lookup so that {@code addresses.json}
+     * is read from disk only once per JVM session. Template keys are resolved
+     * automatically:
      * <ul>
      *   <li>{@code "12345.jpg"}   → template {@code "<passcode>.jpg"}</li>
      *   <li>{@code "12345.json"}  → template {@code "<konamiId>.json"}</li>
@@ -239,17 +265,40 @@ public class DataBaseUpdate {
      *         array when the element is not found
      */
     public static String[] getAddresses(String element) {
+        String[] cached = addressCache.get(element);
+        if (cached != null) {
+            return cached;
+        }
+        String[] computed = computeAddresses(element);
+        if (computed.length > 0) {
+            addressCache.put(element, computed);
+        }
+        return computed;
+    }
+
+    /**
+     * Invalidates the address cache entry for {@code element} so that the next
+     * call to {@link #getAddresses(String)} re-resolves it.  Call this after a
+     * file has been moved or renamed.
+     *
+     * @param element the filename whose cached entry should be removed
+     */
+    public static void invalidateAddressCache(String element) {
+        addressCache.remove(element);
+    }
+
+    /**
+     * Resolves the local and remote paths for {@code element} by reading and
+     * searching {@code addresses.json}.  The JSON object itself is loaded once
+     * and reused across calls; only the per-element search is repeated when the
+     * entry is not yet cached.
+     */
+    private static String[] computeAddresses(String element) {
         try {
-            byte[] encoded;
-            try {
-                encoded = Files.readAllBytes(Paths.get(
-                        Paths.get("./src/main/java/Model/Database/addresses.json").toUri()));
-            } catch (Exception e) {
-                encoded = Files.readAllBytes(Paths.get(
-                        Paths.get("resources/addresses.json").toUri()));
+            JSONObject json = loadAddressesJson();
+            if (json == null) {
+                return new String[0];
             }
-            String content = new String(encoded, StandardCharsets.UTF_8);
-            JSONObject json = new JSONObject(content);
 
             String key = element;
             String replacement = "";
@@ -272,6 +321,35 @@ public class DataBaseUpdate {
             e.printStackTrace();
         }
         return new String[0];
+    }
+
+    /**
+     * Loads {@code addresses.json} from disk on the first call and returns the
+     * cached {@link JSONObject} on all subsequent calls.
+     */
+    private static JSONObject loadAddressesJson() {
+        if (addressesJson != null) {
+            return addressesJson;
+        }
+        synchronized (addressesJsonLock) {
+            if (addressesJson != null) {
+                return addressesJson;
+            }
+            try {
+                byte[] encoded;
+                try {
+                    encoded = Files.readAllBytes(Paths.get(
+                            Paths.get("./src/main/java/Model/Database/addresses.json").toUri()));
+                } catch (Exception e) {
+                    encoded = Files.readAllBytes(Paths.get(
+                            Paths.get("resources/addresses.json").toUri()));
+                }
+                addressesJson = new JSONObject(new String(encoded, StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        return addressesJson;
     }
 
     /**

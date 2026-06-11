@@ -20,6 +20,27 @@ import static Model.Database.DataBaseUpdate.getAddresses;
 
 public class HtmlGenerator {
 
+    private static final org.slf4j.Logger logger =
+            org.slf4j.LoggerFactory.getLogger(HtmlGenerator.class);
+
+    /**
+     * Tracks image filenames already copied during the current export run so
+     * that each file is copied at most once even when the same card appears in
+     * multiple lists or decks. Call {@link #resetExportSession()} at the start
+     * of every new export to clear the set.
+     */
+    private static final java.util.Set<String> copiedImages =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * Clears all per-session state accumulated during an export run.
+     * Must be called once before starting a new export so that image copies
+     * are not silently skipped because of a previous run.
+     */
+    public static void resetExportSession() {
+        copiedImages.clear();
+    }
+
     /**
      * Creates an HTML file at the specified file path. If the parent directory
      * does not exist, it attempts to create it. Throws an IOException if the
@@ -566,6 +587,26 @@ public class HtmlGenerator {
     }
 
     /**
+     * Builds a relative URL from any output page to the corresponding card
+     * detail page in the {@code Cards/} directory.
+     *
+     * <p>All output pages produced by this generator sit one directory level
+     * below the root (e.g. {@code Decks/}, {@code Lists/}), so the relative
+     * path to {@code Cards/} is always {@code ../Cards/}.</p>
+     *
+     * @param imageFileName the base file name of the card image without extension
+     *                      (e.g. {@code "12345678"})
+     * @return the relative href string for use in an anchor tag
+     */
+    public static String buildCardPageRelativePath(String imageFileName) {
+        if (imageFileName == null || imageFileName.isEmpty()) {
+            return "#";
+        }
+        String baseName = imageFileName.replaceAll("\\.[^.]+$", "");
+        return "..\\Cards\\" + baseName + ".html";
+    }
+
+    /**
      * Writes the HTML closing tags to the given writer.
      *
      * <p>This method generates the closing tags for the HTML document, which are
@@ -836,7 +877,9 @@ public class HtmlGenerator {
                 Files.createDirectories(targetDirPath);
             }
             Path targetPath = targetDirPath.resolve(imageFileName);
-            Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            if (copiedImages.add(imageFileName)) {
+                Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            }
         }
 
         writer.write("<div class=\"card-element\">\n");
@@ -849,11 +892,9 @@ public class HtmlGenerator {
         String imagesTemp = imagesRelativePath + imageFileName;
 
         writer.write(
-                "<a href=\"" + "https://yugioh.fandom.com/wiki/" + entryKey.getPassCode() + /*"..\\CardDetails\\" + imageFileName.replaceAll("\\.[^.]+$", "") + ".html\">"*/"\">" +
+                "<a href=\"" + buildCardPageRelativePath(imageFileName) + "\">" +
                         "<img src=\"" + imagesTemp + "\" alt=\"" + cardName + "\" class=\"" + imgStyle + "\">" +
                         "</a>\n");
-
-        //generateCardDetailsHtml(dirPath, entryKey);
 
         writer.write("<div class=\"card-details\">\n");
         writer.write("<p>" + entryKey.getName_FR() + "</p>\n");
@@ -868,6 +909,7 @@ public class HtmlGenerator {
         }
         writer.write("</div>\n");
         writer.write("</div>\n");
+
     }
 
     /**
@@ -921,8 +963,9 @@ public class HtmlGenerator {
                 Files.createDirectories(targetDirPath);
             }
             Path targetPath = targetDirPath.resolve(imageFileName);
-
-            Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            if (copiedImages.add(imageFileName)) {
+                Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            }
         }
 
         String imgStyle = "card-image-large";
@@ -932,11 +975,10 @@ public class HtmlGenerator {
             }
         }
         writer.write(
-                "<a href=\"" + "https://yugioh.fandom.com/wiki/" + card.getPassCode() + "\">" +
+                "<a href=\"" + buildCardPageRelativePath(imageFileName) + "\">" +
                         "<img src=\"" + imagesRelativePath + imageFileName + "\" alt=\"" + cardName + "\" class=\"" + imgStyle + "\">" +
                         "</a>\n");
 
-        //generateCardDetailsHtml(dirPath, card);
     }
 
     /**
@@ -1086,13 +1128,15 @@ public class HtmlGenerator {
             if (!java.nio.file.Files.exists(targetDirPath)) {
                 java.nio.file.Files.createDirectories(targetDirPath);
             }
-            java.nio.file.Files.copy(sourcePath, targetDirPath.resolve(imageFileName),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            if (copiedImages.add(imageFileName)) {
+                java.nio.file.Files.copy(sourcePath, targetDirPath.resolve(imageFileName),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
         }
 
         writer.write("<div class=\"card-element card-element-orange\">\n");
         writer.write(
-                "<a href=\"https://yugioh.fandom.com/wiki/" + card.getPassCode() + "\">" +
+                "<a href=\"" + buildCardPageRelativePath(imageFileName) + "\">" +
                         "<img src=\"" + imagesRelativePath + imageFileName + "\" alt=\"" +
                         cardName + "\" class=\"card-image\">" +
                         "</a>\n");
@@ -1124,6 +1168,7 @@ public class HtmlGenerator {
         }
         writer.write("</div>\n");
         writer.write("</div>\n");
+
     }
 
     /**
@@ -1146,14 +1191,17 @@ public class HtmlGenerator {
             if (!java.nio.file.Files.exists(targetDirPath)) {
                 java.nio.file.Files.createDirectories(targetDirPath);
             }
-            java.nio.file.Files.copy(sourcePath, targetDirPath.resolve(imageFileName),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            if (copiedImages.add(imageFileName)) {
+                java.nio.file.Files.copy(sourcePath, targetDirPath.resolve(imageFileName),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
         }
 
         writer.write(
-                "<a href=\"https://yugioh.fandom.com/wiki/" + card.getPassCode() + "\">" +
+                "<a href=\"" + buildCardPageRelativePath(imageFileName) + "\">" +
                         "<img src=\"" + imagesRelativePath + imageFileName + "\" alt=\"" +
                         cardName + "\" class=\"card-image-large glow-red\">" +
                         "</a>\n");
+
     }
 }
