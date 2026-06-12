@@ -361,7 +361,8 @@ public class HtmlGenerator {
      * @throws IOException If the file cannot be written
      */
     public static void addTitle(BufferedWriter writer, String title, Integer cardsNumber, String cardsPrice) throws IOException {
-        writer.write("<h1>" + title + " (" + cardsNumber + " / " + cardsPrice + "€)" + "</h1>\n");
+        String roundedPrice = formatPrice(cardsPrice);
+        writer.write("<h1>" + title + " (" + cardsNumber + " / " + roundedPrice + "€)" + "</h1>\n");
     }
 
     /**
@@ -374,7 +375,8 @@ public class HtmlGenerator {
      * @throws IOException If the file cannot be written
      */
     public static void addTitle2(BufferedWriter writer, String title, Integer cardsNumber, String cardsPrice) throws IOException {
-        writer.write("<h2>" + title + " (" + cardsNumber + " / " + cardsPrice + "€)" + "</h2>\n");
+        String roundedPrice = formatPrice(cardsPrice);
+        writer.write("<h2>" + title + " (" + cardsNumber + " / " + roundedPrice + "€)" + "</h2>\n");
     }
 
     /**
@@ -387,7 +389,160 @@ public class HtmlGenerator {
      * @throws IOException If the file cannot be written
      */
     public static void addTitle3(BufferedWriter writer, String title, Integer cardsNumber, String cardsPrice) throws IOException {
-        writer.write("<h3>" + title + " (" + cardsNumber + " / " + cardsPrice + "€)" + "</h3>\n");
+        String roundedPrice = formatPrice(cardsPrice);
+        writer.write("<h3>" + title + " (" + cardsNumber + " / " + roundedPrice + "€)" + "</h3>\n");
+    }
+
+    /**
+     * Formats a price string to exactly two decimal places.
+     * Returns "0.00" if the input is null, empty, or unparseable.
+     *
+     * @param price The raw price string from the model.
+     * @return A string formatted to two decimal places.
+     */
+    public static String formatPrice(String price) {
+        if (price == null || price.isEmpty()) {
+            return "0.00";
+        }
+        try {
+            return String.format("%.2f", Float.parseFloat(price));
+        } catch (NumberFormatException numberFormatException) {
+            logger.warn("Could not parse price value: {}", price);
+            return price;
+        }
+    }
+
+    /**
+     * Computes advancement statistics for a list of {@link CardElement} objects.
+     * A card is considered missing when its ownership status is not OWNED and not
+     * OWNED_SUBSTANDARD. Price is read from {@link Model.CardsLists.Card#getPrice()}.
+     *
+     * @param cardsList The list of card elements to analyse.
+     * @return An {@link AdvancementStats} describing the list's completion state.
+     */
+    public static AdvancementStats computeAdvancement(List<CardElement> cardsList) {
+        int totalCount = 0;
+        int missingCount = 0;
+        float missingPriceSum = 0f;
+        float totalPriceSum = 0f;
+
+        for (CardElement cardElement : cardsList) {
+            if (cardElement == null || cardElement.getCard() == null) {
+                continue;
+            }
+            totalCount++;
+            boolean isMissing = (cardElement.getOwnershipStatus() != OwnershipStatus.OWNED)
+                    && (cardElement.getOwnershipStatus() != OwnershipStatus.OWNED_SUBSTANDARD);
+            float cardPrice = 0f;
+            String rawPrice = cardElement.getCard().getPrice();
+            if (rawPrice != null && !rawPrice.isEmpty()) {
+                try {
+                    cardPrice = Float.parseFloat(rawPrice);
+                } catch (NumberFormatException numberFormatException) {
+                    logger.warn("Could not parse card price: {}", rawPrice);
+                }
+            }
+            totalPriceSum += cardPrice;
+            if (isMissing) {
+                missingCount++;
+                missingPriceSum += cardPrice;
+            }
+        }
+
+        int ownedCount = totalCount - missingCount;
+        String ownedPct = (totalCount > 0)
+                ? String.format("%.1f", (ownedCount * 100f) / totalCount)
+                : "100.0";
+
+        return new AdvancementStats(
+                missingCount,
+                totalCount,
+                String.format("%.2f", missingPriceSum),
+                String.format("%.2f", totalPriceSum),
+                ownedPct
+        );
+    }
+
+    /**
+     * Writes an h1 title with advancement stats in the format:
+     * {@code Name (missing/total - missingPrice€/totalPrice€ - pct%)}.
+     *
+     * @param writer      The writer to use.
+     * @param title       The section name.
+     * @param advancement The pre-computed advancement statistics.
+     * @throws IOException If an I/O error occurs.
+     */
+    public static void addTitle1WithAdvancement(BufferedWriter writer, String title,
+                                                AdvancementStats advancement) throws IOException {
+        writer.write("<h1>" + title + " ("
+                + advancement.missingCount + "/" + advancement.totalCount
+                + " - " + advancement.missingPrice + "€/" + advancement.totalPrice + "€"
+                + " - " + advancement.ownedPercentage + "%"
+                + ")</h1>\n");
+    }
+
+    /**
+     * Writes an h2 title with advancement stats in the format:
+     * {@code Name (missing/total - missingPrice€/totalPrice€ - pct%)}.
+     *
+     * @param writer      The writer to use.
+     * @param title       The section name.
+     * @param advancement The pre-computed advancement statistics.
+     * @throws IOException If an I/O error occurs.
+     */
+    public static void addTitle2WithAdvancement(BufferedWriter writer, String title,
+                                                AdvancementStats advancement) throws IOException {
+        writer.write("<h2>" + title + " ("
+                + advancement.missingCount + "/" + advancement.totalCount
+                + " - " + advancement.missingPrice + "€/" + advancement.totalPrice + "€"
+                + " - " + advancement.ownedPercentage + "%"
+                + ")</h2>\n");
+    }
+
+    /**
+     * Writes an h3 title with advancement stats in the format:
+     * {@code Name (missing/total - missingPrice€/totalPrice€ - pct%)}.
+     *
+     * @param writer      The writer to use.
+     * @param title       The section name.
+     * @param advancement The pre-computed advancement statistics.
+     * @throws IOException If an I/O error occurs.
+     */
+    public static void addTitle3WithAdvancement(BufferedWriter writer, String title,
+                                                AdvancementStats advancement) throws IOException {
+        writer.write("<h3>" + title + " ("
+                + advancement.missingCount + "/" + advancement.totalCount
+                + " - " + advancement.missingPrice + "€/" + advancement.totalPrice + "€"
+                + " - " + advancement.ownedPercentage + "%"
+                + ")</h3>\n");
+    }
+
+    /**
+     * Writes a list of CardElements to the given writer as an HTML list.
+     *
+     * <p>This method generates an HTML list of CardElements, each of which is displayed
+     * with a link to its corresponding HTML page. A title is also generated, which
+     * displays the name of the list and the total number of cards in the list.
+     *
+     * @param cardsList          A list of CardElements to be written to the writer.
+     * @param name               A string representing the name of the list to be displayed in the title.
+     * @param writer             The BufferedWriter to which the HTML content will be written.
+     * @param dirPath            The directory path used to construct the links to the HTML pages.
+     * @param imagesRelativePath The relative path from the output files to the images directory.
+     * @throws IOException If an I/O error occurs while writing to the writer.
+     */
+    public static void displayList(List<CardElement> cardsList, String name, BufferedWriter writer, String dirPath, String imagesRelativePath) throws IOException {
+        if (cardsList != null) {
+            if (!cardsList.isEmpty()) {
+                String imagesDirPath = dirPath + imagesRelativePath;
+                addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
+                Map<Card, Integer> cardCount = createCardsMap(cardsList);
+
+                for (Map.Entry<Card, Integer> entry : cardCount.entrySet()) {
+                    writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, imagesRelativePath);
+                }
+            }
+        }
     }
 
     /**
@@ -620,34 +775,6 @@ public class HtmlGenerator {
     }
 
     /**
-     * Writes a list of CardElements to the given writer as an HTML list.
-     *
-     * <p>This method generates an HTML list of CardElements, each of which is displayed
-     * with a link to its corresponding HTML page. A title is also generated, which
-     * displays the name of the list and the total number of cards in the list.
-     *
-     * @param cardsList          A list of CardElements to be written to the writer.
-     * @param name               A string representing the name of the list to be displayed in the title.
-     * @param writer             The BufferedWriter to which the HTML content will be written.
-     * @param dirPath            The directory path used to construct the links to the HTML pages.
-     * @param imagesRelativePath The relative path from the output files to the images directory.
-     * @throws IOException If an I/O error occurs while writing to the writer.
-     */
-    public static void displayList(List<CardElement> cardsList, String name, BufferedWriter writer, String dirPath, String imagesRelativePath) throws IOException {
-        if (cardsList != null) {
-            if (!cardsList.isEmpty()) {
-                String imagesDirPath = dirPath + imagesRelativePath;
-                HtmlGenerator.addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
-                Map<Card, Integer> cardCount = createCardsMap(cardsList);
-
-                for (Map.Entry<Card, Integer> entry : cardCount.entrySet()) {
-                    writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, imagesRelativePath);
-                }
-            }
-        }
-    }
-
-    /**
      * Writes a list of CardElements to the given writer as a mosaic.
      *
      * <p>This method generates an HTML mosaic of CardElements, each of which is displayed
@@ -665,7 +792,7 @@ public class HtmlGenerator {
         if (cardsList != null) {
             if (!cardsList.isEmpty()) {
                 String imagesDirPath = dirPath + imagesRelativePath;
-                HtmlGenerator.addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
+                addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
 
                 for (CardElement card : cardsList) {
                     writeCardElement(writer, card, imagesDirPath, imagesRelativePath);
@@ -692,7 +819,7 @@ public class HtmlGenerator {
         if (cardsList != null) {
             if (!cardsList.isEmpty()) {
                 String imagesDirPath = dirPath + imagesRelativePath;
-                HtmlGenerator.addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
+                addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
 
                 Map<CardElement, Integer>[] cardCount = createCardsMapWithNotOwned(cardsList);
                 Map<CardElement, Integer> cardCountWithO = cardCount[0];
@@ -731,12 +858,54 @@ public class HtmlGenerator {
         if (cardsList != null) {
             if (!cardsList.isEmpty()) {
                 String imagesDirPath = dirPath + imagesRelativePath;
-                HtmlGenerator.addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
+                addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
 
                 for (CardElement entry : cardsList) {
                     writeCardElement(writer, entry, imagesDirPath, imagesRelativePath);
                 }
             }
+        }
+    }
+
+    /**
+     * Writes a list of CardElements to the writer as an HTML list, distinguishing
+     * all three ownership states:
+     * <ul>
+     *   <li>MISSING — normal yellow-green border (card-element)</li>
+     *   <li>OWNED_SUBSTANDARD — orange border (card-element-orange) plus required
+     *       condition / rarity labels</li>
+     *   <li>OWNED — grayed (card-image grayscale)</li>
+     * </ul>
+     * Used for the detailed OuicheList list view.
+     */
+    public static void displayListWithOwnershipStatus(List<CardElement> cardsList, String name,
+                                                      BufferedWriter writer, String dirPath, String imagesRelativePath) throws IOException {
+        if (cardsList == null || cardsList.isEmpty()) {
+            return;
+        }
+        String imagesDirPath = dirPath + imagesRelativePath;
+        AdvancementStats advancement = computeAdvancement(cardsList);
+        addTitle3WithAdvancement(writer, name.replace("=", ""), advancement);
+
+        Map<CardElement, Integer>[] maps = createCardsMapWithStatus(cardsList);
+        Map<CardElement, Integer> missingMap = maps[0];
+        Map<CardElement, Integer> substandardMap = maps[1];
+        Map<CardElement, Integer> ownedMap = maps[2];
+
+        // MISSING — yellow-green border
+        for (Map.Entry<CardElement, Integer> entry : missingMap.entrySet()) {
+            writeCardElement(writer, entry.getKey(), entry.getValue(),
+                    imagesDirPath, imagesRelativePath);
+        }
+        // OWNED_SUBSTANDARD — orange border + required quality labels
+        for (Map.Entry<CardElement, Integer> entry : substandardMap.entrySet()) {
+            writeCardElementSubstandardList(writer, entry.getKey(), entry.getValue(),
+                    imagesDirPath, imagesRelativePath);
+        }
+        // OWNED — grayscale
+        for (Map.Entry<CardElement, Integer> entry : ownedMap.entrySet()) {
+            writeCardElement(writer, entry.getKey(), entry.getValue(),
+                    imagesDirPath, imagesRelativePath);
         }
     }
 
@@ -1034,47 +1203,6 @@ public class HtmlGenerator {
     }
 
     /**
-     * Writes a list of CardElements to the writer as an HTML list, distinguishing
-     * all three ownership states:
-     * <ul>
-     *   <li>MISSING — normal yellow-green border (card-element)</li>
-     *   <li>OWNED_SUBSTANDARD — orange border (card-element-orange) plus required
-     *       condition / rarity labels</li>
-     *   <li>OWNED — grayed (card-image grayscale)</li>
-     * </ul>
-     * Used for the detailed OuicheList list view.
-     */
-    public static void displayListWithOwnershipStatus(List<CardElement> cardsList, String name,
-                                                      BufferedWriter writer, String dirPath, String imagesRelativePath) throws IOException {
-        if (cardsList == null || cardsList.isEmpty()) {
-            return;
-        }
-        String imagesDirPath = dirPath + imagesRelativePath;
-        addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
-
-        Map<CardElement, Integer>[] maps = createCardsMapWithStatus(cardsList);
-        Map<CardElement, Integer> missingMap = maps[0];
-        Map<CardElement, Integer> substandardMap = maps[1];
-        Map<CardElement, Integer> ownedMap = maps[2];
-
-        // MISSING — yellow-green border
-        for (Map.Entry<CardElement, Integer> entry : missingMap.entrySet()) {
-            writeCardElement(writer, entry.getKey(), entry.getValue(),
-                    imagesDirPath, imagesRelativePath);
-        }
-        // OWNED_SUBSTANDARD — orange border + required quality labels
-        for (Map.Entry<CardElement, Integer> entry : substandardMap.entrySet()) {
-            writeCardElementSubstandardList(writer, entry.getKey(), entry.getValue(),
-                    imagesDirPath, imagesRelativePath);
-        }
-        // OWNED — grayscale
-        for (Map.Entry<CardElement, Integer> entry : ownedMap.entrySet()) {
-            writeCardElement(writer, entry.getKey(), entry.getValue(),
-                    imagesDirPath, imagesRelativePath);
-        }
-    }
-
-    /**
      * Writes a mosaic of CardElements to the writer, distinguishing all three
      * ownership states:
      * <ul>
@@ -1090,7 +1218,8 @@ public class HtmlGenerator {
             return;
         }
         String imagesDirPath = dirPath + imagesRelativePath;
-        addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
+        AdvancementStats advancement = computeAdvancement(cardsList);
+        addTitle3WithAdvancement(writer, name.replace("=", ""), advancement);
 
         for (CardElement entry : cardsList) {
             OwnershipStatus status = entry.getOwnershipStatus();
@@ -1102,6 +1231,43 @@ public class HtmlGenerator {
             } else {
                 writeCardElement(writer, entry.getCard(), false, imagesDirPath, imagesRelativePath);
             }
+        }
+    }
+
+    /**
+     * Holds the computed advancement statistics for a card list with ownership data.
+     * All counts and prices refer to cards that are not yet owned (MISSING status).
+     */
+    public static class AdvancementStats {
+        /**
+         * Number of cards not yet owned.
+         */
+        public final int missingCount;
+        /**
+         * Total number of cards in the list.
+         */
+        public final int totalCount;
+        /**
+         * Sum price of missing cards, formatted to 2 decimal places.
+         */
+        public final String missingPrice;
+        /**
+         * Sum price of all cards in the list, formatted to 2 decimal places.
+         */
+        public final String totalPrice;
+        /**
+         * Percentage of cards already owned, formatted to 1 decimal place.
+         */
+        public final String ownedPercentage;
+
+        public AdvancementStats(int missingCount, int totalCount,
+                                String missingPrice, String totalPrice,
+                                String ownedPercentage) {
+            this.missingCount = missingCount;
+            this.totalCount = totalCount;
+            this.missingPrice = missingPrice;
+            this.totalPrice = totalPrice;
+            this.ownedPercentage = ownedPercentage;
         }
     }
 

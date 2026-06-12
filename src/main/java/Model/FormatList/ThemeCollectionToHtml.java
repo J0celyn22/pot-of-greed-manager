@@ -31,7 +31,7 @@ public class ThemeCollectionToHtml {
                 for (int j = 0; j < themeCollection.getLinkedDecks().size(); j++) {
                     addRectangleBeginning(writer);
                     addTitle3(writer, themeCollection.getLinkedDecks().get(i).get(j).getName(), themeCollection.getLinkedDecks().get(i).get(j).getCardCount(), themeCollection.getLinkedDecks().get(i).get(j).getPrice());
-                    displayList(themeCollection.getLinkedDecks().get(i).get(j).getMainDeck(), "Main.Main deck", writer, dirPath, relativeImagePath);
+                    displayList(themeCollection.getLinkedDecks().get(i).get(j).getMainDeck(), "Main deck", writer, dirPath, relativeImagePath);
                     displayList(themeCollection.getLinkedDecks().get(i).get(j).getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
                     displayList(themeCollection.getLinkedDecks().get(i).get(j).getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
                     addRectangleEnd(writer);
@@ -70,7 +70,7 @@ public class ThemeCollectionToHtml {
                     addRectangleBeginning(writer);
                     addTitle3(writer, themeCollection.getLinkedDecks().get(i).get(j).getName(), themeCollection.getLinkedDecks().get(i).get(j).getCardCount(), themeCollection.getLinkedDecks().get(i).get(j).getPrice());
 
-                    displayMosaic(themeCollection.getLinkedDecks().get(i).get(j).getMainDeck(), "Main.Main deck", writer, dirPath, relativeImagePath);
+                    displayMosaic(themeCollection.getLinkedDecks().get(i).get(j).getMainDeck(), "Main deck", writer, dirPath, relativeImagePath);
                     displayMosaic(themeCollection.getLinkedDecks().get(i).get(j).getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
                     displayMosaic(themeCollection.getLinkedDecks().get(i).get(j).getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
                     addRectangleEnd(writer);

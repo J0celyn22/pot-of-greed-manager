@@ -1,12 +1,17 @@
 package Model.FormatList;
 
+import Model.CardsLists.CardElement;
+import Model.CardsLists.Deck;
 import Model.CardsLists.DecksAndCollectionsList;
+import Model.CardsLists.ThemeCollection;
 
 import java.io.BufferedWriter;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 import static Model.FormatList.HtmlGenerator.*;
 
@@ -20,8 +25,8 @@ public class OuicheListToHtml {
      * for saving the file.</p>
      *
      * @param ouicheList The DecksAndCollectionsList to display.
-     * @param dirPath The path of the output file.
-     * @param fileName The name of the file, which will be sanitized and used as the HTML file name.
+     * @param dirPath    The path of the output file.
+     * @param fileName   The name of the file, which will be sanitized and used as the HTML file name.
      * @throws IOException If an I/O error occurs during file creation or writing.
      */
     public static void generateOuicheListAsListHtml(DecksAndCollectionsList ouicheList, String dirPath, String fileName) throws IOException {
@@ -30,28 +35,40 @@ public class OuicheListToHtml {
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             String relativeImagePath = "..\\Images\\";
             addHeader(writer, fileName, relativeImagePath, dirPath);
-            addTitle(writer, fileName, ouicheList.getCardCount(), ouicheList.getPrice());
+
+            AdvancementStats ouicheListAdvancement = computeAdvancement(collectAllCards(ouicheList));
+            addTitle1WithAdvancement(writer, fileName, ouicheListAdvancement);
+
             addMosaicButton(writer, fileName);
             addOuicheListButton(writer);
 
             if (ouicheList.getCollections() != null) {
-                addTitle2(writer, "Collections", ouicheList.getCollectionsCardCount(), ouicheList.getCollectionsPrice());
+                AdvancementStats collectionsAdvancement = computeAdvancement(collectAllCardsFromCollections(ouicheList));
+                addTitle2WithAdvancement(writer, "Collections", collectionsAdvancement);
+
                 for (int i = 0; i < ouicheList.getCollections().size(); i++) {
+                    ThemeCollection collection = ouicheList.getCollections().get(i);
                     addRectangleBeginning(writer);
-                    addTitle2(writer, ouicheList.getCollections().get(i).getName(), ouicheList.getCollections().get(i).getCardCount(), ouicheList.getCollections().get(i).getPrice());
+
+                    AdvancementStats collectionAdvancement = computeAdvancement(collectAllCardsFromCollection(collection));
+                    addTitle2WithAdvancement(writer, collection.getName(), collectionAdvancement);
 
                     addRectangleBeginning(writer);
-                    displayListWithOwnershipStatus(ouicheList.getCollections().get(i).getCardsList(), "Collection", writer, dirPath, relativeImagePath);
+                    displayListWithOwnershipStatus(collection.getCardsList(), "Collection", writer, dirPath, relativeImagePath);
                     addRectangleEnd(writer);
 
-                    for (int j = 0; j < ouicheList.getCollections().get(i).getLinkedDecks().size(); j++) {
+                    for (int j = 0; j < collection.getLinkedDecks().size(); j++) {
                         addRectangleBeginning(writer);
-                        for (int k = 0; k < ouicheList.getCollections().get(i).getLinkedDecks().get(j).size(); k++) {
+                        for (int k = 0; k < collection.getLinkedDecks().get(j).size(); k++) {
+                            Deck deck = collection.getLinkedDecks().get(j).get(k);
                             addRectangleBeginning(writer);
-                            addTitle3(writer, ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getName(), ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getCardCount(), ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getPrice());
-                            displayListWithOwnershipStatus(ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getMainDeck(), "Main.Main deck", writer, dirPath, relativeImagePath);
-                            displayListWithOwnershipStatus(ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
-                            displayListWithOwnershipStatus(ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
+
+                            AdvancementStats deckAdvancement = computeAdvancement(deck.toList());
+                            addTitle3WithAdvancement(writer, deck.getName(), deckAdvancement);
+
+                            displayListWithOwnershipStatus(deck.getMainDeck(), "Main deck", writer, dirPath, relativeImagePath);
+                            displayListWithOwnershipStatus(deck.getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
+                            displayListWithOwnershipStatus(deck.getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
                             addRectangleEnd(writer);
                         }
                         addRectangleEnd(writer);
@@ -62,13 +79,19 @@ public class OuicheListToHtml {
             }
 
             if (ouicheList.getDecks() != null) {
-                addTitle2(writer, "Decks", ouicheList.getDecksCardCount(), ouicheList.getDecksPrice());
+                AdvancementStats decksAdvancement = computeAdvancement(collectAllCardsFromDecks(ouicheList));
+                addTitle2WithAdvancement(writer, "Decks", decksAdvancement);
+
                 for (int i = 0; i < ouicheList.getDecks().size(); i++) {
+                    Deck deck = ouicheList.getDecks().get(i);
                     addRectangleBeginning(writer);
-                    addTitle3(writer, ouicheList.getDecks().get(i).getName(), ouicheList.getDecks().get(i).getCardCount(), ouicheList.getDecks().get(i).getPrice());
-                    displayListWithOwnershipStatus(ouicheList.getDecks().get(i).getMainDeck(), "Main.Main deck", writer, dirPath, relativeImagePath);
-                    displayListWithOwnershipStatus(ouicheList.getDecks().get(i).getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
-                    displayListWithOwnershipStatus(ouicheList.getDecks().get(i).getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
+
+                    AdvancementStats deckAdvancement = computeAdvancement(deck.toList());
+                    addTitle3WithAdvancement(writer, deck.getName(), deckAdvancement);
+
+                    displayListWithOwnershipStatus(deck.getMainDeck(), "Main deck", writer, dirPath, relativeImagePath);
+                    displayListWithOwnershipStatus(deck.getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
+                    displayListWithOwnershipStatus(deck.getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
                     addRectangleEnd(writer);
                 }
             }
@@ -89,8 +112,8 @@ public class OuicheListToHtml {
      * given file name.</p>
      *
      * @param ouicheList The DecksAndCollectionsList to display.
-     * @param dirPath The path of the output directory.
-     * @param fileName The name of the file, which will be sanitized and used as the HTML file name.
+     * @param dirPath    The path of the output directory.
+     * @param fileName   The name of the file, which will be sanitized and used as the HTML file name.
      * @throws IOException If an I/O error occurs during file creation or writing.
      */
     public static void generateOuicheListAsMosaicHtml(DecksAndCollectionsList ouicheList, String dirPath, String fileName) throws IOException {
@@ -99,28 +122,40 @@ public class OuicheListToHtml {
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             String relativeImagePath = "..\\Images\\";
             addHeader(writer, fileName, relativeImagePath, dirPath);
-            addTitle(writer, fileName, ouicheList.getCardCount(), ouicheList.getPrice());
+
+            AdvancementStats ouicheListAdvancement = computeAdvancement(collectAllCards(ouicheList));
+            addTitle1WithAdvancement(writer, fileName, ouicheListAdvancement);
+
             addListButton(writer, fileName);
             addOuicheListButton(writer);
 
             if (ouicheList.getCollections() != null) {
-                addTitle2(writer, "Collections", ouicheList.getCollectionsCardCount(), ouicheList.getCollectionsPrice());
+                AdvancementStats collectionsAdvancement = computeAdvancement(collectAllCardsFromCollections(ouicheList));
+                addTitle2WithAdvancement(writer, "Collections", collectionsAdvancement);
+
                 for (int i = 0; i < ouicheList.getCollections().size(); i++) {
+                    ThemeCollection collection = ouicheList.getCollections().get(i);
                     addRectangleBeginning(writer);
-                    addTitle2(writer, ouicheList.getCollections().get(i).getName(), ouicheList.getCollections().get(i).getCardCount(), ouicheList.getCollections().get(i).getPrice());
+
+                    AdvancementStats collectionAdvancement = computeAdvancement(collectAllCardsFromCollection(collection));
+                    addTitle2WithAdvancement(writer, collection.getName(), collectionAdvancement);
 
                     addRectangleBeginning(writer);
-                    displayMosaicWithOwnershipStatus(ouicheList.getCollections().get(i).getCardsList(), "Collection", writer, dirPath, relativeImagePath);
+                    displayMosaicWithOwnershipStatus(collection.getCardsList(), "Collection", writer, dirPath, relativeImagePath);
                     addRectangleEnd(writer);
 
-                    for (int j = 0; j < ouicheList.getCollections().get(i).getLinkedDecks().size(); j++) {
+                    for (int j = 0; j < collection.getLinkedDecks().size(); j++) {
                         addRectangleBeginning(writer);
-                        for (int k = 0; k < ouicheList.getCollections().get(i).getLinkedDecks().get(j).size(); k++) {
+                        for (int k = 0; k < collection.getLinkedDecks().get(j).size(); k++) {
+                            Deck deck = collection.getLinkedDecks().get(j).get(k);
                             addRectangleBeginning(writer);
-                            addTitle3(writer, ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getName(), ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getCardCount(), ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getPrice());
-                            displayMosaicWithOwnershipStatus(ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getMainDeck(), "Main.Main deck", writer, dirPath, relativeImagePath);
-                            displayMosaicWithOwnershipStatus(ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
-                            displayMosaicWithOwnershipStatus(ouicheList.getCollections().get(i).getLinkedDecks().get(j).get(k).getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
+
+                            AdvancementStats deckAdvancement = computeAdvancement(deck.toList());
+                            addTitle3WithAdvancement(writer, deck.getName(), deckAdvancement);
+
+                            displayMosaicWithOwnershipStatus(deck.getMainDeck(), "Main deck", writer, dirPath, relativeImagePath);
+                            displayMosaicWithOwnershipStatus(deck.getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
+                            displayMosaicWithOwnershipStatus(deck.getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
                             addRectangleEnd(writer);
                         }
                         addRectangleEnd(writer);
@@ -131,13 +166,19 @@ public class OuicheListToHtml {
             }
 
             if (ouicheList.getDecks() != null) {
-                addTitle2(writer, "Decks", ouicheList.getDecksCardCount(), ouicheList.getDecksPrice());
+                AdvancementStats decksAdvancement = computeAdvancement(collectAllCardsFromDecks(ouicheList));
+                addTitle2WithAdvancement(writer, "Decks", decksAdvancement);
+
                 for (int i = 0; i < ouicheList.getDecks().size(); i++) {
+                    Deck deck = ouicheList.getDecks().get(i);
                     addRectangleBeginning(writer);
-                    addTitle3(writer, ouicheList.getDecks().get(i).getName(), ouicheList.getDecks().get(i).getCardCount(), ouicheList.getDecks().get(i).getPrice());
-                    displayMosaicWithOwnershipStatus(ouicheList.getDecks().get(i).getMainDeck(), "Main.Main deck", writer, dirPath, relativeImagePath);
-                    displayMosaicWithOwnershipStatus(ouicheList.getDecks().get(i).getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
-                    displayMosaicWithOwnershipStatus(ouicheList.getDecks().get(i).getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
+
+                    AdvancementStats deckAdvancement = computeAdvancement(deck.toList());
+                    addTitle3WithAdvancement(writer, deck.getName(), deckAdvancement);
+
+                    displayMosaicWithOwnershipStatus(deck.getMainDeck(), "Main deck", writer, dirPath, relativeImagePath);
+                    displayMosaicWithOwnershipStatus(deck.getExtraDeck(), "Extra deck", writer, dirPath, relativeImagePath);
+                    displayMosaicWithOwnershipStatus(deck.getSideDeck(), "Side deck", writer, dirPath, relativeImagePath);
                     addRectangleEnd(writer);
                 }
             }
@@ -146,5 +187,78 @@ public class OuicheListToHtml {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    /**
+     * Collects all CardElements from every collection and standalone deck in the given list.
+     * Cards shared between a ThemeCollection's cardsList and its linked decks are each
+     * included once per slot they occupy, mirroring how the OuicheList counts them.
+     *
+     * @param ouicheList The DecksAndCollectionsList to collect cards from.
+     * @return A flat list of all CardElements.
+     */
+    private static List<CardElement> collectAllCards(DecksAndCollectionsList ouicheList) {
+        List<CardElement> allCards = new ArrayList<>();
+        if (ouicheList.getCollections() != null) {
+            for (ThemeCollection collection : ouicheList.getCollections()) {
+                allCards.addAll(collectAllCardsFromCollection(collection));
+            }
+        }
+        if (ouicheList.getDecks() != null) {
+            for (Deck deck : ouicheList.getDecks()) {
+                allCards.addAll(deck.toList());
+            }
+        }
+        return allCards;
+    }
+
+    /**
+     * Collects all CardElements from every collection in the given list.
+     *
+     * @param ouicheList The DecksAndCollectionsList to collect from.
+     * @return A flat list of all CardElements belonging to collections.
+     */
+    private static List<CardElement> collectAllCardsFromCollections(DecksAndCollectionsList ouicheList) {
+        List<CardElement> allCards = new ArrayList<>();
+        if (ouicheList.getCollections() != null) {
+            for (ThemeCollection collection : ouicheList.getCollections()) {
+                allCards.addAll(collectAllCardsFromCollection(collection));
+            }
+        }
+        return allCards;
+    }
+
+    /**
+     * Collects all CardElements from a single ThemeCollection: all linked deck cards
+     * followed by the collection's own cardsList.
+     *
+     * @param collection The ThemeCollection to collect cards from.
+     * @return A flat list of all CardElements in the collection.
+     */
+    private static List<CardElement> collectAllCardsFromCollection(ThemeCollection collection) {
+        List<CardElement> allCards = new ArrayList<>();
+        for (List<Deck> deckGroup : collection.getLinkedDecks()) {
+            for (Deck deck : deckGroup) {
+                allCards.addAll(deck.toList());
+            }
+        }
+        allCards.addAll(collection.getCardsList());
+        return allCards;
+    }
+
+    /**
+     * Collects all CardElements from every standalone deck in the given list.
+     *
+     * @param ouicheList The DecksAndCollectionsList to collect from.
+     * @return A flat list of all CardElements belonging to standalone decks.
+     */
+    private static List<CardElement> collectAllCardsFromDecks(DecksAndCollectionsList ouicheList) {
+        List<CardElement> allCards = new ArrayList<>();
+        if (ouicheList.getDecks() != null) {
+            for (Deck deck : ouicheList.getDecks()) {
+                allCards.addAll(deck.toList());
+            }
+        }
+        return allCards;
     }
 }
