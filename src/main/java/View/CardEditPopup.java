@@ -696,6 +696,16 @@ public class CardEditPopup extends Stage {
                 element.setCard(alias);
             }
         }
+
+        // ── Dirty marking ────────────────────────────────────────────────────
+        // Editing a card's properties changes the containing element (deck,
+        // theme collection, box or category), so mark that owner dirty and
+        // refresh the corresponding view, mirroring the pattern used by every
+        // other mutation path (move, swap, paste, drag-and-drop, etc.).
+        Model.CardsLists.CardsGroup containingGroup = CardTreeCell.findGroupForCardElement(element);
+        if (containingGroup != null) {
+            CardTreeCell.markDirtyAndRefreshForGroup(containingGroup);
+        }
     }
 
     // ════════════════════════════════════════════════════════════════════════
