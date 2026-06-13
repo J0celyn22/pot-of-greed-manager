@@ -744,6 +744,9 @@ public class RealMainController {
     /**
      * Re-computes the middle-pane card filter from all active FilterPane pages that
      * have their bottom-left arrow enabled, and pushes it into all live GridViews.
+     *
+     * <p>Also refreshes the OuicheList compact view (List/Mosaic), if currently
+     * displayed, so the same left-pane filters apply there.
      */
     void updateMiddlePaneDisplay() {
         FilterPane filterPane = getActiveFilterPane();
@@ -752,15 +755,7 @@ public class RealMainController {
             filterPane.saveCurrentPageState();
         }
 
-        List<FilterPane.FilterPageState> activeStates = new ArrayList<>();
-        if (filterPane != null) {
-            for (int pageIndex = 0; pageIndex < 5; pageIndex++) {
-                FilterPane.FilterPageState pageState = filterPane.getPageState(pageIndex);
-                if (pageState != null && pageState.enabled && pageState.bottomLeftEnabled) {
-                    activeStates.add(pageState);
-                }
-            }
-        }
+        List<FilterPane.FilterPageState> activeStates = getActiveLeftFilterStates(filterPane);
 
         if (activeStates.isEmpty()) {
             CardTreeCell.setMiddleFilter(null);
@@ -798,6 +793,86 @@ public class RealMainController {
             } else {
                 CardTreeCell.setMiddleElementFilter(null);
             }
+        }
+
+        refreshOuicheListCompactViewIfVisible();
+    }
+
+    /**
+     * Collects the {@link FilterPane.FilterPageState}s that currently apply to the
+     * middle-pane / compact OuicheList display: enabled pages whose bottom-left
+     * arrow is enabled.
+     *
+     * @param filterPane the active filter pane, or {@code null} if none
+     * @return the list of applicable page states, possibly empty
+     */
+    private List<FilterPane.FilterPageState> getActiveLeftFilterStates(FilterPane filterPane) {
+        List<FilterPane.FilterPageState> activeStates = new ArrayList<>();
+        if (filterPane != null) {
+            for (int pageIndex = 0; pageIndex < 5; pageIndex++) {
+                FilterPane.FilterPageState pageState = filterPane.getPageState(pageIndex);
+                if (pageState != null && pageState.enabled && pageState.bottomLeftEnabled) {
+                    activeStates.add(pageState);
+                }
+            }
+        }
+        return activeStates;
+    }
+
+    /**
+     * Builds a single {@link java.util.function.Predicate} on {@link CardElement} that
+     * combines every active left-pane filter (card-level fields plus the per-copy Tags
+     * filter), for use by views that operate on {@link CardElement} maps directly, such
+     * as the OuicheList compact List/Mosaic.
+     *
+     * @return a predicate to apply to each {@link CardElement}, or {@code null} when
+     * no left-pane filter is currently active (meaning every element passes)
+     */
+    public java.util.function.Predicate<CardElement> getCompactOuicheListElementFilter() {
+        FilterPane filterPane = getActiveFilterPane();
+        List<FilterPane.FilterPageState> activeStates = getActiveLeftFilterStates(filterPane);
+
+        if (activeStates.isEmpty()) {
+            return null;
+        }
+
+        final List<FilterPane.FilterPageState> captured = activeStates;
+        return element -> {
+            if (element == null || element.getCard() == null) {
+                return false;
+            }
+            for (FilterPane.FilterPageState pageState : captured) {
+                if (!matchesPageFilter(element.getCard(), pageState)) {
+                    return false;
+                }
+                if (!matchesTagsFilter(element, pageState.tags)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+    }
+
+    /**
+     * Refreshes the OuicheList compact view (List or Mosaic) so its content reflects
+     * the current left-pane filters, but only when the OuicheList tab is currently
+     * showing the compact view.
+     */
+    private void refreshOuicheListCompactViewIfVisible() {
+        Button compactDetailedButton = ouicheListTab.getCompactDetailedButton();
+        Button mosaicListButton = ouicheListTab.getMosaicListButton();
+        if (compactDetailedButton == null || mosaicListButton == null) {
+            return;
+        }
+        boolean isCompactMode = "Detailed mode".equals(compactDetailedButton.getText());
+        if (!isCompactMode) {
+            return;
+        }
+        boolean isMosaicMode = "List".equals(mosaicListButton.getText());
+        try {
+            ouicheListController.displayCompactOuicheList(isMosaicMode);
+        } catch (Exception exception) {
+            logger.error("Error refreshing compact OuicheList after filter change", exception);
         }
     }
 

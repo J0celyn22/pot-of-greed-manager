@@ -354,6 +354,22 @@ public class OuicheListController {
             missingCounts = filteredCounts;
         }
 
+        // Apply the active left-pane filters (FilterPane) to both sections so the
+        // compact view respects the same criteria as the detailed (unified-tree) view.
+        java.util.function.Predicate<CardElement> leftFilter =
+                coordinator.getCompactOuicheListElementFilter();
+        if (leftFilter != null) {
+            Map.Entry<Map<String, CardElement>, Map<String, Integer>> filteredMissing =
+                    applyElementFilter(missingCards, missingCounts, leftFilter);
+            missingCards = filteredMissing.getKey();
+            missingCounts = filteredMissing.getValue();
+
+            Map.Entry<Map<String, CardElement>, Map<String, Integer>> filteredSubstandard =
+                    applyElementFilter(substandardCards, substandardCounts, leftFilter);
+            substandardCards = filteredSubstandard.getKey();
+            substandardCounts = filteredSubstandard.getValue();
+        }
+
         boolean missingEmpty = missingCards == null || missingCards.isEmpty();
         boolean substandardEmpty = substandardCards == null || substandardCards.isEmpty();
 
@@ -776,6 +792,44 @@ public class OuicheListController {
                 }
             });
         }
+    }
+
+    /**
+     * Filters a compact-view {@link CardElement} map (and its parallel counts map, if
+     * any) using {@code predicate}, preserving iteration order.
+     *
+     * @param cards     the source map of unique-card-key to {@link CardElement}, may be {@code null}
+     * @param counts    the parallel map of unique-card-key to copy count, may be {@code null}
+     * @param predicate the predicate each retained {@link CardElement} must satisfy
+     * @return an entry pairing the filtered cards map with the filtered counts map
+     * (the counts map is {@code null} when {@code counts} was {@code null})
+     */
+    private Map.Entry<Map<String, CardElement>, Map<String, Integer>> applyElementFilter(
+            Map<String, CardElement> cards,
+            Map<String, Integer> counts,
+            java.util.function.Predicate<CardElement> predicate) {
+
+        if (cards == null) {
+            return new java.util.AbstractMap.SimpleEntry<>(
+                    new java.util.LinkedHashMap<>(), new java.util.LinkedHashMap<>());
+        }
+
+        Map<String, CardElement> filteredCards = new java.util.LinkedHashMap<>();
+        Map<String, Integer> filteredCounts =
+                (counts != null) ? new java.util.LinkedHashMap<>() : null;
+
+        for (Map.Entry<String, CardElement> entry : cards.entrySet()) {
+            CardElement cardElement = entry.getValue();
+            if (cardElement == null || !predicate.test(cardElement)) {
+                continue;
+            }
+            filteredCards.put(entry.getKey(), cardElement);
+            if (filteredCounts != null && counts.containsKey(entry.getKey())) {
+                filteredCounts.put(entry.getKey(), counts.get(entry.getKey()));
+            }
+        }
+
+        return new java.util.AbstractMap.SimpleEntry<>(filteredCards, filteredCounts);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
