@@ -414,8 +414,9 @@ public class HtmlGenerator {
 
     /**
      * Computes advancement statistics for a list of {@link CardElement} objects.
-     * A card is considered missing when its ownership status is not OWNED and not
-     * OWNED_SUBSTANDARD. Price is read from {@link Model.CardsLists.Card#getPrice()}.
+     * A card is considered missing when its ownership status is not OWNED.
+     * OWNED_SUBSTANDARD cards still need attention and are therefore counted as missing.
+     * Price is read from {@link Model.CardsLists.Card#getPrice()}.
      *
      * @param cardsList The list of card elements to analyse.
      * @return An {@link AdvancementStats} describing the list's completion state.
@@ -431,8 +432,7 @@ public class HtmlGenerator {
                 continue;
             }
             totalCount++;
-            boolean isMissing = (cardElement.getOwnershipStatus() != OwnershipStatus.OWNED)
-                    && (cardElement.getOwnershipStatus() != OwnershipStatus.OWNED_SUBSTANDARD);
+            boolean isMissing = cardElement.getOwnershipStatus() != OwnershipStatus.OWNED;
             float cardPrice = 0f;
             String rawPrice = cardElement.getCard().getPrice();
             if (rawPrice != null && !rawPrice.isEmpty()) {
@@ -461,6 +461,34 @@ public class HtmlGenerator {
                 String.format("%.2f", totalPriceSum),
                 ownedPct
         );
+    }
+
+    /**
+     * Writes a list of CardElements to the given writer as an HTML list.
+     *
+     * <p>This method generates an HTML list of CardElements, each of which is displayed
+     * with a link to its corresponding HTML page. A title is also generated, which
+     * displays the name of the list and the total number of cards in the list.
+     *
+     * @param cardsList          A list of CardElements to be written to the writer.
+     * @param name               A string representing the name of the list to be displayed in the title.
+     * @param writer             The BufferedWriter to which the HTML content will be written.
+     * @param dirPath            The directory path used to construct the links to the HTML pages.
+     * @param imagesRelativePath The relative path from the output files to the images directory.
+     * @throws IOException If an I/O error occurs while writing to the writer.
+     */
+    public static void displayList(List<CardElement> cardsList, String name, BufferedWriter writer, String dirPath, String imagesRelativePath) throws IOException {
+        if (cardsList != null) {
+            if (!cardsList.isEmpty()) {
+                String imagesDirPath = dirPath + imagesRelativePath;
+                addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
+                Map<Card, Integer> cardCount = createCardsMap(cardsList);
+
+                for (Map.Entry<Card, Integer> entry : cardCount.entrySet()) {
+                    writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, imagesRelativePath);
+                }
+            }
+        }
     }
 
     /**
@@ -515,34 +543,6 @@ public class HtmlGenerator {
                 + " - " + advancement.missingPrice + "€/" + advancement.totalPrice + "€"
                 + " - " + advancement.ownedPercentage + "%"
                 + ")</h3>\n");
-    }
-
-    /**
-     * Writes a list of CardElements to the given writer as an HTML list.
-     *
-     * <p>This method generates an HTML list of CardElements, each of which is displayed
-     * with a link to its corresponding HTML page. A title is also generated, which
-     * displays the name of the list and the total number of cards in the list.
-     *
-     * @param cardsList          A list of CardElements to be written to the writer.
-     * @param name               A string representing the name of the list to be displayed in the title.
-     * @param writer             The BufferedWriter to which the HTML content will be written.
-     * @param dirPath            The directory path used to construct the links to the HTML pages.
-     * @param imagesRelativePath The relative path from the output files to the images directory.
-     * @throws IOException If an I/O error occurs while writing to the writer.
-     */
-    public static void displayList(List<CardElement> cardsList, String name, BufferedWriter writer, String dirPath, String imagesRelativePath) throws IOException {
-        if (cardsList != null) {
-            if (!cardsList.isEmpty()) {
-                String imagesDirPath = dirPath + imagesRelativePath;
-                addTitle3(writer, name.replace("=", ""), cardsList.size(), getPriceCardElement(cardsList));
-                Map<Card, Integer> cardCount = createCardsMap(cardsList);
-
-                for (Map.Entry<Card, Integer> entry : cardCount.entrySet()) {
-                    writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, imagesRelativePath);
-                }
-            }
-        }
     }
 
     /**
@@ -775,6 +775,48 @@ public class HtmlGenerator {
     }
 
     /**
+     * Writes a list of CardElements to the writer as an HTML list, distinguishing
+     * all three ownership states:
+     * <ul>
+     *   <li>MISSING — normal yellow-green border (card-element)</li>
+     *   <li>OWNED_SUBSTANDARD — orange border (card-element-orange) plus required
+     *       condition / rarity labels</li>
+     *   <li>OWNED — grayed (card-image grayscale)</li>
+     * </ul>
+     * Used for the detailed OuicheList list view.
+     */
+    public static void displayListWithOwnershipStatus(List<CardElement> cardsList, String name,
+                                                      BufferedWriter writer, String dirPath, String imagesRelativePath) throws IOException {
+        if (cardsList == null || cardsList.isEmpty()) {
+            return;
+        }
+        String imagesDirPath = dirPath + imagesRelativePath;
+        AdvancementStats advancement = computeAdvancement(cardsList);
+        addTitle3WithAdvancement(writer, name.replace("=", ""), advancement);
+
+        Map<CardElement, Integer>[] maps = createCardsMapWithStatus(cardsList);
+        Map<CardElement, Integer> missingMap = maps[0];
+        Map<CardElement, Integer> substandardMap = maps[1];
+        Map<CardElement, Integer> ownedMap = maps[2];
+
+        // MISSING — yellow-green border
+        for (Map.Entry<CardElement, Integer> entry : missingMap.entrySet()) {
+            writeCardElement(writer, entry.getKey(), entry.getValue(),
+                    imagesDirPath, imagesRelativePath);
+        }
+        // OWNED_SUBSTANDARD — orange border + required quality labels
+        for (Map.Entry<CardElement, Integer> entry : substandardMap.entrySet()) {
+            writeCardElementSubstandardList(writer, entry.getKey(), entry.getValue(),
+                    imagesDirPath, imagesRelativePath);
+        }
+        // OWNED — grayscale
+        for (Map.Entry<CardElement, Integer> entry : ownedMap.entrySet()) {
+            writeCardElement(writer, entry.getKey(), entry.getValue(),
+                    imagesDirPath, imagesRelativePath);
+        }
+    }
+
+    /**
      * Writes a list of CardElements to the given writer as a mosaic.
      *
      * <p>This method generates an HTML mosaic of CardElements, each of which is displayed
@@ -864,48 +906,6 @@ public class HtmlGenerator {
                     writeCardElement(writer, entry, imagesDirPath, imagesRelativePath);
                 }
             }
-        }
-    }
-
-    /**
-     * Writes a list of CardElements to the writer as an HTML list, distinguishing
-     * all three ownership states:
-     * <ul>
-     *   <li>MISSING — normal yellow-green border (card-element)</li>
-     *   <li>OWNED_SUBSTANDARD — orange border (card-element-orange) plus required
-     *       condition / rarity labels</li>
-     *   <li>OWNED — grayed (card-image grayscale)</li>
-     * </ul>
-     * Used for the detailed OuicheList list view.
-     */
-    public static void displayListWithOwnershipStatus(List<CardElement> cardsList, String name,
-                                                      BufferedWriter writer, String dirPath, String imagesRelativePath) throws IOException {
-        if (cardsList == null || cardsList.isEmpty()) {
-            return;
-        }
-        String imagesDirPath = dirPath + imagesRelativePath;
-        AdvancementStats advancement = computeAdvancement(cardsList);
-        addTitle3WithAdvancement(writer, name.replace("=", ""), advancement);
-
-        Map<CardElement, Integer>[] maps = createCardsMapWithStatus(cardsList);
-        Map<CardElement, Integer> missingMap = maps[0];
-        Map<CardElement, Integer> substandardMap = maps[1];
-        Map<CardElement, Integer> ownedMap = maps[2];
-
-        // MISSING — yellow-green border
-        for (Map.Entry<CardElement, Integer> entry : missingMap.entrySet()) {
-            writeCardElement(writer, entry.getKey(), entry.getValue(),
-                    imagesDirPath, imagesRelativePath);
-        }
-        // OWNED_SUBSTANDARD — orange border + required quality labels
-        for (Map.Entry<CardElement, Integer> entry : substandardMap.entrySet()) {
-            writeCardElementSubstandardList(writer, entry.getKey(), entry.getValue(),
-                    imagesDirPath, imagesRelativePath);
-        }
-        // OWNED — grayscale
-        for (Map.Entry<CardElement, Integer> entry : ownedMap.entrySet()) {
-            writeCardElement(writer, entry.getKey(), entry.getValue(),
-                    imagesDirPath, imagesRelativePath);
         }
     }
 
@@ -1203,38 +1203,6 @@ public class HtmlGenerator {
     }
 
     /**
-     * Writes a mosaic of CardElements to the writer, distinguishing all three
-     * ownership states:
-     * <ul>
-     *   <li>MISSING — normal image</li>
-     *   <li>OWNED_SUBSTANDARD — red glow (glow-red CSS class)</li>
-     *   <li>OWNED — grayscale</li>
-     * </ul>
-     * Used for the detailed OuicheList mosaic view.
-     */
-    public static void displayMosaicWithOwnershipStatus(List<CardElement> cardsList, String name,
-                                                        BufferedWriter writer, String dirPath, String imagesRelativePath) throws IOException {
-        if (cardsList == null || cardsList.isEmpty()) {
-            return;
-        }
-        String imagesDirPath = dirPath + imagesRelativePath;
-        AdvancementStats advancement = computeAdvancement(cardsList);
-        addTitle3WithAdvancement(writer, name.replace("=", ""), advancement);
-
-        for (CardElement entry : cardsList) {
-            OwnershipStatus status = entry.getOwnershipStatus();
-            if (status == OwnershipStatus.OWNED) {
-                writeCardElement(writer, entry.getCard(), true, imagesDirPath, imagesRelativePath);
-            } else if (status == OwnershipStatus.OWNED_SUBSTANDARD) {
-                writeCardElementSubstandardMosaic(writer, entry.getCard(),
-                        imagesDirPath, imagesRelativePath);
-            } else {
-                writeCardElement(writer, entry.getCard(), false, imagesDirPath, imagesRelativePath);
-            }
-        }
-    }
-
-    /**
      * Holds the computed advancement statistics for a card list with ownership data.
      * All counts and prices refer to cards that are not yet owned (MISSING status).
      */
@@ -1268,6 +1236,38 @@ public class HtmlGenerator {
             this.missingPrice = missingPrice;
             this.totalPrice = totalPrice;
             this.ownedPercentage = ownedPercentage;
+        }
+    }
+
+    /**
+     * Writes a mosaic of CardElements to the writer, distinguishing all three
+     * ownership states:
+     * <ul>
+     *   <li>MISSING — normal image</li>
+     *   <li>OWNED_SUBSTANDARD — red glow (glow-red CSS class)</li>
+     *   <li>OWNED — grayscale</li>
+     * </ul>
+     * Used for the detailed OuicheList mosaic view.
+     */
+    public static void displayMosaicWithOwnershipStatus(List<CardElement> cardsList, String name,
+                                                        BufferedWriter writer, String dirPath, String imagesRelativePath) throws IOException {
+        if (cardsList == null || cardsList.isEmpty()) {
+            return;
+        }
+        String imagesDirPath = dirPath + imagesRelativePath;
+        AdvancementStats advancement = computeAdvancement(cardsList);
+        addTitle3WithAdvancement(writer, name.replace("=", ""), advancement);
+
+        for (CardElement entry : cardsList) {
+            OwnershipStatus status = entry.getOwnershipStatus();
+            if (status == OwnershipStatus.OWNED) {
+                writeCardElement(writer, entry.getCard(), true, imagesDirPath, imagesRelativePath);
+            } else if (status == OwnershipStatus.OWNED_SUBSTANDARD) {
+                writeCardElementSubstandardMosaic(writer, entry.getCard(),
+                        imagesDirPath, imagesRelativePath);
+            } else {
+                writeCardElement(writer, entry.getCard(), false, imagesDirPath, imagesRelativePath);
+            }
         }
     }
 

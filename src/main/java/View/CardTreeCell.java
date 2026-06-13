@@ -1064,6 +1064,114 @@ public class CardTreeCell extends TreeCell<String> {
         return false;
     }
 
+    // ── OuicheList advancement stats helpers ──────────────────────────────────
+
+    /**
+     * Computes advancement stats for the given card list and returns a formatted
+     * display string: {@code (missing/total - missingPrice€/totalPrice€ - pct%)}.
+     * Returns an empty string if the list is null or empty.
+     *
+     * @param cardsList The list of card elements with ownership status.
+     * @return The formatted advancement string, or {@code ""} if unavailable.
+     */
+    private String buildAdvancementLabel(List<CardElement> cardsList) {
+        if (cardsList == null || cardsList.isEmpty()) {
+            return "";
+        }
+        int totalCount = 0;
+        int missingCount = 0;
+        float missingPriceSum = 0f;
+        float totalPriceSum = 0f;
+
+        for (CardElement cardElement : cardsList) {
+            if (cardElement == null || cardElement.getCard() == null) {
+                continue;
+            }
+            totalCount++;
+            boolean isMissing = cardElement.getOwnershipStatus() != OwnershipStatus.OWNED;
+            float cardPrice = 0f;
+            String rawPrice = cardElement.getCard().getPrice();
+            if (rawPrice != null && !rawPrice.isEmpty()) {
+                try {
+                    cardPrice = Float.parseFloat(rawPrice);
+                } catch (NumberFormatException numberFormatException) {
+                    logger.warn("Could not parse card price: {}", rawPrice);
+                }
+            }
+            totalPriceSum += cardPrice;
+            if (isMissing) {
+                missingCount++;
+                missingPriceSum += cardPrice;
+            }
+        }
+
+        if (totalCount == 0) {
+            return "";
+        }
+        int ownedCount = totalCount - missingCount;
+        String ownedPct = String.format("%.1f", (ownedCount * 100f) / totalCount);
+        String missingPriceFmt = String.format("%.2f", missingPriceSum);
+        String totalPriceFmt = String.format("%.2f", totalPriceSum);
+        return "(" + missingCount + "/" + totalCount
+                + " - " + missingPriceFmt + "€/" + totalPriceFmt + "€"
+                + " - " + ownedPct + "%)";
+    }
+
+    /**
+     * Collects all {@link CardElement}s from a single {@link ThemeCollection}:
+     * all cards in every linked deck followed by the collection's own cardsList.
+     *
+     * @param collection The ThemeCollection to collect cards from.
+     * @return A flat list of all CardElements in the collection.
+     */
+    private List<CardElement> collectCardsFromCollection(
+            Model.CardsLists.ThemeCollection collection) {
+        List<CardElement> allCards = new ArrayList<>();
+        if (collection.getLinkedDecks() != null) {
+            for (List<Model.CardsLists.Deck> deckGroup : collection.getLinkedDecks()) {
+                if (deckGroup == null) {
+                    continue;
+                }
+                for (Model.CardsLists.Deck deck : deckGroup) {
+                    if (deck != null) {
+                        allCards.addAll(deck.toList());
+                    }
+                }
+            }
+        }
+        if (collection.getCardsList() != null) {
+            allCards.addAll(collection.getCardsList());
+        }
+        return allCards;
+    }
+
+    /**
+     * Builds an {@link HBox} title row with the item name on the left and the
+     * advancement stats label pushed to the right via a flexible spring.
+     * Used exclusively in the OuicheList detailed-mode tree.
+     *
+     * @param name  The display name (collection, deck, or section name).
+     * @param stats The formatted stats string from {@link #buildAdvancementLabel}.
+     * @return An HBox ready to be passed to {@link #setGraphic(Node)}.
+     */
+    private HBox buildOuicheListTitleRow(String name, String stats) {
+        Label nameLabel = new Label(name);
+        nameLabel.getStyleClass().add("tree-item-label");
+
+        HBox spring = new HBox();
+        HBox.setHgrow(spring, Priority.ALWAYS);
+
+        Label statsLabel = new Label(stats);
+        statsLabel.setStyle(
+                "-fx-text-fill: #aaaaaa;"
+                        + "-fx-font-size: 11px;"
+                        + "-fx-padding: 0 4 0 0;");
+
+        HBox titleRow = new HBox(6, nameLabel, spring, statsLabel);
+        titleRow.setAlignment(Pos.CENTER_LEFT);
+        return titleRow;
+    }
+
     // ---------- Helpers for building proposals (add inside CardTreeCell class) ----------
 
     /**
@@ -1408,6 +1516,10 @@ public class CardTreeCell extends TreeCell<String> {
                             e.consume();
                         });
                         setGraphic(titleRow);
+                    } else if (isOuicheListTabSelected()) {
+                        List<CardElement> collectionCards = collectCardsFromCollection(tc);
+                        String stats = buildAdvancementLabel(collectionCards);
+                        setGraphic(buildOuicheListTitleRow(itemName, stats));
                     } else {
                         setGraphic(label);
                     }
@@ -1491,6 +1603,9 @@ public class CardTreeCell extends TreeCell<String> {
                             }
                         });
                         setGraphic(titleRow);
+                    } else if (isOuicheListTabSelected()) {
+                        String stats = buildAdvancementLabel(deck.toList());
+                        setGraphic(buildOuicheListTitleRow(itemName, stats));
                     } else {
                         setGraphic(label);
                     }
