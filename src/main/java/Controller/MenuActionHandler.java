@@ -159,6 +159,14 @@ public final class MenuActionHandler {
 
         lastAddedTarget = handlerTarget;
 
+        try {
+            OuicheList.onOwnedCardAdded(newElement);
+            UserInterfaceFunctions.refreshOuicheListView();
+        } catch (Throwable throwable) {
+            logger.error("OuicheList update failed after adding owned card '{}'",
+                    card.getName_EN(), throwable);
+        }
+
         UserInterfaceFunctions.markMyCollectionDirty();
         UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
     }
@@ -905,7 +913,7 @@ public final class MenuActionHandler {
             lastDecksAddedTarget = handlerTarget;
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
         } catch (Throwable throwable) {
-            logger.debug("handleAddToDeck failed for target {}", handlerTarget, throwable);
+            logger.error("handleAddToDeck failed for target '{}'", handlerTarget, throwable);
         }
     }
 
@@ -929,8 +937,7 @@ public final class MenuActionHandler {
             lastDecksAddedTarget = collectionName + " / Cards";
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
         } catch (Throwable throwable) {
-            logger.debug("handleAddToCollectionCards failed for collection {}",
-                    collectionName, throwable);
+            logger.error("handleAddToCollectionCards failed for collection '{}'", collectionName, throwable);
         }
     }
 
@@ -981,9 +988,18 @@ public final class MenuActionHandler {
         if (foundCollection.getCardsList() == null) {
             foundCollection.setCardsList(new ArrayList<>());
         }
-        foundCollection.getCardsList().add(new CardElement(card));
+        CardElement newElement = new CardElement(card);
+        foundCollection.getCardsList().add(newElement);
         logger.debug("handleAddToCollectionCards: added '{}' to collection '{}'",
                 card.getName_EN(), collectionName);
+
+        try {
+            OuicheList.onDeckCardAdded(newElement, null, null, foundCollection.getName());
+            UserInterfaceFunctions.refreshOuicheListView();
+        } catch (Throwable throwable) {
+            logger.error("OuicheList update failed after adding '{}' to collection '{}'",
+                    card.getName_EN(), collectionName, throwable);
+        }
 
         UserInterfaceFunctions.markDirty(foundCollection);
         UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
@@ -1127,14 +1143,27 @@ public final class MenuActionHandler {
         }
 
         CardElement newElement = new CardElement(card);
+        String sectionName;
         if (isMain) {
             targetDeck.getMainDeck().add(newElement);
+            sectionName = "main";
         } else if (isExtra) {
             targetDeck.getExtraDeck().add(newElement);
+            sectionName = "extra";
         } else {
             targetDeck.getSideDeck().add(newElement);
+            sectionName = "side";
         }
         logger.debug("doAddToDeck: added '{}' to '{}'", card.getName_EN(), handlerTarget);
+
+        try {
+            String parentCollectionName = findCollectionNameForDeck(targetDeck, decksAndCollections);
+            OuicheList.onDeckCardAdded(newElement, targetDeck.getName(), sectionName, parentCollectionName);
+            UserInterfaceFunctions.refreshOuicheListView();
+        } catch (Throwable throwable) {
+            logger.error("OuicheList update failed after adding '{}' to deck '{}'",
+                    card.getName_EN(), handlerTarget, throwable);
+        }
 
         UserInterfaceFunctions.markDirty(targetDeck);
         UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
@@ -1173,6 +1202,34 @@ public final class MenuActionHandler {
     }
 
     // ── doAddToDeck + findDeckInDac ───────────────────────────────────────────
+
+    /**
+     * Returns the name of the {@link ThemeCollection} that owns {@code deck} within
+     * {@code decksAndCollections}, or {@code null} if the deck is standalone.
+     */
+    private static String findCollectionNameForDeck(Deck deck,
+                                                    DecksAndCollectionsList decksAndCollections) {
+        if (deck == null || decksAndCollections == null
+                || decksAndCollections.getCollections() == null) {
+            return null;
+        }
+        for (ThemeCollection themeCollection : decksAndCollections.getCollections()) {
+            if (themeCollection == null || themeCollection.getLinkedDecks() == null) {
+                continue;
+            }
+            for (List<Deck> unit : themeCollection.getLinkedDecks()) {
+                if (unit == null) {
+                    continue;
+                }
+                for (Deck linkedDeck : unit) {
+                    if (linkedDeck == deck) {
+                        return themeCollection.getName();
+                    }
+                }
+            }
+        }
+        return null;
+    }
 
     /**
      * Finds all {@link CardElement} instances in the {@link OwnedCardsCollection}
@@ -1387,6 +1444,8 @@ public final class MenuActionHandler {
                 continue;
             }
             if (removeElementFromBox(targetElement, box)) {
+                OuicheList.onOwnedCardRemoved(targetElement);
+                UserInterfaceFunctions.refreshOuicheListView();
                 return;
             }
         }
@@ -1473,7 +1532,7 @@ public final class MenuActionHandler {
             lastDecksAddedTarget = handlerTarget;
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
         } catch (Throwable throwable) {
-            logger.debug("handleBulkAddToDeck failed for target {}", handlerTarget, throwable);
+            logger.error("handleBulkAddToDeck failed for target '{}'", handlerTarget, throwable);
         }
     }
 
@@ -1505,7 +1564,8 @@ public final class MenuActionHandler {
             lastDecksAddedTarget = collectionName + " / Cards";
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
         } catch (Throwable throwable) {
-            logger.debug("handleBulkAddToCollectionCards failed for {}", collectionName, throwable);
+            logger.error("handleBulkAddToCollectionCards failed for collection '{}'",
+                    collectionName, throwable);
         }
     }
 
@@ -1602,6 +1662,7 @@ public final class MenuActionHandler {
                 }
             }
 
+            List<CardElement> addedToHost = new ArrayList<>();
             if (!compatible.isEmpty()) {
                 javafx.collections.ObservableList<CardElement> list =
                         CardTreeCell.observableListFor(hostGroup);
@@ -1611,11 +1672,15 @@ public final class MenuActionHandler {
                 }
                 for (int i = 0; i < compatible.size(); i++) {
                     int pos = Math.min(insertionIndex + 1 + i, list.size());
-                    list.add(pos, new CardElement(compatible.get(i)));
+                    CardElement newElement = new CardElement(compatible.get(i));
+                    list.add(pos, newElement);
+                    addedToHost.add(newElement);
                 }
                 CardTreeCell.triggerHeightAdjustment(hostGroup);
             }
+            CardGroupRegistry.notifyOuicheListOfGroupAdditions(hostGroup, addedToHost);
 
+            List<CardElement> addedToAlt = new ArrayList<>();
             if (!incompatible.isEmpty()) {
                 String redirect = Utils.DeckCompatibility.redirectSection(
                         incompatible.get(0).getCard(), groupName);
@@ -1632,14 +1697,17 @@ public final class MenuActionHandler {
                             javafx.collections.ObservableList<CardElement> altList =
                                     CardTreeCell.observableListFor(altGroup);
                             for (CardElement source : incompatible) {
-                                altList.add(new CardElement(source));
+                                CardElement newElement = new CardElement(source);
+                                altList.add(newElement);
+                                addedToAlt.add(newElement);
                             }
                             CardTreeCell.triggerHeightAdjustment(altGroup);
+                            CardGroupRegistry.notifyOuicheListOfGroupAdditions(altGroup, addedToAlt);
                         }
                     }
                 }
             }
-            return !compatible.isEmpty() || !incompatible.isEmpty();
+            return !addedToHost.isEmpty() || !addedToAlt.isEmpty();
         }
         // ──────────────────────────────────────────────────────────────────
 
@@ -1650,6 +1718,7 @@ public final class MenuActionHandler {
         if (insertionIndex < 0) {
             insertionIndex = observableList.size() - 1;
         }
+        List<CardElement> addedToGroup = new ArrayList<>();
         for (int i = 0; i < elementsToInsert.size(); i++) {
             CardElement source = elementsToInsert.get(i);
             if (source == null) {
@@ -1659,10 +1728,13 @@ public final class MenuActionHandler {
             if (targetIndex > observableList.size()) {
                 targetIndex = observableList.size();
             }
-            observableList.add(targetIndex, new CardElement(source));
+            CardElement newElement = new CardElement(source);
+            observableList.add(targetIndex, newElement);
+            addedToGroup.add(newElement);
         }
         CardTreeCell.triggerHeightAdjustment(hostGroup);
-        return true;
+        CardGroupRegistry.notifyOuicheListOfGroupAdditions(hostGroup, addedToGroup);
+        return !addedToGroup.isEmpty();
     }
 
     /**
@@ -1858,15 +1930,10 @@ public final class MenuActionHandler {
             return;
         }
 
-        java.util.function.Predicate<List<CardElement>> removeMatching = list -> {
-            if (list == null) {
-                return false;
-            }
-            return list.removeIf(cardElement ->
-                    cardElement != null
-                            && cardElement.getCard() != null
-                            && collectionContainsCard(cardsToRemove, cardElement.getCard()));
-        };
+        java.util.function.Predicate<CardElement> matchesPredicate = cardElement ->
+                cardElement != null
+                        && cardElement.getCard() != null
+                        && collectionContainsCard(cardsToRemove, cardElement.getCard());
 
         java.util.Set<Object> dirtyOwners = new java.util.LinkedHashSet<>();
 
@@ -1875,11 +1942,15 @@ public final class MenuActionHandler {
                 if (themeCollection == null) {
                     continue;
                 }
-                boolean tcChanged =
-                        removeMatching.test(themeCollection.getCardsList())
-                                | removeMatching.test(themeCollection.getExceptionsToNotAdd());
-                if (tcChanged) {
+                List<CardElement> removedFromCards =
+                        removeMatchingAndCollect(themeCollection.getCardsList(), matchesPredicate);
+                List<CardElement> removedFromExceptions =
+                        removeMatchingAndCollect(themeCollection.getExceptionsToNotAdd(), matchesPredicate);
+                if (!removedFromCards.isEmpty() || !removedFromExceptions.isEmpty()) {
                     dirtyOwners.add(themeCollection);
+                    for (CardElement removed : removedFromCards) {
+                        OuicheList.onDeckCardRemoved(removed, null, null, themeCollection.getName());
+                    }
                 }
                 if (themeCollection.getLinkedDecks() != null) {
                     for (List<Deck> unit : themeCollection.getLinkedDecks()) {
@@ -1890,12 +1961,26 @@ public final class MenuActionHandler {
                             if (deck == null) {
                                 continue;
                             }
-                            boolean changed =
-                                    removeMatching.test(deck.getMainDeck())
-                                            | removeMatching.test(deck.getExtraDeck())
-                                            | removeMatching.test(deck.getSideDeck());
-                            if (changed) {
+                            List<CardElement> removedMain =
+                                    removeMatchingAndCollect(deck.getMainDeck(), matchesPredicate);
+                            List<CardElement> removedExtra =
+                                    removeMatchingAndCollect(deck.getExtraDeck(), matchesPredicate);
+                            List<CardElement> removedSide =
+                                    removeMatchingAndCollect(deck.getSideDeck(), matchesPredicate);
+                            if (!removedMain.isEmpty() || !removedExtra.isEmpty() || !removedSide.isEmpty()) {
                                 dirtyOwners.add(deck);
+                                for (CardElement removed : removedMain) {
+                                    OuicheList.onDeckCardRemoved(removed, deck.getName(), "main",
+                                            themeCollection.getName());
+                                }
+                                for (CardElement removed : removedExtra) {
+                                    OuicheList.onDeckCardRemoved(removed, deck.getName(), "extra",
+                                            themeCollection.getName());
+                                }
+                                for (CardElement removed : removedSide) {
+                                    OuicheList.onDeckCardRemoved(removed, deck.getName(), "side",
+                                            themeCollection.getName());
+                                }
                             }
                         }
                     }
@@ -1907,12 +1992,23 @@ public final class MenuActionHandler {
                 if (deck == null) {
                     continue;
                 }
-                boolean changed =
-                        removeMatching.test(deck.getMainDeck())
-                                | removeMatching.test(deck.getExtraDeck())
-                                | removeMatching.test(deck.getSideDeck());
-                if (changed) {
+                List<CardElement> removedMain =
+                        removeMatchingAndCollect(deck.getMainDeck(), matchesPredicate);
+                List<CardElement> removedExtra =
+                        removeMatchingAndCollect(deck.getExtraDeck(), matchesPredicate);
+                List<CardElement> removedSide =
+                        removeMatchingAndCollect(deck.getSideDeck(), matchesPredicate);
+                if (!removedMain.isEmpty() || !removedExtra.isEmpty() || !removedSide.isEmpty()) {
                     dirtyOwners.add(deck);
+                    for (CardElement removed : removedMain) {
+                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "main", null);
+                    }
+                    for (CardElement removed : removedExtra) {
+                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "extra", null);
+                    }
+                    for (CardElement removed : removedSide) {
+                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "side", null);
+                    }
                 }
             }
         }
@@ -1923,6 +2019,7 @@ public final class MenuActionHandler {
         if (!dirtyOwners.isEmpty()) {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
+            UserInterfaceFunctions.refreshOuicheListView();
         }
     }
 
@@ -1944,18 +2041,12 @@ public final class MenuActionHandler {
             return;
         }
 
-        // Identity-based set so two CardElements wrapping the same Card are treated independently
         java.util.Set<CardElement> identitySet =
                 java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
         identitySet.addAll(elementsToRemove);
 
-        java.util.function.Predicate<List<CardElement>> removeMatching = list -> {
-            if (list == null) {
-                return false;
-            }
-            return list.removeIf(cardElement ->
-                    cardElement != null && identitySet.contains(cardElement));
-        };
+        java.util.function.Predicate<CardElement> matchesPredicate =
+                cardElement -> cardElement != null && identitySet.contains(cardElement);
 
         java.util.Set<Object> dirtyOwners = new java.util.LinkedHashSet<>();
 
@@ -1964,11 +2055,15 @@ public final class MenuActionHandler {
                 if (themeCollection == null) {
                     continue;
                 }
-                boolean tcChanged =
-                        removeMatching.test(themeCollection.getCardsList())
-                                | removeMatching.test(themeCollection.getExceptionsToNotAdd());
-                if (tcChanged) {
+                List<CardElement> removedFromCards =
+                        removeMatchingAndCollect(themeCollection.getCardsList(), matchesPredicate);
+                List<CardElement> removedFromExceptions =
+                        removeMatchingAndCollect(themeCollection.getExceptionsToNotAdd(), matchesPredicate);
+                if (!removedFromCards.isEmpty() || !removedFromExceptions.isEmpty()) {
                     dirtyOwners.add(themeCollection);
+                    for (CardElement removed : removedFromCards) {
+                        OuicheList.onDeckCardRemoved(removed, null, null, themeCollection.getName());
+                    }
                 }
                 if (themeCollection.getLinkedDecks() != null) {
                     for (List<Deck> unit : themeCollection.getLinkedDecks()) {
@@ -1979,12 +2074,26 @@ public final class MenuActionHandler {
                             if (deck == null) {
                                 continue;
                             }
-                            boolean changed =
-                                    removeMatching.test(deck.getMainDeck())
-                                            | removeMatching.test(deck.getExtraDeck())
-                                            | removeMatching.test(deck.getSideDeck());
-                            if (changed) {
+                            List<CardElement> removedMain =
+                                    removeMatchingAndCollect(deck.getMainDeck(), matchesPredicate);
+                            List<CardElement> removedExtra =
+                                    removeMatchingAndCollect(deck.getExtraDeck(), matchesPredicate);
+                            List<CardElement> removedSide =
+                                    removeMatchingAndCollect(deck.getSideDeck(), matchesPredicate);
+                            if (!removedMain.isEmpty() || !removedExtra.isEmpty() || !removedSide.isEmpty()) {
                                 dirtyOwners.add(deck);
+                                for (CardElement removed : removedMain) {
+                                    OuicheList.onDeckCardRemoved(removed, deck.getName(), "main",
+                                            themeCollection.getName());
+                                }
+                                for (CardElement removed : removedExtra) {
+                                    OuicheList.onDeckCardRemoved(removed, deck.getName(), "extra",
+                                            themeCollection.getName());
+                                }
+                                for (CardElement removed : removedSide) {
+                                    OuicheList.onDeckCardRemoved(removed, deck.getName(), "side",
+                                            themeCollection.getName());
+                                }
                             }
                         }
                     }
@@ -1996,12 +2105,23 @@ public final class MenuActionHandler {
                 if (deck == null) {
                     continue;
                 }
-                boolean changed =
-                        removeMatching.test(deck.getMainDeck())
-                                | removeMatching.test(deck.getExtraDeck())
-                                | removeMatching.test(deck.getSideDeck());
-                if (changed) {
+                List<CardElement> removedMain =
+                        removeMatchingAndCollect(deck.getMainDeck(), matchesPredicate);
+                List<CardElement> removedExtra =
+                        removeMatchingAndCollect(deck.getExtraDeck(), matchesPredicate);
+                List<CardElement> removedSide =
+                        removeMatchingAndCollect(deck.getSideDeck(), matchesPredicate);
+                if (!removedMain.isEmpty() || !removedExtra.isEmpty() || !removedSide.isEmpty()) {
                     dirtyOwners.add(deck);
+                    for (CardElement removed : removedMain) {
+                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "main", null);
+                    }
+                    for (CardElement removed : removedExtra) {
+                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "extra", null);
+                    }
+                    for (CardElement removed : removedSide) {
+                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "side", null);
+                    }
                 }
             }
         }
@@ -2012,10 +2132,33 @@ public final class MenuActionHandler {
         if (!dirtyOwners.isEmpty()) {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
+            UserInterfaceFunctions.refreshOuicheListView();
         }
     }
 
     // ── Bulk remove from Decks & Collections ──────────────────────────────────
+
+    /**
+     * Removes all elements from {@code list} that satisfy {@code predicate},
+     * returning the removed elements. Returns an empty list if {@code list} is
+     * {@code null} or nothing matched.
+     */
+    private static List<CardElement> removeMatchingAndCollect(
+            List<CardElement> list, java.util.function.Predicate<CardElement> predicate) {
+        List<CardElement> removed = new ArrayList<>();
+        if (list == null) {
+            return removed;
+        }
+        java.util.Iterator<CardElement> iterator = list.iterator();
+        while (iterator.hasNext()) {
+            CardElement element = iterator.next();
+            if (predicate.test(element)) {
+                removed.add(element);
+                iterator.remove();
+            }
+        }
+        return removed;
+    }
 
     /**
      * Inserts fresh {@link CardElement} instances (one per card) immediately
@@ -2080,7 +2223,7 @@ public final class MenuActionHandler {
                 }
             }
 
-            // Insert compatible cards after afterElement in hostGroup
+            List<CardElement> addedToHost = new ArrayList<>();
             if (!compatible.isEmpty()) {
                 javafx.collections.ObservableList<CardElement> list =
                         CardTreeCell.observableListFor(hostGroup);
@@ -2090,12 +2233,15 @@ public final class MenuActionHandler {
                 }
                 for (int i = 0; i < compatible.size(); i++) {
                     int pos = Math.min(insertionIndex + 1 + i, list.size());
-                    list.add(pos, new CardElement(compatible.get(i)));
+                    CardElement newElement = new CardElement(compatible.get(i));
+                    list.add(pos, newElement);
+                    addedToHost.add(newElement);
                 }
                 CardTreeCell.triggerHeightAdjustment(hostGroup);
             }
+            CardGroupRegistry.notifyOuicheListOfGroupAdditions(hostGroup, addedToHost);
 
-            // Append incompatible cards to the end of the sibling section
+            List<CardElement> addedToAlt = new ArrayList<>();
             if (!incompatible.isEmpty()) {
                 String redirect = Utils.DeckCompatibility.redirectSection(
                         incompatible.get(0), groupName);
@@ -2103,21 +2249,24 @@ public final class MenuActionHandler {
                     Deck ownerDeck = CardTreeCell.findDeckOwnerForGroup(hostGroup);
                     if (ownerDeck != null) {
                         String sectionKey = redirect.toLowerCase(java.util.Locale.ROOT)
-                                .replace(" deck", "").trim(); // "main" or "extra"
+                                .replace(" deck", "").trim();
                         CardsGroup altGroup =
                                 CardTreeCell.getDeckSectionGroup(ownerDeck, sectionKey);
                         if (altGroup != null) {
                             javafx.collections.ObservableList<CardElement> altList =
                                     CardTreeCell.observableListFor(altGroup);
                             for (Card card : incompatible) {
-                                altList.add(new CardElement(card));
+                                CardElement newElement = new CardElement(card);
+                                altList.add(newElement);
+                                addedToAlt.add(newElement);
                             }
                             CardTreeCell.triggerHeightAdjustment(altGroup);
+                            CardGroupRegistry.notifyOuicheListOfGroupAdditions(altGroup, addedToAlt);
                         }
                     }
                 }
             }
-            return !compatible.isEmpty() || !incompatible.isEmpty();
+            return !addedToHost.isEmpty() || !addedToAlt.isEmpty();
         }
         // ──────────────────────────────────────────────────────────────────
 
@@ -2128,7 +2277,7 @@ public final class MenuActionHandler {
         if (insertionIndex < 0) {
             insertionIndex = observableList.size() - 1;
         }
-
+        List<CardElement> addedToGroup = new ArrayList<>();
         for (int i = 0; i < cardsToInsert.size(); i++) {
             Card card = cardsToInsert.get(i);
             if (card == null) {
@@ -2138,10 +2287,13 @@ public final class MenuActionHandler {
             if (targetIndex > observableList.size()) {
                 targetIndex = observableList.size();
             }
-            observableList.add(targetIndex, new CardElement(card));
+            CardElement newElement = new CardElement(card);
+            observableList.add(targetIndex, newElement);
+            addedToGroup.add(newElement);
         }
         CardTreeCell.triggerHeightAdjustment(hostGroup);
-        return true;
+        CardGroupRegistry.notifyOuicheListOfGroupAdditions(hostGroup, addedToGroup);
+        return !addedToGroup.isEmpty();
     }
 
     /**

@@ -557,6 +557,19 @@ public class RealMainController {
         } catch (Exception exception) {
             logger.error("Error displaying Decks and Collections", exception);
         }
+
+        UserInterfaceFunctions.registerOuicheListRefresher(() -> {
+            if (!ouicheListLoaded) {
+                return;
+            }
+            try {
+                ouicheListController.displayOuicheListUnified();
+                ouicheListController.populateOuicheListMenu();
+                refreshOuicheListCompactViewIfVisible();
+            } catch (Exception exception) {
+                logger.debug("OuicheList refresher failed", exception);
+            }
+        });
     }
 
     private void handleOuicheListTabSelected() {
@@ -2433,28 +2446,54 @@ public class RealMainController {
             }
             javafx.collections.ObservableList<CardElement> observableList =
                     CardTreeCell.observableListFor(defaultGroup);
+            List<CardElement> addedElements = new ArrayList<>();
             for (CardElement element : elements) {
                 if (element != null) {
-                    observableList.add(new CardElement(element));
+                    CardElement newElement = new CardElement(element);
+                    observableList.add(newElement);
+                    addedElements.add(newElement);
                 }
             }
             CardTreeCell.triggerHeightAdjustment(defaultGroup);
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
+            for (CardElement added : addedElements) {
+                try {
+                    OuicheList.onOwnedCardAdded(added);
+                } catch (Throwable throwable) {
+                    logger.error("OuicheList update failed after paste into box", throwable);
+                }
+            }
+            if (!addedElements.isEmpty()) {
+                UserInterfaceFunctions.refreshOuicheListView();
+            }
 
         } else if (modelObj instanceof CardsGroup group) {
             javafx.collections.ObservableList<CardElement> observableList =
                     CardTreeCell.observableListFor(group);
+            List<CardElement> addedElements = new ArrayList<>();
             for (CardElement element : elements) {
                 if (element != null) {
-                    observableList.add(new CardElement(element));
+                    CardElement newElement = new CardElement(element);
+                    observableList.add(newElement);
+                    addedElements.add(newElement);
                 }
             }
             CardTreeCell.triggerHeightAdjustment(group);
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
+            for (CardElement added : addedElements) {
+                try {
+                    OuicheList.onOwnedCardAdded(added);
+                } catch (Throwable throwable) {
+                    logger.error("OuicheList update failed after paste into group", throwable);
+                }
+            }
+            if (!addedElements.isEmpty()) {
+                UserInterfaceFunctions.refreshOuicheListView();
+            }
 
         } else {
             // For Deck and ThemeCollection targets, condition/rarity/tags are not
@@ -2467,6 +2506,33 @@ public class RealMainController {
             }
             pasteCardsIntoNavigationItem(cards, modelObj);
         }
+    }
+
+    /**
+     * Returns the name of the {@link ThemeCollection} that owns {@code deck} in
+     * the live decksList, or {@code null} for standalone decks.
+     */
+    private String findCollectionNameForDeck(Deck deck) {
+        DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
+        if (deck == null || decksList == null || decksList.getCollections() == null) {
+            return null;
+        }
+        for (ThemeCollection collection : decksList.getCollections()) {
+            if (collection == null || collection.getLinkedDecks() == null) {
+                continue;
+            }
+            for (List<Deck> unit : collection.getLinkedDecks()) {
+                if (unit == null) {
+                    continue;
+                }
+                for (Deck linkedDeck : unit) {
+                    if (linkedDeck == deck) {
+                        return collection.getName();
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private void pasteCardsIntoNavigationItem(List<Card> cards, Object modelObj) {
@@ -2525,6 +2591,9 @@ public class RealMainController {
                 }
             }
 
+            String parentCollectionName = findCollectionNameForDeck(deck);
+            List<CardElement> addedElements = new ArrayList<>();
+
             java.util.function.BiConsumer<List<Card>, String> addToSection =
                     (sectionCards, sectionKey) -> {
                         if (sectionCards.isEmpty()) {
@@ -2536,7 +2605,9 @@ public class RealMainController {
                             javafx.collections.ObservableList<CardElement> obs =
                                     CardTreeCell.observableListFor(sectionGroup);
                             for (Card card : sectionCards) {
-                                obs.add(new CardElement(card));
+                                CardElement newElement = new CardElement(card);
+                                obs.add(newElement);
+                                addedElements.add(newElement);
                             }
                             CardTreeCell.triggerHeightAdjustment(sectionGroup);
                         } else {
@@ -2544,7 +2615,9 @@ public class RealMainController {
                                     ? deck.getExtraDeck()
                                     : deck.getMainDeck();
                             for (Card card : sectionCards) {
-                                rawList.add(new CardElement(card));
+                                CardElement newElement = new CardElement(card);
+                                rawList.add(newElement);
+                                addedElements.add(newElement);
                             }
                             UserInterfaceFunctions.triggerDecksStructureRefresh();
                         }
@@ -2556,31 +2629,62 @@ public class RealMainController {
             UserInterfaceFunctions.markDirty(deck);
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
 
+            for (CardElement addedElement : addedElements) {
+                String sectionName = Utils.DeckCompatibility.isExtraDeckCard(addedElement.getCard())
+                        ? "extra" : "main";
+                try {
+                    OuicheList.onDeckCardAdded(addedElement, deck.getName(), sectionName,
+                            parentCollectionName);
+                } catch (Throwable throwable) {
+                    logger.error("OuicheList update failed after paste into deck '{}'",
+                            deck.getName(), throwable);
+                }
+            }
+            if (!addedElements.isEmpty()) {
+                UserInterfaceFunctions.refreshOuicheListView();
+            }
+
         } else if (modelObj instanceof ThemeCollection collection) {
             if (collection.getCardsList() == null) {
                 collection.setCardsList(new ArrayList<>());
             }
 
             CardsGroup cardsGroup = CardTreeCell.getCollectionCardsGroup(collection);
+            List<CardElement> addedElements = new ArrayList<>();
             if (cardsGroup != null) {
                 javafx.collections.ObservableList<CardElement> obs =
                         CardTreeCell.observableListFor(cardsGroup);
                 for (Card card : cards) {
                     if (card != null) {
-                        obs.add(new CardElement(card));
+                        CardElement newElement = new CardElement(card);
+                        obs.add(newElement);
+                        addedElements.add(newElement);
                     }
                 }
                 CardTreeCell.triggerHeightAdjustment(cardsGroup);
             } else {
                 for (Card card : cards) {
                     if (card != null) {
-                        collection.getCardsList().add(new CardElement(card));
+                        CardElement newElement = new CardElement(card);
+                        collection.getCardsList().add(newElement);
+                        addedElements.add(newElement);
                     }
                 }
                 UserInterfaceFunctions.triggerDecksStructureRefresh();
             }
             UserInterfaceFunctions.markDirty(collection);
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            for (CardElement addedElement : addedElements) {
+                try {
+                    OuicheList.onDeckCardAdded(addedElement, null, null, collection.getName());
+                } catch (Throwable throwable) {
+                    logger.error("OuicheList update failed after paste into collection '{}'",
+                            collection.getName(), throwable);
+                }
+            }
+            if (!addedElements.isEmpty()) {
+                UserInterfaceFunctions.refreshOuicheListView();
+            }
         }
     }
 

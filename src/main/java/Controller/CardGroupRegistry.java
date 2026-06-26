@@ -214,6 +214,31 @@ public final class CardGroupRegistry {
         return sectionMap == null ? null : sectionMap.get(section);
     }
 
+    /**
+     * Returns the existing {@link CardsGroup} for {@code deck}/{@code section} if its backing
+     * list is still the same object as {@code backingList}, otherwise constructs a fresh one,
+     * registers it, and returns it.
+     *
+     * <p>{@link #GROUP_OBSERVABLE_LISTS} is keyed by {@link CardsGroup} <em>wrapper</em> identity.
+     * {@code DecksCollectionsController} rebuilds its whole tree on every edit, constructing new
+     * wrapper instances around the same never-recreated backing lists. If two different wrappers
+     * ever cover the same list, {@link #observableListFor} hands out two independent
+     * {@link ObservableList} facades; additions through either facade still mutate the shared data
+     * (model and OuicheList stay correct) but listeners on one facade are never notified of
+     * mutations through the other, so the GridView bound to one facade silently stops reflecting
+     * changes. Reusing the same wrapper eliminates that split entirely.</p>
+     */
+    public static CardsGroup getOrCreateDeckSectionGroup(
+            Deck deck, String section, String displayLabel, List<CardElement> backingList) {
+        CardsGroup existing = getDeckSectionGroup(deck, section);
+        if (existing != null && existing.getCardList() == backingList) {
+            return existing;
+        }
+        CardsGroup fresh = new CardsGroup(displayLabel, backingList);
+        registerDeckSectionGroup(deck, section, fresh);
+        return fresh;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Collection-group registries
     // ─────────────────────────────────────────────────────────────────────────
@@ -235,6 +260,22 @@ public final class CardGroupRegistry {
     }
 
     /**
+     * Returns the existing "Cards" {@link CardsGroup} for {@code collection} if its backing
+     * list is still the same object as {@code backingList}, otherwise constructs and registers
+     * a fresh one. See {@link #getOrCreateDeckSectionGroup} for the rationale.
+     */
+    public static CardsGroup getOrCreateCollectionCardsGroup(
+            ThemeCollection collection, List<CardElement> backingList) {
+        CardsGroup existing = getCollectionCardsGroup(collection);
+        if (existing != null && existing.getCardList() == backingList) {
+            return existing;
+        }
+        CardsGroup fresh = new CardsGroup("Cards", backingList);
+        registerCollectionCardsGroup(collection, fresh);
+        return fresh;
+    }
+
+    /**
      * Registers the "Cards not to add" exclusion group for a {@link ThemeCollection}.
      */
     public static void registerCollectionExceptionsGroup(ThemeCollection collection, CardsGroup group) {
@@ -248,6 +289,22 @@ public final class CardGroupRegistry {
      */
     public static CardsGroup getCollectionExceptionsGroup(ThemeCollection collection) {
         return collection == null ? null : COLLECTION_EXCEPTIONS_GROUPS.get(collection);
+    }
+
+    /**
+     * Returns the existing "Cards not to add" {@link CardsGroup} for {@code collection} if its
+     * backing list is still the same object as {@code backingList}, otherwise constructs and
+     * registers a fresh one. See {@link #getOrCreateDeckSectionGroup} for the rationale.
+     */
+    public static CardsGroup getOrCreateCollectionExceptionsGroup(
+            ThemeCollection collection, List<CardElement> backingList) {
+        CardsGroup existing = getCollectionExceptionsGroup(collection);
+        if (existing != null && existing.getCardList() == backingList) {
+            return existing;
+        }
+        CardsGroup fresh = new CardsGroup("Cards not to add", backingList);
+        registerCollectionExceptionsGroup(collection, fresh);
+        return fresh;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -419,18 +476,211 @@ public final class CardGroupRegistry {
             }
         } else if (sourceCards != null && !sourceCards.isEmpty()) {
             // ADD: create new CardElement wrappers.
+            List<CardElement> newlyAddedElements = new ArrayList<>();
             for (int cardIndex = 0; cardIndex < sourceCards.size(); cardIndex++) {
                 Card card = sourceCards.get(cardIndex);
                 if (card == null) {
                     continue;
                 }
                 int insertPosition = Math.min(clampedIndex + cardIndex, targetList.size());
-                targetList.add(insertPosition, new CardElement(card));
+                CardElement newElement = new CardElement(card);
+                targetList.add(insertPosition, newElement);
+                newlyAddedElements.add(newElement);
             }
+            notifyOuicheListOfGroupAdditions(targetGroup, newlyAddedElements);
         }
 
         triggerHeightAdjustment(targetGroup);
         return modifiedSourceGroups;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // OuicheList incremental-update notification
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Notifies the OuicheList of cards just added to {@code targetGroup}, routing to the
+     * correct {@link OuicheList} dispatch method based on what {@code targetGroup}
+     * represents: a deck section ({@link #DECK_SECTION_GROUPS}), a collection's cardsList
+     * ({@link #COLLECTION_CARDS_GROUPS}), or — if neither registry has a match — the owned
+     * collection (My Collection tab).
+     *
+     * <p>Shared by every drop/paste/add path that inserts new {@link CardElement}s into a
+     * {@link CardsGroup} via this registry, so the OuicheList always reflects manual
+     * additions regardless of which UI gesture (gap-drop, cell-drop, context menu, paste)
+     * performed the insertion.
+     *
+     * @param targetGroup   the group new elements were added to
+     * @param addedElements the newly-created {@link CardElement}s (not pre-existing moves)
+     */
+    public static void notifyOuicheListOfGroupAdditions(
+            CardsGroup targetGroup, List<CardElement> addedElements) {
+        if (targetGroup == null || addedElements == null || addedElements.isEmpty()) {
+            return;
+        }
+
+        // Resolve the owning Deck/ThemeCollection via findOwnerForGroup(), which compares
+        // the *backing* List<CardElement> identity (deck.getMainDeck(), etc. — never
+        // recreated for the lifetime of the model object) rather than the CardsGroup wrapper
+        // reference. The wrapper is recreated on every Decks & Collections tree rebuild
+        // (triggered by markDirtyAndRefreshForGroup after every drop/paste/add), so a
+        // targetGroup captured by an in-flight gesture can be a stale wrapper around the
+        // correct, still-live backing list.
+        List<CardElement> backingList = targetGroup.getCardList();
+        Object owner = findOwnerForGroup(targetGroup);
+
+        if (owner instanceof Deck deck) {
+            String sectionKey = deckSectionKeyForBackingList(deck, backingList);
+            if (sectionKey != null) {
+                String collectionName = findCollectionNameOwningDeck(deck);
+                for (CardElement addedElement : addedElements) {
+                    try {
+                        OuicheList.onDeckCardAdded(
+                                addedElement, deck.getName(), sectionKey, collectionName);
+                    } catch (Throwable throwable) {
+                        logger.error("OuicheList update failed after adding to deck '{}' section '{}'",
+                                deck.getName(), sectionKey, throwable);
+                    }
+                }
+                Controller.UserInterfaceFunctions.refreshOuicheListView();
+                return;
+            }
+        } else if (owner instanceof ThemeCollection collection
+                && backingList != null && backingList == collection.getCardsList()) {
+            for (CardElement addedElement : addedElements) {
+                try {
+                    OuicheList.onDeckCardAdded(addedElement, null, null, collection.getName());
+                } catch (Throwable throwable) {
+                    logger.error("OuicheList update failed after adding to collection '{}'",
+                            collection.getName(), throwable);
+                }
+            }
+            Controller.UserInterfaceFunctions.refreshOuicheListView();
+            return;
+        }
+
+        // Otherwise (a My Collection group, or a non-cardsList collection section):
+        // treat as an owned-card addition.
+        for (CardElement addedElement : addedElements) {
+            try {
+                OuicheList.onOwnedCardAdded(addedElement);
+            } catch (Throwable throwable) {
+                logger.error("OuicheList update failed after adding to owned collection group", throwable);
+            }
+        }
+        Controller.UserInterfaceFunctions.refreshOuicheListView();
+    }
+
+    /**
+     * Notifies the OuicheList of cards just removed from {@code sourceGroup} as the
+     * "remove" half of a cross-group MOVE gesture. Routing is symmetric to
+     * {@link #notifyOuicheListOfGroupAdditions}: deck-section groups dispatch to
+     * {@link OuicheList#onDeckCardRemoved}, collection-cardsList groups dispatch to
+     * {@link OuicheList#onDeckCardRemoved} with {@code deckName=null}, and unrecognised
+     * groups (My Collection) dispatch to {@link OuicheList#onOwnedCardRemoved}.
+     *
+     * <p>Only call this for cross-group moves ({@code sourceGroup != targetGroup}).
+     * Intra-group reorders change display order only and have no effect on the OuicheList.</p>
+     *
+     * @param sourceGroup     the group the elements were moved out of
+     * @param removedElements the {@link CardElement}s that were removed
+     */
+    public static void notifyOuicheListOfGroupRemovals(
+            CardsGroup sourceGroup, List<CardElement> removedElements) {
+        if (sourceGroup == null || removedElements == null || removedElements.isEmpty()) {
+            return;
+        }
+
+        List<CardElement> backingList = sourceGroup.getCardList();
+        Object owner = findOwnerForGroup(sourceGroup);
+
+        if (owner instanceof Deck deck) {
+            String sectionKey = deckSectionKeyForBackingList(deck, backingList);
+            if (sectionKey != null) {
+                String collectionName = findCollectionNameOwningDeck(deck);
+                for (CardElement removedElement : removedElements) {
+                    try {
+                        OuicheList.onDeckCardRemoved(
+                                removedElement, deck.getName(), sectionKey, collectionName);
+                    } catch (Throwable throwable) {
+                        logger.error("OuicheList update failed after removing from deck '{}' section '{}'",
+                                deck.getName(), sectionKey, throwable);
+                    }
+                }
+                Controller.UserInterfaceFunctions.refreshOuicheListView();
+                return;
+            }
+        } else if (owner instanceof ThemeCollection collection
+                && backingList != null && backingList == collection.getCardsList()) {
+            for (CardElement removedElement : removedElements) {
+                try {
+                    OuicheList.onDeckCardRemoved(removedElement, null, null, collection.getName());
+                } catch (Throwable throwable) {
+                    logger.error("OuicheList update failed after removing from collection '{}'",
+                            collection.getName(), throwable);
+                }
+            }
+            Controller.UserInterfaceFunctions.refreshOuicheListView();
+            return;
+        }
+
+        // Otherwise (a My Collection group): treat as an owned-card removal.
+        for (CardElement removedElement : removedElements) {
+            try {
+                OuicheList.onOwnedCardRemoved(removedElement);
+            } catch (Throwable throwable) {
+                logger.error("OuicheList update failed after removing from owned collection group",
+                        throwable);
+            }
+        }
+        Controller.UserInterfaceFunctions.refreshOuicheListView();
+    }
+
+    /**
+     * Returns {@code "main"}, {@code "extra"}, or {@code "side"} when {@code backingList}
+     * is the same object (by reference) as the corresponding section list of {@code deck},
+     * or {@code null} if it matches none of them.
+     */
+    private static String deckSectionKeyForBackingList(Deck deck, List<CardElement> backingList) {
+        if (deck == null || backingList == null) {
+            return null;
+        }
+        if (backingList == deck.getMainDeck()) {
+            return "main";
+        }
+        if (backingList == deck.getExtraDeck()) {
+            return "extra";
+        }
+        if (backingList == deck.getSideDeck()) {
+            return "side";
+        }
+        return null;
+    }
+
+    /**
+     * Finds the name of the {@link ThemeCollection} that owns {@code deck} via
+     * {@link ThemeCollection#getLinkedDecks()}, or {@code null} for a standalone deck.
+     */
+    private static String findCollectionNameOwningDeck(Deck deck) {
+        if (deck == null) {
+            return null;
+        }
+        for (ThemeCollection collection : COLLECTION_CARDS_GROUPS.keySet()) {
+            if (collection == null || collection.getLinkedDecks() == null) {
+                continue;
+            }
+            for (List<Deck> unit : collection.getLinkedDecks()) {
+                if (unit == null) {
+                    continue;
+                }
+                for (Deck linkedDeck : unit) {
+                    if (linkedDeck == deck) {
+                        return collection.getName();
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

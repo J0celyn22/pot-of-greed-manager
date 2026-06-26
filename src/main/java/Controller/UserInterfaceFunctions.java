@@ -925,6 +925,57 @@ public class UserInterfaceFunctions {
 
     // ── Decks and Collections refreshers (mirrors the owned-collection pattern) ──
     private static final CopyOnWriteArrayList<Runnable> explicitDecksRefreshers = new CopyOnWriteArrayList<>();
+
+    // ── OuicheList refreshers ──────────────────────────────────────────────────
+    private static final CopyOnWriteArrayList<Runnable> explicitOuicheListRefreshers = new CopyOnWriteArrayList<>();
+
+    /**
+     * Registers a callback that is invoked by {@link #refreshOuicheListView()} to
+     * rebuild the OuicheList tab after an incremental model update. Duplicate
+     * registrations are ignored.
+     *
+     * @param refresher the callback to register (ignored if {@code null})
+     */
+    public static void registerOuicheListRefresher(Runnable refresher) {
+        if (refresher != null) {
+            explicitOuicheListRefreshers.addIfAbsent(refresher);
+        }
+    }
+
+    /**
+     * Unregisters a previously registered OuicheList refresher.
+     *
+     * @param refresher the callback to unregister (ignored if {@code null})
+     */
+    public static void unregisterOuicheListRefresher(Runnable refresher) {
+        if (refresher != null) {
+            explicitOuicheListRefreshers.remove(refresher);
+        }
+    }
+
+    /**
+     * Triggers a rebuild of the OuicheList tab view on the JavaFX Application
+     * Thread, calling every registered {@link #registerOuicheListRefresher refresher}.
+     * Safe to call from any thread.
+     */
+    public static void refreshOuicheListView() {
+        if (Platform.isFxApplicationThread()) {
+            doRefreshOuicheListView();
+        } else {
+            Platform.runLater(UserInterfaceFunctions::doRefreshOuicheListView);
+        }
+    }
+
+    private static void doRefreshOuicheListView() {
+        for (Runnable refresher : explicitOuicheListRefreshers) {
+            try {
+                refresher.run();
+            } catch (Throwable throwable) {
+                logger.debug("refreshOuicheListView: refresher threw", throwable);
+            }
+        }
+    }
+
     /**
      * Guard that prevents redundant archetype refreshes within the same FX frame.
      */
@@ -1004,11 +1055,18 @@ public class UserInterfaceFunctions {
     }
 
     public static void refreshDecksAndCollectionsView() {
-        if (Platform.isFxApplicationThread()) {
-            doRefreshDecksAndCollectionsView();
-        } else {
-            Platform.runLater(UserInterfaceFunctions::doRefreshDecksAndCollectionsView);
-        }
+        // IMPORTANT: always defer via Platform.runLater(), even when already on the FX thread.
+        // doRefreshDecksAndCollectionsView() can trigger a full Decks & Collections tree
+        // rebuild (DecksCollectionsController.displayDecksAndCollections()), which constructs
+        // brand-new CardsGroup/TreeItem/cell instances for the whole tree. This method is most
+        // often invoked from inside a drag-and-drop drop handler attached to a cell of that very
+        // tree (see CardGridCell's wrapper.setOnDragDropped and CardTreeCell's
+        // grid.setOnDragDropped). Running the rebuild synchronously there replaces the scene
+        // graph nodes for the cell that is still mid-dispatch of the event — an unsafe JavaFX
+        // pattern that caused intermittent state corruption (drops silently stopped reaching the
+        // OuicheList after 1-2 successful drops). Deferring to a later pulse lets the originating
+        // event finish dispatching on the still-valid scene graph before any rebuild begins.
+        Platform.runLater(UserInterfaceFunctions::doRefreshDecksAndCollectionsView);
     }
 
     private static void doRefreshDecksAndCollectionsView() {
@@ -1163,12 +1221,9 @@ public class UserInterfaceFunctions {
     public static void triggerDecksStructureRefresh() {
         // Signal a full structural rebuild so the refresher calls displayDecksAndCollections().
         setPendingDecksFullRebuild();
-        // Then fire the Decks & Collections refreshers (not the owned-collection ones).
-        if (Platform.isFxApplicationThread()) {
-            doRefreshDecksAndCollectionsView();
-        } else {
-            Platform.runLater(UserInterfaceFunctions::doRefreshDecksAndCollectionsView);
-        }
+        // Always deferred — see the comment in refreshDecksAndCollectionsView() for why this
+        // must never run synchronously inside an originating event handler.
+        Platform.runLater(UserInterfaceFunctions::doRefreshDecksAndCollectionsView);
     }
 
     /**

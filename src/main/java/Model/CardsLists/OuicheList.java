@@ -77,6 +77,34 @@ public class OuicheList {
     }
 
     /**
+     * Sets the missing-cards compact map (for testing and incremental updates).
+     */
+    public static void setMaOuicheList(LinkedHashMap<String, CardElement> map) {
+        maOuicheList = map;
+    }
+
+    /**
+     * Sets the missing-cards count map (for testing and incremental updates).
+     */
+    public static void setMaOuicheListCounts(LinkedHashMap<String, Integer> map) {
+        maOuicheListCounts = map;
+    }
+
+    /**
+     * Sets the substandard compact map (for testing and incremental updates).
+     */
+    public static void setMaOuicheListSubstandard(LinkedHashMap<String, CardElement> map) {
+        maOuicheListSubstandard = map;
+    }
+
+    /**
+     * Sets the substandard count map (for testing and incremental updates).
+     */
+    public static void setMaOuicheListSubstandardCounts(LinkedHashMap<String, Integer> map) {
+        maOuicheListSubstandardCounts = map;
+    }
+
+    /**
      * Returns the OuicheList as a flat {@link List}, with each card repeated as many
      * times as it is required. Intended for callers that operate on lists
      * (e.g. HTML generators, sub-list creators, third-party scrapers).
@@ -243,7 +271,7 @@ public class OuicheList {
      *
      * <p>Key format: {@code imagePath|printCode|conditionCode|rarityCode}
      */
-    private static String cardKey(CardElement ce) {
+    static String cardKey(CardElement ce) {
         Card card = ce.getCard();
         // Artwork base: imagePath preferred; passCode or KonamiId as fallbacks.
         String base = card.getImagePath() != null ? card.getImagePath()
@@ -263,7 +291,7 @@ public class OuicheList {
      * Each copy wraps the same {@link Card} object but is an independent {@link CardElement}
      * instance, so that {@code setValues()} calls on the copies never affect the originals.
      */
-    private static List<CardElement> copyCardElements(List<CardElement> original) {
+    static List<CardElement> copyCardElements(List<CardElement> original) {
         if (original == null) return new ArrayList<>();
         List<CardElement> copy = new ArrayList<>(original.size());
         for (CardElement ce : original) {
@@ -330,6 +358,112 @@ public class OuicheList {
                 OwnershipStatus.OWNED_SUBSTANDARD,
                 maOuicheListSubstandard,
                 maOuicheListSubstandardCounts);
+    }
+
+    // =========================================================================
+    // Incremental updates
+    //
+    // The four methods below keep an already-generated OuicheList close to what
+    // a full {@link #CreateOuicheList} regeneration would produce, without
+    // recomputing everything from scratch. Each is a no-op when
+    // {@link #detailedOuicheList} is {@code null} (OuicheList not yet generated).
+    // The heavy lifting lives in {@link OuicheListUpdater} to keep this file
+    // focused on full-generation logic.
+    // =========================================================================
+
+    /**
+     * Call after a card is added to the {@link OwnedCardsCollection} (My Collection tab).
+     *
+     * <p>If the added copy can fill a currently-missing (or substandard) slot in the
+     * detailed OuicheList, that slot is marked owned (or substandard) following the
+     * same matching order as {@link #CreateDetailedOuicheList}. Otherwise the card is
+     * added to {@link #unusedCards} (the "Available cards" list).
+     *
+     * @param addedCard the {@link CardElement} that was just added to My Collection
+     */
+    public static void onOwnedCardAdded(CardElement addedCard) {
+        if (detailedOuicheList == null || addedCard == null) {
+            return;
+        }
+        OuicheListUpdater.onOwnedCardAdded(addedCard);
+    }
+
+    /**
+     * Call after a card is removed from the {@link OwnedCardsCollection} (My Collection tab).
+     *
+     * <p><b>Must be called after</b> {@code removedCard} has actually been removed from
+     * {@link #myCardsCollection} — the category-name lookup performed by
+     * {@link OuicheListUpdater#onOwnedCardRemoved} reflects the post-removal state of the
+     * owned collection.
+     *
+     * <p>Looks up the detailed OuicheList for the last owned/substandard occurrence of
+     * this card and either unmarks it (back to MISSING) or skips it if another owned
+     * copy still covers it, per the rules described in
+     * {@link OuicheListUpdater#onOwnedCardRemoved}.
+     *
+     * @param removedCard the {@link CardElement} that was just removed from My Collection
+     */
+    public static void onOwnedCardRemoved(CardElement removedCard) {
+        if (detailedOuicheList == null || removedCard == null) {
+            return;
+        }
+        OuicheListUpdater.onOwnedCardRemoved(removedCard);
+    }
+
+    /**
+     * Call after a card is added to a {@link Deck} or {@link ThemeCollection#getCardsList()}
+     * (Decks and Collections tab).
+     *
+     * <p>Locates the corresponding deck (or collection) inside the detailed OuicheList by
+     * name, inserts the new slot there, then attempts to satisfy it from
+     * {@link #unusedCards} (marking it OWNED or OWNED_SUBSTANDARD and removing the consumed
+     * copy from the available list) or leaves it MISSING.
+     *
+     * @param addedCard      the new wanted-card slot (a fresh, {@link OwnershipStatus#MISSING}
+     *                       {@link CardElement}, not yet inserted into the detailed OuicheList)
+     * @param deckName       the name of the deck the card was added to, or {@code null} if added
+     *                       directly to a {@link ThemeCollection#getCardsList()}
+     * @param section        {@code "main"}, {@code "extra"}, or {@code "side"} when
+     *                       {@code deckName} is non-{@code null}; ignored otherwise
+     * @param collectionName the name of the {@link ThemeCollection} that owns the deck named
+     *                       {@code deckName} (or that the card was added to directly when
+     *                       {@code deckName} is {@code null}), or {@code null} for a standalone
+     *                       deck
+     */
+    public static void onDeckCardAdded(CardElement addedCard, String deckName, String section,
+                                       String collectionName) {
+        if (detailedOuicheList == null || addedCard == null) {
+            return;
+        }
+        OuicheListUpdater.onDeckCardAdded(addedCard, deckName, section, collectionName);
+    }
+
+    /**
+     * Call after a card is removed from a {@link Deck} or {@link ThemeCollection#getCardsList()}
+     * (Decks and Collections tab).
+     *
+     * <p>Locates the corresponding deck (or collection) inside the detailed OuicheList by
+     * name and removes the matching slot from it. If the removed slot was MISSING, it is
+     * simply dropped. Otherwise its OWNED/OWNED_SUBSTANDARD copy is freed and propagated to
+     * the next eligible MISSING slot (by KonamiId) across the whole detailed OuicheList,
+     * following the rules in {@link OuicheListUpdater#onDeckCardRemoved}.
+     *
+     * @param removedCard    the {@link CardElement} slot that was just removed
+     * @param deckName       the name of the deck the card was removed from, or {@code null} if
+     *                       removed from a {@link ThemeCollection#getCardsList()}
+     * @param section        {@code "main"}, {@code "extra"}, or {@code "side"} when
+     *                       {@code deckName} is non-{@code null}; ignored otherwise
+     * @param collectionName the name of the {@link ThemeCollection} that owns the deck named
+     *                       {@code deckName} (or that the card was removed from directly when
+     *                       {@code deckName} is {@code null}), or {@code null} for a standalone
+     *                       deck
+     */
+    public static void onDeckCardRemoved(CardElement removedCard, String deckName, String section,
+                                         String collectionName) {
+        if (detailedOuicheList == null || removedCard == null) {
+            return;
+        }
+        OuicheListUpdater.onDeckCardRemoved(removedCard, deckName, section, collectionName);
     }
 
     /**
@@ -510,7 +644,7 @@ public class OuicheList {
      * via the copy constructor (preserving condition, rarity, and artwork flags)
      * on the first insertion, and accumulates counts on subsequent ones.
      */
-    private static void addToMap(
+    static void addToMap(
             LinkedHashMap<String, CardElement> map,
             LinkedHashMap<String, Integer> countsMap,
             String key, int count, CardElement rep) {
@@ -892,7 +1026,7 @@ public class OuicheList {
      * @param ownedCopy  the candidate owned {@link CardElement} from the pool
      * @return {@code true} if the owned copy satisfies the quality requirement
      */
-    private static boolean ownedCopySatisfiesQuality(
+    static boolean ownedCopySatisfiesQuality(
             CardElement wantedSlot, CardElement ownedCopy) {
 
         CardCondition requiredCondition = wantedSlot.getEffectiveCondition();

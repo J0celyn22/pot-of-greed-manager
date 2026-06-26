@@ -767,11 +767,10 @@ public class DecksCollectionsController {
                     if (rawList == null) {
                         return;
                     }
-                    CardsGroup sectionGroup = new CardsGroup(sectionLabel, rawList);
-                    CardTreeCell.registerDeckSectionGroup(deck,
-                            sectionLabel.toLowerCase(Locale.ROOT)
-                                    .replace(" deck", "").trim(),
-                            sectionGroup);
+                    String sectionKey = sectionLabel.toLowerCase(Locale.ROOT)
+                            .replace(" deck", "").trim();
+                    CardsGroup sectionGroup = CardGroupRegistry.getOrCreateDeckSectionGroup(
+                            deck, sectionKey, sectionLabel, rawList);
                     DataTreeItem<Object> sectionItem =
                             new DataTreeItem<>(sectionLabel, sectionGroup);
                     sectionItem.setExpanded(true);
@@ -826,8 +825,8 @@ public class DecksCollectionsController {
                 cardsList = new ArrayList<>();
                 collection.setCardsList(cardsList);
             }
-            CardsGroup cardsGroup = new CardsGroup("Cards", cardsList);
-            CardTreeCell.registerCollectionCardsGroup(collection, cardsGroup);
+            CardsGroup cardsGroup = CardGroupRegistry.getOrCreateCollectionCardsGroup(
+                    collection, cardsList);
             CardTreeCell.setMissingArtworkSetForGroup(cardsGroup, missingArtworkSet);
 
             DataTreeItem<Object> cardsGroupItem = new DataTreeItem<>("Cards", cardsGroup);
@@ -908,8 +907,8 @@ public class DecksCollectionsController {
                 if (exceptions == null) {
                     exceptions = new ArrayList<>();
                 }
-                CardsGroup exceptionsGroup = new CardsGroup("Cards not to add", exceptions);
-                CardTreeCell.registerCollectionExceptionsGroup(collection, exceptionsGroup);
+                CardsGroup exceptionsGroup = CardGroupRegistry.getOrCreateCollectionExceptionsGroup(
+                        collection, exceptions);
                 CardTreeCell.setMissingArtworkSetForGroup(exceptionsGroup, missingArtworkSet);
 
                 DataTreeItem<Object> exceptionsNode =

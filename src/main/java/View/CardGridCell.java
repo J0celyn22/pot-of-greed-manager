@@ -991,6 +991,11 @@ class CardGridCell extends GridCell<CardElement> {
             String srcPane = Controller.DragDropManager.getDragSourcePane();
             boolean isMiddle = "MIDDLE".equals(srcPane);
 
+            // Capture move context so OuicheList notifications can be fired after
+            // D&C rebuilds are queued (ensuring correct runLater ordering).
+            java.util.Set<CardsGroup> moveSourceGroups = null;
+            java.util.List<CardElement> movedElements = null;
+
             if (isMiddle) {
                 java.util.List<CardElement> srcElements =
                         new java.util.ArrayList<>(Controller.DragDropManager.getDraggedElements());
@@ -1000,9 +1005,10 @@ class CardGridCell extends GridCell<CardElement> {
                     event.consume();
                     return;
                 }
-                java.util.Set<CardsGroup> srcGroups =
+                moveSourceGroups =
                         outer.dropInsertIntoGroup(group, insertionIndex, srcElements, null);
-                for (CardsGroup sg : srcGroups) outer.markDirtyAndRefreshForGroup(sg);
+                movedElements = srcElements;
+                for (CardsGroup sg : moveSourceGroups) outer.markDirtyAndRefreshForGroup(sg);
             } else {
                 java.util.List<Model.CardsLists.Card> srcCards =
                         new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
@@ -1013,6 +1019,24 @@ class CardGridCell extends GridCell<CardElement> {
                 }
             }
             outer.markDirtyAndRefreshForGroup(group);
+
+            // OuicheList MOVE notifications: fired AFTER markDirtyAndRefreshForGroup so
+            // the D&C rebuild is already queued before the OuicheList rebuild is queued.
+            // This guarantees the OuicheList refresh runs in a later pulse and never
+            // interferes with the in-progress D&C scene graph update.
+            // A move across groups = removal from source + addition to target.
+            // Same-group reorders are pure position changes — OuicheList is unaffected.
+            if (moveSourceGroups != null && movedElements != null) {
+                final java.util.List<CardElement> capturedMoved = movedElements;
+                for (CardsGroup sg : moveSourceGroups) {
+                    if (sg != group) {
+                        CardGroupRegistry.notifyOuicheListOfGroupRemovals(sg, capturedMoved);
+                    }
+                }
+                if (moveSourceGroups.stream().anyMatch(sg -> sg != group)) {
+                    CardGroupRegistry.notifyOuicheListOfGroupAdditions(group, capturedMoved);
+                }
+            }
             // Signal to grid.setOnDragDropped that this drop is already handled.
             CardGroupRegistry.dropHandledByCell = true;
             event.setDropCompleted(true);

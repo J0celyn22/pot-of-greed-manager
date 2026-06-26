@@ -745,12 +745,16 @@ public class CardTreeCell extends TreeCell<String> {
             }
         } else if (sourceCards != null && !sourceCards.isEmpty()) {
             // ADD: create new elements
+            java.util.List<CardElement> newlyAddedElements = new java.util.ArrayList<>();
             for (int i = 0; i < sourceCards.size(); i++) {
                 Model.CardsLists.Card card = sourceCards.get(i);
                 if (card == null) continue;
                 int pos = Math.min(idx + i, targetList.size());
-                targetList.add(pos, new CardElement(card));
+                CardElement newElement = new CardElement(card);
+                targetList.add(pos, newElement);
+                newlyAddedElements.add(newElement);
             }
+            CardGroupRegistry.notifyOuicheListOfGroupAdditions(targetGroup, newlyAddedElements);
         }
         triggerHeightAdjustment(targetGroup);
         return modifiedSourceGroups;
