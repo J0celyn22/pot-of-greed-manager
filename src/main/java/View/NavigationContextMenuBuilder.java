@@ -804,8 +804,8 @@ public final class NavigationContextMenuBuilder {
             // Remove deck from the standalone list
             if (dac.getDecks() != null) dac.getDecks().remove(deck);
 
-            // Place the deck in the new collection (AddDeck creates a new unit)
-            newColl.AddDeck(deck);
+            // Place the deck in the new collection (addDeck creates a new unit)
+            newColl.addDeck(deck);
 
             // Register the collection in the DAC
             if (dac.getCollections() == null) dac.setCollections(new java.util.ArrayList<>());
@@ -991,7 +991,7 @@ public final class NavigationContextMenuBuilder {
 
         return makeActionItem(label, () -> {
             removeDeckFromCurrentLocation(deck, dac);
-            targetColl.AddDeck(deck);   // AddDeck always creates a new unit
+            targetColl.addDeck(deck);   // addDeck always creates a new unit
             Controller.UserInterfaceFunctions.setPendingDecksScrollTarget(deck);
             refreshDecksAndCollectionsView();
             Controller.UserInterfaceFunctions.markAllDecksAndCollectionsDirty();
@@ -1082,7 +1082,7 @@ public final class NavigationContextMenuBuilder {
         return makeActionItem("Add Deck", () -> {
             Model.CardsLists.Deck newDeck = new Model.CardsLists.Deck();
             newDeck.setName("New Deck");
-            collection.AddDeck(newDeck);   // adds as a new unit at the end
+            collection.addDeck(newDeck);   // adds as a new unit at the end
             Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newDeck);
             refreshDecksAndCollectionsView();
             Controller.UserInterfaceFunctions.markDirty(collection);
@@ -1119,7 +1119,7 @@ public final class NavigationContextMenuBuilder {
                 if (unitIdx >= 0) units.add(unitIdx + 1, newUnit);
                 else units.add(newUnit);
             } else {
-                parentCollection.AddDeck(newDeck);
+                parentCollection.addDeck(newDeck);
             }
             Controller.UserInterfaceFunctions.setPendingDecksRenameTarget(newDeck);
             refreshDecksAndCollectionsView();

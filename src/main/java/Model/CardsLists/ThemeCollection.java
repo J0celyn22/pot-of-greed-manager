@@ -14,18 +14,20 @@ import static Model.CardsLists.ListDifferenceIntersection.ListDifIntersectArtwor
  * Collection of cards with a theme.
  */
 public class ThemeCollection {
-    public String name;
+    private String name;
 
-    public List<CardElement> cardsList;
+    private List<CardElement> cardsList;
 
-    public List<CardElement> exceptionsToNotAdd;
+    private List<CardElement> exceptionsToNotAdd;
 
-    public List<List<Deck>> linkedDecks;
+    private List<List<Deck>> linkedDecks;
 
-    public List<String> archetypes;
+    private List<String> archetypes;
 
-    //If true, the cards of this collection may be in any other element of the Collection for them to be validated as owned
-    public Boolean connectToWholeCollection;
+    /**
+     * If true, cards in this collection may reside in any other element of the collection to count as owned.
+     */
+    private Boolean connectToWholeCollection;
 
     public ThemeCollection(String filePath) throws Exception {
         Path path = Paths.get(filePath);
@@ -107,7 +109,7 @@ public class ThemeCollection {
                     } else {
                         String deckPath = "%s\\%s.ydk".formatted(
                                 path.getParent().toString(), l);
-                        this.AddDeck(new Deck(deckPath));
+                        this.addDeck(new Deck(deckPath));
                     }
                 }
             }
@@ -330,7 +332,7 @@ public class ThemeCollection {
      * @param savePath the path to which to save the file
      * @throws IOException if there is an error writing to the file
      */
-    public void SaveToFile(String savePath) throws IOException {
+    public void saveToFile(String savePath) throws IOException {
         String dir = savePath.endsWith(java.io.File.separator)
                 ? savePath : savePath + java.io.File.separator;
         Path path = Paths.get(dir + this.name + ".ytc");
@@ -398,23 +400,45 @@ public class ThemeCollection {
     }
 
     /**
+     * @deprecated Use {@link #saveToFile(String)} instead.
+     */
+    @Deprecated
+    public void SaveToFile(String savePath) throws IOException {
+        saveToFile(savePath);
+    }
+
+    /**
      * Adds a deck to the list of linked decks in a new unit.
      *
      * @param deckToAdd the deck to add to the list of linked decks
      */
-    public void AddDeck(Deck deckToAdd) {
+    public void addDeck(Deck deckToAdd) {
         this.linkedDecks.add(new ArrayList<>());
         this.linkedDecks.get(this.linkedDecks.size() - 1).add(deckToAdd);
-        //this.linkedDecks.add(deckToAdd);
+    }
+
+    /**
+     * @deprecated Use {@link #addDeck(Deck)} instead.
+     */
+    @Deprecated
+    public void AddDeck(Deck deckToAdd) {
+        addDeck(deckToAdd);
     }
 
     /**
      * Adds a deck to the list of linked decks in an existing deck unit.
      *
      * @param deckToAdd the deck to add to the list of linked decks
+     * @param unitIndex the index of the deck unit to add the deck to
      */
-    public void AddDeckToExistingUnit(Deck deckToAdd, int unitIndex) {
+    public void addDeckToExistingUnit(Deck deckToAdd, int unitIndex) {
         this.linkedDecks.get(unitIndex).add(deckToAdd);
+    }
+
+    /** @deprecated Use {@link #addDeckToExistingUnit(Deck, int)} instead. */
+    @Deprecated
+    public void AddDeckToExistingUnit(Deck deckToAdd, int unitIndex) {
+        addDeckToExistingUnit(deckToAdd, unitIndex);
     }
 
     /**

@@ -313,7 +313,7 @@ public class OuicheList {
      * callers (HTML generators, SubListCreator, etc.) cannot corrupt the detailed view's
      * ownership markers via {@code setValues()}.
      *
-     * <p>If {@link #CreateDetailedOuicheList} has already been called, its markings are
+     * <p>If {@link #createDetailedOuicheList} has already been called, its markings are
      * reused and the detailed list is not recomputed.
      *
      * @param ownedCardsCollection the user's owned card collection
@@ -341,11 +341,11 @@ public class OuicheList {
      *       context).</li>
      * </ol>
      */
-    public static void CreateOuicheList(OwnedCardsCollection ownedCardsCollection,
+    public static void createOuicheList(OwnedCardsCollection ownedCardsCollection,
                                         DecksAndCollectionsList decksList) throws Exception {
         listsIntersection = new ArrayList<>();
         if (detailedOuicheList == null) {
-            CreateDetailedOuicheList(ownedCardsCollection, decksList);
+            createDetailedOuicheList(ownedCardsCollection, decksList);
         }
 
         maOuicheList = new LinkedHashMap<>();
@@ -358,6 +358,15 @@ public class OuicheList {
                 OwnershipStatus.OWNED_SUBSTANDARD,
                 maOuicheListSubstandard,
                 maOuicheListSubstandardCounts);
+    }
+
+    /**
+     * @deprecated Use {@link #createOuicheList(OwnedCardsCollection, DecksAndCollectionsList)} instead.
+     */
+    @Deprecated
+    public static void CreateOuicheList(OwnedCardsCollection ownedCardsCollection,
+                                        DecksAndCollectionsList decksList) throws Exception {
+        createOuicheList(ownedCardsCollection, decksList);
     }
 
     // =========================================================================
@@ -376,7 +385,7 @@ public class OuicheList {
      *
      * <p>If the added copy can fill a currently-missing (or substandard) slot in the
      * detailed OuicheList, that slot is marked owned (or substandard) following the
-     * same matching order as {@link #CreateDetailedOuicheList}. Otherwise the card is
+     * same matching order as {@link #createDetailedOuicheList}. Otherwise the card is
      * added to {@link #unusedCards} (the "Available cards" list).
      *
      * @param addedCard the {@link CardElement} that was just added to My Collection
@@ -673,7 +682,7 @@ public class OuicheList {
      * @param decksList            the DecksAndCollectionsList representing the user's decks
      * @return the created detailed OuicheList
      */
-    public static DecksAndCollectionsList CreateDetailedOuicheList(OwnedCardsCollection ownedCardsCollection, DecksAndCollectionsList decksList) {
+    public static DecksAndCollectionsList createDetailedOuicheList(OwnedCardsCollection ownedCardsCollection, DecksAndCollectionsList decksList) {
         listsIntersection = new ArrayList<>();
 
         detailedOuicheList = new DecksAndCollectionsList();
@@ -702,10 +711,10 @@ public class OuicheList {
                         deckCopy.setExtraDeck(copyCardElements(originalDeck.getExtraDeck()));
                         deckCopy.setSideDeck(copyCardElements(originalDeck.getSideDeck()));
                         if (firstInGroup) {
-                            collectionCopy.AddDeck(deckCopy);
+                            collectionCopy.addDeck(deckCopy);
                             firstInGroup = false;
                         } else {
-                            collectionCopy.AddDeckToExistingUnit(deckCopy, collectionCopy.getLinkedDecks().size() - 1);
+                            collectionCopy.addDeckToExistingUnit(deckCopy, collectionCopy.getLinkedDecks().size() - 1);
                         }
                     }
                 }
@@ -742,10 +751,10 @@ public class OuicheList {
                         deckCopy.setExtraDeck(copyCardElements(originalDeck.getExtraDeck()));
                         deckCopy.setSideDeck(copyCardElements(originalDeck.getSideDeck()));
                         if (firstInGroup) {
-                            collectionCopy.AddDeck(deckCopy);
+                            collectionCopy.addDeck(deckCopy);
                             firstInGroup = false;
                         } else {
-                            collectionCopy.AddDeckToExistingUnit(deckCopy, collectionCopy.getLinkedDecks().size() - 1);
+                            collectionCopy.addDeckToExistingUnit(deckCopy, collectionCopy.getLinkedDecks().size() - 1);
                         }
                     }
                 }
@@ -859,6 +868,15 @@ public class OuicheList {
         unusedCards = unusedPool.toList();
 
         return detailedOuicheList;
+    }
+
+    /**
+     * @deprecated Use {@link #createDetailedOuicheList(OwnedCardsCollection, DecksAndCollectionsList)} instead.
+     */
+    @Deprecated
+    public static DecksAndCollectionsList CreateDetailedOuicheList(OwnedCardsCollection ownedCardsCollection,
+                                                                   DecksAndCollectionsList decksList) {
+        return createDetailedOuicheList(ownedCardsCollection, decksList);
     }
 
     /**
@@ -1514,7 +1532,7 @@ public class OuicheList {
                     currentDeck = new Deck();
                     currentDeck.setName(line.substring(3).trim());
                     if (currentCollection != null) {
-                        currentCollection.AddDeck(currentDeck);
+                        currentCollection.addDeck(currentDeck);
                     } else {
                         detailedOuicheList.addDeck(currentDeck);
                     }

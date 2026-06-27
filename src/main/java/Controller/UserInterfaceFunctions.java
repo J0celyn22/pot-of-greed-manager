@@ -302,7 +302,7 @@ public class UserInterfaceFunctions {
 
                 // Save .ytc only when needed
                 if (collectionIsDirty || anyLinkedDeckIsDirty) {
-                    tc.SaveToFile(dir);
+                    tc.saveToFile(dir);
                     clearDirty(tc);
                     logger.info("Saved collection '{}'", tc.getName());
                 }
@@ -493,7 +493,7 @@ public class UserInterfaceFunctions {
 
             ensureCardPagesGenerated();
 
-            setDetailedOuicheList(Model.CardsLists.OuicheList.CreateDetailedOuicheList(getMyCardsCollection(), getDecksList()));
+            setDetailedOuicheList(Model.CardsLists.OuicheList.createDetailedOuicheList(getMyCardsCollection(), getDecksList()));
 
             //String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
             Files.createDirectories(Paths.get(outputPathLists));
@@ -816,7 +816,7 @@ public class UserInterfaceFunctions {
     }
 
     /**
-     * Generates the OuicheList by calling {@link Model.CardsLists.OuicheList#CreateOuicheList(OwnedCardsCollection, DecksAndCollectionsList)}
+     * Generates the OuicheList by calling {@link Model.CardsLists.OuicheList#createOuicheList(OwnedCardsCollection, DecksAndCollectionsList)}
      * and generates several sublists of the OuicheList based on the different types of cards.
      *
      * @throws RuntimeException if an exception occurs during generation.
@@ -830,9 +830,9 @@ public class UserInterfaceFunctions {
                 loadDecksAndCollectionsDirectory();
             }
 
-            // CreateOuicheList is now void and builds the internal LinkedHashMap directly.
+            // createOuicheList is now void and builds the internal LinkedHashMap directly.
             // All callers that need a List<CardElement> use getMaOuicheListAsFlatList().
-            Model.CardsLists.OuicheList.CreateOuicheList(getMyCardsCollection(), getDecksList());
+            Model.CardsLists.OuicheList.createOuicheList(getMyCardsCollection(), getDecksList());
 
             ensureCardPagesGenerated();
 
@@ -1256,7 +1256,7 @@ public class UserInterfaceFunctions {
 
         } else if (obj instanceof Model.CardsLists.ThemeCollection) {
             Model.CardsLists.ThemeCollection tc = (Model.CardsLists.ThemeCollection) obj;
-            tc.SaveToFile(dir);
+            tc.saveToFile(dir);
             clearDirty(tc);
             // Also flush any dirty linked decks so the whole collection is consistent on disk.
             if (tc.getLinkedDecks() != null) {

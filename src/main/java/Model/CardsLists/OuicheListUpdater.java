@@ -9,7 +9,7 @@ import java.util.List;
  *
  * <p>These methods keep an already-generated {@link OuicheList#getDetailedOuicheList()}
  * (and the derived compact maps) close to what a full
- * {@link OuicheList#CreateOuicheList} regeneration would produce, after a single card
+ * {@link OuicheList#createOuicheList} regeneration would produce, after a single card
  * is added to or removed from the {@link OwnedCardsCollection} (My Collection tab) or
  * from a {@link Deck} / {@link ThemeCollection#getCardsList()} (Decks and Collections
  * tab).
@@ -30,7 +30,7 @@ final class OuicheListUpdater {
      * Handles a card being added to the {@link OwnedCardsCollection}.
      *
      * <p>Tries to fill the first eligible MISSING slot in the detailed OuicheList,
-     * walking the slots in the same order as {@link OuicheList#CreateDetailedOuicheList}:
+     * walking the slots in the same order as {@link OuicheList#createDetailedOuicheList}:
      * non-loose collections (linked decks then cardsList), standalone decks, then loose
      * collections (linked decks then cardsList). Round 1 requires the slot's quality
      * requirement to be met (marks {@link OwnershipStatus#OWNED}); round 2 accepts any
@@ -176,7 +176,7 @@ final class OuicheListUpdater {
     /**
      * Searches {@code section} for the first MISSING slot that {@code ownedCopy}
      * can fill, mirroring the artwork-then-KonamiId sub-pass order of
-     * {@link OuicheList#CreateDetailedOuicheList}.
+     * {@link OuicheList#createDetailedOuicheList}.
      */
     private static CardElement findFillableSlotInSection(
             List<CardElement> section, CardElement ownedCopy, boolean qualityRequired) {
@@ -264,7 +264,7 @@ final class OuicheListUpdater {
     static void onOwnedCardRemoved(CardElement removedCard) {
         // The removed copy might simply have been sitting in the "Available cards" list
         // (an exact-attribute copy, since unusedCards holds copies built from the owned
-        // collection — see OuicheList.CreateDetailedOuicheList).
+        // collection — see OuicheList.createDetailedOuicheList).
         List<CardElement> unusedCards = OuicheList.getUnusedCards();
         if (unusedCards != null && removeMatchingCopy(unusedCards, removedCard)) {
             return;
@@ -451,7 +451,7 @@ final class OuicheListUpdater {
 
     /**
      * Collects every OWNED / OWNED_SUBSTANDARD slot in the detailed OuicheList,
-     * in the same generation order as {@link OuicheList#CreateDetailedOuicheList}:
+     * in the same generation order as {@link OuicheList#createDetailedOuicheList}:
      * non-loose collections (linked decks then cardsList), standalone decks, then
      * loose collections (linked decks then cardsList).
      *

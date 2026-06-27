@@ -839,7 +839,7 @@ public class OuicheListController {
      * is not yet owned, across all its linked deck sections and its own cards list.
      *
      * <p>Operates on the <em>detailedOuicheList</em> copy produced by
-     * {@link OuicheList#CreateDetailedOuicheList}, where owned cards have already
+     * {@link OuicheList#createDetailedOuicheList}, where owned cards have already
      * been removed from the lists (or flagged {@code owned=true}).
      */
     private boolean collectionHasMissingCards(ThemeCollection collection) {

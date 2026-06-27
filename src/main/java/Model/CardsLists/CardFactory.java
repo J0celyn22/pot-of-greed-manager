@@ -1,5 +1,8 @@
 package Model.CardsLists;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 
 import static Model.Database.CardDatabaseManager.getKonamiIdToPassCode;
@@ -7,6 +10,8 @@ import static Model.Database.Database.getAllCardsList;
 import static Model.Database.PrintCodeToKonamiId.getPrintCodeToKonamiId;
 
 public class CardFactory {
+
+    private static final Logger logger = LoggerFactory.getLogger(CardFactory.class);
 
     // ------------------------------------------------------------------
     // Internal helper
@@ -50,70 +55,97 @@ public class CardFactory {
      * @return a fully-populated card when the database entry exists, or a
      *         stub card with only the passcode set when it does not
      */
-    public static Card CreateCardFromPassCode(String passCode) {
+    public static Card createCardFromPassCode(String passCode) {
         // Guard: unparseable passcode (e.g. "null" string, empty, etc.)
         if (passCode == null || passCode.isEmpty()) {
-            System.out.println("CreateCardFromPassCode: passcode is null/empty");
+            logger.warn("createCardFromPassCode: passcode is null/empty");
             return new Card(); // nothing useful to store
         }
 
         int numericPassCode;
         try {
             numericPassCode = Integer.parseInt(passCode);
-        } catch (NumberFormatException e) {
-            System.out.println("CreateCardFromPassCode: unparseable passcode '" + passCode + "'");
+        } catch (NumberFormatException exception) {
+            logger.warn("createCardFromPassCode: unparseable passcode '{}'", passCode);
             return stubCard(passCode, false);
         }
 
         Card originalCard;
         try {
             originalCard = getAllCardsList().get(numericPassCode);
-        } catch (Exception e) {
-            System.out.println("CreateCardFromPassCode: database error for passcode " + passCode
-                    + " — " + e.getMessage());
+        } catch (Exception exception) {
+            logger.error("createCardFromPassCode: database error for passcode {} — {}",
+                    passCode, exception.getMessage());
             return stubCard(passCode, false);
         }
 
         if (originalCard == null) {
-            System.out.println("CreateCardFromPassCode: no database entry for passcode " + passCode);
+            logger.warn("createCardFromPassCode: no database entry for passcode {}", passCode);
             return stubCard(passCode, false);
         }
 
         // Happy path — copy all available fields.
         Card newCard = new Card();
         try {
-            if (originalCard.getKonamiId() != null) newCard.setKonamiId(originalCard.getKonamiId());
+            if (originalCard.getKonamiId() != null) {
+                newCard.setKonamiId(originalCard.getKonamiId());
+            }
             newCard.setPassCode(passCode);
-            if (originalCard.getPrintCode() != null) newCard.setPrintCode(originalCard.getPrintCode());
-            if (originalCard.getImagePath() != null) newCard.setImagePath(originalCard.getImagePath());
-            if (originalCard.getCardType() != null) newCard.setCardType(originalCard.getCardType());
-            if (originalCard.getCardProperties() != null)
+            if (originalCard.getPrintCode() != null) {
+                newCard.setPrintCode(originalCard.getPrintCode());
+            }
+            if (originalCard.getImagePath() != null) {
+                newCard.setImagePath(originalCard.getImagePath());
+            }
+            if (originalCard.getCardType() != null) {
+                newCard.setCardType(originalCard.getCardType());
+            }
+            if (originalCard.getCardProperties() != null) {
                 newCard.setCardProperties(new ArrayList<>(originalCard.getCardProperties()));
-            if (originalCard.getMonsterType() != null) newCard.setMonsterType(originalCard.getMonsterType());
+            }
+            if (originalCard.getMonsterType() != null) {
+                newCard.setMonsterType(originalCard.getMonsterType());
+            }
             newCard.setAtk(originalCard.getAtk());
             newCard.setDef(originalCard.getDef());
             newCard.setLevel(originalCard.getLevel());
             newCard.setRank(originalCard.getRank());
-            if (originalCard.getAttribute() != null) newCard.setAttribute(originalCard.getAttribute());
+            if (originalCard.getAttribute() != null) {
+                newCard.setAttribute(originalCard.getAttribute());
+            }
             newCard.setLinkVal(originalCard.getLinkVal());
-            if (originalCard.getLinkMarker() != null)
+            if (originalCard.getLinkMarker() != null) {
                 newCard.setLinkMarker(new ArrayList<>(originalCard.getLinkMarker()));
+            }
             newCard.setScale(originalCard.getScale());
-            if (originalCard.getPrice() != null) newCard.setPrice(originalCard.getPrice());
-            if (originalCard.getName_EN() != null) newCard.setName_EN(originalCard.getName_EN());
-            if (originalCard.getName_FR() != null) newCard.setName_FR(originalCard.getName_FR());
-            if (originalCard.getName_JA() != null) newCard.setName_JA(originalCard.getName_JA());
-            if (originalCard.getArchetypes() != null)
+            if (originalCard.getPrice() != null) {
+                newCard.setPrice(originalCard.getPrice());
+            }
+            if (originalCard.getName_EN() != null) {
+                newCard.setName_EN(originalCard.getName_EN());
+            }
+            if (originalCard.getName_FR() != null) {
+                newCard.setName_FR(originalCard.getName_FR());
+            }
+            if (originalCard.getName_JA() != null) {
+                newCard.setName_JA(originalCard.getName_JA());
+            }
+            if (originalCard.getArchetypes() != null) {
                 newCard.setArchetypes(new ArrayList<>(originalCard.getArchetypes()));
-            if (originalCard.getArtNumber() != null) newCard.setArtNumber(originalCard.getArtNumber());
-            if (originalCard.getAvailableRarities() != null)
+            }
+            if (originalCard.getArtNumber() != null) {
+                newCard.setArtNumber(originalCard.getArtNumber());
+            }
+            if (originalCard.getAvailableRarities() != null) {
                 newCard.setAvailableRarities(new ArrayList<>(originalCard.getAvailableRarities()));
-            if (originalCard.getDescription() != null)
+            }
+            if (originalCard.getDescription() != null) {
                 newCard.setDescription(originalCard.getDescription());
-        } catch (Exception e) {
+            }
+        } catch (Exception exception) {
             // Partial copy — at least the passcode is already set on newCard.
-            System.out.println("CreateCardFromPassCode: partial copy for passcode "
-                    + passCode + " — " + e.getMessage());
+            logger.error("createCardFromPassCode: partial copy for passcode {} — {}",
+                    passCode, exception.getMessage());
         }
         return newCard;
     }
@@ -126,7 +158,7 @@ public class CardFactory {
      * <ol>
      *   <li>Look up the Konami ID from the print-code map.</li>
      *   <li>Look up the passcode from the Konami-ID map.</li>
-     *   <li>Delegate to {@link #CreateCardFromPassCode(String)} for the full copy.</li>
+     *   <li>Delegate to {@link #createCardFromPassCode(String)} for the full copy.</li>
      *   <li>Restore the original print code on the result.</li>
      * </ol>
      *
@@ -138,19 +170,19 @@ public class CardFactory {
      * @return a fully-populated card, a partially-populated card, or a stub —
      *         always non-null
      */
-    public static Card CreateCardFromPrintCode(String printCode) throws Exception {
+    public static Card createCardFromPrintCode(String printCode) throws Exception {
         // Step 1 — resolve print code → Konami ID
         String konamiIdStr;
         try {
             konamiIdStr = getPrintCodeToKonamiId().get(printCode);
-        } catch (Exception e) {
-            System.out.println("CreateCardFromPrintCode: database error for print code '"
-                    + printCode + "' — " + e.getMessage());
+        } catch (Exception exception) {
+            logger.error("createCardFromPrintCode: database error for print code '{}' — {}",
+                    printCode, exception.getMessage());
             return stubCard(printCode, true);
         }
 
         if (konamiIdStr == null || konamiIdStr.equals("null")) {
-            System.out.println("CreateCardFromPrintCode: print code not in database: " + printCode);
+            logger.warn("createCardFromPrintCode: print code not in database: {}", printCode);
             return stubCard(printCode, true);
         }
 
@@ -158,9 +190,9 @@ public class CardFactory {
         Integer numericKonamiId;
         try {
             numericKonamiId = Integer.valueOf(konamiIdStr);
-        } catch (NumberFormatException e) {
-            System.out.println("CreateCardFromPrintCode: unparseable Konami ID '"
-                    + konamiIdStr + "' for print code " + printCode);
+        } catch (NumberFormatException exception) {
+            logger.warn("createCardFromPrintCode: unparseable Konami ID '{}' for print code {}",
+                    konamiIdStr, printCode);
             Card stub = stubCard(printCode, true);
             stub.setKonamiId(konamiIdStr);
             return stub;
@@ -169,9 +201,9 @@ public class CardFactory {
         Integer passCodeInt;
         try {
             passCodeInt = getKonamiIdToPassCode().get(numericKonamiId);
-        } catch (Exception e) {
-            System.out.println("CreateCardFromPrintCode: database error resolving Konami ID "
-                    + konamiIdStr + " — " + e.getMessage());
+        } catch (Exception exception) {
+            logger.error("createCardFromPrintCode: database error resolving Konami ID {} — {}",
+                    konamiIdStr, exception.getMessage());
             Card stub = stubCard(printCode, true);
             stub.setKonamiId(konamiIdStr);
             return stub;
@@ -179,16 +211,16 @@ public class CardFactory {
 
         if (passCodeInt == null) {
             // Konami ID is known but not yet mapped to a passcode.
-            System.out.println("CreateCardFromPrintCode: no passcode for Konami ID "
-                    + konamiIdStr + " (print code " + printCode + ")");
+            logger.warn("createCardFromPrintCode: no passcode for Konami ID {} (print code {})",
+                    konamiIdStr, printCode);
             Card stub = stubCard(printCode, true);
             stub.setKonamiId(konamiIdStr);
             return stub;
         }
 
         // Step 3 — full card from passcode, then restore the print code.
-        Card card = CreateCardFromPassCode(String.valueOf(passCodeInt));
-        // CreateCardFromPassCode is always non-null; set the print code regardless
+        Card card = createCardFromPassCode(String.valueOf(passCodeInt));
+        // createCardFromPassCode is always non-null; set the print code regardless
         // of whether it was a full copy or a stub.
         card.setPrintCode(printCode);
         return card;
@@ -209,13 +241,13 @@ public class CardFactory {
      */
     public static Card createCard(String id) throws Exception {
         if (id == null) {
-            System.out.println("createCard: id is null — returning empty card");
+            logger.warn("createCard: id is null — returning empty card");
             return new Card();
         }
         if (id.contains("-") && !id.startsWith("-")) {
-            return CreateCardFromPrintCode(id);
+            return createCardFromPrintCode(id);
         } else {
-            return CreateCardFromPassCode(id);
+            return createCardFromPassCode(id);
         }
     }
 }
