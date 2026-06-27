@@ -22,9 +22,7 @@ import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Collapsible pane displayed above the navigation menu in the left column.
@@ -469,23 +467,29 @@ public class CardDetailPane extends VBox {
         Platform.runLater(() -> {
             contentBox.getChildren().clear();
 
-            Set<Card> selected = SelectionManager.getSelectedCards();
-            if (selected == null || selected.isEmpty()) {
+            // Use the duplicates-preserving list so that selecting three copies
+            // of the same card shows three tiles instead of collapsing to one.
+            List<Card> cards = SelectionManager.getSelectedCardsWithDuplicates();
+            if (cards == null || cards.isEmpty()) {
                 contentBox.getChildren().add(makePlaceholder());
                 return;
             }
 
-            List<Card> cards = new ArrayList<>(selected);
-            boolean middleSingle = cards.size() == 1
-                    && "MIDDLE".equals(SelectionManager.getActivePart());
-            if (cards.size() == 1) {
-                buildSingleCardView(cards.get(0), middleSingle);
+            // "Single" means exactly one element is selected in the MIDDLE pane.
+            // When active pane is RIGHT there are no duplicates, so size == 1
+            // there is naturally unambiguous.
+            boolean isMiddle = "MIDDLE".equals(SelectionManager.getActivePart());
+            boolean isSingleElement = cards.size() == 1;
+
+            if (isSingleElement) {
+                buildSingleCardView(cards.get(0), isMiddle);
             } else {
                 buildMultiCardView(cards);
             }
-            // Show -1 / +1 (and Edit when applicable) for any MIDDLE selection
-            if ("MIDDLE".equals(SelectionManager.getActivePart())) {
-                contentBox.getChildren().add(makeActionButtons(middleSingle));
+
+            // Show -1 / +1 (and Edit when a single element is selected) for any MIDDLE selection
+            if (isMiddle) {
+                contentBox.getChildren().add(makeActionButtons(isSingleElement));
             }
         });
     }

@@ -3,10 +3,7 @@ package Controller;
 import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
 
-import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -94,8 +91,14 @@ public class SelectionManager {
      * Compatibility getter used by the RIGHT pane and legacy code.
      * <p>
      * For the MIDDLE pane ({@code activePart == "MIDDLE"}), derives {@link Card}
-     * objects from the selected elements. For the RIGHT pane, returns the directly
-     * tracked Card set.
+     * objects from the selected elements into a deduplicated set — two elements
+     * wrapping the same Card produce only one entry. For the RIGHT pane, returns
+     * the directly tracked Card set.
+     * </p>
+     * <p>
+     * Use {@link #getSelectedCardsWithDuplicates()} when the caller needs to know
+     * the true number of selected elements (e.g. the detail pane showing one tile
+     * per selected element, even when several share the same card).
      * </p>
      *
      * @return immutable set of selected cards; never {@code null}
@@ -111,6 +114,35 @@ public class SelectionManager {
             return Collections.unmodifiableSet(cards);
         }
         return Collections.unmodifiableSet(selectedRightCards);
+    }
+
+    /**
+     * Returns one {@link Card} entry per selected element, preserving insertion
+     * order and including duplicates.
+     * <p>
+     * For the MIDDLE pane this means that selecting three copies of the same card
+     * produces a list of size three, one entry per {@link CardElement}. For the
+     * RIGHT pane there are no duplicate Card objects by design, so this method
+     * returns the same content as {@link #getSelectedCards()} wrapped in a list.
+     * </p>
+     * <p>
+     * Use this method whenever the caller cares about <em>how many elements</em>
+     * are selected rather than <em>how many distinct cards</em> are selected.
+     * </p>
+     *
+     * @return unmodifiable ordered list of selected cards with duplicates; never {@code null}
+     */
+    public static List<Card> getSelectedCardsWithDuplicates() {
+        if ("MIDDLE".equals(activePart)) {
+            List<Card> cards = new ArrayList<>();
+            for (CardElement element : selectedMiddleElements) {
+                if (element.getCard() != null) {
+                    cards.add(element.getCard());
+                }
+            }
+            return Collections.unmodifiableList(cards);
+        }
+        return Collections.unmodifiableList(new ArrayList<>(selectedRightCards));
     }
 
     /**
