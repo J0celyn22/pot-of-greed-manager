@@ -499,28 +499,6 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     /**
-     * Convenience overload used by {@link CardTreeCellContextMenuBuilder}.
-     */
-    static void showRenamePopup(CardTreeCell ownerCell, String seedName,
-                                java.util.function.Consumer<String> onConfirm) {
-        Label anchor = new Label(seedName == null ? "" : seedName);
-        Node graphic = ownerCell.getGraphic();
-        if (graphic instanceof javafx.scene.layout.Pane) {
-            for (Node child : ((javafx.scene.layout.Pane) graphic).getChildren()) {
-                if (child instanceof Label) {
-                    anchor = (Label) child;
-                    break;
-                }
-            }
-        }
-        showRenamePopup(anchor, seedName, onConfirm);
-    }
-
-    /**
-     * Helper: determine whether the currently selected Tab is the
-     * Decks and Collections tab.
-     */
-    /**
      * Marks the owner of {@code group} dirty (My Collection, or the specific
      * Deck / ThemeCollection in D&C) and triggers the appropriate view refresh.
      */
