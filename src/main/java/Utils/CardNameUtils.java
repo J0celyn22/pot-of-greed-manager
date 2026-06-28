@@ -37,4 +37,41 @@ public final class CardNameUtils {
         }
         return stripped.substring(start, end).trim();
     }
+
+    /**
+     * Re-applies a decorator prefix and suffix to a new display name, preserving
+     * the same leading and trailing decoration characters that were present in the
+     * original raw stored name.
+     *
+     * <p>Example: {@code rebuildDecoratedName("==Blue-Eyes==", "Red-Eyes", '=')}
+     * returns {@code "==Red-Eyes=="}.</p>
+     *
+     * @param raw            the original raw name as stored (may be {@code null} or empty)
+     * @param newDisplayName the new display name to embed between the decorators
+     * @param decorator      the decoration character ({@code '='} for boxes,
+     *                       {@code '-'} for categories)
+     * @return the reconstructed raw name with decorators preserved, or
+     * {@code newDisplayName} if {@code raw} has no leading/trailing decorators
+     */
+    public static String rebuildDecoratedName(
+            String raw, String newDisplayName, char decorator) {
+        if (raw == null || raw.isEmpty()) {
+            return newDisplayName;
+        }
+        int leading = 0;
+        while (leading < raw.length() && raw.charAt(leading) == decorator) {
+            leading++;
+        }
+        int trailing = 0;
+        while (trailing < raw.length()
+                && raw.charAt(raw.length() - 1 - trailing) == decorator) {
+            trailing++;
+        }
+        if (leading == 0 && trailing == 0) {
+            return newDisplayName;
+        }
+        String prefix = raw.substring(0, leading);
+        String suffix = raw.substring(raw.length() - trailing);
+        return prefix + newDisplayName + suffix;
+    }
 }

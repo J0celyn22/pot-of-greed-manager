@@ -2,6 +2,7 @@ package View;
 
 import Controller.*;
 import Model.CardsLists.*;
+import Utils.CardCollectionQuery;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -922,18 +923,18 @@ public final class CardGridCellContextMenuBuilder {
                     if (themeCollection == null) {
                         continue;
                     }
-                    int countInCollection = countCardInList(themeCollection.toList(), card);
+                    int countInCollection = CardCollectionQuery.countCardInList(themeCollection.toList(), card);
                     if (countInCollection <= 0) {
                         continue;
                     }
                     // Compare the TC's required count against the total copies
                     // already placed in the TC-named group(s) of the owned collection,
                     // not against any single group in isolation (Bug 3B fix).
-                    int countInOwned = countInOwnedForDeckCombined(
+                    int countInOwned = CardCollectionQuery.countInOwnedForDeckCombined(
                             ownedCollection, themeCollection.getName(), card);
                     boolean needsMore = countInCollection > countInOwned;
                     boolean qualityUpgrade = !needsMore
-                            && isQualityUpgradeFor(themeCollection.getCardsList(),
+                            && CardCollectionQuery.isQualityUpgradeFor(themeCollection.getCardsList(),
                             clickedElement);
                     if (needsMore || qualityUpgrade) {
                         String target = CardTreeCell.sanitizeDisplayName(
@@ -1039,22 +1040,22 @@ public final class CardGridCellContextMenuBuilder {
             Map<String, Boolean> proposedTargets,
             Set<String> upgradeOnlyTargets) {
 
-        int countMain = countCardInList(deck.getMainDeck(), card);
-        int countExtra = countCardInList(deck.getExtraDeck(), card);
-        int countSide = countCardInList(deck.getSideDeck(), card);
+        int countMain = CardCollectionQuery.countCardInList(deck.getMainDeck(), card);
+        int countExtra = CardCollectionQuery.countCardInList(deck.getExtraDeck(), card);
+        int countSide = CardCollectionQuery.countCardInList(deck.getSideDeck(), card);
         int requiredTotal = countMain + countExtra + countSide;
         if (requiredTotal <= 0) {
             return;
         }
 
-        int presentTotal = countInOwnedForDeckCombined(ownedCollection, deck.getName(), card);
+        int presentTotal = CardCollectionQuery.countInOwnedForDeckCombined(ownedCollection, deck.getName(), card);
         boolean needsMore = requiredTotal > presentTotal;
         boolean upgradeMain = !needsMore && countMain > 0
-                && isQualityUpgradeFor(deck.getMainDeck(), clickedElement);
+                && CardCollectionQuery.isQualityUpgradeFor(deck.getMainDeck(), clickedElement);
         boolean upgradeExtra = !needsMore && countExtra > 0
-                && isQualityUpgradeFor(deck.getExtraDeck(), clickedElement);
+                && CardCollectionQuery.isQualityUpgradeFor(deck.getExtraDeck(), clickedElement);
         boolean upgradeSide = !needsMore && countSide > 0
-                && isQualityUpgradeFor(deck.getSideDeck(), clickedElement);
+                && CardCollectionQuery.isQualityUpgradeFor(deck.getSideDeck(), clickedElement);
 
         if (!needsMore && !upgradeMain && !upgradeExtra && !upgradeSide) {
             return;
@@ -1243,7 +1244,7 @@ public final class CardGridCellContextMenuBuilder {
                         if (groupRaw == null) {
                             if (box.getContent() != null) {
                                 for (CardsGroup group : box.getContent()) {
-                                    if (countCardInList(group.getCardList(), card) > 0) {
+                                    if (CardCollectionQuery.countCardInList(group.getCardList(), card) > 0) {
                                         alreadyThere = true;
                                         break;
                                     }
@@ -1254,7 +1255,7 @@ public final class CardGridCellContextMenuBuilder {
                                 for (CardsGroup group : box.getContent()) {
                                     if (CardTreeCell.sanitizeDisplayName(group.getName())
                                             .equalsIgnoreCase(CardTreeCell.sanitizeDisplayName(groupRaw))) {
-                                        if (countCardInList(group.getCardList(), card) > 0) {
+                                        if (CardCollectionQuery.countCardInList(group.getCardList(), card) > 0) {
                                             alreadyThere = true;
                                         }
                                         break;
@@ -1285,146 +1286,6 @@ public final class CardGridCellContextMenuBuilder {
             logger.debug("buildTypeBoxProposals failed", buildError);
         }
         return items;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Proposal helper utilities
-    // ─────────────────────────────────────────────────────────────────────────
-
-    private static int countCardInList(List<CardElement> cardList, Card card) {
-        if (cardList == null || card == null) {
-            return 0;
-        }
-        int count = 0;
-        for (CardElement cardElement : cardList) {
-            if (cardElement == null || cardElement.getCard() == null) {
-                continue;
-            }
-            if (Utils.CardMatcher.cardsMatch(cardElement.getCard(), card)) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private static boolean isQualityUpgradeFor(
-            List<CardElement> targetList, CardElement ownedElement) {
-        if (ownedElement == null || targetList == null) {
-            return false;
-        }
-        Card card = ownedElement.getCard();
-        if (card == null) {
-            return false;
-        }
-        List<CardElement> existingCopies = new ArrayList<>();
-        for (CardElement existing : targetList) {
-            if (existing == null || existing.getCard() == null) {
-                continue;
-            }
-            if (Utils.CardMatcher.cardsMatch(existing.getCard(), card)) {
-                existingCopies.add(existing);
-            }
-        }
-        if (existingCopies.isEmpty()) {
-            return false;
-        }
-        return Controller.CardQualityService.isQualityUpgrade(
-                existingCopies, targetList, ownedElement);
-    }
-
-    private static int countInOwnedForDeckCombined(
-            OwnedCardsCollection owned, String deckName, Card card) {
-        if (owned == null || owned.getOwnedCollection() == null
-                || deckName == null || deckName.trim().isEmpty()) {
-            return 0;
-        }
-        String deckNorm = CardTreeCell.sanitizeDisplayName(deckName).toLowerCase();
-
-        // 1) Box name matches deck name
-        for (Box box : owned.getOwnedCollection()) {
-            if (box == null) {
-                continue;
-            }
-            if (CardTreeCell.sanitizeDisplayName(box.getName()).toLowerCase().equals(deckNorm)) {
-                int sum = 0;
-                if (box.getContent() != null) {
-                    for (CardsGroup group : box.getContent()) {
-                        if (group != null) {
-                            sum += countCardInList(group.getCardList(), card);
-                        }
-                    }
-                }
-                return sum;
-            }
-        }
-
-        // 2) Box contains a group named like the deck — sum only that group, not all groups
-        // in the box. Summing all groups was Bug 3A: cards in unrelated groups like "Unsorted"
-        // would inflate the count and hide a real deficit.
-        for (Box box : owned.getOwnedCollection()) {
-            if (box == null || box.getContent() == null) {
-                continue;
-            }
-            int sum = 0;
-            boolean hasDeckGroup = false;
-            for (CardsGroup group : box.getContent()) {
-                if (group == null) {
-                    continue;
-                }
-                if (CardTreeCell.sanitizeDisplayName(group.getName()).toLowerCase()
-                        .equals(deckNorm)) {
-                    hasDeckGroup = true;
-                    sum += countCardInList(group.getCardList(), card);
-                }
-            }
-            if (hasDeckGroup) {
-                return sum;
-            }
-        }
-
-        // 3) Sum Main/Extra/Side Deck groups
-        int sectionSum = 0;
-        for (Box box : owned.getOwnedCollection()) {
-            if (box == null || box.getContent() == null) {
-                continue;
-            }
-            boolean boxMatchesDeck = CardTreeCell.sanitizeDisplayName(box.getName())
-                    .toLowerCase().equals(deckNorm);
-            boolean foundSectionInBox = false;
-            for (CardsGroup group : box.getContent()) {
-                if (group == null) {
-                    continue;
-                }
-                String groupNorm = CardTreeCell.sanitizeDisplayName(group.getName()).toLowerCase();
-                if (groupNorm.equals("main deck")
-                        || groupNorm.equals("extra deck")
-                        || groupNorm.equals("side deck")) {
-                    sectionSum += countCardInList(group.getCardList(), card);
-                    foundSectionInBox = true;
-                }
-            }
-            if (boxMatchesDeck && foundSectionInBox) {
-                return sectionSum;
-            }
-        }
-        if (sectionSum > 0) {
-            return sectionSum;
-        }
-
-        // 4) Fallback: any group named like the deck
-        int fallback = 0;
-        for (Box box : owned.getOwnedCollection()) {
-            if (box == null || box.getContent() == null) {
-                continue;
-            }
-            for (CardsGroup group : box.getContent()) {
-                if (group != null && CardTreeCell.sanitizeDisplayName(group.getName())
-                        .toLowerCase().equals(deckNorm)) {
-                    fallback += countCardInList(group.getCardList(), card);
-                }
-            }
-        }
-        return fallback;
     }
 
     private static boolean locationExistsInOwned(String name, OwnedCardsCollection owned) {

@@ -5,7 +5,9 @@ import Controller.MenuActionHandler;
 import Controller.UserInterfaceFunctions;
 import Model.CardsLists.*;
 import Model.Database.DataBaseUpdate;
+import Utils.CardCollectionQuery;
 import Utils.CardMatcher;
+import Utils.CardNameUtils;
 import Utils.LruImageCache;
 import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
@@ -643,21 +645,6 @@ public class CardTreeCell extends TreeCell<String> {
     // ── Inline-rename helpers ─────────────────────────────────────────────────
 
     /**
-     * Rebuilds a decorated name (e.g. {@code "===OldName==="}) replacing only
-     * the inner text while preserving leading/trailing decorator characters.
-     * Returns {@code newDisplayName} as-is if no decoration is present.
-     */
-    private static String rebuildDecoratedName(String raw, String newDisplayName, char decorator) {
-        if (raw == null || raw.isEmpty()) return newDisplayName;
-        int leading = 0;
-        while (leading < raw.length() && raw.charAt(leading) == decorator) leading++;
-        int trailing = 0;
-        while (trailing < raw.length() && raw.charAt(raw.length() - 1 - trailing) == decorator) trailing++;
-        if (leading == 0 && trailing == 0) return newDisplayName;
-        return raw.substring(0, leading) + newDisplayName + raw.substring(raw.length() - trailing);
-    }
-
-    /**
      * Shows a floating rename {@link Popup} overlaid on top of {@code labelAnchor}.
      *
      * <p>The popup is completely independent of the {@code TreeCell} lifecycle:
@@ -1154,92 +1141,7 @@ public class CardTreeCell extends TreeCell<String> {
         return titleRow;
     }
 
-    // ---------- Helpers for building proposals (add inside CardTreeCell class) ----------
-
-    /**
-     * Count how many copies of `card` are present in the owned collection for the given deck,
-     * treating the deck as a single category that may contain Main/Extra/Side together.
-     * <p>
-     * Matching rules (tolerant):
-     * - Prefer Box whose name equals deckName and sum counts of all groups inside it (useful when deck is a Box).
-     * - If a Box contains a group named deckName, sum counts of groups in that Box (useful when deck is a group owner).
-     * - If groups named "Main Deck"/"Extra Deck"/"Side Deck" exist under a matching Box, sum those specifically.
-     * - Fallback: sum counts of any groups named like the deck anywhere.
-     */
-    private int countInOwnedForDeckCombined(OwnedCardsCollection owned, String deckName, Model.CardsLists.Card card) {
-        if (owned == null || owned.getOwnedCollection() == null || deckName == null || deckName.trim().isEmpty())
-            return 0;
-        String deckNorm = sanitizeDisplayName(deckName).toLowerCase();
-        String mainNorm = sanitizeDisplayName("Main Deck").toLowerCase();
-        String extraNorm = sanitizeDisplayName("Extra Deck").toLowerCase();
-        String sideNorm = sanitizeDisplayName("Side Deck").toLowerCase();
-
-        // 1) If a Box name equals deckName, sum all groups inside that Box (prefer this)
-        for (Box b : owned.getOwnedCollection()) {
-            if (b == null) continue;
-            if (sanitizeDisplayName(b.getName()).toLowerCase().equals(deckNorm)) {
-                int sum = 0;
-                if (b.getContent() != null) {
-                    for (CardsGroup g : b.getContent()) {
-                        if (g == null) continue;
-                        sum += countCardInList(g.getCardList(), card);
-                    }
-                }
-                return sum;
-            }
-        }
-
-        // 2) If a Box contains a group named deckName, sum only that group (not all groups in the box).
-        // Summing all groups was Bug 3A: cards in unrelated groups like "Unsorted" or "Fusion Monsters"
-        // would inflate the count and hide a real deficit.
-        for (Box b : owned.getOwnedCollection()) {
-            if (b == null || b.getContent() == null) continue;
-            int sum = 0;
-            boolean hasDeckGroup = false;
-            for (CardsGroup g : b.getContent()) {
-                if (g == null) continue;
-                if (sanitizeDisplayName(g.getName()).toLowerCase().equals(deckNorm)) {
-                    hasDeckGroup = true;
-                    sum += countCardInList(g.getCardList(), card);
-                }
-            }
-            if (hasDeckGroup) {
-                return sum;
-            }
-        }
-
-        // 3) If a Box contains explicit Main/Extra/Side groups, sum those across the owned collection
-        int sumLists = 0;
-        for (Box b : owned.getOwnedCollection()) {
-            if (b == null || b.getContent() == null) continue;
-            boolean boxMatchesDeck = sanitizeDisplayName(b.getName()).toLowerCase().equals(deckNorm);
-            boolean anyListFoundInBox = false;
-            for (CardsGroup g : b.getContent()) {
-                if (g == null) continue;
-                String gNorm = sanitizeDisplayName(g.getName()).toLowerCase();
-                if (gNorm.equals(mainNorm) || gNorm.equals(extraNorm) || gNorm.equals(sideNorm)) {
-                    sumLists += countCardInList(g.getCardList(), card);
-                    anyListFoundInBox = true;
-                }
-            }
-            // If we found list groups in a box that matches the deck name, prefer that box's lists
-            if (boxMatchesDeck && anyListFoundInBox) return sumLists;
-        }
-        if (sumLists > 0) return sumLists;
-
-        // 4) Fallback: sum counts of any group named like the deck anywhere
-        int fallbackSum = 0;
-        for (Box b : owned.getOwnedCollection()) {
-            if (b == null || b.getContent() == null) continue;
-            for (CardsGroup g : b.getContent()) {
-                if (g == null) continue;
-                if (sanitizeDisplayName(g.getName()).toLowerCase().equals(deckNorm)) {
-                    fallbackSum += countCardInList(g.getCardList(), card);
-                }
-            }
-        }
-        return fallbackSum;
-    }
+    // ---------- Helpers for building proposals ----------
 
     @Override
     protected void updateItem(String itemName, boolean empty) {
@@ -1521,7 +1423,7 @@ public class CardTreeCell extends TreeCell<String> {
                         renameBtn.setOnAction(e -> showRenamePopup(label, label.getText(),
                                 newName -> {
                                     String raw = box.getName() == null ? "" : box.getName();
-                                    box.setName(rebuildDecoratedName(raw, newName, '='));
+                                    box.setName(CardNameUtils.rebuildDecoratedName(raw, newName, '='));
                                     label.setText(newName);
                                     UserInterfaceFunctions.markMyCollectionDirty();
                                     UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
@@ -1756,20 +1658,6 @@ public class CardTreeCell extends TreeCell<String> {
         // 5) As a last resort, return the first candidate's location
         FoundCandidate fc = candidates.get(0);
         return fc.box + "/" + fc.group + "@" + fc.index;
-    }
-
-    /**
-     * Count how many occurrences of the given card exist in the provided CardElement list.
-     * Matching uses passCode, then printCode, then konamiId.
-     */
-    private int countCardInList(List<CardElement> list, Model.CardsLists.Card card) {
-        if (list == null || card == null) return 0;
-        int count = 0;
-        for (CardElement ce : list) {
-            if (ce == null || ce.getCard() == null) continue;
-            if (CardMatcher.cardsMatch(ce.getCard(), card)) count++;
-        }
-        return count;
     }
 
     // Placeholder handlers: only log for now. Implement move/swap logic later.
@@ -2372,26 +2260,6 @@ public class CardTreeCell extends TreeCell<String> {
         return sb.toString();
     }
 
-    /**
-     * Returns true when {@code ownedElement} is a quality upgrade over at least
-     * one copy of the same card already present in {@code targetList}.
-     * Delegates to {@link Controller.CardQualityService#isQualityUpgrade}.
-     */
-    private boolean isQualityUpgradeFor(
-            List<CardElement> targetList,
-            CardElement ownedElement) {
-        if (ownedElement == null || targetList == null) return false;
-        Model.CardsLists.Card card = ownedElement.getCard();
-        if (card == null) return false;
-        List<CardElement> existingCopies = new ArrayList<>();
-        for (CardElement ce : targetList) {
-            if (ce == null || ce.getCard() == null) continue;
-            if (CardMatcher.cardsMatch(ce.getCard(), card)) existingCopies.add(ce);
-        }
-        if (existingCopies.isEmpty()) return false;
-        return Controller.CardQualityService.isQualityUpgrade(existingCopies, targetList, ownedElement);
-    }
-
     String safeImageKey(CardElement item) {
         if (item == null) return null;
         try {
@@ -2570,7 +2438,7 @@ public class CardTreeCell extends TreeCell<String> {
                         if (groupRaw == null) {
                             if (box.getContent() != null) {
                                 for (CardsGroup g : box.getContent()) {
-                                    if (countCardInList(g.getCardList(), card) > 0) {
+                                    if (CardCollectionQuery.countCardInList(g.getCardList(), card) > 0) {
                                         alreadyThere = true;
                                         break;
                                     }
@@ -2580,7 +2448,8 @@ public class CardTreeCell extends TreeCell<String> {
                             if (box.getContent() != null) {
                                 for (CardsGroup g : box.getContent()) {
                                     if (sanitizeDisplayName(g.getName()).equalsIgnoreCase(sanitizeDisplayName(groupRaw))) {
-                                        if (countCardInList(g.getCardList(), card) > 0) alreadyThere = true;
+                                        if (CardCollectionQuery.countCardInList(g.getCardList(), card) > 0)
+                                            alreadyThere = true;
                                         break;
                                     }
                                 }
@@ -2798,16 +2667,16 @@ public class CardTreeCell extends TreeCell<String> {
             if (dac.getCollections() != null) {
                 for (ThemeCollection tc : dac.getCollections()) {
                     if (tc == null) continue;
-                    int countInCollection = countCardInList(tc.toList(), card);
+                    int countInCollection = CardCollectionQuery.countCardInList(tc.toList(), card);
                     if (countInCollection <= 0) continue;
 
                     // Compare the TC's required count against the total copies
                     // already placed in the TC-named group(s) of the owned collection,
                     // not against any single group in isolation (Bug 3B fix).
-                    int countInOwned = countInOwnedForDeckCombined(owned, tc.getName(), card);
+                    int countInOwned = CardCollectionQuery.countInOwnedForDeckCombined(owned, tc.getName(), card);
                     boolean tcNeedsMore = countInCollection > countInOwned;
                     boolean qualityUpgrade = !tcNeedsMore
-                            && isQualityUpgradeFor(tc.getCardsList(), clickedElement);
+                            && CardCollectionQuery.isQualityUpgradeFor(tc.getCardsList(), clickedElement);
                     if (tcNeedsMore || qualityUpgrade) {
                         String target = sanitizeDisplayName(tc.getName());
                         boolean exists = existsLocation.test(tc.getName());
@@ -2820,20 +2689,20 @@ public class CardTreeCell extends TreeCell<String> {
                             if (unit == null) continue;
                             for (Deck deck : unit) {
                                 if (deck == null) continue;
-                                int countMain = countCardInList(deck.getMainDeck(), card);
-                                int countExtra = countCardInList(deck.getExtraDeck(), card);
-                                int countSide = countCardInList(deck.getSideDeck(), card);
+                                int countMain = CardCollectionQuery.countCardInList(deck.getMainDeck(), card);
+                                int countExtra = CardCollectionQuery.countCardInList(deck.getExtraDeck(), card);
+                                int countSide = CardCollectionQuery.countCardInList(deck.getSideDeck(), card);
 
                                 // compute total required by this deck across all lists
                                 int requiredTotal = countMain + countExtra + countSide;
                                 if (requiredTotal > 0) {
-                                    int presentTotal = countInOwnedForDeckCombined(owned, deck.getName(), card);
+                                    int presentTotal = CardCollectionQuery.countInOwnedForDeckCombined(owned, deck.getName(), card);
                                     // Renamed to deckNeedsMore to avoid shadowing the outer tcNeedsMore variable.
                                     boolean deckNeedsMore = requiredTotal > presentTotal;
                                     // Also propose when the owned copy is a quality upgrade for any sub-list
-                                    boolean upgradeMain = !deckNeedsMore && countMain > 0 && isQualityUpgradeFor(deck.getMainDeck(), clickedElement);
-                                    boolean upgradeExtra = !deckNeedsMore && countExtra > 0 && isQualityUpgradeFor(deck.getExtraDeck(), clickedElement);
-                                    boolean upgradeSide = !deckNeedsMore && countSide > 0 && isQualityUpgradeFor(deck.getSideDeck(), clickedElement);
+                                    boolean upgradeMain = !deckNeedsMore && countMain > 0 && CardCollectionQuery.isQualityUpgradeFor(deck.getMainDeck(), clickedElement);
+                                    boolean upgradeExtra = !deckNeedsMore && countExtra > 0 && CardCollectionQuery.isQualityUpgradeFor(deck.getExtraDeck(), clickedElement);
+                                    boolean upgradeSide = !deckNeedsMore && countSide > 0 && CardCollectionQuery.isQualityUpgradeFor(deck.getSideDeck(), clickedElement);
                                     if (deckNeedsMore || upgradeMain || upgradeExtra || upgradeSide) {
                                         if (countMain > 0
                                                 && Utils.DeckCompatibility.isCompatibleWith(card, "Main Deck")
@@ -2869,19 +2738,19 @@ public class CardTreeCell extends TreeCell<String> {
             if (dac.getDecks() != null) {
                 for (Deck deck : dac.getDecks()) {
                     if (deck == null) continue;
-                    int countMain = countCardInList(deck.getMainDeck(), card);
-                    int countExtra = countCardInList(deck.getExtraDeck(), card);
-                    int countSide = countCardInList(deck.getSideDeck(), card);
+                    int countMain = CardCollectionQuery.countCardInList(deck.getMainDeck(), card);
+                    int countExtra = CardCollectionQuery.countCardInList(deck.getExtraDeck(), card);
+                    int countSide = CardCollectionQuery.countCardInList(deck.getSideDeck(), card);
 
                     // compute total required by this deck across all lists
                     int requiredTotal = countMain + countExtra + countSide;
                     if (requiredTotal > 0) {
-                        int presentTotal = countInOwnedForDeckCombined(owned, deck.getName(), card);
+                        int presentTotal = CardCollectionQuery.countInOwnedForDeckCombined(owned, deck.getName(), card);
                         boolean needsMore = requiredTotal > presentTotal;
                         // Also propose when the owned copy is a quality upgrade for any sub-list
-                        boolean upgradeMain = !needsMore && countMain > 0 && isQualityUpgradeFor(deck.getMainDeck(), clickedElement);
-                        boolean upgradeExtra = !needsMore && countExtra > 0 && isQualityUpgradeFor(deck.getExtraDeck(), clickedElement);
-                        boolean upgradeSide = !needsMore && countSide > 0 && isQualityUpgradeFor(deck.getSideDeck(), clickedElement);
+                        boolean upgradeMain = !needsMore && countMain > 0 && CardCollectionQuery.isQualityUpgradeFor(deck.getMainDeck(), clickedElement);
+                        boolean upgradeExtra = !needsMore && countExtra > 0 && CardCollectionQuery.isQualityUpgradeFor(deck.getExtraDeck(), clickedElement);
+                        boolean upgradeSide = !needsMore && countSide > 0 && CardCollectionQuery.isQualityUpgradeFor(deck.getSideDeck(), clickedElement);
                         if (needsMore || upgradeMain || upgradeExtra || upgradeSide) {
                             if (countMain > 0
                                     && Utils.DeckCompatibility.isCompatibleWith(card, "Main Deck")
@@ -3004,7 +2873,7 @@ public class CardTreeCell extends TreeCell<String> {
             renameBtn.setOnAction(e -> showRenamePopup(label, label.getText(), 4,
                     newName -> {
                         String raw = capturedGroup.getName() == null ? "" : capturedGroup.getName();
-                        capturedGroup.setName(rebuildDecoratedName(raw, newName, '-'));
+                        capturedGroup.setName(CardNameUtils.rebuildDecoratedName(raw, newName, '-'));
                         label.setText(newName);
                         UserInterfaceFunctions.markMyCollectionDirty();
                         UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();

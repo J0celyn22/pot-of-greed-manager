@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
+import static Utils.CardNameUtils.rebuildDecoratedName;
 import static Utils.CardNameUtils.sanitize;
 
 public final class NavigationContextMenuBuilder {
@@ -1643,25 +1644,6 @@ public final class NavigationContextMenuBuilder {
         });
 
         return mi;
-    }
-
-    /**
-     * Rebuilds a decorated name like "===OldName======" or "---OldName----"
-     * by replacing the non-decoration portion with {@code newDisplayName}.
-     * If the raw name contains no decoration characters the new display name
-     * is returned as-is.
-     */
-    private static String rebuildDecoratedName(String raw, String newDisplayName, char decorator) {
-        if (raw == null || raw.isEmpty()) return newDisplayName;
-        // Count leading decoration characters
-        int leading = 0;
-        while (leading < raw.length() && raw.charAt(leading) == decorator) leading++;
-        int trailing = 0;
-        while (trailing < raw.length() && raw.charAt(raw.length() - 1 - trailing) == decorator) trailing++;
-        if (leading == 0 && trailing == 0) return newDisplayName;
-        String prefix = raw.substring(0, leading);
-        String suffix = raw.substring(raw.length() - trailing);
-        return prefix + newDisplayName + suffix;
     }
 
     /**
