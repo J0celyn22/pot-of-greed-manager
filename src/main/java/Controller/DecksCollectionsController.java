@@ -214,7 +214,7 @@ public class DecksCollectionsController {
 
         menuVBox.getChildren().add(navigationMenu);
 
-        ContextMenu emptyAreaContextMenu = NavigationContextMenuBuilder.forDecksEmpty();
+        ContextMenu emptyAreaContextMenu = DecksNavMenuBuilder.forDecksEmpty();
         menuVBox.setOnContextMenuRequested(event ->
                 emptyAreaContextMenu.show(menuVBox, event.getScreenX(), event.getScreenY()));
     }
@@ -272,7 +272,7 @@ public class DecksCollectionsController {
             collectionNavItem.setExpanded(wasExpanded);
 
             ContextMenu collectionContextMenu =
-                    NavigationContextMenuBuilder.forDecksCollection(collection, decksCollection);
+                    DecksNavMenuBuilder.forDecksCollection(collection, decksCollection);
             collectionNavItem.setOnContextMenuRequested(event -> {
                 collectionContextMenu.show(collectionNavItem,
                         event.getScreenX(), event.getScreenY());
@@ -328,7 +328,7 @@ public class DecksCollectionsController {
                 }
 
                 ContextMenu deckContextMenu =
-                        NavigationContextMenuBuilder.forDecksDeck(linkedDeck, decksCollection);
+                        DecksNavMenuBuilder.forDecksDeck(linkedDeck, decksCollection);
                 deckSubItem.setOnContextMenuRequested(event -> {
                     deckContextMenu.show(deckSubItem, event.getScreenX(), event.getScreenY());
                     event.consume();
@@ -367,7 +367,7 @@ public class DecksCollectionsController {
                     NavigationHelper.navigateToTree(decksAndCollectionsTreeView, deck.getName()));
 
             ContextMenu deckContextMenu =
-                    NavigationContextMenuBuilder.forDecksDeck(deck, decksCollection);
+                    DecksNavMenuBuilder.forDecksDeck(deck, decksCollection);
             navItem.setOnContextMenuRequested(event -> {
                 deckContextMenu.show(navItem, event.getScreenX(), event.getScreenY());
                 event.consume();

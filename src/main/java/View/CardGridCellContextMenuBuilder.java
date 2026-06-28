@@ -3,6 +3,7 @@ package View;
 import Controller.*;
 import Model.CardsLists.*;
 import Utils.CardCollectionQuery;
+import Utils.CardNameUtils;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -532,7 +533,7 @@ public final class CardGridCellContextMenuBuilder {
             if (box == null) {
                 continue;
             }
-            String boxName = CardTreeCell.sanitizeDisplayName(box.getName() == null ? "" : box.getName());
+            String boxName = CardNameUtils.sanitize(box.getName() == null ? "" : box.getName());
             if (boxName.isEmpty()) {
                 boxName = "(Unnamed box)";
             }
@@ -548,7 +549,7 @@ public final class CardGridCellContextMenuBuilder {
                     if (rawGroupName == null || rawGroupName.trim().isEmpty()) {
                         continue;
                     }
-                    String groupName = CardTreeCell.sanitizeDisplayName(rawGroupName);
+                    String groupName = CardNameUtils.sanitize(rawGroupName);
                     if (groupName.isEmpty()) {
                         continue;
                     }
@@ -570,7 +571,7 @@ public final class CardGridCellContextMenuBuilder {
                     if (subBox == null) {
                         continue;
                     }
-                    String subBoxName = CardTreeCell.sanitizeDisplayName(
+                    String subBoxName = CardNameUtils.sanitize(
                             subBox.getName() == null ? "" : subBox.getName());
                     if (subBoxName.isEmpty()) {
                         subBoxName = "(Unnamed sub-box)";
@@ -582,7 +583,7 @@ public final class CardGridCellContextMenuBuilder {
                             if (group == null) {
                                 continue;
                             }
-                            String groupName = CardTreeCell.sanitizeDisplayName(
+                            String groupName = CardNameUtils.sanitize(
                                     group.getName() == null ? "" : group.getName());
                             if (groupName.isEmpty()) {
                                 groupName = "(Unnamed group)";
@@ -626,7 +627,7 @@ public final class CardGridCellContextMenuBuilder {
                     if (themeCollection == null) {
                         continue;
                     }
-                    String collName = CardTreeCell.sanitizeDisplayName(themeCollection.getName());
+                    String collName = CardNameUtils.sanitize(themeCollection.getName());
                     addMoveDestItem(items, collName, excludePath, cell);
                     if (themeCollection.getLinkedDecks() != null) {
                         for (List<Deck> deckUnit : themeCollection.getLinkedDecks()) {
@@ -638,7 +639,7 @@ public final class CardGridCellContextMenuBuilder {
                                     continue;
                                 }
                                 String deckBase = collName + " / "
-                                        + CardTreeCell.sanitizeDisplayName(deck.getName());
+                                        + CardNameUtils.sanitize(deck.getName());
                                 if (cell.moveSectionAllowed("Main Deck")) {
                                     addMoveDestItem(items, deckBase + " / Main Deck", excludePath, cell);
                                 }
@@ -657,7 +658,7 @@ public final class CardGridCellContextMenuBuilder {
                     if (deck == null) {
                         continue;
                     }
-                    String deckName = CardTreeCell.sanitizeDisplayName(deck.getName());
+                    String deckName = CardNameUtils.sanitize(deck.getName());
                     if (cell.moveSectionAllowed("Main Deck")) {
                         addMoveDestItem(items, deckName + " / Main Deck", excludePath, cell);
                     }
@@ -787,7 +788,7 @@ public final class CardGridCellContextMenuBuilder {
                     if (themeCollection == null) {
                         continue;
                     }
-                    String collName = CardTreeCell.sanitizeDisplayName(themeCollection.getName());
+                    String collName = CardNameUtils.sanitize(themeCollection.getName());
                     addAddDestItem(items, collName, cell);
                     if (themeCollection.getLinkedDecks() != null) {
                         for (List<Deck> deckUnit : themeCollection.getLinkedDecks()) {
@@ -799,7 +800,7 @@ public final class CardGridCellContextMenuBuilder {
                                     continue;
                                 }
                                 String deckBase = collName + " / "
-                                        + CardTreeCell.sanitizeDisplayName(deck.getName());
+                                        + CardNameUtils.sanitize(deck.getName());
                                 if (cell.addSectionAllowed("Main Deck")) {
                                     addAddDestItem(items, deckBase + " / Main Deck", cell);
                                 }
@@ -818,7 +819,7 @@ public final class CardGridCellContextMenuBuilder {
                     if (deck == null) {
                         continue;
                     }
-                    String deckName = CardTreeCell.sanitizeDisplayName(deck.getName());
+                    String deckName = CardNameUtils.sanitize(deck.getName());
                     if (cell.addSectionAllowed("Main Deck")) {
                         addAddDestItem(items, deckName + " / Main Deck", cell);
                     }
@@ -937,7 +938,7 @@ public final class CardGridCellContextMenuBuilder {
                             && CardCollectionQuery.isQualityUpgradeFor(themeCollection.getCardsList(),
                             clickedElement);
                     if (needsMore || qualityUpgrade) {
-                        String target = CardTreeCell.sanitizeDisplayName(
+                        String target = CardNameUtils.sanitize(
                                 themeCollection.getName());
                         boolean existsInOwned = locationExistsInOwned(
                                 themeCollection.getName(), ownedCollection);
@@ -1062,7 +1063,7 @@ public final class CardGridCellContextMenuBuilder {
         }
 
         boolean existsInOwned = locationExistsInOwned(deck.getName(), ownedCollection);
-        String deckName = CardTreeCell.sanitizeDisplayName(deck.getName());
+        String deckName = CardNameUtils.sanitize(deck.getName());
 
         if (countMain > 0 && Utils.DeckCompatibility.isCompatibleWith(card, "Main Deck")
                 && (needsMore || upgradeMain)) {
@@ -1205,13 +1206,13 @@ public final class CardGridCellContextMenuBuilder {
             Map<String, List<String>> categoryToLocations = new LinkedHashMap<>();
             for (Box box : ownedCollection.getOwnedCollection()) {
                 String rawBoxName = box.getName() == null ? "" : box.getName();
-                String sanitisedBox = CardTreeCell.sanitizeDisplayName(rawBoxName).toLowerCase();
+                String sanitisedBox = CardNameUtils.sanitize(rawBoxName).toLowerCase();
                 categoryToLocations.computeIfAbsent(sanitisedBox, k -> new ArrayList<>())
                         .add(rawBoxName);
                 if (box.getContent() != null) {
                     for (CardsGroup group : box.getContent()) {
                         String rawGroupName = group.getName() == null ? "" : group.getName();
-                        String sanitisedGroup = CardTreeCell.sanitizeDisplayName(rawGroupName).toLowerCase();
+                        String sanitisedGroup = CardNameUtils.sanitize(rawGroupName).toLowerCase();
                         categoryToLocations
                                 .computeIfAbsent(sanitisedGroup, k -> new ArrayList<>())
                                 .add(rawBoxName + "/" + rawGroupName);
@@ -1223,7 +1224,7 @@ public final class CardGridCellContextMenuBuilder {
                 if (desired == null || desired.trim().isEmpty()) {
                     continue;
                 }
-                String desiredSanitised = CardTreeCell.sanitizeDisplayName(desired).toLowerCase();
+                String desiredSanitised = CardNameUtils.sanitize(desired).toLowerCase();
                 List<String> locations = categoryToLocations.get(desiredSanitised);
                 if (locations == null || locations.isEmpty()) {
                     continue;
@@ -1237,8 +1238,8 @@ public final class CardGridCellContextMenuBuilder {
                     // Skip if the card is already in this location.
                     boolean alreadyThere = false;
                     for (Box box : ownedCollection.getOwnedCollection()) {
-                        if (!CardTreeCell.sanitizeDisplayName(box.getName()).equalsIgnoreCase(
-                                CardTreeCell.sanitizeDisplayName(boxRaw))) {
+                        if (!CardNameUtils.sanitize(box.getName()).equalsIgnoreCase(
+                                CardNameUtils.sanitize(boxRaw))) {
                             continue;
                         }
                         if (groupRaw == null) {
@@ -1253,8 +1254,8 @@ public final class CardGridCellContextMenuBuilder {
                         } else {
                             if (box.getContent() != null) {
                                 for (CardsGroup group : box.getContent()) {
-                                    if (CardTreeCell.sanitizeDisplayName(group.getName())
-                                            .equalsIgnoreCase(CardTreeCell.sanitizeDisplayName(groupRaw))) {
+                                    if (CardNameUtils.sanitize(group.getName())
+                                            .equalsIgnoreCase(CardNameUtils.sanitize(groupRaw))) {
                                         if (CardCollectionQuery.countCardInList(group.getCardList(), card) > 0) {
                                             alreadyThere = true;
                                         }
@@ -1271,10 +1272,10 @@ public final class CardGridCellContextMenuBuilder {
                         continue;
                     }
 
-                    String displayBox = CardTreeCell.sanitizeDisplayName(boxRaw);
+                    String displayBox = CardNameUtils.sanitize(boxRaw);
                     String displayTarget = groupRaw == null
                             ? displayBox
-                            : displayBox + "/" + CardTreeCell.sanitizeDisplayName(groupRaw);
+                            : displayBox + "/" + CardNameUtils.sanitize(groupRaw);
                     final String handlerTarget = displayTarget;
 
                     MenuItem mi = new MenuItem(displayTarget);
@@ -1293,17 +1294,17 @@ public final class CardGridCellContextMenuBuilder {
                 || owned.getOwnedCollection() == null) {
             return false;
         }
-        String targetSan = CardTreeCell.sanitizeDisplayName(name).toLowerCase();
+        String targetSan = CardNameUtils.sanitize(name).toLowerCase();
         for (Box box : owned.getOwnedCollection()) {
             if (box == null) {
                 continue;
             }
-            if (CardTreeCell.sanitizeDisplayName(box.getName()).toLowerCase().equals(targetSan)) {
+            if (CardNameUtils.sanitize(box.getName()).toLowerCase().equals(targetSan)) {
                 return true;
             }
             if (box.getContent() != null) {
                 for (CardsGroup group : box.getContent()) {
-                    if (group != null && CardTreeCell.sanitizeDisplayName(group.getName())
+                    if (group != null && CardNameUtils.sanitize(group.getName())
                             .toLowerCase().equals(targetSan)) {
                         return true;
                     }

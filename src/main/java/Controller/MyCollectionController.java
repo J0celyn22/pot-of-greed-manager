@@ -259,7 +259,7 @@ public class MyCollectionController {
 
             // ── Context menu ──────────────────────────────────────────────────
             ContextMenu boxContextMenu =
-                    NavigationContextMenuBuilder.forMyCollectionBox(box, collection);
+                    MyCollectionNavMenuBuilder.forMyCollectionBox(box, collection);
             boxItem.setOnContextMenuRequested(event -> {
                 boxContextMenu.show(boxItem, event.getScreenX(), event.getScreenY());
                 event.consume();
@@ -306,7 +306,7 @@ public class MyCollectionController {
                     }
 
                     ContextMenu groupContextMenu =
-                            NavigationContextMenuBuilder.forMyCollectionCategory(group, box, collection);
+                            MyCollectionNavMenuBuilder.forMyCollectionCategory(group, box, collection);
                     groupItem.setOnContextMenuRequested(event -> {
                         groupContextMenu.show(groupItem, event.getScreenX(), event.getScreenY());
                         event.consume();
@@ -356,7 +356,7 @@ public class MyCollectionController {
                     }
 
                     ContextMenu subBoxContextMenu =
-                            NavigationContextMenuBuilder.forMyCollectionBox(subBox, collection);
+                            MyCollectionNavMenuBuilder.forMyCollectionBox(subBox, collection);
                     subBoxItem.setOnContextMenuRequested(event -> {
                         subBoxContextMenu.show(subBoxItem, event.getScreenX(), event.getScreenY());
                         event.consume();
@@ -414,7 +414,7 @@ public class MyCollectionController {
                             }
 
                             ContextMenu groupContextMenu =
-                                    NavigationContextMenuBuilder.forMyCollectionCategory(
+                                    MyCollectionNavMenuBuilder.forMyCollectionCategory(
                                             group, subBox, collection);
                             groupItem.setOnContextMenuRequested(event -> {
                                 groupContextMenu.show(groupItem, event.getScreenX(),
@@ -438,7 +438,7 @@ public class MyCollectionController {
         menuVBox.getChildren().add(navigationMenu);
 
         ContextMenu emptyAreaContextMenu =
-                NavigationContextMenuBuilder.forMyCollectionEmpty();
+                MyCollectionNavMenuBuilder.forMyCollectionEmpty();
         menuVBox.setOnContextMenuRequested(event ->
                 emptyAreaContextMenu.show(menuVBox, event.getScreenX(), event.getScreenY()));
     }
