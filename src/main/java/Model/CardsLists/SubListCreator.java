@@ -9,61 +9,61 @@ import java.util.List;
 import java.util.Map;
 
 public class SubListCreator {
-    public static List<CardElement> monsterList = new ArrayList<>();
-    public static List<CardElement> spellList = new ArrayList<>();
-    public static List<CardElement> trapList = new ArrayList<>();
+    private static List<CardElement> monsterList = new ArrayList<>();
+    private static List<CardElement> spellList = new ArrayList<>();
+    private static List<CardElement> trapList = new ArrayList<>();
 
-    public static List<CardElement> pyroTypeMonster = new ArrayList<>();
-    public static List<CardElement> aquaTypeMonster = new ArrayList<>();
-    public static List<CardElement> machineTypeMonster = new ArrayList<>();
-    public static List<CardElement> dragonTypeMonster = new ArrayList<>();
-    public static List<CardElement> beastWarriorTypeMonster = new ArrayList<>();
-    public static List<CardElement> reptileTypeMonster = new ArrayList<>();
-    public static List<CardElement> plantTypeMonster = new ArrayList<>();
-    public static List<CardElement> fiendTypeMonster = new ArrayList<>();
-    public static List<CardElement> wyrmTypeMonster = new ArrayList<>();
-    public static List<CardElement> dinosaurTypeMonster = new ArrayList<>();
-    public static List<CardElement> spellcasterTypeMonster = new ArrayList<>();
-    public static List<CardElement> fishTypeMonster = new ArrayList<>();
-    public static List<CardElement> divineBeastTypeMonster = new ArrayList<>();
-    public static List<CardElement> cyberseTypeMonster = new ArrayList<>();
-    public static List<CardElement> insectTypeMonster = new ArrayList<>();
-    public static List<CardElement> wingedBeastTypeMonster = new ArrayList<>();
-    public static List<CardElement> warriorTypeMonster = new ArrayList<>();
-    public static List<CardElement> rockTypeMonster = new ArrayList<>();
-    public static List<CardElement> thunderTypeMonster = new ArrayList<>();
-    public static List<CardElement> zombieTypeMonster = new ArrayList<>();
-    public static List<CardElement> seaSerpentTypeMonster = new ArrayList<>();
-    public static List<CardElement> beastTypeMonster = new ArrayList<>();
-    public static List<CardElement> psychicTypeMonster = new ArrayList<>();
-    public static List<CardElement> fairyTypeMonster = new ArrayList<>();
-    public static List<CardElement> illusionTypeMonster = new ArrayList<>();
-    public static List<CardElement> normalMonsterCard = new ArrayList<>();
-    public static List<CardElement> toonMonsterCard = new ArrayList<>();
-    public static List<CardElement> tunerMonsterCard = new ArrayList<>();
-    public static List<CardElement> unionMonsterCard = new ArrayList<>();
-    public static List<CardElement> synchroMonsterCard = new ArrayList<>();
-    public static List<CardElement> pendulumMonsterCard = new ArrayList<>();
-    public static List<CardElement> ritualMonsterCard = new ArrayList<>();
-    public static List<CardElement> flipMonsterCard = new ArrayList<>();
-    public static List<CardElement> spiritMonsterCard = new ArrayList<>();
-    public static List<CardElement> xyzMonsterCard = new ArrayList<>();
-    public static List<CardElement> effectMonsterCard = new ArrayList<>();
-    public static List<CardElement> fusionMonsterCard = new ArrayList<>();
-    public static List<CardElement> linkMonsterCard = new ArrayList<>();
-    public static List<CardElement> geminiMonsterCard = new ArrayList<>();
-    public static List<CardElement> normalSpellCard = new ArrayList<>();
-    public static List<CardElement> continuousSpellCard = new ArrayList<>();
-    public static List<CardElement> quickPlaySpellCard = new ArrayList<>();
-    public static List<CardElement> equipSpellCard = new ArrayList<>();
-    public static List<CardElement> fieldSpellCard = new ArrayList<>();
-    public static List<CardElement> ritualSpellCard = new ArrayList<>();
-    public static List<CardElement> normalTrapCard = new ArrayList<>();
-    public static List<CardElement> continuousTrapCard = new ArrayList<>();
-    public static List<CardElement> counterTrapCard = new ArrayList<>();
+    private static List<CardElement> pyroTypeMonster = new ArrayList<>();
+    private static List<CardElement> aquaTypeMonster = new ArrayList<>();
+    private static List<CardElement> machineTypeMonster = new ArrayList<>();
+    private static List<CardElement> dragonTypeMonster = new ArrayList<>();
+    private static List<CardElement> beastWarriorTypeMonster = new ArrayList<>();
+    private static List<CardElement> reptileTypeMonster = new ArrayList<>();
+    private static List<CardElement> plantTypeMonster = new ArrayList<>();
+    private static List<CardElement> fiendTypeMonster = new ArrayList<>();
+    private static List<CardElement> wyrmTypeMonster = new ArrayList<>();
+    private static List<CardElement> dinosaurTypeMonster = new ArrayList<>();
+    private static List<CardElement> spellcasterTypeMonster = new ArrayList<>();
+    private static List<CardElement> fishTypeMonster = new ArrayList<>();
+    private static List<CardElement> divineBeastTypeMonster = new ArrayList<>();
+    private static List<CardElement> cyberseTypeMonster = new ArrayList<>();
+    private static List<CardElement> insectTypeMonster = new ArrayList<>();
+    private static List<CardElement> wingedBeastTypeMonster = new ArrayList<>();
+    private static List<CardElement> warriorTypeMonster = new ArrayList<>();
+    private static List<CardElement> rockTypeMonster = new ArrayList<>();
+    private static List<CardElement> thunderTypeMonster = new ArrayList<>();
+    private static List<CardElement> zombieTypeMonster = new ArrayList<>();
+    private static List<CardElement> seaSerpentTypeMonster = new ArrayList<>();
+    private static List<CardElement> beastTypeMonster = new ArrayList<>();
+    private static List<CardElement> psychicTypeMonster = new ArrayList<>();
+    private static List<CardElement> fairyTypeMonster = new ArrayList<>();
+    private static List<CardElement> illusionTypeMonster = new ArrayList<>();
+    private static List<CardElement> normalMonsterCard = new ArrayList<>();
+    private static List<CardElement> toonMonsterCard = new ArrayList<>();
+    private static List<CardElement> tunerMonsterCard = new ArrayList<>();
+    private static List<CardElement> unionMonsterCard = new ArrayList<>();
+    private static List<CardElement> synchroMonsterCard = new ArrayList<>();
+    private static List<CardElement> pendulumMonsterCard = new ArrayList<>();
+    private static List<CardElement> ritualMonsterCard = new ArrayList<>();
+    private static List<CardElement> flipMonsterCard = new ArrayList<>();
+    private static List<CardElement> spiritMonsterCard = new ArrayList<>();
+    private static List<CardElement> xyzMonsterCard = new ArrayList<>();
+    private static List<CardElement> effectMonsterCard = new ArrayList<>();
+    private static List<CardElement> fusionMonsterCard = new ArrayList<>();
+    private static List<CardElement> linkMonsterCard = new ArrayList<>();
+    private static List<CardElement> geminiMonsterCard = new ArrayList<>();
+    private static List<CardElement> normalSpellCard = new ArrayList<>();
+    private static List<CardElement> continuousSpellCard = new ArrayList<>();
+    private static List<CardElement> quickPlaySpellCard = new ArrayList<>();
+    private static List<CardElement> equipSpellCard = new ArrayList<>();
+    private static List<CardElement> fieldSpellCard = new ArrayList<>();
+    private static List<CardElement> ritualSpellCard = new ArrayList<>();
+    private static List<CardElement> normalTrapCard = new ArrayList<>();
+    private static List<CardElement> continuousTrapCard = new ArrayList<>();
+    private static List<CardElement> counterTrapCard = new ArrayList<>();
 
-    public static List<List<Card>> archetypesCardsLists = new ArrayList<>();
-    public static List<String> archetypesList = new ArrayList<>();
+    private static List<List<Card>> archetypesCardsLists = new ArrayList<>();
+    private static List<String> archetypesList = new ArrayList<>();
 
 
     /**
@@ -515,4 +515,219 @@ public class SubListCreator {
             }
         }
     }
+
+    // ── Getters ──────────────────────────────────────────────────────────────
+
+    public static List<CardElement> getMonsterList() {
+        return monsterList;
+    }
+
+    public static List<CardElement> getSpellList() {
+        return spellList;
+    }
+
+    public static List<CardElement> getTrapList() {
+        return trapList;
+    }
+
+    public static List<CardElement> getPyroTypeMonster() {
+        return pyroTypeMonster;
+    }
+
+    public static List<CardElement> getAquaTypeMonster() {
+        return aquaTypeMonster;
+    }
+
+    public static List<CardElement> getMachineTypeMonster() {
+        return machineTypeMonster;
+    }
+
+    public static List<CardElement> getDragonTypeMonster() {
+        return dragonTypeMonster;
+    }
+
+    public static List<CardElement> getBeastWarriorTypeMonster() {
+        return beastWarriorTypeMonster;
+    }
+
+    public static List<CardElement> getReptileTypeMonster() {
+        return reptileTypeMonster;
+    }
+
+    public static List<CardElement> getPlantTypeMonster() {
+        return plantTypeMonster;
+    }
+
+    public static List<CardElement> getFiendTypeMonster() {
+        return fiendTypeMonster;
+    }
+
+    public static List<CardElement> getWyrmTypeMonster() {
+        return wyrmTypeMonster;
+    }
+
+    public static List<CardElement> getDinosaurTypeMonster() {
+        return dinosaurTypeMonster;
+    }
+
+    public static List<CardElement> getSpellcasterTypeMonster() {
+        return spellcasterTypeMonster;
+    }
+
+    public static List<CardElement> getFishTypeMonster() {
+        return fishTypeMonster;
+    }
+
+    public static List<CardElement> getDivineBeastTypeMonster() {
+        return divineBeastTypeMonster;
+    }
+
+    public static List<CardElement> getCyberseTypeMonster() {
+        return cyberseTypeMonster;
+    }
+
+    public static List<CardElement> getInsectTypeMonster() {
+        return insectTypeMonster;
+    }
+
+    public static List<CardElement> getWingedBeastTypeMonster() {
+        return wingedBeastTypeMonster;
+    }
+
+    public static List<CardElement> getWarriorTypeMonster() {
+        return warriorTypeMonster;
+    }
+
+    public static List<CardElement> getRockTypeMonster() {
+        return rockTypeMonster;
+    }
+
+    public static List<CardElement> getThunderTypeMonster() {
+        return thunderTypeMonster;
+    }
+
+    public static List<CardElement> getZombieTypeMonster() {
+        return zombieTypeMonster;
+    }
+
+    public static List<CardElement> getSeaSerpentTypeMonster() {
+        return seaSerpentTypeMonster;
+    }
+
+    public static List<CardElement> getBeastTypeMonster() {
+        return beastTypeMonster;
+    }
+
+    public static List<CardElement> getPsychicTypeMonster() {
+        return psychicTypeMonster;
+    }
+
+    public static List<CardElement> getFairyTypeMonster() {
+        return fairyTypeMonster;
+    }
+
+    public static List<CardElement> getIllusionTypeMonster() {
+        return illusionTypeMonster;
+    }
+
+    public static List<CardElement> getNormalMonsterCard() {
+        return normalMonsterCard;
+    }
+
+    public static List<CardElement> getToonMonsterCard() {
+        return toonMonsterCard;
+    }
+
+    public static List<CardElement> getTunerMonsterCard() {
+        return tunerMonsterCard;
+    }
+
+    public static List<CardElement> getUnionMonsterCard() {
+        return unionMonsterCard;
+    }
+
+    public static List<CardElement> getSynchroMonsterCard() {
+        return synchroMonsterCard;
+    }
+
+    public static List<CardElement> getPendulumMonsterCard() {
+        return pendulumMonsterCard;
+    }
+
+    public static List<CardElement> getRitualMonsterCard() {
+        return ritualMonsterCard;
+    }
+
+    public static List<CardElement> getFlipMonsterCard() {
+        return flipMonsterCard;
+    }
+
+    public static List<CardElement> getSpiritMonsterCard() {
+        return spiritMonsterCard;
+    }
+
+    public static List<CardElement> getXyzMonsterCard() {
+        return xyzMonsterCard;
+    }
+
+    public static List<CardElement> getEffectMonsterCard() {
+        return effectMonsterCard;
+    }
+
+    public static List<CardElement> getFusionMonsterCard() {
+        return fusionMonsterCard;
+    }
+
+    public static List<CardElement> getLinkMonsterCard() {
+        return linkMonsterCard;
+    }
+
+    public static List<CardElement> getGeminiMonsterCard() {
+        return geminiMonsterCard;
+    }
+
+    public static List<CardElement> getNormalSpellCard() {
+        return normalSpellCard;
+    }
+
+    public static List<CardElement> getContinuousSpellCard() {
+        return continuousSpellCard;
+    }
+
+    public static List<CardElement> getQuickPlaySpellCard() {
+        return quickPlaySpellCard;
+    }
+
+    public static List<CardElement> getEquipSpellCard() {
+        return equipSpellCard;
+    }
+
+    public static List<CardElement> getFieldSpellCard() {
+        return fieldSpellCard;
+    }
+
+    public static List<CardElement> getRitualSpellCard() {
+        return ritualSpellCard;
+    }
+
+    public static List<CardElement> getNormalTrapCard() {
+        return normalTrapCard;
+    }
+
+    public static List<CardElement> getContinuousTrapCard() {
+        return continuousTrapCard;
+    }
+
+    public static List<CardElement> getCounterTrapCard() {
+        return counterTrapCard;
+    }
+
+    public static List<List<Card>> getArchetypesCardsLists() {
+        return archetypesCardsLists;
+    }
+
+    public static List<String> getArchetypesList() {
+        return archetypesList;
+    }
+
 }

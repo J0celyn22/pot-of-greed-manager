@@ -868,7 +868,7 @@ public class FilterPane extends VBox {
      */
     private void ensureArchetypeNamesLoaded() {
         if (allArchetypeNames.size() <= 1) {   // still only "(All)"
-            List<String> fromModel = Model.CardsLists.SubListCreator.archetypesList;
+            List<String> fromModel = Model.CardsLists.SubListCreator.getArchetypesList();
             if (fromModel != null && !fromModel.isEmpty()) {
                 setArchetypeNames(fromModel);
             }

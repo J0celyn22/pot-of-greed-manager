@@ -1056,8 +1056,8 @@ public class DecksCollectionsController {
                                                 DataTreeItem<Object> archetypesParent) {
         boolean archetypesAdded = false;
         try {
-            List<String> globalNames = Model.CardsLists.SubListCreator.archetypesList;
-            List<List<Card>> globalLists = Model.CardsLists.SubListCreator.archetypesCardsLists;
+            List<String> globalNames = Model.CardsLists.SubListCreator.getArchetypesList();
+            List<List<Card>> globalLists = Model.CardsLists.SubListCreator.getArchetypesCardsLists();
             if (globalNames != null && globalLists != null
                     && globalNames.size() == globalLists.size()) {
                 for (int index = 0; index < globalNames.size(); index++) {
@@ -1631,8 +1631,8 @@ public class DecksCollectionsController {
             return elements;
         }
         try {
-            List<String> globalNames = Model.CardsLists.SubListCreator.archetypesList;
-            List<List<Card>> globalLists = Model.CardsLists.SubListCreator.archetypesCardsLists;
+            List<String> globalNames = Model.CardsLists.SubListCreator.getArchetypesList();
+            List<List<Card>> globalLists = Model.CardsLists.SubListCreator.getArchetypesCardsLists();
             if (globalNames == null || globalLists == null) {
                 return elements;
             }

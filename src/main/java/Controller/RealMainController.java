@@ -160,10 +160,10 @@ public class RealMainController {
                 SubListCreator.CreateArchetypeLists(allCards);
                 SubListCreator.UpdateCardArchetypes();
                 logger.info("SubListCreator archetypes loaded: names={}, lists={}",
-                        SubListCreator.archetypesList == null ? 0
-                                : SubListCreator.archetypesList.size(),
-                        SubListCreator.archetypesCardsLists == null ? 0
-                                : SubListCreator.archetypesCardsLists.size());
+                        SubListCreator.getArchetypesList() == null ? 0
+                                : SubListCreator.getArchetypesList().size(),
+                        SubListCreator.getArchetypesCardsLists() == null ? 0
+                                : SubListCreator.getArchetypesCardsLists().size());
             } else {
                 logger.info("Database.getAllCardsList() returned empty/null; "
                         + "archetypes not initialised now.");
@@ -1136,9 +1136,9 @@ public class RealMainController {
 
         // ── Archetype filter ──────────────────────────────────────────────────
         if (!pageState.archetype.isBlank() && !"(All)".equals(pageState.archetype)) {
-            List<String> archetypeNames = Model.CardsLists.SubListCreator.archetypesList;
+            List<String> archetypeNames = SubListCreator.getArchetypesList();
             List<List<Card>> archetypeCardLists =
-                    Model.CardsLists.SubListCreator.archetypesCardsLists;
+                    SubListCreator.getArchetypesCardsLists();
             if (archetypeNames == null || archetypeNames.isEmpty()) {
                 return false;
             }

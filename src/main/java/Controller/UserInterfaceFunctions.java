@@ -539,8 +539,8 @@ public class UserInterfaceFunctions {
         Files.createDirectories(Paths.get(outputPathArchetypes));
 
         // Create the Archetypes menu and then the individual archetype pages
-        ArchetypesListsToHtml.generateArchetypesMenu(outputPathArchetypes, archetypesList);
-        ArchetypesListsToHtml.GenerateAllArchetypesLists(outputPathArchetypes, archetypesList, archetypesCardsLists);
+        ArchetypesListsToHtml.generateArchetypesMenu(outputPathArchetypes, getArchetypesList());
+        ArchetypesListsToHtml.GenerateAllArchetypesLists(outputPathArchetypes, getArchetypesList(), getArchetypesCardsLists());
 
         System.out.println("Generation complete!");
     }
@@ -845,64 +845,64 @@ public class UserInterfaceFunctions {
             generateOuicheListMosaicHtml(getMaOuicheListAsFlatList(), outputPathLists);
 
             SubListCreator.CreateSubLists(getMaOuicheListAsFlatList());
-            SubListCreator.CreateSubMonsterLists(SubListCreator.monsterList);
-            SubListCreator.CreateSubSpellLists(SubListCreator.spellList);
-            SubListCreator.CreateSubTrapLists(SubListCreator.trapList);
+            SubListCreator.CreateSubMonsterLists(SubListCreator.getMonsterList());
+            SubListCreator.CreateSubSpellLists(SubListCreator.getSpellList());
+            SubListCreator.CreateSubTrapLists(SubListCreator.getTrapList());
 
-            generateHtml(SubListCreator.monsterList, outputPathLists, "MonsterList");
-            generateHtml(SubListCreator.spellList, outputPathLists, "SpellList");
-            generateHtml(SubListCreator.trapList, outputPathLists, "TrapList");
-            generateHtml(SubListCreator.pyroTypeMonster, outputPathLists, "PyroTypeMonster");
-            generateHtml(SubListCreator.aquaTypeMonster, outputPathLists, "AquaTypeMonster");
-            generateHtml(SubListCreator.machineTypeMonster, outputPathLists, "MachineTypeMonster");
-            generateHtml(SubListCreator.dragonTypeMonster, outputPathLists, "DragonTypeMonster");
-            generateHtml(SubListCreator.beastWarriorTypeMonster, outputPathLists, "BeastWarriorTypeMonster");
-            generateHtml(SubListCreator.reptileTypeMonster, outputPathLists, "ReptileTypeMonster");
-            generateHtml(SubListCreator.plantTypeMonster, outputPathLists, "PlantTypeMonster");
-            generateHtml(SubListCreator.fiendTypeMonster, outputPathLists, "FiendTypeMonster");
-            generateHtml(SubListCreator.wyrmTypeMonster, outputPathLists, "WyrmTypeMonster");
-            generateHtml(SubListCreator.dinosaurTypeMonster, outputPathLists, "DinosaurTypeMonster");
-            generateHtml(SubListCreator.spellcasterTypeMonster, outputPathLists, "SpellcasterTypeMonster");
-            generateHtml(SubListCreator.fishTypeMonster, outputPathLists, "FishTypeMonster");
-            generateHtml(SubListCreator.divineBeastTypeMonster, outputPathLists, "DivineBeastTypeMonster");
-            generateHtml(SubListCreator.cyberseTypeMonster, outputPathLists, "CyberseTypeMonster");
-            generateHtml(SubListCreator.insectTypeMonster, outputPathLists, "InsectTypeMonster");
-            generateHtml(SubListCreator.wingedBeastTypeMonster, outputPathLists, "WingedBeastTypeMonster");
-            generateHtml(SubListCreator.warriorTypeMonster, outputPathLists, "WarriorTypeMonster");
-            generateHtml(SubListCreator.rockTypeMonster, outputPathLists, "RockTypeMonster");
-            generateHtml(SubListCreator.thunderTypeMonster, outputPathLists, "ThunderTypeMonster");
-            generateHtml(SubListCreator.zombieTypeMonster, outputPathLists, "ZombieTypeMonster");
-            generateHtml(SubListCreator.seaSerpentTypeMonster, outputPathLists, "SeaSerpentTypeMonster");
-            generateHtml(SubListCreator.beastTypeMonster, outputPathLists, "BeastTypeMonster");
-            generateHtml(SubListCreator.psychicTypeMonster, outputPathLists, "PsychicTypeMonster");
-            generateHtml(SubListCreator.fairyTypeMonster, outputPathLists, "FairyTypeMonster");
-            generateHtml(SubListCreator.illusionTypeMonster, outputPathLists, "IllusionTypeMonster");
+            generateHtml(SubListCreator.getMonsterList(), outputPathLists, "MonsterList");
+            generateHtml(SubListCreator.getSpellList(), outputPathLists, "SpellList");
+            generateHtml(SubListCreator.getTrapList(), outputPathLists, "TrapList");
+            generateHtml(SubListCreator.getPyroTypeMonster(), outputPathLists, "PyroTypeMonster");
+            generateHtml(SubListCreator.getAquaTypeMonster(), outputPathLists, "AquaTypeMonster");
+            generateHtml(SubListCreator.getMachineTypeMonster(), outputPathLists, "MachineTypeMonster");
+            generateHtml(SubListCreator.getDragonTypeMonster(), outputPathLists, "DragonTypeMonster");
+            generateHtml(SubListCreator.getBeastWarriorTypeMonster(), outputPathLists, "BeastWarriorTypeMonster");
+            generateHtml(SubListCreator.getReptileTypeMonster(), outputPathLists, "ReptileTypeMonster");
+            generateHtml(SubListCreator.getPlantTypeMonster(), outputPathLists, "PlantTypeMonster");
+            generateHtml(SubListCreator.getFiendTypeMonster(), outputPathLists, "FiendTypeMonster");
+            generateHtml(SubListCreator.getWyrmTypeMonster(), outputPathLists, "WyrmTypeMonster");
+            generateHtml(SubListCreator.getDinosaurTypeMonster(), outputPathLists, "DinosaurTypeMonster");
+            generateHtml(SubListCreator.getSpellcasterTypeMonster(), outputPathLists, "SpellcasterTypeMonster");
+            generateHtml(SubListCreator.getFishTypeMonster(), outputPathLists, "FishTypeMonster");
+            generateHtml(SubListCreator.getDivineBeastTypeMonster(), outputPathLists, "DivineBeastTypeMonster");
+            generateHtml(SubListCreator.getCyberseTypeMonster(), outputPathLists, "CyberseTypeMonster");
+            generateHtml(SubListCreator.getInsectTypeMonster(), outputPathLists, "InsectTypeMonster");
+            generateHtml(SubListCreator.getWingedBeastTypeMonster(), outputPathLists, "WingedBeastTypeMonster");
+            generateHtml(SubListCreator.getWarriorTypeMonster(), outputPathLists, "WarriorTypeMonster");
+            generateHtml(SubListCreator.getRockTypeMonster(), outputPathLists, "RockTypeMonster");
+            generateHtml(SubListCreator.getThunderTypeMonster(), outputPathLists, "ThunderTypeMonster");
+            generateHtml(SubListCreator.getZombieTypeMonster(), outputPathLists, "ZombieTypeMonster");
+            generateHtml(SubListCreator.getSeaSerpentTypeMonster(), outputPathLists, "SeaSerpentTypeMonster");
+            generateHtml(SubListCreator.getBeastTypeMonster(), outputPathLists, "BeastTypeMonster");
+            generateHtml(SubListCreator.getPsychicTypeMonster(), outputPathLists, "PsychicTypeMonster");
+            generateHtml(SubListCreator.getFairyTypeMonster(), outputPathLists, "FairyTypeMonster");
+            generateHtml(SubListCreator.getIllusionTypeMonster(), outputPathLists, "IllusionTypeMonster");
 
-            generateHtml(SubListCreator.normalMonsterCard, outputPathLists, "NormalMonsterCard");
-            generateHtml(SubListCreator.toonMonsterCard, outputPathLists, "ToonMonsterCard");
-            generateHtml(SubListCreator.tunerMonsterCard, outputPathLists, "TunerMonsterCard");
-            generateHtml(SubListCreator.unionMonsterCard, outputPathLists, "UnionMonsterCard");
-            generateHtml(SubListCreator.synchroMonsterCard, outputPathLists, "SynchroMonsterCard");
-            generateHtml(SubListCreator.pendulumMonsterCard, outputPathLists, "PendulumMonsterCard");
-            generateHtml(SubListCreator.ritualMonsterCard, outputPathLists, "RitualMonsterCard");
-            generateHtml(SubListCreator.flipMonsterCard, outputPathLists, "FlipMonsterCard");
-            generateHtml(SubListCreator.spiritMonsterCard, outputPathLists, "SpiritMonsterCard");
-            generateHtml(SubListCreator.xyzMonsterCard, outputPathLists, "XyzMonsterCard");
-            generateHtml(SubListCreator.effectMonsterCard, outputPathLists, "EffectMonsterCard");
-            generateHtml(SubListCreator.fusionMonsterCard, outputPathLists, "FusionMonsterCard");
-            generateHtml(SubListCreator.linkMonsterCard, outputPathLists, "LinkMonsterCard");
-            generateHtml(SubListCreator.geminiMonsterCard, outputPathLists, "GeminiMonsterCard");
+            generateHtml(SubListCreator.getNormalMonsterCard(), outputPathLists, "NormalMonsterCard");
+            generateHtml(SubListCreator.getToonMonsterCard(), outputPathLists, "ToonMonsterCard");
+            generateHtml(SubListCreator.getTunerMonsterCard(), outputPathLists, "TunerMonsterCard");
+            generateHtml(SubListCreator.getUnionMonsterCard(), outputPathLists, "UnionMonsterCard");
+            generateHtml(SubListCreator.getSynchroMonsterCard(), outputPathLists, "SynchroMonsterCard");
+            generateHtml(SubListCreator.getPendulumMonsterCard(), outputPathLists, "PendulumMonsterCard");
+            generateHtml(SubListCreator.getRitualMonsterCard(), outputPathLists, "RitualMonsterCard");
+            generateHtml(SubListCreator.getFlipMonsterCard(), outputPathLists, "FlipMonsterCard");
+            generateHtml(SubListCreator.getSpiritMonsterCard(), outputPathLists, "SpiritMonsterCard");
+            generateHtml(SubListCreator.getXyzMonsterCard(), outputPathLists, "XyzMonsterCard");
+            generateHtml(SubListCreator.getEffectMonsterCard(), outputPathLists, "EffectMonsterCard");
+            generateHtml(SubListCreator.getFusionMonsterCard(), outputPathLists, "FusionMonsterCard");
+            generateHtml(SubListCreator.getLinkMonsterCard(), outputPathLists, "LinkMonsterCard");
+            generateHtml(SubListCreator.getGeminiMonsterCard(), outputPathLists, "GeminiMonsterCard");
 
-            generateHtml(SubListCreator.normalSpellCard, outputPathLists, "NormalSpellCard");
-            generateHtml(SubListCreator.continuousSpellCard, outputPathLists, "ContinuousSpellCard");
-            generateHtml(SubListCreator.quickPlaySpellCard, outputPathLists, "QuickPlaySpellCard");
-            generateHtml(SubListCreator.equipSpellCard, outputPathLists, "EquipSpellCard");
-            generateHtml(SubListCreator.fieldSpellCard, outputPathLists, "FieldSpellCard");
-            generateHtml(SubListCreator.ritualSpellCard, outputPathLists, "RitualSpellCard");
+            generateHtml(SubListCreator.getNormalSpellCard(), outputPathLists, "NormalSpellCard");
+            generateHtml(SubListCreator.getContinuousSpellCard(), outputPathLists, "ContinuousSpellCard");
+            generateHtml(SubListCreator.getQuickPlaySpellCard(), outputPathLists, "QuickPlaySpellCard");
+            generateHtml(SubListCreator.getEquipSpellCard(), outputPathLists, "EquipSpellCard");
+            generateHtml(SubListCreator.getFieldSpellCard(), outputPathLists, "FieldSpellCard");
+            generateHtml(SubListCreator.getRitualSpellCard(), outputPathLists, "RitualSpellCard");
 
-            generateHtml(SubListCreator.normalTrapCard, outputPathLists, "NormalTrapCard");
-            generateHtml(SubListCreator.continuousTrapCard, outputPathLists, "ContinuousTrapCard");
-            generateHtml(SubListCreator.counterTrapCard, outputPathLists, "CounterTrapCard");
+            generateHtml(SubListCreator.getNormalTrapCard(), outputPathLists, "NormalTrapCard");
+            generateHtml(SubListCreator.getContinuousTrapCard(), outputPathLists, "ContinuousTrapCard");
+            generateHtml(SubListCreator.getCounterTrapCard(), outputPathLists, "CounterTrapCard");
 
             ouicheListIsLoaded = true;
 

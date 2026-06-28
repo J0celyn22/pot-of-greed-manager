@@ -462,9 +462,9 @@ public final class NavigationContextMenuBuilder {
             menu.getItems().clear();
 
             List<String> allNames =
-                    Model.CardsLists.SubListCreator.archetypesList;
+                    Model.CardsLists.SubListCreator.getArchetypesList();
             List<List<Model.CardsLists.Card>> allCards =
-                    Model.CardsLists.SubListCreator.archetypesCardsLists;
+                    Model.CardsLists.SubListCreator.getArchetypesCardsLists();
 
             if (allNames == null || allNames.isEmpty()) {
                 menu.getItems().add(disabledItem("No archetypes available"));

@@ -22,7 +22,7 @@ import java.util.*;
  * <p>Responsibilities:
  * <ul>
  *   <li>Building the read-only Archetypes {@link TreeView} from the global
- *       {@code SubListCreator.archetypesList} / {@code archetypesCardsLists}.</li>
+ *       {@code SubListCreator.getArchetypesList()} / {@code archetypesCardsLists}.</li>
  *   <li>Populating the left-hand navigation menu with archetype entries.</li>
  *   <li>Building the flat list of {@link CardElement}s for a named archetype
  *       (shared with {@link DecksCollectionsController} via delegation).</li>
@@ -93,8 +93,8 @@ public class ArchetypesController {
         List<String> archetypeNames;
         List<List<Card>> archetypeCardLists;
         try {
-            archetypeNames = Model.CardsLists.SubListCreator.archetypesList;
-            archetypeCardLists = Model.CardsLists.SubListCreator.archetypesCardsLists;
+            archetypeNames = Model.CardsLists.SubListCreator.getArchetypesList();
+            archetypeCardLists = Model.CardsLists.SubListCreator.getArchetypesCardsLists();
         } catch (Throwable throwable) {
             logger.warn("displayArchetypes: could not read SubListCreator static fields",
                     throwable);
@@ -180,9 +180,9 @@ public class ArchetypesController {
 
         List<String> archetypeNames;
         try {
-            archetypeNames = Model.CardsLists.SubListCreator.archetypesList;
+            archetypeNames = Model.CardsLists.SubListCreator.getArchetypesList();
         } catch (Throwable throwable) {
-            logger.warn("populateArchetypesMenu: could not read SubListCreator.archetypesList",
+            logger.warn("populateArchetypesMenu: could not read SubListCreator.getArchetypesList()",
                     throwable);
             archetypeNames = null;
         }
