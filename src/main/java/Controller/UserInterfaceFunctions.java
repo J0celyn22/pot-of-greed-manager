@@ -90,15 +90,15 @@ public class UserInterfaceFunctions {
     }
 
     public static Object getAndClearPendingDecksExpandTarget() {
-        Object t = pendingDecksExpandTarget;
+        Object expandTarget = pendingDecksExpandTarget;
         pendingDecksExpandTarget = null;
-        return t;
+        return expandTarget;
     }
 
     public static boolean getAndClearPendingDecksFullRebuild() {
-        boolean v = pendingDecksFullRebuild;
+        boolean wasPendingFullRebuild = pendingDecksFullRebuild;
         pendingDecksFullRebuild = false;
-        return v;
+        return wasPendingFullRebuild;
     }
 
     private static Object pendingDecksScrollTarget = null;
@@ -110,9 +110,9 @@ public class UserInterfaceFunctions {
     }
 
     public static Object getAndClearPendingDecksScrollTarget() {
-        Object t = pendingDecksScrollTarget;
+        Object scrollTarget = pendingDecksScrollTarget;
         pendingDecksScrollTarget = null;
-        return t;
+        return scrollTarget;
     }
 
     public static void setPendingDecksRenameTarget(Object target) {
@@ -124,9 +124,9 @@ public class UserInterfaceFunctions {
     }
 
     public static Object getAndClearPendingDecksRenameTarget() {
-        Object t = pendingDecksRenameTarget;
+        Object renameTarget = pendingDecksRenameTarget;
         pendingDecksRenameTarget = null;
-        return t;
+        return renameTarget;
     }
 
     public static void setPendingDecksCreateCollectionData(Object[] data) {
@@ -134,9 +134,9 @@ public class UserInterfaceFunctions {
     }
 
     public static Object[] getAndClearPendingDecksCreateCollectionData() {
-        Object[] d = pendingDecksCreateCollectionData;
+        Object[] createCollectionData = pendingDecksCreateCollectionData;
         pendingDecksCreateCollectionData = null;
-        return d;
+        return createCollectionData;
     }
 
     // ── Dirty tracking ────────────────────────────────────────────────────────────
@@ -231,32 +231,32 @@ public class UserInterfaceFunctions {
     }
 
     /**
-     * Marks every deck and collection in the currently loaded DAC as dirty.
+     * Marks every deck and collection in the currently loaded Decks and Collections List as dirty.
      */
     public static void markAllDecksAndCollectionsDirty() {
-        DecksAndCollectionsList dac = getDecksList();
-        if (dac == null) {
+        DecksAndCollectionsList decksAndCollectionsList = getDecksList();
+        if (decksAndCollectionsList == null) {
             return;
         }
-        if (dac.getDecks() != null) {
-            dac.getDecks().forEach(d -> {
-                if (d != null) {
-                    markDirty(d);
+        if (decksAndCollectionsList.getDecks() != null) {
+            decksAndCollectionsList.getDecks().forEach(deck -> {
+                if (deck != null) {
+                    markDirty(deck);
                 }
             });
         }
-        if (dac.getCollections() != null) {
-            dac.getCollections().forEach(tc -> {
-                if (tc == null) {
+        if (decksAndCollectionsList.getCollections() != null) {
+            decksAndCollectionsList.getCollections().forEach(themeCollection -> {
+                if (themeCollection == null) {
                     return;
                 }
-                markDirty(tc);
-                if (tc.getLinkedDecks() != null) {
-                    tc.getLinkedDecks().forEach(u -> {
-                        if (u != null) {
-                            u.forEach(d -> {
-                                if (d != null) {
-                                    markDirty(d);
+                markDirty(themeCollection);
+                if (themeCollection.getLinkedDecks() != null) {
+                    themeCollection.getLinkedDecks().forEach(linkedDeckUnit -> {
+                        if (linkedDeckUnit != null) {
+                            linkedDeckUnit.forEach(deck -> {
+                                if (deck != null) {
+                                    markDirty(deck);
                                 }
                             });
                         }
@@ -290,30 +290,30 @@ public class UserInterfaceFunctions {
             logger.warn("saveAllDecksAndCollections: no folder path configured");
             return;
         }
-        DecksAndCollectionsList dac = getDecksList();
-        if (dac == null) {
+        DecksAndCollectionsList decksAndCollectionsList = getDecksList();
+        if (decksAndCollectionsList == null) {
             return;
         }
         String dir = folderPath.getAbsolutePath();
 
-        if (dac.getCollections() != null) {
-            for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
-                if (tc == null) {
+        if (decksAndCollectionsList.getCollections() != null) {
+            for (Model.CardsLists.ThemeCollection themeCollection : decksAndCollectionsList.getCollections()) {
+                if (themeCollection == null) {
                     continue;
                 }
 
                 // Determine whether the collection itself or any of its linked
                 // decks are dirty — if so the .ytc file must be saved.
-                boolean collectionIsDirty = isDirty(tc);
+                boolean collectionIsDirty = isDirty(themeCollection);
 
                 boolean anyLinkedDeckIsDirty = false;
-                if (tc.getLinkedDecks() != null) {
-                    for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                if (themeCollection.getLinkedDecks() != null) {
+                    for (List<Model.CardsLists.Deck> unit : themeCollection.getLinkedDecks()) {
                         if (unit == null) {
                             continue;
                         }
-                        for (Model.CardsLists.Deck d : unit) {
-                            if (d != null && isDirty(d)) {
+                        for (Model.CardsLists.Deck deck : unit) {
+                            if (deck != null && isDirty(deck)) {
                                 anyLinkedDeckIsDirty = true;
                                 break;
                             }
@@ -326,25 +326,25 @@ public class UserInterfaceFunctions {
 
                 // Save .ytc only when needed
                 if (collectionIsDirty || anyLinkedDeckIsDirty) {
-                    tc.saveToFile(dir);
-                    clearDirty(tc);
-                    logger.info("Saved collection '{}'", tc.getName());
+                    themeCollection.saveToFile(dir);
+                    clearDirty(themeCollection);
+                    logger.info("Saved collection '{}'", themeCollection.getName());
                 }
 
                 // Save each linked .ydk only when that deck is dirty
-                if (tc.getLinkedDecks() != null) {
-                    for (List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+                if (themeCollection.getLinkedDecks() != null) {
+                    for (List<Model.CardsLists.Deck> unit : themeCollection.getLinkedDecks()) {
                         if (unit == null) {
                             continue;
                         }
-                        for (Model.CardsLists.Deck d : unit) {
-                            if (d == null) {
+                        for (Model.CardsLists.Deck deck : unit) {
+                            if (deck == null) {
                                 continue;
                             }
-                            if (isDirty(d)) {
-                                d.saveDeck(dir);
-                                clearDirty(d);
-                                logger.info("Saved linked deck '{}'", d.getName());
+                            if (isDirty(deck)) {
+                                deck.saveDeck(dir);
+                                clearDirty(deck);
+                                logger.info("Saved linked deck '{}'", deck.getName());
                             }
                         }
                     }
@@ -352,8 +352,8 @@ public class UserInterfaceFunctions {
             }
         }
 
-        if (dac.getDecks() != null) {
-            for (Model.CardsLists.Deck deck : dac.getDecks()) {
+        if (decksAndCollectionsList.getDecks() != null) {
+            for (Model.CardsLists.Deck deck : decksAndCollectionsList.getDecks()) {
                 if (deck == null) {
                     continue;
                 }
@@ -371,8 +371,8 @@ public class UserInterfaceFunctions {
         logger.info("Save complete — only modified elements were written.");
     }
 
-    public static void registerTabDirtyIndicatorUpdater(Runnable r) {
-        tabDirtyIndicatorUpdater = r;
+    public static void registerTabDirtyIndicatorUpdater(Runnable updater) {
+        tabDirtyIndicatorUpdater = updater;
     }
 
     // ── Archetypes refreshers ──────────────────────────────────────────────────
@@ -425,8 +425,8 @@ public class UserInterfaceFunctions {
                 }
                 reader.close();
             }
-        } catch (IOException e) {
-            logger.debug("readPathsFromFile: could not read default_folders.txt", e);
+        } catch (IOException exception) {
+            logger.debug("readPathsFromFile: could not read default_folders.txt", exception);
         }
     }
 
@@ -466,8 +466,8 @@ public class UserInterfaceFunctions {
                 writer.newLine();
                 writer.write(thirdPartyListPath != null ? thirdPartyListPath.getAbsolutePath() : "");
             }
-        } catch (IOException e) {
-            logger.error("savePathsToFile: failed to write default_folders.txt", e);
+        } catch (IOException exception) {
+            logger.error("savePathsToFile: failed to write default_folders.txt", exception);
         }
     }
 
@@ -534,10 +534,10 @@ public class UserInterfaceFunctions {
 
             markOuicheListDirty();
             triggerTabDirtyIndicatorUpdate();
-        } catch (IOException e) {
-            logger.error("generateOuicheListFunction: failed to write OuicheList HTML output", e);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        } catch (IOException exception) {
+            logger.error("generateOuicheListFunction: failed to write OuicheList HTML output", exception);
+        } catch (Exception exception) {
+            throw new RuntimeException(exception);
         }
     }
 
@@ -798,8 +798,8 @@ public class UserInterfaceFunctions {
 
             generateOuicheListFunction();
             playLaughSound();
-        } catch (Exception ex) {
-            throw new RuntimeException(ex);
+        } catch (Exception exception) {
+            throw new RuntimeException(exception);
         }
     }
 
@@ -834,8 +834,8 @@ public class UserInterfaceFunctions {
 
             generateOuicheListTypeFunction();
             playLaughSound();
-        } catch (Exception ex) {
-            throw new RuntimeException(ex);
+        } catch (Exception exception) {
+            throw new RuntimeException(exception);
         }
     }
 
@@ -932,10 +932,10 @@ public class UserInterfaceFunctions {
 
             markOuicheListDirty();
             triggerTabDirtyIndicatorUpdate();
-        } catch (IOException e) {
-            logger.error("generateOuicheListTypeFunction: failed to write generated HTML output", e);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        } catch (IOException exception) {
+            logger.error("generateOuicheListTypeFunction: failed to write generated HTML output", exception);
+        } catch (Exception exception) {
+            throw new RuntimeException(exception);
         }
     }
 
@@ -1069,18 +1069,18 @@ public class UserInterfaceFunctions {
         // Re-render the D&C tree cells so archetype-card glow states update.
         // This is a lightweight .refresh() (no model rebuild) and is safe to call
         // at any time without losing selection or scroll position.
-        for (Runnable r : decksTreeRefreshers) {
+        for (Runnable runnable : decksTreeRefreshers) {
             try {
-                r.run();
-            } catch (Throwable t) {
-                logger.debug("doRefreshArchetypesView: decksTree refresher threw", t);
+                runnable.run();
+            } catch (Throwable throwable) {
+                logger.debug("doRefreshArchetypesView: decksTree refresher threw", throwable);
             }
         }
-        for (Runnable r : explicitArchetypesRefreshers) {
+        for (Runnable runnable : explicitArchetypesRefreshers) {
             try {
-                r.run();
-            } catch (Throwable t) {
-                logger.debug("refreshArchetypesView: refresher threw", t);
+                runnable.run();
+            } catch (Throwable throwable) {
+                logger.debug("refreshArchetypesView: refresher threw", throwable);
             }
         }
     }
@@ -1111,11 +1111,11 @@ public class UserInterfaceFunctions {
         // Always request a full tree rebuild so that archetype missing-sets (and
         // therefore archetype-card glow states) recompute from the updated model.
         setPendingDecksFullRebuild();
-        for (Runnable r : explicitDecksRefreshers) {
+        for (Runnable runnable : explicitDecksRefreshers) {
             try {
-                r.run();
-            } catch (Throwable t) {
-                logger.debug("refreshDecksAndCollectionsView: refresher threw", t);
+                runnable.run();
+            } catch (Throwable throwable) {
+                logger.debug("refreshDecksAndCollectionsView: refresher threw", throwable);
             }
         }
     }
@@ -1146,12 +1146,12 @@ public class UserInterfaceFunctions {
         try {
             // 1) Call any explicit registered refreshers first (preferred)
             if (!explicitRefreshers.isEmpty()) {
-                for (Runnable r : explicitRefreshers) {
+                for (Runnable refresher : explicitRefreshers) {
                     try {
-                        r.run();
-                        logger.debug("refreshOwnedCollectionView: called explicit refresher {}", r);
-                    } catch (Throwable t) {
-                        logger.debug("refreshOwnedCollectionView: explicit refresher threw", t);
+                        refresher.run();
+                        logger.debug("refreshOwnedCollectionView: called explicit refresher {}", refresher);
+                    } catch (Throwable throwable) {
+                        logger.debug("refreshOwnedCollectionView: explicit refresher threw", throwable);
                     }
                 }
                 // We still continue to scan and refresh controls to be safe.
@@ -1159,57 +1159,57 @@ public class UserInterfaceFunctions {
 
             // 2) Walk all open windows and refresh TreeView/ListView controls found
             boolean refreshedAny = false;
-            for (Window w : Window.getWindows()) {
+            for (Window window : Window.getWindows()) {
                 try {
-                    Scene s = w.getScene();
-                    if (s == null) {
+                    Scene scene = window.getScene();
+                    if (scene == null) {
                         continue;
                     }
-                    Parent root = s.getRoot();
+                    Parent root = scene.getRoot();
                     if (root == null) {
                         continue;
                     }
                     // BFS traversal to find controls
-                    Deque<Node> dq = new ArrayDeque<>();
-                    dq.add(root);
-                    while (!dq.isEmpty()) {
-                        Node n = dq.poll();
-                        if (n == null) {
+                    Deque<Node> pendingNodes = new ArrayDeque<>();
+                    pendingNodes.add(root);
+                    while (!pendingNodes.isEmpty()) {
+                        Node node = pendingNodes.poll();
+                        if (node == null) {
                             continue;
                         }
 
                         // Refresh TreeView
-                        if (n instanceof TreeView) {
+                        if (node instanceof TreeView) {
                             try {
-                                ((TreeView<?>) n).refresh();
+                                ((TreeView<?>) node).refresh();
                                 refreshedAny = true;
-                            } catch (Throwable t) {
-                                logger.debug("refreshOwnedCollectionView: TreeView.refresh() failed", t);
+                            } catch (Throwable throwable) {
+                                logger.debug("refreshOwnedCollectionView: TreeView.refresh() failed", throwable);
                             }
                         }
 
                         // Refresh ListView
-                        if (n instanceof ListView) {
+                        if (node instanceof ListView) {
                             try {
-                                ((ListView<?>) n).refresh();
+                                ((ListView<?>) node).refresh();
                                 refreshedAny = true;
-                            } catch (Throwable t) {
-                                logger.debug("refreshOwnedCollectionView: ListView.refresh() failed", t);
+                            } catch (Throwable throwable) {
+                                logger.debug("refreshOwnedCollectionView: ListView.refresh() failed", throwable);
                             }
                         }
 
                         // If node is a Parent, enqueue children
-                        if (n instanceof Parent) {
-                            ObservableList<Node> children = ((Parent) n).getChildrenUnmodifiable();
+                        if (node instanceof Parent) {
+                            ObservableList<Node> children = ((Parent) node).getChildrenUnmodifiable();
                             if (children != null && !children.isEmpty()) {
                                 for (Node child : children) {
-                                    dq.add(child);
+                                    pendingNodes.add(child);
                                 }
                             }
                         }
                     }
-                } catch (Throwable t) {
-                    logger.debug("refreshOwnedCollectionView: scanning window failed", t);
+                } catch (Throwable throwable) {
+                    logger.debug("refreshOwnedCollectionView: scanning window failed", throwable);
                 }
             }
 
@@ -1220,15 +1220,15 @@ public class UserInterfaceFunctions {
             } else {
                 logger.debug("refreshOwnedCollectionView: refreshed visible controls");
             }
-        } catch (Throwable ex) {
-            logger.debug("refreshOwnedCollectionView failed", ex);
+        } catch (Throwable throwable) {
+            logger.debug("refreshOwnedCollectionView failed", throwable);
         }
     }
 
     public static Object getAndClearPendingRenameTarget() {
-        Object t = pendingRenameTarget;
+        Object renameTarget = pendingRenameTarget;
         pendingRenameTarget = null;
-        return t;
+        return renameTarget;
     }
 
     public static void registerOwnedCollectionStructureRefresher(Runnable refresher) {
@@ -1253,11 +1253,11 @@ public class UserInterfaceFunctions {
     }
 
     private static void doRefreshOwnedCollectionStructure() {
-        for (Runnable r : explicitStructureRefreshers) {
+        for (Runnable runnable : explicitStructureRefreshers) {
             try {
-                r.run();
-            } catch (Throwable t) {
-                logger.debug("refreshOwnedCollectionStructure: refresher threw", t);
+                runnable.run();
+            } catch (Throwable throwable) {
+                logger.debug("refreshOwnedCollectionStructure: refresher threw", throwable);
             }
         }
     }
@@ -1303,22 +1303,21 @@ public class UserInterfaceFunctions {
             refreshDecksAndCollectionsView();
             logger.info("Saved deck '{}'", deck.getName());
 
-        } else if (obj instanceof Model.CardsLists.ThemeCollection) {
-            Model.CardsLists.ThemeCollection tc = (Model.CardsLists.ThemeCollection) obj;
-            tc.saveToFile(dir);
-            clearDirty(tc);
+        } else if (obj instanceof Model.CardsLists.ThemeCollection themeCollection) {
+            themeCollection.saveToFile(dir);
+            clearDirty(themeCollection);
             // Also flush any dirty linked decks so the whole collection is consistent on disk.
-            if (tc.getLinkedDecks() != null) {
-                for (java.util.List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
+            if (themeCollection.getLinkedDecks() != null) {
+                for (java.util.List<Model.CardsLists.Deck> unit : themeCollection.getLinkedDecks()) {
                     if (unit == null) {
                         continue;
                     }
-                    for (Model.CardsLists.Deck d : unit) {
-                        if (d != null && isDirty(d)) {
-                            d.saveDeck(dir);
-                            clearDirty(d);
+                    for (Model.CardsLists.Deck deck : unit) {
+                        if (isDirty(deck)) {
+                            deck.saveDeck(dir);
+                            clearDirty(deck);
                             logger.info("Saved linked deck '{}' while saving collection '{}'",
-                                    d.getName(), tc.getName());
+                                    deck.getName(), themeCollection.getName());
                         }
                     }
                 }
@@ -1326,7 +1325,7 @@ public class UserInterfaceFunctions {
             triggerTabDirtyIndicatorUpdate();
             // Rebuild the nav menu so the "* name" asterisk is cleared there too.
             refreshDecksAndCollectionsView();
-            logger.info("Saved collection '{}'", tc.getName());
+            logger.info("Saved collection '{}'", themeCollection.getName());
         }
     }
 }
