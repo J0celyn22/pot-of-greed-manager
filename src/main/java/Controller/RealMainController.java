@@ -1008,7 +1008,7 @@ public class RealMainController {
                 final int count = cards.size();
                 pasteCardsIntoNavigationItem(cards, modelObj);
                 Platform.runLater(() -> {
-                    List<CardElement> targetElements = getTargetGroupElements(modelObj);
+                    List<CardElement> targetElements = MiddleSelectionActionHandler.getTargetGroupElements(modelObj);
                     int startIndex = Math.max(0, targetElements.size() - count);
                     SelectionManager.clearSelection();
                     for (int index = startIndex; index < targetElements.size(); index++) {
@@ -1548,7 +1548,7 @@ public class RealMainController {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
         } else if (activeTabIndex == 1) {
-            Object owner = findDeckOrCollectionOwner(lastElement);
+            Object owner = MiddleSelectionActionHandler.findDeckOrCollectionOwner(lastElement);
             if (owner != null) {
                 UserInterfaceFunctions.markDirty(owner);
             }
@@ -1595,7 +1595,8 @@ public class RealMainController {
             String konamiId = selectedElement.getCard().getKonamiId();
 
             // Find the direct container list that holds this element.
-            List<CardElement> directContainer = findDirectContainer(selectedElement, activeTabIndex);
+            List<CardElement> directContainer =
+                    MiddleSelectionActionHandler.findDirectContainer(selectedElement, activeTabIndex);
             if (directContainer == null) {
                 continue;
             }
@@ -1642,101 +1643,13 @@ public class RealMainController {
             UserInterfaceFunctions.refreshOwnedCollectionView();
         } else if (activeTabIndex == 1) {
             CardElement lastElement = selectedInOrder.get(selectedInOrder.size() - 1);
-            Object owner = findDeckOrCollectionOwner(lastElement);
+            Object owner = MiddleSelectionActionHandler.findDeckOrCollectionOwner(lastElement);
             if (owner != null) {
                 UserInterfaceFunctions.markDirty(owner);
             }
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
         }
-    }
-
-    /**
-     * Returns the {@link List} that directly contains {@code element},
-     * depending on the active tab:
-     * <ul>
-     *   <li>Tab 0 (My Collection): the {@link CardsGroup} cardList that holds the element.</li>
-     *   <li>Tab 1 (Decks and Collections): the specific deck-section list (main/extra/side)
-     *       that holds the element, or the ThemeCollection cardsList.</li>
-     * </ul>
-     * Returns {@code null} when no container is found.
-     */
-    private List<CardElement> findDirectContainer(CardElement element, int activeTabIndex) {
-        if (element == null) {
-            return null;
-        }
-        if (activeTabIndex == 0) {
-            // My Collection: search CardsGroups inside every Box.
-            OwnedCardsCollection ownedCollection = Model.CardsLists.OuicheList.getMyCardsCollection();
-            if (ownedCollection == null) {
-                return null;
-            }
-            for (Box box : ownedCollection.getOwnedCollection()) {
-                List<CardsGroup> groups = box.getContent();
-                if (groups == null) {
-                    continue;
-                }
-                for (CardsGroup group : groups) {
-                    List<CardElement> cardList = group.getCardList();
-                    if (cardList != null && cardList.contains(element)) {
-                        return cardList;
-                    }
-                }
-            }
-        } else if (activeTabIndex == 1) {
-            DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
-            if (decksList == null) {
-                return null;
-            }
-            // Search deck sections of standalone decks.
-            for (Deck deck : decksList.getDecks()) {
-                if (deck == null) {
-                    continue;
-                }
-                if (deck.getMainDeck() != null && deck.getMainDeck().contains(element)) {
-                    return deck.getMainDeck();
-                }
-                if (deck.getExtraDeck() != null && deck.getExtraDeck().contains(element)) {
-                    return deck.getExtraDeck();
-                }
-                if (deck.getSideDeck() != null && deck.getSideDeck().contains(element)) {
-                    return deck.getSideDeck();
-                }
-            }
-            // Search ThemeCollection cardsLists and linked deck sections.
-            for (ThemeCollection collection : decksList.getCollections()) {
-                if (collection == null) {
-                    continue;
-                }
-                List<CardElement> cardsList = collection.getCardsList();
-                if (cardsList != null && cardsList.contains(element)) {
-                    return cardsList;
-                }
-                if (collection.getLinkedDecks() == null) {
-                    continue;
-                }
-                for (List<Deck> unit : collection.getLinkedDecks()) {
-                    if (unit == null) {
-                        continue;
-                    }
-                    for (Deck deck : unit) {
-                        if (deck == null) {
-                            continue;
-                        }
-                        if (deck.getMainDeck() != null && deck.getMainDeck().contains(element)) {
-                            return deck.getMainDeck();
-                        }
-                        if (deck.getExtraDeck() != null && deck.getExtraDeck().contains(element)) {
-                            return deck.getExtraDeck();
-                        }
-                        if (deck.getSideDeck() != null && deck.getSideDeck().contains(element)) {
-                            return deck.getSideDeck();
-                        }
-                    }
-                }
-            }
-        }
-        return null;
     }
 
     private void handlePasteFromKeyboard() {
@@ -1920,82 +1833,6 @@ public class RealMainController {
         };
     }
 
-    private Object findDeckOrCollectionOwner(CardElement element) {
-        if (element == null) {
-            return null;
-        }
-        DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
-        if (decksList == null) {
-            return null;
-        }
-        if (decksList.getCollections() != null) {
-            for (ThemeCollection collection : decksList.getCollections()) {
-                if (collection.getCardsList() != null
-                        && collection.getCardsList().contains(element)) {
-                    return collection;
-                }
-                if (collection.getLinkedDecks() != null) {
-                    for (List<Deck> unit : collection.getLinkedDecks()) {
-                        if (unit == null) {
-                            continue;
-                        }
-                        for (Deck deck : unit) {
-                            if (containsElementInDeck(deck, element)) {
-                                return deck;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if (decksList.getDecks() != null) {
-            for (Deck deck : decksList.getDecks()) {
-                if (containsElementInDeck(deck, element)) {
-                    return deck;
-                }
-            }
-        }
-        return null;
-    }
-
-    private boolean containsElementInDeck(Deck deck, CardElement element) {
-        if (deck == null) {
-            return false;
-        }
-        if (deck.getMainDeck() != null && deck.getMainDeck().contains(element)) {
-            return true;
-        }
-        if (deck.getExtraDeck() != null && deck.getExtraDeck().contains(element)) {
-            return true;
-        }
-        if (deck.getSideDeck() != null && deck.getSideDeck().contains(element)) {
-            return true;
-        }
-        return false;
-    }
-
-    private List<CardElement> getTargetGroupElements(Object modelObj) {
-        if (modelObj instanceof CardsGroup) {
-            List<CardElement> list = ((CardsGroup) modelObj).getCardList();
-            return list != null ? list : new ArrayList<>();
-        }
-        if (modelObj instanceof Box box) {
-            if (box.getContent() != null && !box.getContent().isEmpty()) {
-                return box.getContent().get(box.getContent().size() - 1).getCardList();
-            }
-        }
-        if (modelObj instanceof Deck deck) {
-            if (deck.getMainDeck() != null) {
-                return deck.getMainDeck();
-            }
-        }
-        if (modelObj instanceof ThemeCollection collection) {
-            List<CardElement> cardsList = collection.getCardsList();
-            return cardsList != null ? cardsList : new ArrayList<>();
-        }
-        return new ArrayList<>();
-    }
-
     /**
      * Inserts copy-constructed snapshots of {@code elements} immediately after
      * {@code anchor} in the group that contains it, preserving {@code condition},
@@ -2021,7 +1858,7 @@ public class RealMainController {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
         } else if (activeTabIndex == 1) {
-            Object owner = findDeckOrCollectionOwner(anchor);
+            Object owner = MiddleSelectionActionHandler.findDeckOrCollectionOwner(anchor);
             if (owner != null) {
                 UserInterfaceFunctions.markDirty(owner);
             }
@@ -2045,7 +1882,7 @@ public class RealMainController {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
         } else if (activeTabIndex == 1) {
-            Object owner = findDeckOrCollectionOwner(anchor);
+            Object owner = MiddleSelectionActionHandler.findDeckOrCollectionOwner(anchor);
             if (owner != null) {
                 UserInterfaceFunctions.markDirty(owner);
             }
@@ -2140,33 +1977,6 @@ public class RealMainController {
         }
     }
 
-    /**
-     * Returns the name of the {@link ThemeCollection} that owns {@code deck} in
-     * the live decksList, or {@code null} for standalone decks.
-     */
-    private String findCollectionNameForDeck(Deck deck) {
-        DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
-        if (deck == null || decksList == null || decksList.getCollections() == null) {
-            return null;
-        }
-        for (ThemeCollection collection : decksList.getCollections()) {
-            if (collection == null || collection.getLinkedDecks() == null) {
-                continue;
-            }
-            for (List<Deck> unit : collection.getLinkedDecks()) {
-                if (unit == null) {
-                    continue;
-                }
-                for (Deck linkedDeck : unit) {
-                    if (linkedDeck == deck) {
-                        return collection.getName();
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
     private void pasteCardsIntoNavigationItem(List<Card> cards, Object modelObj) {
         if (cards == null || cards.isEmpty() || modelObj == null) {
             return;
@@ -2223,7 +2033,7 @@ public class RealMainController {
                 }
             }
 
-            String parentCollectionName = findCollectionNameForDeck(deck);
+            String parentCollectionName = MiddleSelectionActionHandler.findCollectionNameForDeck(deck);
             List<CardElement> addedElements = new ArrayList<>();
 
             java.util.function.BiConsumer<List<Card>, String> addToSection =
@@ -2391,7 +2201,7 @@ public class RealMainController {
 
         Object navItem = SelectionManager.getLastClickedNavigationItem();
         if (navItem != null && navItemBelongsToActiveTab(navItem)) {
-            List<CardElement> backing = getTargetGroupElements(navItem);
+            List<CardElement> backing = MiddleSelectionActionHandler.getTargetGroupElements(navItem);
             pasteCardsIntoNavigationItem(toInsert, navItem);
             if (!backing.isEmpty()) {
                 SelectionManager.selectElement(backing.get(backing.size() - 1));
@@ -2413,34 +2223,14 @@ public class RealMainController {
             }
         }
 
-        Object lastNavModel = findLastNavModelInTree(treeView);
+        Object lastNavModel = MiddleSelectionActionHandler.findLastNavModelInTree(treeView);
         if (lastNavModel != null) {
-            List<CardElement> backing = getTargetGroupElements(lastNavModel);
+            List<CardElement> backing = MiddleSelectionActionHandler.getTargetGroupElements(lastNavModel);
             pasteCardsIntoNavigationItem(toInsert, lastNavModel);
             if (!backing.isEmpty()) {
                 SelectionManager.selectElement(backing.get(backing.size() - 1));
             }
         }
-    }
-
-    private Object findLastNavModelInTree(TreeView<String> treeView) {
-        if (treeView == null || treeView.getRoot() == null) {
-            return null;
-        }
-        Object candidate = null;
-        java.util.Queue<TreeItem<String>> queue = new java.util.LinkedList<>();
-        queue.add(treeView.getRoot());
-        while (!queue.isEmpty()) {
-            TreeItem<String> item = queue.poll();
-            if (item.getGraphic() instanceof NavigationItem navItem) {
-                Object modelObj = navItem.getUserData();
-                if (modelObj != null && !getTargetGroupElements(modelObj).isEmpty()) {
-                    candidate = modelObj;
-                }
-            }
-            queue.addAll(item.getChildren());
-        }
-        return candidate;
     }
 
     private void selectLastInsertedElement(CardElement anchor, int count) {
