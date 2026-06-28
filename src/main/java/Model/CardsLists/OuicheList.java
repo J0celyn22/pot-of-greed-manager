@@ -356,15 +356,6 @@ public class OuicheList {
                 maOuicheListSubstandardCounts);
     }
 
-    /**
-     * @deprecated Use {@link #createOuicheList(OwnedCardsCollection, DecksAndCollectionsList)} instead.
-     */
-    @Deprecated
-    public static void CreateOuicheList(OwnedCardsCollection ownedCardsCollection,
-                                        DecksAndCollectionsList decksList) throws Exception {
-        createOuicheList(ownedCardsCollection, decksList);
-    }
-
     // =========================================================================
     // Incremental updates
     //
@@ -483,16 +474,6 @@ public class OuicheList {
         return OuicheListComputer.createDetailedOuicheList(ownedCardsCollection, inputDecksList);
     }
 
-    /**
-     * @deprecated Use {@link OuicheListComputer#createDetailedOuicheList} instead.
-     */
-    @Deprecated
-    public static DecksAndCollectionsList CreateDetailedOuicheList(
-            OwnedCardsCollection ownedCardsCollection,
-            DecksAndCollectionsList inputDecksList) {
-        return OuicheListComputer.createDetailedOuicheList(ownedCardsCollection, inputDecksList);
-    }
-
     static void buildCompactMapForStatus(
             OwnershipStatus targetStatus,
             LinkedHashMap<String, CardElement> targetMap,
@@ -542,12 +523,6 @@ public class OuicheList {
     @Deprecated
     public static void ouicheListSave(String filePath) throws IOException {
         OuicheListIO.ouicheListSave(filePath);
-    }
-
-    /** @deprecated Use {@link OuicheListIO#unusedCardsSave(String)} instead. */
-    @Deprecated
-    public static void unusedCardsSave(String filePath) throws IOException {
-        OuicheListIO.unusedCardsSave(filePath);
     }
 
     /** @deprecated Use {@link OuicheListIO#thirdPartyCardsINeedListSave(String, String)} instead. */

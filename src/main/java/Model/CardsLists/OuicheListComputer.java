@@ -413,15 +413,6 @@ final class OuicheListComputer {
     }
 
     /**
-     * @deprecated Use {@link #createDetailedOuicheList(OwnedCardsCollection, DecksAndCollectionsList)} instead.
-     */
-    @Deprecated
-    public static DecksAndCollectionsList CreateDetailedOuicheList(OwnedCardsCollection ownedCardsCollection,
-                                                                   DecksAndCollectionsList decksList) {
-        return createDetailedOuicheList(ownedCardsCollection, decksList);
-    }
-
-    /**
      * Bug 2 fix — within-group propagation for non-loose collections.
      *
      * <p>After ownership passes have resolved some cards (status ≠ MISSING,
