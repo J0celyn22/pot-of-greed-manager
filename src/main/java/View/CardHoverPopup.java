@@ -4,7 +4,7 @@ import Model.CardsLists.Card;
 
 /**
  * Shared utility for building card hover text used by
- * {@link CardGridCellWrapper} and {@link CardsMosaicRowCell}.
+ * {@link CardGridCell} and {@link CardsMosaicRowCell}.
  */
 public final class CardHoverPopup {
 
