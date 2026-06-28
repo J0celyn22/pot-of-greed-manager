@@ -245,562 +245,560 @@ public class SharedCollectionTab extends HBox {
         return saveButton;
     }
 
+    /**
+     * Builds the header toolbar content for the given tab type by delegating to a
+     * per-tab builder method. The returned node is placed in the top header area of
+     * the shared tab layout.
+     */
     private Node createHeaderContentForTab(TabType type) {
         HBox headerContent = new HBox(20);
         headerContent.setPadding(new Insets(10));
         headerContent.setAlignment(Pos.CENTER_LEFT);
 
         switch (type) {
-            case MY_COLLECTION: {
-                VBox myCollectionGroup = new VBox(8);
-                myCollectionGroup.setAlignment(Pos.CENTER_LEFT);
-
-                // ── Row 1: Browse | Load | Generate HTML ─────────────────────
-                HBox row1 = new HBox(5);
-
-                TextField collectionFileField = new TextField();
-                collectionFileField.setPromptText("Enter collection file path");
-                collectionFileField.setPrefColumnCount(30);
-                collectionFileField.setText(UserInterfaceFunctions.filePath != null ?
-                        UserInterfaceFunctions.filePath.getAbsolutePath() : "");
-                collectionFileField.setVisible(false);
-                collectionFileField.setManaged(false);
-                collectionFileField.getStyleClass().add("accent-text-field");
-
-                Button collectionFileButton = new Button("Browse");
-                Button collectionFileLoadButton = new Button("Load");
-                Button collectionFileGenerateHTMLButton = new Button("Generate HTML");
-
-                collectionFileButton.getStyleClass().add("small-button");
-                collectionFileLoadButton.getStyleClass().add("small-button");
-                collectionFileGenerateHTMLButton.getStyleClass().add("small-button");
-
-                row1.getChildren().addAll(
-                        collectionFileButton, collectionFileLoadButton, collectionFileGenerateHTMLButton);
-
-                // ── Row 2: Save ───────────────────────────────────────────────
-                HBox row2 = new HBox(5);
-                saveButton = new Button("Save");
-                saveButton.getStyleClass().add("small-button");
-                row2.getChildren().add(saveButton);
-
-                // ── Row 3: "Mark incomplete cards" toggle ─────────────────────
-                // OFF: dark background + green-yellow border/text
-                // ON:  green-yellow background + black text  (toggled by controller)
-                HBox row3 = new HBox(5);
-                incompleteMarkButton = new Button("Mark incomplete cards");
-                incompleteMarkButton.setStyle(
-                        "-fx-background-color: #100317;" +
-                                "-fx-text-fill: #cdfc04;" +
-                                "-fx-border-color: #cdfc04;" +
-                                "-fx-border-width: 1;" +
-                                "-fx-border-radius: 4;" +
-                                "-fx-background-radius: 4;" +
-                                "-fx-font-size: 12px;" +
-                                "-fx-padding: 4 10 4 10;" +
-                                "-fx-cursor: hand;");
-                row3.getChildren().add(incompleteMarkButton);
-
-                // ── Row 4: "Show condition / rarity" toggle ───────────────────
-                HBox row4 = new HBox(5);
-                showConditionRarityButton = new Button("Show condition / rarity");
-                showConditionRarityButton.setStyle(
-                        "-fx-background-color: #cdfc04;"
-                                + "-fx-text-fill: black;"
-                                + "-fx-border-color: #cdfc04;"
-                                + "-fx-border-width: 1;"
-                                + "-fx-border-radius: 4;"
-                                + "-fx-background-radius: 4;"
-                                + "-fx-font-size: 12px;"
-                                + "-fx-padding: 4 10 4 10;"
-                                + "-fx-cursor: hand;");
-                row4.getChildren().add(showConditionRarityButton);
-
-                // ── Handlers ─────────────────────────────────────────────────
-                collectionFileButton.setOnAction(e -> {
-                    Stage stage = (Stage) collectionFileButton.getScene().getWindow();
-                    FileChooser fileChooser = new FileChooser();
-                    fileChooser.setTitle("Select Collection File");
-                    fileChooser.getExtensionFilters().addAll(
-                            new FileChooser.ExtensionFilter("Text Files", "*.txt"));
-                    UserInterfaceFunctions.browseCollectionFile(fileChooser, stage, collectionFileField);
-                });
-                collectionFileLoadButton.setOnAction(e -> {
-                    try {
-                        UserInterfaceFunctions.loadCollectionFile();
-                        logger.info("Collection file loaded.");
-                    } catch (Exception ex) {
-                        logger.error("Error loading collection file", ex);
-                    }
-                });
-                collectionFileGenerateHTMLButton.setOnAction(e -> {
-                    try {
-                        UserInterfaceFunctions.exportCollectionFile();
-                    } catch (Exception ex) {
-                        logger.error("Error generating collection HTML", ex);
-                    }
-                });
-
-                myCollectionGroup.getChildren().addAll(row1, row2, row3, row4);
-                headerContent.getChildren().add(myCollectionGroup);
+            case MY_COLLECTION:
+                headerContent.getChildren().add(buildMyCollectionHeader());
                 break;
-            }
-            case DECKS: {
-                VBox decksGroup = new VBox(8);
-                decksGroup.setAlignment(Pos.CENTER_LEFT);
-
-                HBox groupRow = new HBox(5);
-                TextField decksAndCollectionDirectoryField = new TextField();
-                decksAndCollectionDirectoryField.setPromptText("Enter decks/collections directory");
-                decksAndCollectionDirectoryField.setPrefColumnCount(30);
-                decksAndCollectionDirectoryField.setVisible(false);
-                decksAndCollectionDirectoryField.setManaged(false);
-                decksAndCollectionDirectoryField.getStyleClass().add("accent-text-field");
-
-                Button decksAndCollectionsDirectoryButton = new Button("Browse");
-                Button decksAndCollectionsDirectoryLoadButton = new Button("Load");
-                Button decksAndCollectionsDirectoryGenerateHTMLButton = new Button("Generate HTML");
-
-                decksAndCollectionsDirectoryButton.getStyleClass().add("small-button");
-                decksAndCollectionsDirectoryLoadButton.getStyleClass().add("small-button");
-                decksAndCollectionsDirectoryGenerateHTMLButton.getStyleClass().add("small-button");
-
-                saveButton = new Button("Save");
-                saveButton.getStyleClass().add("small-button");
-                groupRow.getChildren().add(saveButton);
-
-                groupRow.getChildren().addAll(decksAndCollectionsDirectoryButton,
-                        decksAndCollectionsDirectoryLoadButton,
-                        decksAndCollectionsDirectoryGenerateHTMLButton);
-
-                decksAndCollectionsDirectoryButton.setOnAction(e -> {
-                    Stage stage = (Stage) decksAndCollectionsDirectoryButton.getScene().getWindow();
-                    DirectoryChooser folderChooser = new DirectoryChooser();
-                    folderChooser.setTitle("Select Decks/Collections Folder");
-                    UserInterfaceFunctions.browseDecksAndCollectionsDirectory(
-                            folderChooser, stage, decksAndCollectionDirectoryField);
-                });
-                decksAndCollectionsDirectoryLoadButton.setOnAction(e -> {
-                    try {
-                        UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
-                        if (onDecksLoad != null) onDecksLoad.run();
-                    } catch (Exception ex) {
-                        logger.error("Error loading decks and collections directory", ex);
-                    }
-                });
-                decksAndCollectionsDirectoryGenerateHTMLButton.setOnAction(e -> {
-                    try {
-                        UserInterfaceFunctions.exportDecksAndCollectionsDirectory();
-                    } catch (Exception ex) {
-                        logger.error("Error generating decks/collections HTML", ex);
-                    }
-                });
-                headerContent.getChildren().add(decksGroup);
-                decksGroup.getChildren().add(groupRow);
-
-                // ── Row 2: Hide / Show archetypes & exceptions toggle ─────────
-                // OFF (default): dark background + green-yellow border/text  → "Hide archetypes & exceptions"
-                // ON:            green-yellow background + black text         → "Show archetypes & exceptions"
-                HBox groupRow2 = new HBox(5);
-                groupRow2.setAlignment(Pos.CENTER_LEFT);
-                hideArchetypesButton = new Button("Hide archetypes & exceptions");
-                hideArchetypesButton.setStyle(
-                        "-fx-background-color: #100317;"
-                                + "-fx-text-fill: #cdfc04;"
-                                + "-fx-border-color: #cdfc04;"
-                                + "-fx-border-width: 1;"
-                                + "-fx-border-radius: 4;"
-                                + "-fx-background-radius: 4;"
-                                + "-fx-font-size: 12px;"
-                                + "-fx-padding: 4 10 4 10;"
-                                + "-fx-cursor: hand;");
-                groupRow2.getChildren().add(hideArchetypesButton);
-                decksGroup.getChildren().add(groupRow2);
-
-                // ── Row 3: "Show condition / rarity" toggle ───────────────────
-                HBox groupRow3Decks = new HBox(5);
-                groupRow3Decks.setAlignment(Pos.CENTER_LEFT);
-                showConditionRarityButton = new Button("Show condition / rarity");
-                showConditionRarityButton.setStyle(
-                        "-fx-background-color: #cdfc04;"
-                                + "-fx-text-fill: black;"
-                                + "-fx-border-color: #cdfc04;"
-                                + "-fx-border-width: 1;"
-                                + "-fx-border-radius: 4;"
-                                + "-fx-background-radius: 4;"
-                                + "-fx-font-size: 12px;"
-                                + "-fx-padding: 4 10 4 10;"
-                                + "-fx-cursor: hand;");
-                groupRow3Decks.getChildren().add(showConditionRarityButton);
-                decksGroup.getChildren().add(groupRow3Decks);
+            case DECKS:
+                headerContent.getChildren().add(buildDecksHeader());
                 break;
-            }
-            case OUICHE_LIST: {
-                VBox ouicheGroup = new VBox(10);
-                ouicheGroup.setAlignment(Pos.CENTER_LEFT);
-
-                HBox groupRow3 = new HBox(5);
-                Button generateOuicheListButton =
-                        new Button("Generate OuicheList – Decks and Collections");
-                saveButton = new Button("Save");
-                saveButton.getStyleClass().add("small-button");
-                Button generateOuicheListSaveButton = saveButton;
-                groupRow3.getChildren().addAll(generateOuicheListButton, generateOuicheListSaveButton);
-                ouicheGroup.getChildren().add(groupRow3);
-
-                HBox groupRow4 = new HBox(5);
-                Button generateOuicheListTypeButton =
-                        new Button("Generate OuicheList – Type of cards");
-                groupRow4.getChildren().add(generateOuicheListTypeButton);
-                ouicheGroup.getChildren().add(groupRow4);
-
-                HBox groupRow5 = new HBox(5);
-                Button generateAllButton = new Button("Generate All Lists");
-                groupRow5.getChildren().add(generateAllButton);
-                ouicheGroup.getChildren().add(groupRow5);
-
-                generateOuicheListButton.getStyleClass().add("large-button");
-                generateOuicheListTypeButton.getStyleClass().add("large-button");
-                generateAllButton.getStyleClass().add("large-button");
-                generateOuicheListSaveButton.getStyleClass().add("small-button");
-
-                generateOuicheListButton.setOnAction(
-                        e -> UserInterfaceFunctions.generateOuicheList());
-                generateOuicheListSaveButton.setOnAction(e -> {
-                    try {
-                        UserInterfaceFunctions.saveOuicheList();
-                    } catch (Exception ex) {
-                        logger.error("Error saving OuicheList", ex);
-                    }
-                });
-                generateOuicheListTypeButton.setOnAction(
-                        e -> UserInterfaceFunctions.generateOuicheListType());
-                generateAllButton.setOnAction(e -> {
-                    try {
-                        UserInterfaceFunctions.loadCollectionFile();
-                        UserInterfaceFunctions.exportCollectionFile();
-                        UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
-                        UserInterfaceFunctions.exportDecksAndCollectionsDirectory();
-                        UserInterfaceFunctions.generateOuicheList();
-                        UserInterfaceFunctions.generateOuicheListType();
-                    } catch (Exception ex) {
-                        logger.error("Error during generate-all operation", ex);
-                    }
-                });
-
-                HBox groupRow6 = new HBox(5);
-                groupRow6.setAlignment(Pos.CENTER_LEFT);
-
-                compactDetailedButton = new Button("Compact mode");
-                compactDetailedButton.getStyleClass().add("small-button");
-
-                mosaicListButton = new Button("Mosaic");
-                mosaicListButton.getStyleClass().add("small-button");
-                mosaicListButton.setVisible(false);
-                mosaicListButton.setManaged(false);
-
-                compactDetailedButton.setOnAction(e -> {
-                    if ("Compact mode".equals(compactDetailedButton.getText())) {
-                        compactDetailedButton.setText("Detailed mode");
-                        mosaicListButton.setVisible(true);
-                        mosaicListButton.setManaged(true);
-                    } else {
-                        compactDetailedButton.setText("Compact mode");
-                        mosaicListButton.setVisible(false);
-                        mosaicListButton.setManaged(false);
-                    }
-                });
-
-                mosaicListButton.setOnAction(e -> {
-                    if ("Mosaic".equals(mosaicListButton.getText())) {
-                        mosaicListButton.setText("List");
-                    } else {
-                        mosaicListButton.setText("Mosaic");
-                    }
-                });
-
-                groupRow6.getChildren().addAll(compactDetailedButton, mosaicListButton);
-                ouicheGroup.getChildren().add(groupRow6);
-
-                // ── Row 7: Hide / Show owned cards toggle ─────────────────────
-                // Default state: owned cards are visible (shown in gray).
-                // OFF (default): dark background + green-yellow border/text  → label "Hide owned cards"
-                // ON:            green-yellow background + black text         → label "Show owned cards"
-                HBox groupRow7 = new HBox(5);
-                groupRow7.setAlignment(Pos.CENTER_LEFT);
-                hideOwnedCardsButton = new Button("Hide owned cards");
-                hideOwnedCardsButton.setStyle(
-                        "-fx-background-color: #100317;"
-                                + "-fx-text-fill: #cdfc04;"
-                                + "-fx-border-color: #cdfc04;"
-                                + "-fx-border-width: 1;"
-                                + "-fx-border-radius: 4;"
-                                + "-fx-background-radius: 4;"
-                                + "-fx-font-size: 12px;"
-                                + "-fx-padding: 4 10 4 10;"
-                                + "-fx-cursor: hand;");
-                groupRow7.getChildren().add(hideOwnedCardsButton);
-                ouicheGroup.getChildren().add(groupRow7);
-
-                // ── Row 8: "Show condition / rarity" toggle ───────────────────
-                HBox groupRow8 = new HBox(5);
-                groupRow8.setAlignment(Pos.CENTER_LEFT);
-                showConditionRarityButton = new Button("Show condition / rarity");
-                showConditionRarityButton.setStyle(
-                        "-fx-background-color: #cdfc04;"
-                                + "-fx-text-fill: black;"
-                                + "-fx-border-color: #cdfc04;"
-                                + "-fx-border-width: 1;"
-                                + "-fx-border-radius: 4;"
-                                + "-fx-background-radius: 4;"
-                                + "-fx-font-size: 12px;"
-                                + "-fx-padding: 4 10 4 10;"
-                                + "-fx-cursor: hand;");
-                groupRow8.getChildren().add(showConditionRarityButton);
-                ouicheGroup.getChildren().add(groupRow8);
-
-                headerContent.getChildren().add(ouicheGroup);
+            case OUICHE_LIST:
+                headerContent.getChildren().add(buildOuicheListHeader());
                 break;
-            }
-            case FRIENDS: {
-                VBox friendsGroup = new VBox(10);
-                friendsGroup.setAlignment(Pos.CENTER_LEFT);
-                Text thirdPartyAvailableCardsText = new Text("3rd Party Available Cards");
-                thirdPartyAvailableCardsText.setStyle("-fx-font-size: 14px; -fx-fill: white;");
-                friendsGroup.getChildren().add(thirdPartyAvailableCardsText);
-
-                HBox friendsRow1 = new HBox(5);
-                TextField thirdPartyAvailableCardsField = new TextField();
-                thirdPartyAvailableCardsField.setPromptText("Enter 3rd party cards file");
-                thirdPartyAvailableCardsField.setPrefColumnCount(30);
-                thirdPartyAvailableCardsField.getStyleClass().addAll(
-                        "accent-text-field", "fixed-accent-text-field");
-
-                Button thirdPartyAvailableCardsBrowseButton = new Button("Browse");
-                Button thirdPartyAvailableCardsLoadButton = new Button("Load");
-                thirdPartyAvailableCardsBrowseButton.getStyleClass().add("small-button");
-                thirdPartyAvailableCardsLoadButton.getStyleClass().add("small-button");
-
-                friendsRow1.getChildren().addAll(thirdPartyAvailableCardsField,
-                        thirdPartyAvailableCardsBrowseButton, thirdPartyAvailableCardsLoadButton);
-                friendsGroup.getChildren().add(friendsRow1);
-
-                Text ouicheListText = new Text("OuicheList");
-                ouicheListText.setStyle("-fx-font-size: 14px; -fx-fill: white;");
-                friendsGroup.getChildren().add(ouicheListText);
-
-                HBox friendsRow2 = new HBox(5);
-                TextField ouicheListField = new TextField();
-                ouicheListField.setPromptText("Enter OuicheList file");
-                ouicheListField.setPrefColumnCount(30);
-                ouicheListField.getStyleClass().addAll("accent-text-field", "fixed-accent-text-field");
-
-                Button ouicheListBrowseButton = new Button("Browse");
-                Button loadOuicheListButton = new Button("Load");
-                ouicheListBrowseButton.getStyleClass().add("small-button");
-                loadOuicheListButton.getStyleClass().add("small-button");
-
-                friendsRow2.getChildren().addAll(ouicheListField,
-                        ouicheListBrowseButton, loadOuicheListButton);
-                friendsGroup.getChildren().add(friendsRow2);
-
-                HBox friendsRow3 = new HBox(5);
-                Button generateThirdPartyListButton = new Button("Generate list");
-                Button generateThirdPartyListSaveButton = new Button("Save");
-                generateThirdPartyListButton.getStyleClass().add("small-button");
-                generateThirdPartyListSaveButton.getStyleClass().add("small-button");
-
-                friendsRow3.getChildren().addAll(
-                        generateThirdPartyListButton, generateThirdPartyListSaveButton);
-                friendsGroup.getChildren().add(friendsRow3);
-
-                thirdPartyAvailableCardsBrowseButton.setOnAction(e -> {
-                    Stage stage = (Stage) thirdPartyAvailableCardsBrowseButton.getScene().getWindow();
-                    FileChooser fileChooser = new FileChooser();
-                    fileChooser.setTitle("Select 3rd Party Cards File");
-                    fileChooser.getExtensionFilters().addAll(
-                            new FileChooser.ExtensionFilter("Text Files", "*.txt"));
-                    UserInterfaceFunctions.browseThirdPartyAvailableCards(
-                            fileChooser, stage, thirdPartyAvailableCardsField);
-                });
-                thirdPartyAvailableCardsLoadButton.setOnAction(e -> {
-                    try {
-                        UserInterfaceFunctions.loadThirdPartyAvailableCards();
-                    } catch (Exception ex) {
-                        logger.error("Error loading 3rd party available cards", ex);
-                    }
-                });
-                ouicheListBrowseButton.setOnAction(e -> {
-                    Stage stage = (Stage) ouicheListBrowseButton.getScene().getWindow();
-                    FileChooser fileChooser = new FileChooser();
-                    fileChooser.setTitle("Select OuicheList File");
-                    fileChooser.getExtensionFilters().addAll(
-                            new FileChooser.ExtensionFilter("Text Files", "*.txt"));
-                    UserInterfaceFunctions.browseOuicheList(fileChooser, stage, ouicheListField);
-                });
-                loadOuicheListButton.setOnAction(e -> {
-                    try {
-                        UserInterfaceFunctions.loadOuicheList();
-                    } catch (Exception ex) {
-                        logger.error("Error loading OuicheList", ex);
-                    }
-                });
-                generateThirdPartyListButton.setOnAction(e -> {
-                    try {
-                        UserInterfaceFunctions.generateThirdPartyList();
-                    } catch (Exception ex) {
-                        logger.error("Error generating 3rd party list", ex);
-                    }
-                });
-                generateThirdPartyListSaveButton.setOnAction(e -> {
-                    try {
-                        UserInterfaceFunctions.saveThirdPartyList();
-                    } catch (Exception ex) {
-                        logger.error("Error saving 3rd party list", ex);
-                    }
-                });
-                headerContent.getChildren().add(friendsGroup);
+            case FRIENDS:
+                headerContent.getChildren().add(buildFriendsHeader());
                 break;
-            }
-            case ARCHETYPES: {
-                VBox archetypesGroup = new VBox(10);
-                archetypesGroup.setAlignment(Pos.CENTER);
-                Button generateArchetypesListsButton = new Button("Generate Archetype Lists");
-                generateArchetypesListsButton.getStyleClass().add("large-button");
-                archetypesGroup.getChildren().add(generateArchetypesListsButton);
-                generateArchetypesListsButton.setOnAction(e -> {
-                    try {
-                        UserInterfaceFunctions.generateArchetypesListsFunction();
-                    } catch (Exception ex) {
-                        logger.error("Error generating archetype lists", ex);
-                    }
-                });
-                headerContent.getChildren().add(archetypesGroup);
+            case ARCHETYPES:
+                headerContent.getChildren().add(buildArchetypesHeader());
                 break;
-            }
-
-            // ── SHOPS ─────────────────────────────────────────────────────────────
-            case SHOPS: {
-                VBox shopsGroup = new VBox(10);
-                shopsGroup.setAlignment(Pos.CENTER_LEFT);
-
-                // ── Max-price row ─────────────────────────────────────────────────
-                HBox maxPriceRow = new HBox(8);
-                maxPriceRow.setAlignment(Pos.CENTER_LEFT);
-
-                Label maxPriceLabel = new Label("Max price (€)");
-                maxPriceLabel.setStyle("-fx-text-fill: white; -fx-font-size: 12;");
-
-                TextField maxPriceField = new TextField("0.30");
-                maxPriceField.setPrefColumnCount(5);
-                maxPriceField.getStyleClass().add("accent-text-field");
-
-                maxPriceRow.getChildren().addAll(maxPriceLabel, maxPriceField);
-                shopsGroup.getChildren().add(maxPriceRow);
-
-                Button ultraJeuxButton = new Button("UltraJeux");
-                ultraJeuxButton.getStyleClass().add("small-button");
-                shopsGroup.getChildren().add(ultraJeuxButton);
-
-                ultraJeuxButton.setOnAction(e -> {
-                    try {
-                        // Ensure OuicheList is loaded
-                        if (!UserInterfaceFunctions.getOuicheListIsLoaded()) {
-                            if (UserInterfaceFunctions.ouicheListPath == null) {
-                                System.out.println("OuicheList must be selected");
-                            } else {
-                                UserInterfaceFunctions.loadOuicheList();
-                            }
-                        }
-
-                        if (!UserInterfaceFunctions.getOuicheListIsLoaded()) return;
-
-                        List<Model.CardsLists.CardElement> maOuicheList =
-                                Model.CardsLists.OuicheList.getMaOuicheListAsFlatList();
-
-                        double maxPrice;
-                        try {
-                            maxPrice = Double.parseDouble(
-                                    maxPriceField.getText().trim().replace(',', '.'));
-                            if (maxPrice <= 0) throw new NumberFormatException();
-                        } catch (NumberFormatException nfe) {
-                            maxPriceField.setStyle(maxPriceField.getStyle() +
-                                    " -fx-border-color: #ff6666;");
-                            Label errLabel = new Label(
-                                    "Invalid max price — please enter a positive number.");
-                            errLabel.setStyle(
-                                    "-fx-text-fill: #ff6666; -fx-font-size: 12;");
-                            AnchorPane.setTopAnchor(errLabel, 10.0);
-                            AnchorPane.setLeftAnchor(errLabel, 10.0);
-                            contentPane.getChildren().setAll(errLabel);
-                            return;
-                        }
-                        maxPriceField.setStyle("");
-
-                        // Show a "Scraping…" placeholder while the (synchronous) call runs
-                        Label scraping = new Label("Scraping UltraJeux…");
-                        scraping.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 14;");
-                        contentPane.getChildren().setAll(scraping);
-                        AnchorPane.setTopAnchor(scraping, 10.0);
-                        AnchorPane.setLeftAnchor(scraping, 10.0);
-
-                        // Run the scrape
-                        List<Model.UltraJeux.ShopResultEntry> shopResults =
-                                Model.UltraJeux.CardScraper.getCardNamesFromWebsite(
-                                        maOuicheList, maxPrice);
-
-                        // ── Build the results ListView ────────────────────────────────
-                        ListView<Model.UltraJeux.ShopResultEntry> listView = new ListView<>();
-                        listView.getItems().addAll(shopResults);
-                        listView.setCellFactory(lv -> new ShopResultListCell());
-                        listView.setStyle(
-                                "-fx-background-color: #100317; " +
-                                        "-fx-background-insets: 0; " +
-                                        "-fx-border-color: transparent;");
-
-                        // Pin the ListView to fill the entire contentPane
-                        AnchorPane.setTopAnchor(listView, 0.0);
-                        AnchorPane.setBottomAnchor(listView, 0.0);
-                        AnchorPane.setLeftAnchor(listView, 0.0);
-                        AnchorPane.setRightAnchor(listView, 0.0);
-
-                        // Show a summary label above the list
-                        Label summary = new Label(
-                                shopResults.size() + " result" + (shopResults.size() != 1 ? "s" : "")
-                                        + " — same-card copies are grouped together");
-                        summary.setStyle(
-                                "-fx-text-fill: #aaaaaa; -fx-font-size: 11; " +
-                                        "-fx-padding: 4 8 4 8;");
-
-                        VBox wrapper = new VBox(0, summary, listView);
-                        VBox.setVgrow(listView, Priority.ALWAYS);
-                        wrapper.setStyle("-fx-background-color: #100317;");
-
-                        AnchorPane.setTopAnchor(wrapper, 0.0);
-                        AnchorPane.setBottomAnchor(wrapper, 0.0);
-                        AnchorPane.setLeftAnchor(wrapper, 0.0);
-                        AnchorPane.setRightAnchor(wrapper, 0.0);
-
-                        contentPane.getChildren().setAll(wrapper);
-
-                    } catch (Exception ex) {
-                        ex.printStackTrace();
-                        // Show error in contentPane so the user knows something went wrong
-                        Label errLabel = new Label("Error during scraping: " + ex.getMessage());
-                        errLabel.setStyle("-fx-text-fill: #ff6666; -fx-font-size: 12; -fx-wrap-text: true;");
-                        errLabel.setWrapText(true);
-                        AnchorPane.setTopAnchor(errLabel, 10.0);
-                        AnchorPane.setLeftAnchor(errLabel, 10.0);
-                        AnchorPane.setRightAnchor(errLabel, 10.0);
-                        contentPane.getChildren().setAll(errLabel);
-                    }
-                });
-
-                headerContent.getChildren().add(shopsGroup);
+            case SHOPS:
+                headerContent.getChildren().add(buildShopsHeader());
                 break;
-            }
+            default:
+                break;
         }
         return headerContent;
+    }
+
+    /**
+     * Builds the My Collection tab header: Browse/Load/Generate HTML buttons,
+     * Save button, and the "Mark incomplete cards" and "Show condition / rarity" toggles.
+     */
+    private VBox buildMyCollectionHeader() {
+        VBox group = new VBox(8);
+        group.setAlignment(Pos.CENTER_LEFT);
+
+        // Row 1: Browse | Load | Generate HTML
+        TextField collectionFileField = new TextField();
+        collectionFileField.setPromptText("Enter collection file path");
+        collectionFileField.setPrefColumnCount(30);
+        collectionFileField.setText(UserInterfaceFunctions.filePath != null
+                ? UserInterfaceFunctions.filePath.getAbsolutePath()
+                : "");
+        collectionFileField.setVisible(false);
+        collectionFileField.setManaged(false);
+        collectionFileField.getStyleClass().add("accent-text-field");
+
+        Button browseButton = new Button("Browse");
+        Button loadButton = new Button("Load");
+        Button generateHtmlButton = new Button("Generate HTML");
+        browseButton.getStyleClass().add("small-button");
+        loadButton.getStyleClass().add("small-button");
+        generateHtmlButton.getStyleClass().add("small-button");
+
+        browseButton.setOnAction(e -> {
+            Stage stage = (Stage) browseButton.getScene().getWindow();
+            FileChooser fileChooser = new FileChooser();
+            fileChooser.setTitle("Select Collection File");
+            fileChooser.getExtensionFilters().add(
+                    new FileChooser.ExtensionFilter("Text Files", "*.txt"));
+            UserInterfaceFunctions.browseCollectionFile(fileChooser, stage, collectionFileField);
+        });
+        loadButton.setOnAction(e -> {
+            try {
+                UserInterfaceFunctions.loadCollectionFile();
+                logger.info("Collection file loaded.");
+            } catch (Exception ex) {
+                logger.error("Error loading collection file", ex);
+            }
+        });
+        generateHtmlButton.setOnAction(e -> {
+            try {
+                UserInterfaceFunctions.exportCollectionFile();
+            } catch (Exception ex) {
+                logger.error("Error generating collection HTML", ex);
+            }
+        });
+
+        HBox row1 = new HBox(5, browseButton, loadButton, generateHtmlButton);
+
+        // Row 2: Save
+        saveButton = new Button("Save");
+        saveButton.getStyleClass().add("small-button");
+        HBox row2 = new HBox(5, saveButton);
+
+        // Row 3: "Mark incomplete cards" toggle — off by default (dark bg, yellow border)
+        incompleteMarkButton = new Button("Mark incomplete cards");
+        incompleteMarkButton.setStyle(
+                "-fx-background-color: #100317;"
+                        + "-fx-text-fill: #cdfc04;"
+                        + "-fx-border-color: #cdfc04;"
+                        + "-fx-border-width: 1;"
+                        + "-fx-border-radius: 4;"
+                        + "-fx-background-radius: 4;"
+                        + "-fx-font-size: 12px;"
+                        + "-fx-padding: 4 10 4 10;"
+                        + "-fx-cursor: hand;");
+        HBox row3 = new HBox(5, incompleteMarkButton);
+
+        // Row 4: "Show condition / rarity" toggle — on by default (yellow bg, black text)
+        showConditionRarityButton = new Button("Show condition / rarity");
+        showConditionRarityButton.setStyle(
+                "-fx-background-color: #cdfc04;"
+                        + "-fx-text-fill: black;"
+                        + "-fx-border-color: #cdfc04;"
+                        + "-fx-border-width: 1;"
+                        + "-fx-border-radius: 4;"
+                        + "-fx-background-radius: 4;"
+                        + "-fx-font-size: 12px;"
+                        + "-fx-padding: 4 10 4 10;"
+                        + "-fx-cursor: hand;");
+        HBox row4 = new HBox(5, showConditionRarityButton);
+
+        group.getChildren().addAll(row1, row2, row3, row4);
+        return group;
+    }
+
+    /**
+     * Builds the Decks and Collections tab header: Browse/Load/Generate HTML buttons,
+     * Save button, and the "Hide archetypes & exceptions" and "Show condition / rarity" toggles.
+     */
+    private VBox buildDecksHeader() {
+        VBox group = new VBox(8);
+        group.setAlignment(Pos.CENTER_LEFT);
+
+        TextField directoryField = new TextField();
+        directoryField.setPromptText("Enter decks/collections directory");
+        directoryField.setPrefColumnCount(30);
+        directoryField.setVisible(false);
+        directoryField.setManaged(false);
+        directoryField.getStyleClass().add("accent-text-field");
+
+        Button browseButton = new Button("Browse");
+        Button loadButton = new Button("Load");
+        Button generateHtmlButton = new Button("Generate HTML");
+        browseButton.getStyleClass().add("small-button");
+        loadButton.getStyleClass().add("small-button");
+        generateHtmlButton.getStyleClass().add("small-button");
+
+        browseButton.setOnAction(e -> {
+            Stage stage = (Stage) browseButton.getScene().getWindow();
+            DirectoryChooser folderChooser = new DirectoryChooser();
+            folderChooser.setTitle("Select Decks/Collections Folder");
+            UserInterfaceFunctions.browseDecksAndCollectionsDirectory(
+                    folderChooser, stage, directoryField);
+        });
+        loadButton.setOnAction(e -> {
+            try {
+                UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+                if (onDecksLoad != null) {
+                    onDecksLoad.run();
+                }
+            } catch (Exception ex) {
+                logger.error("Error loading decks and collections directory", ex);
+            }
+        });
+        generateHtmlButton.setOnAction(e -> {
+            try {
+                UserInterfaceFunctions.exportDecksAndCollectionsDirectory();
+            } catch (Exception ex) {
+                logger.error("Error generating decks/collections HTML", ex);
+            }
+        });
+
+        saveButton = new Button("Save");
+        saveButton.getStyleClass().add("small-button");
+
+        // Row 1: Save | Browse | Load | Generate HTML
+        HBox row1 = new HBox(5, saveButton, browseButton, loadButton, generateHtmlButton);
+
+        // Row 2: "Hide archetypes & exceptions" toggle — off by default (dark bg, yellow border)
+        hideArchetypesButton = new Button("Hide archetypes & exceptions");
+        hideArchetypesButton.setStyle(
+                "-fx-background-color: #100317;"
+                        + "-fx-text-fill: #cdfc04;"
+                        + "-fx-border-color: #cdfc04;"
+                        + "-fx-border-width: 1;"
+                        + "-fx-border-radius: 4;"
+                        + "-fx-background-radius: 4;"
+                        + "-fx-font-size: 12px;"
+                        + "-fx-padding: 4 10 4 10;"
+                        + "-fx-cursor: hand;");
+        HBox row2 = new HBox(5, hideArchetypesButton);
+        row2.setAlignment(Pos.CENTER_LEFT);
+
+        // Row 3: "Show condition / rarity" toggle — on by default (yellow bg, black text)
+        showConditionRarityButton = new Button("Show condition / rarity");
+        showConditionRarityButton.setStyle(
+                "-fx-background-color: #cdfc04;"
+                        + "-fx-text-fill: black;"
+                        + "-fx-border-color: #cdfc04;"
+                        + "-fx-border-width: 1;"
+                        + "-fx-border-radius: 4;"
+                        + "-fx-background-radius: 4;"
+                        + "-fx-font-size: 12px;"
+                        + "-fx-padding: 4 10 4 10;"
+                        + "-fx-cursor: hand;");
+        HBox row3 = new HBox(5, showConditionRarityButton);
+        row3.setAlignment(Pos.CENTER_LEFT);
+
+        group.getChildren().addAll(row1, row2, row3);
+        return group;
+    }
+
+    /**
+     * Builds the OuicheList tab header: generation and save buttons, compact/mosaic
+     * mode toggles, and the "Hide owned cards" and "Show condition / rarity" toggles.
+     */
+    private VBox buildOuicheListHeader() {
+        VBox group = new VBox(10);
+        group.setAlignment(Pos.CENTER_LEFT);
+
+        // Row 1: Generate (Decks and Collections) | Save
+        Button generateDecksButton = new Button("Generate OuicheList \u2013 Decks and Collections");
+        generateDecksButton.getStyleClass().add("large-button");
+        saveButton = new Button("Save");
+        saveButton.getStyleClass().add("small-button");
+        generateDecksButton.setOnAction(e -> UserInterfaceFunctions.generateOuicheList());
+        saveButton.setOnAction(e -> {
+            try {
+                UserInterfaceFunctions.saveOuicheList();
+            } catch (Exception ex) {
+                logger.error("Error saving OuicheList", ex);
+            }
+        });
+        HBox row1 = new HBox(5, generateDecksButton, saveButton);
+
+        // Row 2: Generate (Type of cards)
+        Button generateTypeButton = new Button("Generate OuicheList \u2013 Type of cards");
+        generateTypeButton.getStyleClass().add("large-button");
+        generateTypeButton.setOnAction(e -> UserInterfaceFunctions.generateOuicheListType());
+        HBox row2 = new HBox(5, generateTypeButton);
+
+        // Row 3: Generate All Lists
+        Button generateAllButton = new Button("Generate All Lists");
+        generateAllButton.getStyleClass().add("large-button");
+        generateAllButton.setOnAction(e -> {
+            try {
+                UserInterfaceFunctions.loadCollectionFile();
+                UserInterfaceFunctions.exportCollectionFile();
+                UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
+                UserInterfaceFunctions.exportDecksAndCollectionsDirectory();
+                UserInterfaceFunctions.generateOuicheList();
+                UserInterfaceFunctions.generateOuicheListType();
+            } catch (Exception ex) {
+                logger.error("Error during generate-all operation", ex);
+            }
+        });
+        HBox row3 = new HBox(5, generateAllButton);
+
+        // Row 4: Compact / Detailed mode toggle, Mosaic / List toggle
+        compactDetailedButton = new Button("Compact mode");
+        compactDetailedButton.getStyleClass().add("small-button");
+        mosaicListButton = new Button("Mosaic");
+        mosaicListButton.getStyleClass().add("small-button");
+        mosaicListButton.setVisible(false);
+        mosaicListButton.setManaged(false);
+
+        compactDetailedButton.setOnAction(e -> {
+            if ("Compact mode".equals(compactDetailedButton.getText())) {
+                compactDetailedButton.setText("Detailed mode");
+                mosaicListButton.setVisible(true);
+                mosaicListButton.setManaged(true);
+            } else {
+                compactDetailedButton.setText("Compact mode");
+                mosaicListButton.setVisible(false);
+                mosaicListButton.setManaged(false);
+            }
+        });
+        mosaicListButton.setOnAction(e -> {
+            if ("Mosaic".equals(mosaicListButton.getText())) {
+                mosaicListButton.setText("List");
+            } else {
+                mosaicListButton.setText("Mosaic");
+            }
+        });
+
+        HBox row4 = new HBox(5, compactDetailedButton, mosaicListButton);
+        row4.setAlignment(Pos.CENTER_LEFT);
+
+        // Row 5: "Hide owned cards" toggle — off by default (dark bg, yellow border)
+        hideOwnedCardsButton = new Button("Hide owned cards");
+        hideOwnedCardsButton.setStyle(
+                "-fx-background-color: #100317;"
+                        + "-fx-text-fill: #cdfc04;"
+                        + "-fx-border-color: #cdfc04;"
+                        + "-fx-border-width: 1;"
+                        + "-fx-border-radius: 4;"
+                        + "-fx-background-radius: 4;"
+                        + "-fx-font-size: 12px;"
+                        + "-fx-padding: 4 10 4 10;"
+                        + "-fx-cursor: hand;");
+        HBox row5 = new HBox(5, hideOwnedCardsButton);
+        row5.setAlignment(Pos.CENTER_LEFT);
+
+        // Row 6: "Show condition / rarity" toggle — on by default (yellow bg, black text)
+        showConditionRarityButton = new Button("Show condition / rarity");
+        showConditionRarityButton.setStyle(
+                "-fx-background-color: #cdfc04;"
+                        + "-fx-text-fill: black;"
+                        + "-fx-border-color: #cdfc04;"
+                        + "-fx-border-width: 1;"
+                        + "-fx-border-radius: 4;"
+                        + "-fx-background-radius: 4;"
+                        + "-fx-font-size: 12px;"
+                        + "-fx-padding: 4 10 4 10;"
+                        + "-fx-cursor: hand;");
+        HBox row6 = new HBox(5, showConditionRarityButton);
+        row6.setAlignment(Pos.CENTER_LEFT);
+
+        group.getChildren().addAll(row1, row2, row3, row4, row5, row6);
+        return group;
+    }
+
+    /**
+     * Builds the Friends tab header: browse/load fields for 3rd-party available-cards
+     * and OuicheList files, plus generate/save buttons.
+     */
+    private VBox buildFriendsHeader() {
+        VBox group = new VBox(10);
+        group.setAlignment(Pos.CENTER_LEFT);
+
+        // 3rd Party Available Cards section
+        Text thirdPartyLabel = new Text("3rd Party Available Cards");
+        thirdPartyLabel.setStyle("-fx-font-size: 14px; -fx-fill: white;");
+
+        TextField thirdPartyField = new TextField();
+        thirdPartyField.setPromptText("Enter 3rd party cards file");
+        thirdPartyField.setPrefColumnCount(30);
+        thirdPartyField.getStyleClass().addAll("accent-text-field", "fixed-accent-text-field");
+
+        Button thirdPartyBrowseButton = new Button("Browse");
+        Button thirdPartyLoadButton = new Button("Load");
+        thirdPartyBrowseButton.getStyleClass().add("small-button");
+        thirdPartyLoadButton.getStyleClass().add("small-button");
+
+        thirdPartyBrowseButton.setOnAction(e -> {
+            Stage stage = (Stage) thirdPartyBrowseButton.getScene().getWindow();
+            FileChooser fileChooser = new FileChooser();
+            fileChooser.setTitle("Select 3rd Party Cards File");
+            fileChooser.getExtensionFilters().add(
+                    new FileChooser.ExtensionFilter("Text Files", "*.txt"));
+            UserInterfaceFunctions.browseThirdPartyAvailableCards(
+                    fileChooser, stage, thirdPartyField);
+        });
+        thirdPartyLoadButton.setOnAction(e -> {
+            try {
+                UserInterfaceFunctions.loadThirdPartyAvailableCards();
+            } catch (Exception ex) {
+                logger.error("Error loading 3rd party available cards", ex);
+            }
+        });
+
+        HBox thirdPartyRow = new HBox(5, thirdPartyField, thirdPartyBrowseButton, thirdPartyLoadButton);
+
+        // OuicheList section
+        Text ouicheListLabel = new Text("OuicheList");
+        ouicheListLabel.setStyle("-fx-font-size: 14px; -fx-fill: white;");
+
+        TextField ouicheListField = new TextField();
+        ouicheListField.setPromptText("Enter OuicheList file");
+        ouicheListField.setPrefColumnCount(30);
+        ouicheListField.getStyleClass().addAll("accent-text-field", "fixed-accent-text-field");
+
+        Button ouicheListBrowseButton = new Button("Browse");
+        Button ouicheListLoadButton = new Button("Load");
+        ouicheListBrowseButton.getStyleClass().add("small-button");
+        ouicheListLoadButton.getStyleClass().add("small-button");
+
+        ouicheListBrowseButton.setOnAction(e -> {
+            Stage stage = (Stage) ouicheListBrowseButton.getScene().getWindow();
+            FileChooser fileChooser = new FileChooser();
+            fileChooser.setTitle("Select OuicheList File");
+            fileChooser.getExtensionFilters().add(
+                    new FileChooser.ExtensionFilter("Text Files", "*.txt"));
+            UserInterfaceFunctions.browseOuicheList(fileChooser, stage, ouicheListField);
+        });
+        ouicheListLoadButton.setOnAction(e -> {
+            try {
+                UserInterfaceFunctions.loadOuicheList();
+            } catch (Exception ex) {
+                logger.error("Error loading OuicheList", ex);
+            }
+        });
+
+        HBox ouicheListRow = new HBox(5, ouicheListField, ouicheListBrowseButton, ouicheListLoadButton);
+
+        // Generate / Save row
+        Button generateListButton = new Button("Generate list");
+        Button saveListButton = new Button("Save");
+        generateListButton.getStyleClass().add("small-button");
+        saveListButton.getStyleClass().add("small-button");
+
+        generateListButton.setOnAction(e -> {
+            try {
+                UserInterfaceFunctions.generateThirdPartyList();
+            } catch (Exception ex) {
+                logger.error("Error generating 3rd party list", ex);
+            }
+        });
+        saveListButton.setOnAction(e -> {
+            try {
+                UserInterfaceFunctions.saveThirdPartyList();
+            } catch (Exception ex) {
+                logger.error("Error saving 3rd party list", ex);
+            }
+        });
+
+        HBox actionsRow = new HBox(5, generateListButton, saveListButton);
+
+        group.getChildren().addAll(
+                thirdPartyLabel, thirdPartyRow,
+                ouicheListLabel, ouicheListRow,
+                actionsRow);
+        return group;
+    }
+
+    /**
+     * Builds the Archetypes tab header: a single "Generate Archetype Lists" button.
+     */
+    private VBox buildArchetypesHeader() {
+        VBox group = new VBox(10);
+        group.setAlignment(Pos.CENTER);
+        Button generateButton = new Button("Generate Archetype Lists");
+        generateButton.getStyleClass().add("large-button");
+        generateButton.setOnAction(e -> {
+            try {
+                UserInterfaceFunctions.generateArchetypesListsFunction();
+            } catch (Exception ex) {
+                logger.error("Error generating archetype lists", ex);
+            }
+        });
+        group.getChildren().add(generateButton);
+        return group;
+    }
+
+    /**
+     * Builds the Shops tab header: a max-price field and the UltraJeux scrape button.
+     * Scrape results are displayed in {@link #contentPane}.
+     */
+    private VBox buildShopsHeader() {
+        VBox group = new VBox(10);
+        group.setAlignment(Pos.CENTER_LEFT);
+
+        Label maxPriceLabel = new Label("Max price (\u20ac)");
+        maxPriceLabel.setStyle("-fx-text-fill: white; -fx-font-size: 12;");
+        TextField maxPriceField = new TextField("0.30");
+        maxPriceField.setPrefColumnCount(5);
+        maxPriceField.getStyleClass().add("accent-text-field");
+        HBox maxPriceRow = new HBox(8, maxPriceLabel, maxPriceField);
+        maxPriceRow.setAlignment(Pos.CENTER_LEFT);
+
+        Button ultraJeuxButton = new Button("UltraJeux");
+        ultraJeuxButton.getStyleClass().add("small-button");
+        ultraJeuxButton.setOnAction(e -> runUltraJeuxScrape(maxPriceField));
+
+        group.getChildren().addAll(maxPriceRow, ultraJeuxButton);
+        return group;
+    }
+
+    /**
+     * Runs the UltraJeux scrape using the price entered in {@code maxPriceField} and
+     * displays the results (or an error label) in {@link #contentPane}.
+     */
+    private void runUltraJeuxScrape(TextField maxPriceField) {
+        try {
+            if (!UserInterfaceFunctions.getOuicheListIsLoaded()) {
+                if (UserInterfaceFunctions.ouicheListPath == null) {
+                    logger.warn("UltraJeux scrape requested but no OuicheList path is set.");
+                } else {
+                    UserInterfaceFunctions.loadOuicheList();
+                }
+            }
+            if (!UserInterfaceFunctions.getOuicheListIsLoaded()) {
+                return;
+            }
+
+            List<Model.CardsLists.CardElement> ouicheList =
+                    Model.CardsLists.OuicheList.getMaOuicheListAsFlatList();
+
+            double maxPrice;
+            try {
+                maxPrice = Double.parseDouble(
+                        maxPriceField.getText().trim().replace(',', '.'));
+                if (maxPrice <= 0) {
+                    throw new NumberFormatException("Price must be positive");
+                }
+            } catch (NumberFormatException nfe) {
+                maxPriceField.setStyle(maxPriceField.getStyle() + " -fx-border-color: #ff6666;");
+                Label errorLabel = new Label("Invalid max price \u2014 please enter a positive number.");
+                errorLabel.setStyle("-fx-text-fill: #ff6666; -fx-font-size: 12;");
+                AnchorPane.setTopAnchor(errorLabel, 10.0);
+                AnchorPane.setLeftAnchor(errorLabel, 10.0);
+                contentPane.getChildren().setAll(errorLabel);
+                return;
+            }
+            maxPriceField.setStyle("");
+
+            Label scrapingLabel = new Label("Scraping UltraJeux\u2026");
+            scrapingLabel.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 14;");
+            AnchorPane.setTopAnchor(scrapingLabel, 10.0);
+            AnchorPane.setLeftAnchor(scrapingLabel, 10.0);
+            contentPane.getChildren().setAll(scrapingLabel);
+
+            List<Model.UltraJeux.ShopResultEntry> shopResults =
+                    Model.UltraJeux.CardScraper.getCardNamesFromWebsite(ouicheList, maxPrice);
+
+            ListView<Model.UltraJeux.ShopResultEntry> resultsListView = new ListView<>();
+            resultsListView.getItems().addAll(shopResults);
+            resultsListView.setCellFactory(lv -> new ShopResultListCell());
+            resultsListView.setStyle(
+                    "-fx-background-color: #100317;"
+                            + "-fx-background-insets: 0;"
+                            + "-fx-border-color: transparent;");
+            AnchorPane.setTopAnchor(resultsListView, 0.0);
+            AnchorPane.setBottomAnchor(resultsListView, 0.0);
+            AnchorPane.setLeftAnchor(resultsListView, 0.0);
+            AnchorPane.setRightAnchor(resultsListView, 0.0);
+
+            String resultCount = shopResults.size() + " result"
+                    + (shopResults.size() != 1 ? "s" : "")
+                    + " \u2014 same-card copies are grouped together";
+            Label summaryLabel = new Label(resultCount);
+            summaryLabel.setStyle(
+                    "-fx-text-fill: #aaaaaa; -fx-font-size: 11; -fx-padding: 4 8 4 8;");
+
+            VBox resultsWrapper = new VBox(0, summaryLabel, resultsListView);
+            VBox.setVgrow(resultsListView, Priority.ALWAYS);
+            resultsWrapper.setStyle("-fx-background-color: #100317;");
+            AnchorPane.setTopAnchor(resultsWrapper, 0.0);
+            AnchorPane.setBottomAnchor(resultsWrapper, 0.0);
+            AnchorPane.setLeftAnchor(resultsWrapper, 0.0);
+            AnchorPane.setRightAnchor(resultsWrapper, 0.0);
+
+            contentPane.getChildren().setAll(resultsWrapper);
+
+        } catch (Exception ex) {
+            logger.error("Error during UltraJeux scraping", ex);
+            Label errorLabel = new Label("Error during scraping: " + ex.getMessage());
+            errorLabel.setStyle(
+                    "-fx-text-fill: #ff6666; -fx-font-size: 12; -fx-wrap-text: true;");
+            errorLabel.setWrapText(true);
+            AnchorPane.setTopAnchor(errorLabel, 10.0);
+            AnchorPane.setLeftAnchor(errorLabel, 10.0);
+            AnchorPane.setRightAnchor(errorLabel, 10.0);
+            contentPane.getChildren().setAll(errorLabel);
+        }
     }
 
     private void styleScrollBarsIn(ScrollPane sp) {
