@@ -1,6 +1,8 @@
 package Model.Database;
 
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -15,6 +17,8 @@ import java.nio.file.Paths;
 import static Model.FilePaths.databaseDir;
 
 public class DataBaseUpdate {
+
+    private static final Logger logger = LoggerFactory.getLogger(DataBaseUpdate.class);
 
     /*
      * JVM HEAP CONFIGURATION NOTE
@@ -196,10 +200,9 @@ public class DataBaseUpdate {
         if (addresses.length > 0) {
             String localPath = addresses[0];
             FileFetcher.addInvalidatedPath(localPath);
-            System.out.println("Invalidated local path: " + localPath);
+            logger.debug("Invalidated local path: {}", localPath);
         } else {
-            System.out.println("Could not resolve address for manifest key: " + rawKey
-                    + " (normalized: " + filename + ")");
+            logger.warn("Could not resolve address for manifest key: {} (normalized: {})", rawKey, filename);
         }
     }
 

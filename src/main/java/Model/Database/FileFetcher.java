@@ -1,6 +1,8 @@
 package Model.Database;
 
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -22,6 +24,8 @@ import static Model.Database.PrintCodeToKonamiId.getPrintCodeToKonamiId;
 import static Model.FilePaths.databaseDir;
 
 public class FileFetcher {
+
+    private static final Logger logger = LoggerFactory.getLogger(FileFetcher.class);
 
     // -------------------------------------------------------------------------
     // Invalidated-paths set: persisted to disk so it survives restarts.
@@ -85,11 +89,10 @@ public class FileFetcher {
                     .filter(s -> !s.isEmpty())
                     .forEach(invalidatedPaths::add);
             if (!invalidatedPaths.isEmpty()) {
-                System.out.println("Restored " + invalidatedPaths.size()
-                        + " stale file(s) from previous session.");
+                logger.debug("Restored {} stale file(s) from previous session.", invalidatedPaths.size());
             }
         } catch (IOException e) {
-            System.out.println("Could not load invalidated paths: " + e.getMessage());
+            logger.warn("Could not load invalidated paths: {}", e.getMessage());
         }
     }
 
@@ -104,7 +107,7 @@ public class FileFetcher {
             Files.createDirectories(file.getParent());
             Files.write(file, invalidatedPaths, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            System.out.println("Could not persist invalidated paths: " + e.getMessage());
+            logger.warn("Could not persist invalidated paths: {}", e.getMessage());
         }
     }
 
@@ -149,7 +152,7 @@ public class FileFetcher {
     public static void markStaleIfOlderThan(String element, int maxAgeDays) {
         String[] addresses = DataBaseUpdate.getAddresses(element);
         if (addresses.length == 0) {
-            System.out.println("markStaleIfOlderThan: element not found in addresses.json: " + element);
+            logger.warn("markStaleIfOlderThan: element not found in addresses.json: {}", element);
             return;
         }
         String localPath = addresses[0];
@@ -158,7 +161,7 @@ public class FileFetcher {
         if (!Files.exists(file)) {
             // File has never been downloaded — treat it as maximally stale.
             addInvalidatedPath(localPath);
-            System.out.println("File absent, marked stale: " + localPath);
+            logger.debug("File absent, marked stale: {}", localPath);
             return;
         }
 
@@ -167,10 +170,10 @@ public class FileFetcher {
             long ageInDays = ChronoUnit.DAYS.between(lastModified, Instant.now());
             if (ageInDays >= maxAgeDays) {
                 addInvalidatedPath(localPath);
-                System.out.println("File is " + ageInDays + " day(s) old, marked stale: " + localPath);
+                logger.debug("File is {} day(s) old, marked stale: {}", ageInDays, localPath);
             }
         } catch (IOException e) {
-            System.out.println("Could not check age of file: " + localPath + " — " + e.getMessage());
+            logger.warn("Could not check age of file: {} — {}", localPath, e.getMessage());
         }
     }
 
@@ -188,7 +191,7 @@ public class FileFetcher {
     public static void fetchFile(String element) {
         String[] addresses = DataBaseUpdate.getAddresses(element);
         if (addresses.length == 0) {
-            System.out.println("Element not found in addresses.json: " + element);
+            logger.warn("Element not found in addresses.json: {}", element);
             return;
         }
         String localPath  = addresses[0];
@@ -208,7 +211,7 @@ public class FileFetcher {
                 }
                 byte[] fileBytes = fetchRemoteFile(remotePath);
                 Files.write(localFilePath, fileBytes);
-                System.out.println("File fetched and saved locally: " + localPath);
+                logger.debug("File fetched and saved locally: {}", localPath);
                 // Remove from stale set only after a confirmed successful write.
                 removeInvalidatedPath(localPath);
             } finally {
@@ -222,7 +225,7 @@ public class FileFetcher {
         } catch (Exception e) {
             // Network or I/O error — keep the old file as-is and leave the path
             // in invalidatedPaths so the next call retries.
-            System.out.println("Error fetching file (" + element + "): " + e.getMessage());
+            logger.error("Error fetching file ({}): {}", element, e.getMessage());
         }
     }
 
@@ -236,7 +239,7 @@ public class FileFetcher {
     public static void fetchFile(String element, String remotePath) {
         String[] addresses = DataBaseUpdate.getAddresses(element);
         if (addresses.length == 0) {
-            System.out.println("Element not found in addresses.json");
+            logger.warn("Element not found in addresses.json");
             return;
         }
 
@@ -255,7 +258,7 @@ public class FileFetcher {
                 }
                 byte[] fileBytes = fetchRemoteFile(remotePath);
                 Files.write(localFilePath, fileBytes);
-                System.out.println("File fetched and saved locally: " + localPath);
+                logger.debug("File fetched and saved locally: {}", localPath);
                 removeInvalidatedPath(localPath);
             } finally {
                 // FIX: release moved to finally so it is always called, even on

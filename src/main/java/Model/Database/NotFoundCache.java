@@ -1,6 +1,8 @@
 package Model.Database;
 
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -26,6 +28,8 @@ import static Model.FilePaths.databaseDir;
  * (hook this to the "force reload" button when it is added).
  */
 public class NotFoundCache {
+
+    private static final Logger logger = LoggerFactory.getLogger(NotFoundCache.class);
 
     /**
      * Number of days to wait before retrying a previously-failed Konami ID.
@@ -63,8 +67,7 @@ public class NotFoundCache {
     public static void markAsNotFound(int konamiId) {
         getCache().put(String.valueOf(konamiId), Instant.now().toEpochMilli());
         save();
-        System.out.println("NotFoundCache: marked Konami ID " + konamiId
-                + " as not found (will retry in " + RETRY_DAYS + " days).");
+        logger.debug("NotFoundCache: marked Konami ID {} as not found (will retry in {} days).", konamiId, RETRY_DAYS);
     }
 
     /**
@@ -75,7 +78,7 @@ public class NotFoundCache {
     public static void clearAll() {
         cache = new JSONObject();
         save();
-        System.out.println("NotFoundCache: cleared — all IDs will be retried.");
+        logger.debug("NotFoundCache: cleared — all IDs will be retried.");
     }
 
     /**
@@ -101,10 +104,9 @@ public class NotFoundCache {
         try {
             String content = Files.readString(CACHE_FILE, StandardCharsets.UTF_8);
             cache = new JSONObject(content);
-            System.out.println("NotFoundCache: loaded " + cache.length() + " entr"
-                    + (cache.length() == 1 ? "y" : "ies") + " from disk.");
+            logger.debug("NotFoundCache: loaded {} {} from disk.", cache.length(), cache.length() == 1 ? "entry" : "entries");
         } catch (Exception e) {
-            System.out.println("NotFoundCache: could not load cache — " + e.getMessage());
+            logger.warn("NotFoundCache: could not load cache — {}", e.getMessage());
         }
     }
 
@@ -113,7 +115,7 @@ public class NotFoundCache {
             Files.createDirectories(CACHE_FILE.getParent());
             Files.writeString(CACHE_FILE, cache.toString(2), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            System.out.println("NotFoundCache: could not save cache — " + e.getMessage());
+            logger.warn("NotFoundCache: could not save cache — {}", e.getMessage());
         }
     }
 }

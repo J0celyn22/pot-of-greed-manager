@@ -2,6 +2,8 @@ package Model.Database;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Iterator;
@@ -9,6 +11,9 @@ import java.util.List;
 import java.util.Map;
 
 public class KonamiIdToNames {
+
+    private static final Logger logger = LoggerFactory.getLogger(KonamiIdToNames.class);
+
     private static Map<Integer, String> konamiIdToEnNames;
     private static Map<String, Integer> enNamesToKonamiId;
     private static Map<Integer, String> konamiIdToFrNames;
@@ -136,7 +141,7 @@ public class KonamiIdToNames {
             returnValue = konamiIdToEnNames.get(value);
         }
         if (returnValue == null) {
-            System.out.println("EN Name not found : " + value);
+            logger.warn("EN name not found: {}", value);
         }
         return returnValue;
     }
@@ -175,7 +180,7 @@ public class KonamiIdToNames {
                     i++;
                 }
             } else {
-                System.out.println("FR Name not found : " + value);
+                logger.warn("FR name not found: {}", value);
             }
         }
         return returnValue;
@@ -216,7 +221,7 @@ public class KonamiIdToNames {
                     i++;
                 }
             } else {
-                System.out.println("JA Name not found : " + value);
+                logger.warn("JA name not found: {}", value);
             }
         }
         return returnValue;

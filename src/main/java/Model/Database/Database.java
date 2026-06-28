@@ -20,7 +20,9 @@ import static Model.Database.FileFetcher.fetchFile;
 import static Model.Database.KonamiIdToNames.*;
 import static Model.Database.PrintCodeToKonamiId.getPrintCodeToKonamiId;
 
-//TODO see DAO design pattern ?
+// The Database class currently acts as a static service locator for all card data.
+// A DAO (Data Access Object) pattern would decouple the data-access layer from callers
+// and make it easier to swap storage backends, but requires a larger refactor.
 public class Database {
     private static final Map<String, JSONObject> jsonContentMap = new HashMap<>();
     private static final List<String> setsList = new ArrayList<>();
@@ -104,7 +106,9 @@ public class Database {
         try {
             //String content = new String(Files.readAllBytes(Paths.get("./src/main/java/Model/Database/addresses.json")));
             byte[] encoded;
-            try { //TODO find a better way to do this without having to put the jar version of the path in a catch
+            // Two-path resolution: the dev-time path works when running from source;
+            // the fallback handles the packaged JAR layout where resources are at the root.
+            try {
                 encoded = Files.readAllBytes(Paths.get(Paths.get("./src/main/java/Model/Database/addresses.json").toUri()));
             } catch (Exception e) {
                 encoded = Files.readAllBytes(Paths.get(Paths.get("resources/addresses.json").toUri()));

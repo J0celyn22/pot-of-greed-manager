@@ -6,6 +6,8 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedWriter;
 import java.io.FileOutputStream;
@@ -22,6 +24,7 @@ import static Model.FilePaths.outputPath;
 
 public class CardScraper {
 
+    private static final Logger logger = LoggerFactory.getLogger(CardScraper.class);
     /**
      * Fetches the edition (set) list from the site and returns a map editionName -> editionId.
      */
@@ -114,7 +117,7 @@ public class CardScraper {
         Pattern printCodePattern = Pattern.compile("\\b([A-Z0-9]{2,}(?:-?[A-Z0-9]+)?)\\b");
 
         Map<String, String> editionMap = getEditionMap();
-        System.out.println("Found " + editionMap.size() + " editions.");
+        logger.debug("Found {} editions.", editionMap.size());
 
         List<ShopResultEntry> result = new ArrayList<>();
 
@@ -129,7 +132,7 @@ public class CardScraper {
                 String editionName = editionEntry.getKey();
                 String editionId = editionEntry.getValue();
 
-                System.out.println("Scraping edition: " + editionName + " (id=" + editionId + ")");
+                logger.debug("Scraping edition: {} (id={})", editionName, editionId);
 
                 int pageNumber = 1;
                 boolean hasMorePages = true;
@@ -385,7 +388,7 @@ public class CardScraper {
                 line.append(" Link: ").append(e.productUrl);
 
                 writer.write(line.toString() + "\n");
-                System.out.println(line.toString());
+                logger.debug("{}", line);
 
                 if (e.matched) {
                     result.add(new ShopResultEntry(

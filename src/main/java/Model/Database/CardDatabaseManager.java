@@ -4,6 +4,8 @@ import Model.Database.CardInfo.CardImage;
 import Model.Database.CardInfo.CardInfo;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -11,6 +13,9 @@ import java.util.List;
 import java.util.Map;
 
 public class CardDatabaseManager {
+
+    private static final Logger logger = LoggerFactory.getLogger(CardDatabaseManager.class);
+
     private static Map<Integer, Integer> passCodeToKonamiId;
     private static Map<Integer, Integer> konamiIdToPassCode;
     private static Map<Integer, List<Integer>> passCodeToOtherPassCodes;
@@ -149,7 +154,7 @@ public class CardDatabaseManager {
             if (konamiIds != null) {
                 for (Integer konamiId : konamiIds) {
                     if (!konamiIdToPassCode.containsKey(konamiId)) {
-                        System.out.println("Trying to complete Konami ID: " + konamiId);
+                        logger.debug("Trying to complete Konami ID: {}", konamiId);
                         completeKonamiIdToPassCode(konamiId);
                     }
                 }
@@ -191,12 +196,12 @@ public class CardDatabaseManager {
                     int passcode = cardData.getInt("id");
                     konamiIdToPassCode.put(konamiId, passcode);
                 } else {
-                    System.out.println("No card data found for Konami ID " + konamiId);
+                    logger.warn("No card data found for Konami ID {}", konamiId);
                     // Empty data array = the server knows of no such card.
                     NotFoundCache.markAsNotFound(konamiId);
                 }
             } else {
-                System.out.println("Failed to load JSON for Konami ID " + konamiId);
+                logger.warn("Failed to load JSON for Konami ID {}", konamiId);
             }
         } catch (RuntimeException e) {
             // RuntimeException wraps a FileNotFoundException thrown by fetchFile
@@ -204,19 +209,16 @@ public class CardDatabaseManager {
             Throwable cause = (e instanceof RuntimeException && e.getCause() != null)
                     ? e.getCause() : e;
             if (cause instanceof java.io.FileNotFoundException) {
-                System.out.println("Konami ID " + konamiId
-                        + " not found in remote database (HTTP 4xx) — caching.");
+                logger.warn("Konami ID {} not found in remote database (HTTP 4xx) — caching.");
                 NotFoundCache.markAsNotFound(konamiId);
             } else {
                 // Genuine RuntimeException unrelated to 4xx — log but don't cache.
-                System.out.println("Error loading file for Konami ID " + konamiId
-                        + ": " + e.getMessage());
+                logger.error("Error loading file for Konami ID {}: {}", konamiId, e.getMessage());
             }
         } catch (Exception e) {
             // Transient error (network down, timeout, etc.) — do NOT cache,
             // so the next startup retries automatically.
-            System.out.println("Error loading file for Konami ID " + konamiId
-                    + ": " + e.getMessage());
+            logger.error("Error loading file for Konami ID {}: {}", konamiId, e.getMessage());
         }
     }
 
