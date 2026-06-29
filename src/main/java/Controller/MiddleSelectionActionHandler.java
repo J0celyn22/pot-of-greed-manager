@@ -1,26 +1,32 @@
 package Controller;
 
 import Model.CardsLists.*;
+import View.CardTreeCell;
 import View.NavigationItem;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 
 /**
- * Holds the pure finder/locator logic used by the middle-pane keyboard shortcuts
- * (delete, duplicate, complete-to-three, paste, numpad-add).
+ * Holds the finder/locator logic and the paste/insert orchestration used by the
+ * middle-pane keyboard shortcuts (delete, duplicate, complete-to-three, paste,
+ * numpad-add) and by drag-and-drop paste onto navigation items.
  * <p>
  * Extracted from {@link RealMainController}, which still owns the actual keyboard
- * dispatch and the orchestration methods (gathering the active tab/tree, calling
- * into these finders, then triggering the right refresh/dirty-tracking calls).
- * Every method here takes its context as explicit parameters rather than reading
- * coordinator instance state, which is what makes the move safe.
+ * dispatch and the methods that read coordinator instance state (active tab index,
+ * the active middle TreeView, the right-pane display). Methods here that need that
+ * context take it as an explicit parameter (e.g. {@code activeTabIndex}) rather than
+ * reading it directly, which is what makes the move safe.
  * </p>
  */
 final class MiddleSelectionActionHandler {
+
+    private static final Logger logger = LoggerFactory.getLogger(MiddleSelectionActionHandler.class);
 
     private MiddleSelectionActionHandler() {
     }
@@ -259,5 +265,527 @@ final class MiddleSelectionActionHandler {
             queue.addAll(item.getChildren());
         }
         return candidate;
+    }
+
+    /**
+     * Inserts copy-constructed snapshots of {@code elements} immediately after
+     * {@code anchor} in the group that contains it, preserving {@code condition},
+     * {@code rarity}, {@code customTags}, and artwork flags.
+     *
+     * @param elements       the element snapshots to paste (not {@code null} or empty)
+     * @param anchor         the element after which to insert
+     * @param activeTabIndex the currently selected main-tab index (0 = My Collection,
+     *                       1 = Decks and Collections)
+     * @return {@code true} if at least one element was inserted
+     */
+    static boolean pasteElementsAfterElement(List<CardElement> elements, CardElement anchor,
+                                             int activeTabIndex) {
+        if (anchor == null || elements == null || elements.isEmpty()) {
+            return false;
+        }
+        boolean inserted = MenuActionHandler.handleInsertElementsAfterElement(
+                elements, anchor);
+        if (!inserted) {
+            return false;
+        }
+        if (activeTabIndex == 0) {
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+        } else if (activeTabIndex == 1) {
+            Object owner = findDeckOrCollectionOwner(anchor);
+            if (owner != null) {
+                UserInterfaceFunctions.markDirty(owner);
+            }
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        }
+        return true;
+    }
+
+    /**
+     * Same as {@link #pasteElementsAfterElement} but for raw {@link Card}s rather
+     * than pre-built {@link CardElement} snapshots (e.g. right-pane numpad-add).
+     *
+     * @param activeTabIndex the currently selected main-tab index (0 = My Collection,
+     *                       1 = Decks and Collections)
+     */
+    static boolean pasteCardsAfterElement(List<Card> cards, CardElement anchor, int activeTabIndex) {
+        if (anchor == null || cards == null || cards.isEmpty()) {
+            return false;
+        }
+        boolean inserted = MenuActionHandler.handleInsertCardsAfterElement(cards, anchor);
+        if (!inserted) {
+            return false;
+        }
+        if (activeTabIndex == 0) {
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+        } else if (activeTabIndex == 1) {
+            Object owner = findDeckOrCollectionOwner(anchor);
+            if (owner != null) {
+                UserInterfaceFunctions.markDirty(owner);
+            }
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        }
+        return true;
+    }
+
+    /**
+     * Inserts copy-constructed snapshots of {@code elements} into the group or
+     * deck section identified by {@code modelObj}, preserving {@code condition},
+     * {@code rarity}, {@code customTags}, and artwork flags.
+     *
+     * @param elements the element snapshots to paste
+     * @param modelObj a {@link Box}, {@link CardsGroup}, {@link Deck}, or
+     *                 {@link ThemeCollection} navigation-item model object
+     */
+    static void pasteElementsIntoNavigationItem(List<CardElement> elements, Object modelObj) {
+        if (elements == null || elements.isEmpty() || modelObj == null) {
+            return;
+        }
+
+        if (modelObj instanceof Box box) {
+            CardsGroup defaultGroup =
+                    MenuActionHandler.getOrCreateDefaultGroup(box);
+            if (defaultGroup == null) {
+                return;
+            }
+            javafx.collections.ObservableList<CardElement> observableList =
+                    CardTreeCell.observableListFor(defaultGroup);
+            List<CardElement> addedElements = new java.util.ArrayList<>();
+            for (CardElement element : elements) {
+                if (element != null) {
+                    CardElement newElement = new CardElement(element);
+                    observableList.add(newElement);
+                    addedElements.add(newElement);
+                }
+            }
+            CardTreeCell.triggerHeightAdjustment(defaultGroup);
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+            for (CardElement added : addedElements) {
+                try {
+                    OuicheList.onOwnedCardAdded(added);
+                } catch (Throwable throwable) {
+                    logger.error("OuicheList update failed after paste into box", throwable);
+                }
+            }
+            if (!addedElements.isEmpty()) {
+                UserInterfaceFunctions.refreshOuicheListView();
+            }
+
+        } else if (modelObj instanceof CardsGroup group) {
+            javafx.collections.ObservableList<CardElement> observableList =
+                    CardTreeCell.observableListFor(group);
+            List<CardElement> addedElements = new java.util.ArrayList<>();
+            for (CardElement element : elements) {
+                if (element != null) {
+                    CardElement newElement = new CardElement(element);
+                    observableList.add(newElement);
+                    addedElements.add(newElement);
+                }
+            }
+            CardTreeCell.triggerHeightAdjustment(group);
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+            for (CardElement added : addedElements) {
+                try {
+                    OuicheList.onOwnedCardAdded(added);
+                } catch (Throwable throwable) {
+                    logger.error("OuicheList update failed after paste into group", throwable);
+                }
+            }
+            if (!addedElements.isEmpty()) {
+                UserInterfaceFunctions.refreshOuicheListView();
+            }
+
+        } else {
+            // For Deck and ThemeCollection targets, condition/rarity/tags are not
+            // used by those contexts, so delegate to the Card-list path.
+            List<Card> cards = new java.util.ArrayList<>(elements.size());
+            for (CardElement element : elements) {
+                if (element != null && element.getCard() != null) {
+                    cards.add(element.getCard());
+                }
+            }
+            pasteCardsIntoNavigationItem(cards, modelObj);
+        }
+    }
+
+    /**
+     * Same as {@link #pasteElementsIntoNavigationItem} but for raw {@link Card}s
+     * rather than pre-built {@link CardElement} snapshots (e.g. right-pane numpad-add
+     * and right-pane drag-and-drop).
+     *
+     * @param cards    the cards to paste
+     * @param modelObj a {@link Box}, {@link CardsGroup}, {@link Deck}, or
+     *                 {@link ThemeCollection} navigation-item model object
+     */
+    static void pasteCardsIntoNavigationItem(List<Card> cards, Object modelObj) {
+        if (cards == null || cards.isEmpty() || modelObj == null) {
+            return;
+        }
+
+        if (modelObj instanceof Box box) {
+            CardsGroup defaultGroup = MenuActionHandler.getOrCreateDefaultGroup(box);
+            if (defaultGroup == null) {
+                return;
+            }
+            javafx.collections.ObservableList<CardElement> observableList =
+                    CardTreeCell.observableListFor(defaultGroup);
+            for (Card card : cards) {
+                if (card != null) {
+                    observableList.add(new CardElement(card));
+                }
+            }
+            CardTreeCell.triggerHeightAdjustment(defaultGroup);
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+
+        } else if (modelObj instanceof CardsGroup group) {
+            javafx.collections.ObservableList<CardElement> observableList =
+                    CardTreeCell.observableListFor(group);
+            for (Card card : cards) {
+                if (card != null) {
+                    observableList.add(new CardElement(card));
+                }
+            }
+            CardTreeCell.triggerHeightAdjustment(group);
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+
+        } else if (modelObj instanceof Deck deck) {
+            if (deck.getMainDeck() == null) {
+                deck.setMainDeck(new java.util.ArrayList<>());
+            }
+            if (deck.getExtraDeck() == null) {
+                deck.setExtraDeck(new java.util.ArrayList<>());
+            }
+
+            List<Card> toMain = new java.util.ArrayList<>();
+            List<Card> toExtra = new java.util.ArrayList<>();
+            for (Card card : cards) {
+                if (card == null) {
+                    continue;
+                }
+                if (Utils.DeckCompatibility.isExtraDeckCard(card)) {
+                    toExtra.add(card);
+                } else {
+                    toMain.add(card);
+                }
+            }
+
+            String parentCollectionName = findCollectionNameForDeck(deck);
+            List<CardElement> addedElements = new java.util.ArrayList<>();
+
+            java.util.function.BiConsumer<List<Card>, String> addToSection =
+                    (sectionCards, sectionKey) -> {
+                        if (sectionCards.isEmpty()) {
+                            return;
+                        }
+                        CardsGroup sectionGroup =
+                                CardTreeCell.getDeckSectionGroup(deck, sectionKey);
+                        if (sectionGroup != null) {
+                            javafx.collections.ObservableList<CardElement> obs =
+                                    CardTreeCell.observableListFor(sectionGroup);
+                            for (Card card : sectionCards) {
+                                CardElement newElement = new CardElement(card);
+                                obs.add(newElement);
+                                addedElements.add(newElement);
+                            }
+                            CardTreeCell.triggerHeightAdjustment(sectionGroup);
+                        } else {
+                            List<CardElement> rawList = "extra".equals(sectionKey)
+                                    ? deck.getExtraDeck()
+                                    : deck.getMainDeck();
+                            for (Card card : sectionCards) {
+                                CardElement newElement = new CardElement(card);
+                                rawList.add(newElement);
+                                addedElements.add(newElement);
+                            }
+                            UserInterfaceFunctions.triggerDecksStructureRefresh();
+                        }
+                    };
+
+            addToSection.accept(toMain, "main");
+            addToSection.accept(toExtra, "extra");
+
+            UserInterfaceFunctions.markDirty(deck);
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+
+            for (CardElement addedElement : addedElements) {
+                String sectionName = Utils.DeckCompatibility.isExtraDeckCard(addedElement.getCard())
+                        ? "extra" : "main";
+                try {
+                    OuicheList.onDeckCardAdded(addedElement, deck.getName(), sectionName,
+                            parentCollectionName);
+                } catch (Throwable throwable) {
+                    logger.error("OuicheList update failed after paste into deck '{}'",
+                            deck.getName(), throwable);
+                }
+            }
+            if (!addedElements.isEmpty()) {
+                UserInterfaceFunctions.refreshOuicheListView();
+            }
+
+        } else if (modelObj instanceof ThemeCollection collection) {
+            if (collection.getCardsList() == null) {
+                collection.setCardsList(new java.util.ArrayList<>());
+            }
+
+            CardsGroup cardsGroup = CardTreeCell.getCollectionCardsGroup(collection);
+            List<CardElement> addedElements = new java.util.ArrayList<>();
+            if (cardsGroup != null) {
+                javafx.collections.ObservableList<CardElement> obs =
+                        CardTreeCell.observableListFor(cardsGroup);
+                for (Card card : cards) {
+                    if (card != null) {
+                        CardElement newElement = new CardElement(card);
+                        obs.add(newElement);
+                        addedElements.add(newElement);
+                    }
+                }
+                CardTreeCell.triggerHeightAdjustment(cardsGroup);
+            } else {
+                for (Card card : cards) {
+                    if (card != null) {
+                        CardElement newElement = new CardElement(card);
+                        collection.getCardsList().add(newElement);
+                        addedElements.add(newElement);
+                    }
+                }
+                UserInterfaceFunctions.triggerDecksStructureRefresh();
+            }
+            UserInterfaceFunctions.markDirty(collection);
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            for (CardElement addedElement : addedElements) {
+                try {
+                    OuicheList.onDeckCardAdded(addedElement, null, null, collection.getName());
+                } catch (Throwable throwable) {
+                    logger.error("OuicheList update failed after paste into collection '{}'",
+                            collection.getName(), throwable);
+                }
+            }
+            if (!addedElements.isEmpty()) {
+                UserInterfaceFunctions.refreshOuicheListView();
+            }
+        }
+    }
+
+    /**
+     * Copies the current selection to {@link CardClipboard}: full {@link CardElement}
+     * snapshots when the MIDDLE selection is active (preserving condition, rarity, and
+     * custom tags across the copy/paste cycle), or bare {@link Card}s when copying from
+     * the right pane (where condition/rarity are not available).
+     */
+    static void handleCopySelectionToClipboard() {
+        if ("MIDDLE".equals(SelectionManager.getActivePart())) {
+            List<CardElement> elementsToCopy = new java.util.ArrayList<>();
+            for (CardElement element : SelectionManager.getSelectedMiddleElements()) {
+                if (element.getCard() != null) {
+                    elementsToCopy.add(element);
+                }
+            }
+            if (!elementsToCopy.isEmpty()) {
+                CardClipboard.copyElements(elementsToCopy);
+            }
+        } else {
+            java.util.Set<Card> selectedCards = SelectionManager.getSelectedCards();
+            if (!selectedCards.isEmpty()) {
+                CardClipboard.copyCards(new java.util.ArrayList<>(selectedCards));
+            }
+        }
+    }
+
+    /**
+     * Inserts one copy of each selected element immediately after itself, processing
+     * in tree order so earlier insertions don't shift later anchors.
+     *
+     * @param activeTreeView the active middle TreeView
+     * @param activeTabIndex the currently selected main-tab index (0 = My Collection,
+     *                       1 = Decks and Collections)
+     */
+    static void handleDuplicateMiddleSelection(TreeView<String> activeTreeView, int activeTabIndex) {
+        if (activeTreeView == null) {
+            return;
+        }
+        java.util.Set<CardElement> selectedElements =
+                SelectionManager.getSelectedMiddleElements();
+        if (selectedElements.isEmpty()) {
+            return;
+        }
+        List<CardElement> allElementsInOrder =
+                CardTreeCell.collectAllElementsInTreeOrder(activeTreeView.getRoot());
+        List<CardElement> selectedInOrder = allElementsInOrder.stream()
+                .filter(selectedElements::contains)
+                .collect(java.util.stream.Collectors.toList());
+        if (selectedInOrder.isEmpty()) {
+            return;
+        }
+
+        // Insert one copy of each selected element immediately after itself,
+        // processing in tree order so earlier insertions don't shift later anchors.
+        boolean anyInserted = false;
+        for (CardElement selectedElement : selectedInOrder) {
+            List<CardElement> singleCopy = new java.util.ArrayList<>();
+            singleCopy.add(new CardElement(selectedElement));
+            boolean inserted = MenuActionHandler.handleInsertElementsAfterElement(
+                    singleCopy, selectedElement);
+            if (inserted) {
+                anyInserted = true;
+            } else {
+                logger.warn("handleDuplicateMiddleSelection: insertion failed for element");
+            }
+        }
+
+        if (!anyInserted) {
+            return;
+        }
+
+        CardElement lastElement = selectedInOrder.get(selectedInOrder.size() - 1);
+        if (activeTabIndex == 0) {
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+        } else if (activeTabIndex == 1) {
+            Object owner = findDeckOrCollectionOwner(lastElement);
+            if (owner != null) {
+                UserInterfaceFunctions.markDirty(owner);
+            }
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        }
+    }
+
+    /**
+     * For each selected card element, counts how many copies of the same card
+     * (by konamiId) are already in that element's direct container (a CardsGroup,
+     * a deck section, or a ThemeCollection cardsList), then inserts copies after
+     * the element until the container holds exactly 3. Elements whose container
+     * already has 3 or more copies are skipped; no cards are ever removed.
+     *
+     * @param activeTreeView the active middle TreeView
+     * @param activeTabIndex the currently selected main-tab index (0 = My Collection,
+     *                       1 = Decks and Collections)
+     */
+    static void handleCompleteToThree(TreeView<String> activeTreeView, int activeTabIndex) {
+        if (activeTreeView == null) {
+            return;
+        }
+        java.util.Set<CardElement> selectedElements =
+                SelectionManager.getSelectedMiddleElements();
+        if (selectedElements.isEmpty()) {
+            return;
+        }
+
+        // Process elements in tree order so insertions are stable.
+        List<CardElement> allElementsInOrder =
+                CardTreeCell.collectAllElementsInTreeOrder(activeTreeView.getRoot());
+        List<CardElement> selectedInOrder = allElementsInOrder.stream()
+                .filter(selectedElements::contains)
+                .collect(java.util.stream.Collectors.toList());
+        if (selectedInOrder.isEmpty()) {
+            return;
+        }
+
+        boolean anyInserted = false;
+
+        for (CardElement selectedElement : selectedInOrder) {
+            if (selectedElement.getCard() == null) {
+                continue;
+            }
+            String konamiId = selectedElement.getCard().getKonamiId();
+
+            // Find the direct container list that holds this element.
+            List<CardElement> directContainer =
+                    findDirectContainer(selectedElement, activeTabIndex);
+            if (directContainer == null) {
+                continue;
+            }
+
+            // Count copies of the same card already in that container.
+            int existingCount = 0;
+            for (CardElement containerElement : directContainer) {
+                if (containerElement == null || containerElement.getCard() == null) {
+                    continue;
+                }
+                String containerKonamiId = containerElement.getCard().getKonamiId();
+                if (konamiId != null && konamiId.equals(containerKonamiId)) {
+                    existingCount++;
+                }
+            }
+
+            int copiesToAdd = 3 - existingCount;
+            if (copiesToAdd <= 0) {
+                continue;
+            }
+
+            // Build the list of copies to insert after the selected element.
+            List<CardElement> copies = new java.util.ArrayList<>();
+            for (int i = 0; i < copiesToAdd; i++) {
+                copies.add(new CardElement(selectedElement));
+            }
+
+            boolean inserted = MenuActionHandler.handleInsertElementsAfterElement(
+                    copies, selectedElement);
+            if (inserted) {
+                anyInserted = true;
+            } else {
+                logger.warn("handleCompleteToThree: insertion failed for element with konamiId={}", konamiId);
+            }
+        }
+
+        if (!anyInserted) {
+            return;
+        }
+
+        if (activeTabIndex == 0) {
+            UserInterfaceFunctions.markMyCollectionDirty();
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshOwnedCollectionView();
+        } else if (activeTabIndex == 1) {
+            CardElement lastElement = selectedInOrder.get(selectedInOrder.size() - 1);
+            Object owner = findDeckOrCollectionOwner(lastElement);
+            if (owner != null) {
+                UserInterfaceFunctions.markDirty(owner);
+            }
+            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        }
+    }
+
+    /**
+     * Returns whether {@code navItem}'s model type matches the active tab
+     * (Box/CardsGroup for My Collection, Deck/ThemeCollection for Decks and Collections).
+     */
+    static boolean navItemBelongsToActiveTab(Object navItem, int activeTabIndex) {
+        if (navItem == null) {
+            return false;
+        }
+        if (activeTabIndex == 0) {
+            return navItem instanceof Box || navItem instanceof CardsGroup;
+        }
+        if (activeTabIndex == 1) {
+            return navItem instanceof Deck || navItem instanceof ThemeCollection;
+        }
+        return false;
+    }
+
+    /**
+     * Returns whether {@code element} is currently present in {@code activeTreeView}.
+     */
+    static boolean elemBelongsToActiveTab(CardElement element, TreeView<String> activeTreeView) {
+        if (element == null || activeTreeView == null || activeTreeView.getRoot() == null) {
+            return false;
+        }
+        return CardTreeCell.collectAllElementsInTreeOrder(activeTreeView.getRoot())
+                .contains(element);
     }
 }
