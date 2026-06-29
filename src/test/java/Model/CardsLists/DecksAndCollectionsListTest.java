@@ -62,7 +62,7 @@ public class DecksAndCollectionsListTest {
         ThemeCollection collection = new ThemeCollection();
         Deck deck = new Deck();
         deck.AddCardMain(new Card("TestCard"));
-        collection.AddDeck(deck);
+        collection.addDeck(deck);
         collections.add(collection);
         list.setCollections(collections);
         List<CardElement> cards = list.toListCollectionsAndLinkedDecks();

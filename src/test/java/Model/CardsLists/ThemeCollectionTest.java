@@ -613,13 +613,13 @@ public class ThemeCollectionTest {
         collection.getCardsList().add(ceCollSamePass);
 
         // Add decks into linkedDecks units:
-        collection.AddDeck(decks.get(0)); // unit 0
-        collection.AddDeck(decks.get(1)); // unit 1
-        collection.AddDeck(decks.get(2)); // unit 2
-        collection.AddDeck(decks.get(3)); // unit 3
-        collection.AddDeck(decks.get(4)); // unit 4
-        collection.AddDeck(decks.get(5)); // unit 5
-        collection.AddDeckToExistingUnit(secondInUnit5, 5);
+        collection.addDeck(decks.get(0)); // unit 0
+        collection.addDeck(decks.get(1)); // unit 1
+        collection.addDeck(decks.get(2)); // unit 2
+        collection.addDeck(decks.get(3)); // unit 3
+        collection.addDeck(decks.get(4)); // unit 4
+        collection.addDeck(decks.get(5)); // unit 5
+        collection.addDeckToExistingUnit(secondInUnit5, 5);
     }
 
     // Helper to create Card instance
@@ -805,7 +805,7 @@ public class ThemeCollectionTest {
 
         // SaveToFile concatenates the provided path string + name + ".ytc"
         Path marker = tempDir.resolve("test");
-        tc.SaveToFile(marker.toString());
+        tc.saveToFile(marker.toString());
 
         Path expectedFile = tempDir.resolve("test" + "TestCollection.ytc");
         boolean exists = Files.exists(expectedFile);

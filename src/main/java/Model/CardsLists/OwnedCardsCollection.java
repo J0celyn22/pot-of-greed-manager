@@ -12,9 +12,11 @@ public class OwnedCardsCollection implements CardsListFile {
         List<String> collectionFileList = CardsListFile.readFile(filePathStr);
         this.ownedCollection = new ArrayList<>();
 
-        for (String s : collectionFileList) {
-            String trimmed = s.trim();
-            if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith("!")) continue;
+        for (String line : collectionFileList) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith("!")) {
+                continue;
+            }
             // Only skip pure comment lines — TKN cards, EN-only codes, etc. are valid
 
             if (trimmed.startsWith("=")) {
@@ -23,14 +25,14 @@ public class OwnedCardsCollection implements CardsListFile {
             } else if (trimmed.startsWith("-")) {
                 // Category header — strip decorators and store clean name
                 if (!this.ownedCollection.isEmpty()) {
-                    Box last = this.ownedCollection.get(this.ownedCollection.size() - 1);
-                    last.AddCategory(extractName(trimmed, '-'));
+                    Box lastBox = this.ownedCollection.get(this.ownedCollection.size() - 1);
+                    lastBox.AddCategory(extractName(trimmed, '-'));
                 }
             } else {
                 // Card line
                 if (!this.ownedCollection.isEmpty()) {
                     try {
-                        AddCardToLastBox(new CardElement(trimmed));
+                        addCardToLastBox(new CardElement(trimmed));
                     } catch (Exception ignored) {
                     }
                 }
@@ -46,13 +48,17 @@ public class OwnedCardsCollection implements CardsListFile {
 
     /**
      * Strips only the leading and trailing decorator characters (= or -)
-     * from a raw file line, preserving hyphens INSIDE the name.
+     * from a raw file line, preserving hyphens inside the name.
      */
     public static String extractName(String s, char decorator) {
         int start = 0;
-        while (start < s.length() && s.charAt(start) == decorator) start++;
+        while (start < s.length() && s.charAt(start) == decorator) {
+            start++;
+        }
         int end = s.length();
-        while (end > start && s.charAt(end - 1) == decorator) end--;
+        while (end > start && s.charAt(end - 1) == decorator) {
+            end--;
+        }
         return s.substring(start, end).trim();
     }
 
@@ -77,7 +83,7 @@ public class OwnedCardsCollection implements CardsListFile {
     }
 
     /**
-     * Recursive box writer — supports sub-boxes at depth+1.
+     * Recursively writes a box and all its categories and sub-boxes to the given writer.
      */
     private static void writeBox(PrintWriter writer, Box box, int depth) {
         String boxName = box.getName() == null ? "" : box.getName();
@@ -85,22 +91,22 @@ public class OwnedCardsCollection implements CardsListFile {
 
         for (CardsGroup group : box.getContent()) {
             String groupName = group.getName() == null ? "" : group.getName();
-            // Only write the category header if the group actually has a name.
+            // Only write the category header if the group has a name.
             // Unnamed groups arise from boxes where cards appear directly (no category line).
             if (!groupName.isEmpty()) {
                 writer.println(formatCategoryLine(groupName));
             }
             for (CardElement card : group.getCardList()) {
-                String line = card.toCollectionString();
-                if (line != null && !line.isEmpty()) {
-                    writer.println(line);
+                String cardLine = card.toCollectionString();
+                if (cardLine != null && !cardLine.isEmpty()) {
+                    writer.println(cardLine);
                 }
             }
         }
 
         if (box.getSubBoxes() != null) {
-            for (Box sub : box.getSubBoxes()) {
-                writeBox(writer, sub, depth + 1);
+            for (Box subBox : box.getSubBoxes()) {
+                writeBox(writer, subBox, depth + 1);
             }
         }
     }
@@ -111,25 +117,31 @@ public class OwnedCardsCollection implements CardsListFile {
         return ownedCollection;
     }
 
-    public void setOwnedCollection(List<Box> c) {
-        this.ownedCollection = c;
+    public void setOwnedCollection(List<Box> ownedCollection) {
+        this.ownedCollection = ownedCollection;
     }
 
-    public int getSize() {
-        int size = 0;
-        for (Box box : ownedCollection) size += box.getContent().size();
-        return size;
+    /**
+     * Returns the total number of card categories (CardsGroups) across all boxes.
+     * For a count of individual cards, use {@link #getCardCount()}.
+     */
+    public int getCategoryCount() {
+        int count = 0;
+        for (Box box : ownedCollection) {
+            count += box.getContent().size();
+        }
+        return count;
     }
 
-    public void AddBox(String boxName) {
+    public void addBox(String boxName) {
         this.ownedCollection.add(new Box(boxName));
     }
 
-    public void AddCategoryToLastBox(String categoryName) {
+    public void addCategoryToLastBox(String categoryName) {
         this.ownedCollection.get(this.ownedCollection.size() - 1).AddCategory(categoryName);
     }
 
-    public void AddCardToLastBox(CardElement card) {
+    public void addCardToLastBox(CardElement card) {
         this.ownedCollection.get(this.ownedCollection.size() - 1).AddCardToLastCategory(card);
     }
 
@@ -141,29 +153,44 @@ public class OwnedCardsCollection implements CardsListFile {
         }
     }
 
+    /**
+     * Returns a flat list of every CardElement across all boxes and categories.
+     */
     public List<CardElement> toList() {
         List<CardElement> result = new ArrayList<>();
-        for (Box box : ownedCollection)
-            for (CardsGroup g : box.getContent())
-                result.addAll(g.cardList);
+        for (Box box : ownedCollection) {
+            for (CardsGroup group : box.getContent()) {
+                result.addAll(group.getCardList());
+            }
+        }
         return result;
     }
 
-    public Integer getCardCount() {
-        int n = 0;
-        for (Box box : ownedCollection) n += box.getCardCount();
-        return n;
+    /**
+     * Returns the total number of individual cards across all boxes.
+     */
+    public int getCardCount() {
+        int count = 0;
+        for (Box box : ownedCollection) {
+            count += box.getCardCount();
+        }
+        return count;
     }
 
     public String getPrice() {
         float total = 0;
-        for (Box box : ownedCollection) total += Float.parseFloat(box.getPrice());
+        for (Box box : ownedCollection) {
+            total += Float.parseFloat(box.getPrice());
+        }
         return String.valueOf(total);
     }
 
+    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        for (Box box : ownedCollection) sb.append(box.toString()).append("\n");
+        for (Box box : ownedCollection) {
+            sb.append(box.toString()).append('\n');
+        }
         return sb.toString();
     }
 }

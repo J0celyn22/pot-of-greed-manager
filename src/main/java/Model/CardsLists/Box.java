@@ -82,7 +82,7 @@ public class Box {
             this.content = new ArrayList<>();
             this.content.add(new CardsGroup(""));
         }
-        this.content.get(this.content.size() - 1).AddCard(card);
+        this.content.get(this.content.size() - 1).addCard(card);
     }
 
     /**

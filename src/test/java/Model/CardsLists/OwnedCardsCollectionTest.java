@@ -31,18 +31,18 @@ public class OwnedCardsCollectionTest {
         List<Box> boxes = new ArrayList<>();
         Box box = new Box("TestBox");
         CardsGroup group = new CardsGroup("TestGroup");
-        group.AddCard(new CardElement("TestCard"));
+        group.addCard(new CardElement("TestCard"));
         box.getContent().add(group);
         boxes.add(box);
         collection.setOwnedCollection(boxes);
-        assertEquals(1, collection.getSize());
+        assertEquals(1, collection.getCategoryCount());
     }
 
     @Test
     public void testAddBox() {
         OwnedCardsCollection collection = new OwnedCardsCollection();
         collection.setOwnedCollection(new ArrayList<>());
-        collection.AddBox("TestBox");
+        collection.addBox("TestBox");
         assertEquals(1, collection.getOwnedCollection().size());
         assertEquals("TestBox", collection.getOwnedCollection().get(0).getName());
     }
@@ -51,8 +51,8 @@ public class OwnedCardsCollectionTest {
     public void testAddCategoryToLastBox() {
         OwnedCardsCollection collection = new OwnedCardsCollection();
         collection.setOwnedCollection(new ArrayList<>());
-        collection.AddBox("TestBox");
-        collection.AddCategoryToLastBox("TestCategory");
+        collection.addBox("TestBox");
+        collection.addCategoryToLastBox("TestCategory");
         assertEquals(1, collection.getOwnedCollection().get(0).getContent().size());
         assertEquals("TestCategory", collection.getOwnedCollection().get(0).getContent().get(0).getName());
     }
@@ -61,9 +61,9 @@ public class OwnedCardsCollectionTest {
     public void testAddCardToLastBox() throws Exception {
         OwnedCardsCollection collection = new OwnedCardsCollection();
         collection.setOwnedCollection(new ArrayList<>());
-        collection.AddBox("TestBox");
-        collection.AddCategoryToLastBox("TestCategory");
-        collection.AddCardToLastBox(new CardElement("TestCard"));
+        collection.addBox("TestBox");
+        collection.addCategoryToLastBox("TestCategory");
+        collection.addCardToLastBox(new CardElement("TestCard"));
         assertEquals(1, collection.getOwnedCollection().get(0).getContent().get(0).getCardList().size());
         assertEquals("TestCard", collection.getOwnedCollection().get(0).getContent().get(0).getCardList().get(0).getCard().getPassCode());
     }
@@ -75,7 +75,7 @@ public class OwnedCardsCollectionTest {
         Box box = new Box("TestBox");
         CardsGroup group = new CardsGroup("TestGroup");
         CardElement card = new CardElement("TestCard");
-        group.AddCard(card);
+        group.addCard(card);
         box.getContent().add(group);
         boxes.add(box);
         collection.setOwnedCollection(boxes);
@@ -91,7 +91,7 @@ public class OwnedCardsCollectionTest {
         Box box = new Box("TestBox");
         CardsGroup group = new CardsGroup("TestGroup");
         CardElement card = new CardElement("TestCard");
-        group.AddCard(card);
+        group.addCard(card);
         box.getContent().add(group);
         boxes.add(box);
         collection.setOwnedCollection(boxes);

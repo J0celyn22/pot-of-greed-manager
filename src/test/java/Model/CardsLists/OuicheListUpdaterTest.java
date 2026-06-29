@@ -436,7 +436,7 @@ public class OuicheListUpdaterTest {
         OwnedCardsCollection ownedCollection = new OwnedCardsCollection();
         Box box = new Box("MyBox");
         CardsGroup group = new CardsGroup("TestCollection");
-        group.AddCard(new CardElement(cardA)); // remaining copy
+        group.addCard(new CardElement(cardA)); // remaining copy
         box.getContent().add(group);
         ownedCollection.getOwnedCollection().add(box);
         OuicheList.setMyCardsCollection(ownedCollection);

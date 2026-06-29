@@ -7,20 +7,24 @@ import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+/**
+ * Resolves and exposes all filesystem paths used by the application,
+ * relative to the directory containing the running JAR.
+ */
 public final class FilePaths {
     public static final Path jarDir;
     public static final Path databaseDir;
-    private static final File jarFile;
-    public static final String outputPath;// = ".\\Output\\";
-    public static final String outputPathLists;// = outputPath + "Lists\\";
+    public static final String outputPath;
+    public static final String outputPathLists;
 
     static {
         try {
-            jarFile = new File(DataBaseUpdate.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            File jarFile = new File(
+                    DataBaseUpdate.class.getProtectionDomain().getCodeSource().getLocation().toURI());
             jarDir = jarFile.getParentFile().toPath();
             databaseDir = jarDir.resolve(Paths.get("..", "Database"));
-            outputPath = jarDir.resolve(Paths.get("..", "Output")) + "\\";
-            outputPathLists = outputPath + "Lists\\";
+            outputPath = jarDir.resolve(Paths.get("..", "Output")).toString() + File.separator;
+            outputPathLists = outputPath + "Lists" + File.separator;
         } catch (URISyntaxException e) {
             throw new RuntimeException(e);
         }

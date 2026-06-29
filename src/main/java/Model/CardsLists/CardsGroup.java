@@ -4,12 +4,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Group of cards with a name (e.g. "Fusion Monsters", "\<Deck Name\>" or "\<Collection Name\>" )
+ * A named group of cards (e.g. "Fusion Monsters", a deck name, or a collection name).
  */
 public class CardsGroup {
-    public String name;
+    private String name;
 
-    public List<CardElement> cardList;
+    private List<CardElement> cardList;
 
     public CardsGroup(String name) {
         this.name = name;
@@ -22,97 +22,71 @@ public class CardsGroup {
     }
 
     /**
-     * Gets the name of the group.
-     *
-     * @return The name of the group.
+     * Returns the name of this group.
      */
     public String getName() {
         return name;
     }
 
     /**
-     * Sets the name of the card group.
-     *
-     * @param name the new name for the card group
+     * Sets the name of this group.
      */
     public void setName(String name) {
         this.name = name;
     }
 
     /**
-     * Gets the list of cards in the group.
-     * @return The list of cards in the group.
+     * Returns the list of cards in this group.
      */
     public List<CardElement> getCardList() {
         return cardList;
     }
 
     /**
-     * Sets the list of cards in the group.
-     *
-     * @param cardList the new list of CardElement objects to be set for this group
+     * Replaces the card list for this group.
      */
     public void setCardList(List<CardElement> cardList) {
         this.cardList = cardList;
     }
 
     /**
-     * Adds a card to the group.
-     * @param cardToAdd the CardElement object to be added to the group
+     * Appends a card to the end of this group.
      */
-    public void AddCard(CardElement cardToAdd) {
+    public void addCard(CardElement cardToAdd) {
         this.cardList.add(cardToAdd);
     }
 
     /**
-     * Returns the total number of cards in the group.
-     *
-     * @return The total number of cards as an Integer.
+     * Returns the total number of cards in this group.
      */
-    public Integer getCardCount() {
+    public int getCardCount() {
         return this.cardList.size();
     }
 
     /**
-     * Returns the total price of all cards in the group.
-     *
-     * <p>
-     * The total price is the sum of the prices of all cards in the group.
-     * The price of each card is the price of the card object itself, not the
-     * price of the card element.
-     * </p>
-     * @return The total price of all cards in the group as a string.
+     * Returns the sum of prices of all cards in this group.
+     * Cards with a null card reference or null price are skipped.
      */
     public String getPrice() {
         float price = 0;
-        for (CardElement card : this.cardList) {
-            if (card.getCard() != null) {
-                if (card.getPrice() != null) {
-                    price += Float.parseFloat(card.getPrice());
-                }
+        for (CardElement cardElement : this.cardList) {
+            if (cardElement.getCard() != null && cardElement.getPrice() != null) {
+                price += Float.parseFloat(cardElement.getPrice());
             }
         }
         return String.valueOf(price);
     }
 
     /**
-     * Converts this CardsGroup to a string.
-     * <p>
-     * The string representation of this CardsGroup is in the format of
-     * "name\nCardElement1\nCardElement2\n..." where "name" is the name of the
-     * group and CardElement1, CardElement2, ... are the strings
-     * representations of the cards in the group.
-     * </p>
-     *
-     * @return A string representation of this CardsGroup.
+     * Returns a string representation of this group: the group name followed by
+     * each card on its own line.
      */
+    @Override
     public String toString() {
-        String returnValue = this.name;
-
+        StringBuilder sb = new StringBuilder(this.name);
         for (CardElement cardElement : this.cardList) {
-            returnValue = returnValue.concat("\n" + cardElement.toString());
+            sb.append('\n').append(cardElement.toString());
         }
-
-        return returnValue;
+        return sb.toString();
     }
 }

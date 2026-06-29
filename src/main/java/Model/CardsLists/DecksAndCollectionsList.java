@@ -4,8 +4,8 @@ import java.io.File;
 import java.util.*;
 
 public class DecksAndCollectionsList {
-    public List<Deck> decks;
-    public List<ThemeCollection> collections;
+    private List<Deck> decks;
+    private List<ThemeCollection> collections;
 
     public DecksAndCollectionsList(String dirPath) throws Exception {
         this.decks = new ArrayList<>();
@@ -15,21 +15,22 @@ public class DecksAndCollectionsList {
         // First, import the collections
         for (File file : Objects.requireNonNull(dir.listFiles())) {
             if (file.getPath().endsWith(".ytc")) {
-                ThemeCollection themeCollection = new ThemeCollection(file.getPath());
-                this.collections.add(themeCollection);
+                this.collections.add(new ThemeCollection(file.getPath()));
             }
         }
 
-        // Then, import the decks, excluding those already in any collection's linkedDecks list
+        // Build the set of deck names already linked to a collection,
+        // so they are not imported again as standalone decks.
         Set<String> linkedDeckNames = new HashSet<>();
         for (ThemeCollection collection : this.collections) {
-            for (int i = 0; i < collection.getLinkedDecks().size(); i++) {
-                for (Deck linkedDeck : collection.getLinkedDecks().get(i)) {
+            for (List<Deck> unit : collection.getLinkedDecks()) {
+                for (Deck linkedDeck : unit) {
                     linkedDeckNames.add(linkedDeck.getName());
                 }
             }
         }
 
+        // Then import standalone decks, excluding those already linked
         for (File file : Objects.requireNonNull(dir.listFiles())) {
             if (file.getPath().endsWith(".ydk")) {
                 Deck deck = new Deck(file.getPath());
@@ -46,325 +47,272 @@ public class DecksAndCollectionsList {
     }
 
     /**
-     * Retrieves the list of all decks in the list.
-     *
-     * @return a List of Deck objects
+     * Returns all standalone decks (those not linked to any collection).
      */
     public List<Deck> getDecks() {
         return decks;
     }
 
-    /**
-     * Sets the list of decks in the list.
-     *
-     * @param decks the list of Deck objects to set
-     */
     public void setDecks(List<Deck> decks) {
         this.decks = decks;
     }
 
     /**
-     * Retrieves the list of all collections in the list.
-     * <p>
-     * A collection is a group of cards and decks that are linked together.
-     * </p>
-     *
-     * @return a List of ThemeCollection objects
+     * Returns all theme collections.
      */
     public List<ThemeCollection> getCollections() {
         return collections;
     }
 
-    /**
-     * Sets the list of collections in the DecksAndCollectionsList.
-     *
-     * @param collections the list of ThemeCollection objects to set
-     */
     public void setCollections(List<ThemeCollection> collections) {
         this.collections = collections;
     }
 
     /**
-     * Returns a list of all CardElement objects in the DecksAndCollectionsList.
+     * Returns a flat list of every CardElement across all collections and standalone decks.
      * <p>
-     * This includes all cards in all decks and collections.
+     * The merge logic handles "loose" collections (those with connectToWholeCollection = true)
+     * separately: their cards are de-duplicated against the rest of the list, with
+     * specific-artwork entries taking priority.
      * </p>
-     *
-     * @return a List of CardElement objects
      */
     public List<CardElement> toList() throws Exception {
-        List<CardElement> returnValue = new ArrayList<>();
+        List<CardElement> result = new ArrayList<>();
 
-        // Defensive null checks
-        if (this.collections == null) this.collections = new ArrayList<>();
-        if (this.decks == null) this.decks = new ArrayList<>();
+        if (this.collections == null) {
+            this.collections = new ArrayList<>();
+        }
+        if (this.decks == null) {
+            this.decks = new ArrayList<>();
+        }
 
-        // 1) Add collections that are NOT connected to the whole collection:
-        //    For those we simply add their explicit cards list (cardsList).
+        // 1) Non-loose collections: add their explicit card lists directly.
         for (ThemeCollection collection : this.collections) {
-            if (collection == null) continue;
-            if (!Boolean.TRUE.equals(collection.getConnectToWholeCollection())) {
-                List<CardElement> collCards = collection.toList();
-                if (collCards != null) returnValue.addAll(collCards);
+            if (collection == null) {
+                continue;
             }
-        }
-
-        // 2) Add all decks (constructor already excluded decks that are linked to collections)
-        for (Deck deck : this.decks) {
-            if (deck == null) continue;
-            List<CardElement> deckCards = deck.toList();
-            if (deckCards != null) returnValue.addAll(deckCards);
-        }
-
-        // Build quick lookup sets of print/pass codes already present in returnValue
-        java.util.Set<String> presentPrint = new java.util.HashSet<>();
-        java.util.Set<String> presentPass = new java.util.HashSet<>();
-        for (CardElement ce : returnValue) {
-            if (ce == null || ce.getCard() == null) continue;
-            String p = ce.getCard().getPrintCode();
-            String s = ce.getCard().getPassCode();
-            if (p != null) presentPrint.add(p);
-            if (s != null) presentPass.add(s);
-        }
-
-        // 3) For collections that are connected to the whole collection:
-        //    First add cards that require specific artwork (specificArtwork == true)
-        for (ThemeCollection collection : this.collections) {
-            if (collection == null) continue;
-            if (!Boolean.TRUE.equals(collection.getConnectToWholeCollection())) continue;
-
-            List<CardElement> collCards = collection.getCardsList();
-            if (collCards == null) continue;
-
-            for (CardElement ce : collCards) {
-                if (ce == null || ce.getCard() == null) continue;
-                if (!ce.getSpecificArtwork()) continue; // only specific artwork in this pass
-
-                String printCode = ce.getCard().getPrintCode();
-                String passCode = ce.getCard().getPassCode();
-
-                boolean alreadyPresent = (printCode != null && presentPrint.contains(printCode))
-                        || (passCode != null && presentPass.contains(passCode));
-
-                if (!alreadyPresent) {
-                    returnValue.add(ce);
-                    if (printCode != null) presentPrint.add(printCode);
-                    if (passCode != null) presentPass.add(passCode);
+            if (!Boolean.TRUE.equals(collection.getConnectToWholeCollection())) {
+                List<CardElement> collectionCards = collection.toList();
+                if (collectionCards != null) {
+                    result.addAll(collectionCards);
                 }
             }
         }
 
-        // 4) Second pass: add remaining cards from those collections (non-specific artwork or any left)
+        // 2) Standalone decks (constructor already excluded decks linked to collections).
+        for (Deck deck : this.decks) {
+            if (deck == null) {
+                continue;
+            }
+            List<CardElement> deckCards = deck.toList();
+            if (deckCards != null) {
+                result.addAll(deckCards);
+            }
+        }
+
+        // Build quick lookup sets of print/pass codes already present in the result.
+        Set<String> presentPrintCodes = new HashSet<>();
+        Set<String> presentPassCodes = new HashSet<>();
+        for (CardElement cardElement : result) {
+            if (cardElement == null || cardElement.getCard() == null) {
+                continue;
+            }
+            String printCode = cardElement.getCard().getPrintCode();
+            String passCode = cardElement.getCard().getPassCode();
+            if (printCode != null) {
+                presentPrintCodes.add(printCode);
+            }
+            if (passCode != null) {
+                presentPassCodes.add(passCode);
+            }
+        }
+
+        // 3) Loose collections, first pass: add cards that require a specific artwork.
         for (ThemeCollection collection : this.collections) {
-            if (collection == null) continue;
-            if (!Boolean.TRUE.equals(collection.getConnectToWholeCollection())) continue;
+            if (collection == null) {
+                continue;
+            }
+            if (!Boolean.TRUE.equals(collection.getConnectToWholeCollection())) {
+                continue;
+            }
 
-            List<CardElement> collCards = collection.getCardsList();
-            if (collCards == null) continue;
+            List<CardElement> collectionCards = collection.getCardsList();
+            if (collectionCards == null) {
+                continue;
+            }
 
-            for (CardElement ce : collCards) {
-                if (ce == null || ce.getCard() == null) continue;
+            for (CardElement cardElement : collectionCards) {
+                if (cardElement == null || cardElement.getCard() == null) {
+                    continue;
+                }
+                if (!cardElement.getSpecificArtwork()) {
+                    continue;
+                }
 
-                String printCode = ce.getCard().getPrintCode();
-                String passCode = ce.getCard().getPassCode();
-
-                boolean alreadyPresent = (printCode != null && presentPrint.contains(printCode))
-                        || (passCode != null && presentPass.contains(passCode));
+                String printCode = cardElement.getCard().getPrintCode();
+                String passCode = cardElement.getCard().getPassCode();
+                boolean alreadyPresent = (printCode != null && presentPrintCodes.contains(printCode))
+                        || (passCode != null && presentPassCodes.contains(passCode));
 
                 if (!alreadyPresent) {
-                    returnValue.add(ce);
-                    if (printCode != null) presentPrint.add(printCode);
-                    if (passCode != null) presentPass.add(passCode);
-                } else if (ce.getDontRemove()) {
-                    // If the collection explicitly marks this card as dontRemove, ensure the collection's CardElement
-                    // is present (replace a deck-provided element if necessary).
-                    // Find first matching entry and replace it with this collection element.
-                    boolean replaced = false;
-                    for (int i = 0; i < returnValue.size(); i++) {
-                        CardElement r = returnValue.get(i);
-                        if (r == null || r.getCard() == null) continue;
-                        boolean matchByPrint = (printCode != null && printCode.equals(r.getCard().getPrintCode()));
-                        boolean matchByPass = (passCode != null && passCode.equals(r.getCard().getPassCode()));
-                        if (matchByPrint || matchByPass) {
-                            if (r != ce) {
-                                returnValue.set(i, ce);
-                            }
-                            replaced = true;
+                    result.add(cardElement);
+                    if (printCode != null) {
+                        presentPrintCodes.add(printCode);
+                    }
+                    if (passCode != null) {
+                        presentPassCodes.add(passCode);
+                    }
+                }
+            }
+        }
+
+        // 4) Loose collections, second pass: add remaining cards (non-specific artwork).
+        for (ThemeCollection collection : this.collections) {
+            if (collection == null) {
+                continue;
+            }
+            if (!Boolean.TRUE.equals(collection.getConnectToWholeCollection())) {
+                continue;
+            }
+
+            List<CardElement> collectionCards = collection.getCardsList();
+            if (collectionCards == null) {
+                continue;
+            }
+
+            for (CardElement cardElement : collectionCards) {
+                if (cardElement == null || cardElement.getCard() == null) {
+                    continue;
+                }
+
+                String printCode = cardElement.getCard().getPrintCode();
+                String passCode = cardElement.getCard().getPassCode();
+                boolean alreadyPresent = (printCode != null && presentPrintCodes.contains(printCode))
+                        || (passCode != null && presentPassCodes.contains(passCode));
+
+                if (!alreadyPresent) {
+                    result.add(cardElement);
+                    if (printCode != null) {
+                        presentPrintCodes.add(printCode);
+                    }
+                    if (passCode != null) {
+                        presentPassCodes.add(passCode);
+                    }
+                } else if (cardElement.getDontRemove()) {
+                    // This card is explicitly marked dontRemove: ensure the collection's
+                    // CardElement replaces any deck-provided entry for the same card.
+                    for (int index = 0; index < result.size(); index++) {
+                        CardElement existing = result.get(index);
+                        if (existing == null || existing.getCard() == null) {
+                            continue;
+                        }
+                        boolean matchByPrint = (printCode != null
+                                && printCode.equals(existing.getCard().getPrintCode()));
+                        boolean matchByPass = (passCode != null
+                                && passCode.equals(existing.getCard().getPassCode()));
+                        if ((matchByPrint || matchByPass) && existing != cardElement) {
+                            result.set(index, cardElement);
                             break;
                         }
                     }
-                    // If not replaced (shouldn't happen because alreadyPresent==true), ensure it's added once.
-                    if (!replaced) {
-                        returnValue.add(ce);
-                    }
                 }
             }
         }
 
-        return returnValue;
+        return result;
     }
 
-
     /**
-     * Returns a list of all CardElement objects in the DecksAndCollectionsList that are in a collection or a linked deck.
-     * <p>
-     * This includes all cards in all collections and their linked decks.
-     * </p>
-     * @return a List of CardElement objects
+     * Returns a flat list of all cards from collections and their linked decks,
+     * excluding standalone decks.
      */
     public List<CardElement> toListCollectionsAndLinkedDecks() {
-        List<CardElement> returnValue = new ArrayList<>();
-
-        for (int i = 0; i < this.getCollections().size(); i++) {
-            returnValue.addAll(this.getCollections().get(i).toList());
+        List<CardElement> result = new ArrayList<>();
+        for (ThemeCollection collection : this.getCollections()) {
+            result.addAll(collection.toList());
         }
-
-        return returnValue;
+        return result;
     }
 
     /**
-     * Adds a deck to the list of decks in this DecksAndCollectionsList.
-     * @param deckToAdd the deck to add to the list
+     * Adds a standalone deck to this list.
      */
     public void addDeck(Deck deckToAdd) {
         this.decks.add(deckToAdd);
     }
 
     /**
-     * Adds a collection to the list of collections in this DecksAndCollectionsList.
-     * <p>
-     * This collection and its linked decks will be included in the results of
-     * {@link #toList()} and {@link #toListCollectionsAndLinkedDecks()}.
-     * </p>
-     * @param collectionToAdd the collection to add to the list
+     * Adds a collection to this list.
      */
     public void addCollection(ThemeCollection collectionToAdd) {
         this.collections.add(collectionToAdd);
     }
 
     /**
-     * Returns the total number of cards in all decks and collections in this DecksAndCollectionsList.
-     * <p>
-     * This includes all cards in all decks and collections.
-     * </p>
-     * @return the total number of cards in all decks and collections
+     * Returns the total number of cards across all collections and standalone decks.
      */
-    public Integer getCardCount() {
+    public int getCardCount() {
         return getCollectionsCardCount() + getDecksCardCount();
     }
 
     /**
-     * Calculates the total price of all cards in the decks and collections.
-     *
-     * <p>
-     * This method sums the prices of all cards in both the collections and
-     * decks contained within this DecksAndCollectionsList. The price is
-     * represented as a string in a float format.
-     * </p>
-     *
-     * @return the total price of all cards as a String
+     * Returns the combined price of all cards across all collections and standalone decks.
      */
     public String getPrice() {
-        float returnValue;
-
-        returnValue = Float.parseFloat(getCollectionsPrice()) + Float.parseFloat(getDecksPrice());
-
-        return String.valueOf(returnValue);
+        float total = Float.parseFloat(getCollectionsPrice()) + Float.parseFloat(getDecksPrice());
+        return String.valueOf(total);
     }
 
     /**
-     * Returns the total number of cards in all collections in this DecksAndCollectionsList.
-     * <p>
-     * This method sums the number of cards in all collections contained within this
-     * DecksAndCollectionsList.
-     * </p>
-     * @return the total number of cards in all collections
+     * Returns the total number of cards across all collections.
      */
-    public Integer getCollectionsCardCount() {
-        int returnValue = 0;
-
+    public int getCollectionsCardCount() {
+        int count = 0;
         for (ThemeCollection collection : this.collections) {
-            returnValue = returnValue + collection.getCardCount();
+            count += collection.getCardCount();
         }
-
-        return returnValue;
+        return count;
     }
 
     /**
-     * Calculates the total price of all cards in all collections in this DecksAndCollectionsList.
-     *
-     * <p>
-     * This method sums the prices of all cards in all collections contained within this
-     * DecksAndCollectionsList. The price is represented as a string in a float format.
-     * </p>
-     *
-     * @return the total price of all cards in all collections as a String
+     * Returns the combined price of all cards across all collections.
      */
     public String getCollectionsPrice() {
-        float returnValue = 0;
-
+        float total = 0;
         for (ThemeCollection collection : this.collections) {
-            returnValue = returnValue + Float.parseFloat(collection.getPrice());
+            total += Float.parseFloat(collection.getPrice());
         }
-
-        return String.valueOf(returnValue);
+        return String.valueOf(total);
     }
 
     /**
-     * Returns the total number of cards in all decks in this DecksAndCollectionsList.
-     * <p>
-     * This method sums the number of cards in all decks contained within this
-     * DecksAndCollectionsList.
-     * </p>
-     * @return the total number of cards in all decks
+     * Returns the total number of cards across all standalone decks.
      */
-    public Integer getDecksCardCount() {
-        int returnValue = 0;
-
+    public int getDecksCardCount() {
+        int count = 0;
         for (Deck deck : this.decks) {
-            returnValue = returnValue + deck.getCardCount();
+            count += deck.getCardCount();
         }
-
-        return returnValue;
+        return count;
     }
 
     /**
-     * Calculates the total price of all cards in all decks in this DecksAndCollectionsList.
-     *
-     * <p>
-     * This method sums the prices of all cards in all decks contained within this
-     * DecksAndCollectionsList. The price is represented as a string in a float format.
-     * </p>
-     *
-     * @return the total price of all cards in all decks as a String
+     * Returns the combined price of all cards across all standalone decks.
      */
     public String getDecksPrice() {
-        float returnValue = 0;
-
+        float total = 0;
         for (Deck deck : this.decks) {
-            returnValue = returnValue + Float.parseFloat(deck.getPrice());
+            total += Float.parseFloat(deck.getPrice());
         }
-
-        return String.valueOf(returnValue);
+        return String.valueOf(total);
     }
 
-    /**
-     * Returns a string representation of this DecksAndCollectionsList.
-     * <p>
-     * The string representation of this DecksAndCollectionsList is a newline-separated
-     * list of the string representations of all decks in this DecksAndCollectionsList.
-     * </p>
-     *
-     * @return a string representation of this DecksAndCollectionsList
-     */
     @Override
     public String toString() {
-        String returnValue = "";
-
+        StringBuilder sb = new StringBuilder();
         for (Deck deck : this.decks) {
-            returnValue = returnValue.concat(deck.toString() + "\n");
+            sb.append(deck.toString()).append('\n');
         }
-
-        return returnValue;
+        return sb.toString();
     }
 }

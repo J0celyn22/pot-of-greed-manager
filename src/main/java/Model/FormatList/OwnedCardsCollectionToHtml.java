@@ -1,8 +1,8 @@
 package Model.FormatList;
 
-import Model.CardsLists.Card;
-import Model.CardsLists.CardElement;
-import Model.CardsLists.OwnedCardsCollection;
+import Model.CardsLists.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedWriter;
 import java.io.FileOutputStream;
@@ -16,74 +16,85 @@ import java.util.Map;
 import static Model.FormatList.HtmlGenerator.*;
 
 public class OwnedCardsCollectionToHtml {
+
+    private static final Logger logger = LoggerFactory.getLogger(OwnedCardsCollectionToHtml.class);
+
     /**
-     * Generate an HTML file displaying a list of all cards with each card appearing only once, with its number of occurences displayed
+     * Generates an HTML file displaying all cards in the collection as a flat list,
+     * with each distinct card appearing once alongside its occurrence count.
      *
-     * @param collection     The Collection to display
-     * @param dirPath        The path of the output file
-     * @param outputFileName The name of the output file
-     * @throws IOException
+     * @param collection     the collection to display
+     * @param dirPath        the directory path for the output file
+     * @param outputFileName the base name of the output file (without extension)
+     * @throws IOException if the file cannot be written
      */
     public static void generateListHtml(OwnedCardsCollection collection, String dirPath, String outputFileName) throws IOException {
         List<CardElement> cards = new ArrayList<>();
-        for (int i = 0; i < collection.getOwnedCollection().size(); i++) {
-            for (int j = 0; j < collection.getOwnedCollection().get(i).getContent().size(); j++) {
-                cards.addAll(collection.getOwnedCollection().get(i).getContent().get(j).cardList);
+        for (Box box : collection.getOwnedCollection()) {
+            for (CardsGroup group : box.getContent()) {
+                cards.addAll(group.getCardList());
             }
         }
 
-        outputFileName = outputFileName.replace("\\", "-").replace("/", "-").replace("\"", "");
-        String filePath = dirPath + outputFileName.replace("\\", "-").replace("/", "-").replace("\"", "") + ".html";
+        String sanitizedName = sanitizeFileName(outputFileName);
+        String filePath = dirPath + sanitizedName + ".html";
         createHtmlFile(filePath);
-        String relativeImagePath = "..\\Images\\";
+        String relativeImagePath = ".." + java.io.File.separator + "Images" + java.io.File.separator;
         String imagesDirPath = dirPath + relativeImagePath;
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
-            addHeader(writer, outputFileName, relativeImagePath, dirPath);
-            addTitle(writer, outputFileName, collection.getCardCount(), collection.getPrice());
+
+        try (BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
+            addHeader(writer, sanitizedName, relativeImagePath, dirPath);
+            addTitle(writer, sanitizedName, collection.getCardCount(), collection.getPrice());
             addLinkButtons(writer);
 
             Map<Card, Integer> cardCount = createCardsMap(cards);
-
             for (Map.Entry<Card, Integer> entry : cardCount.entrySet()) {
                 writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, relativeImagePath);
             }
 
             addFooter(writer);
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("Failed to write list HTML for collection '{}' to '{}'", sanitizedName, filePath, e);
+            throw e;
         }
     }
 
     /**
-     * Generate an HTML file displaying a list of all cards within their boxes and categories, as a list
+     * Generates an HTML file displaying cards grouped by box and category, as a list.
      *
-     * @param collection     The Collection to display
-     * @param dirPath        The path of the output file
-     * @param outputFileName The name of the output file
-     * @throws IOException
+     * @param collection     the collection to display
+     * @param dirPath        the directory path for the output file
+     * @param outputFileName the base name of the output file (without extension)
+     * @throws IOException if the file cannot be written
      */
     public static void generateCollectionAsListHtml(OwnedCardsCollection collection, String dirPath, String outputFileName) throws IOException {
-        outputFileName = outputFileName.replace("\\", "-").replace("/", "-").replace("\"", "");
-        String filePath = dirPath + outputFileName.replace("\\", "-").replace("/", "-").replace("\"", "") + " - List.html";
+        String sanitizedName = sanitizeFileName(outputFileName);
+        String filePath = dirPath + sanitizedName + " - List.html";
         createHtmlFile(filePath);
-        String relativeImagePath = "..\\Images\\";
+        String relativeImagePath = ".." + java.io.File.separator + "Images" + java.io.File.separator;
         String imagesDirPath = dirPath + relativeImagePath;
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
-            addHeader(writer, outputFileName, relativeImagePath, dirPath);
-            addTitle(writer, outputFileName, collection.getCardCount(), collection.getPrice());
-            addMosaicButton(writer, outputFileName);
+
+        try (BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
+            addHeader(writer, sanitizedName, relativeImagePath, dirPath);
+            addTitle(writer, sanitizedName, collection.getCardCount(), collection.getPrice());
+            addMosaicButton(writer, sanitizedName);
             addCollectionButton(writer);
 
-            List<CardElement> cards;
-            for (int i = 0; i < collection.getOwnedCollection().size(); i++) {
-                addTitle2(writer, collection.getOwnedCollection().get(i).getName().replace("=", ""), collection.getOwnedCollection().get(i).getCardCount(), collection.getOwnedCollection().get(i).getPrice());
-                for (int j = 0; j < collection.getOwnedCollection().get(i).getContent().size(); j++) {
-                    addTitle3(writer, collection.getOwnedCollection().get(i).getContent().get(j).getName().replace("-", ""), collection.getOwnedCollection().get(i).getContent().get(j).getCardCount(), collection.getOwnedCollection().get(i).getContent().get(j).getPrice());
+            for (Box box : collection.getOwnedCollection()) {
+                addTitle2(writer,
+                        box.getName().replace("=", ""),
+                        box.getCardCount(),
+                        box.getPrice());
 
-                    cards = new ArrayList<>(collection.getOwnedCollection().get(i).getContent().get(j).cardList);
+                for (CardsGroup group : box.getContent()) {
+                    addTitle3(writer,
+                            group.getName().replace("-", ""),
+                            group.getCardCount(),
+                            group.getPrice());
 
-                    Map<Card, Integer> cardCount = createCardsMap(cards);
-
+                    Map<Card, Integer> cardCount = createCardsMap(new ArrayList<>(group.getCardList()));
                     for (Map.Entry<Card, Integer> entry : cardCount.entrySet()) {
                         writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, relativeImagePath);
                     }
@@ -92,38 +103,48 @@ public class OwnedCardsCollectionToHtml {
 
             addFooter(writer);
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("Failed to write list HTML for collection '{}' to '{}'", sanitizedName, filePath, e);
+            throw e;
         }
     }
 
     /**
-     * Generate an HTML file displaying a list of all cards within their boxes and categories, as a mosaic
+     * Generates an HTML file displaying cards grouped by box and category, as a mosaic.
      *
-     * @param collection     The Collection to display
-     * @param dirPath        The path of the output file
-     * @param outputFileName The name of the output file
-     * @throws IOException
+     * @param collection     the collection to display
+     * @param dirPath        the directory path for the output file
+     * @param outputFileName the base name of the output file (without extension)
+     * @throws IOException if the file cannot be written
      */
     public static void generateCollectionAsMosaicHtml(OwnedCardsCollection collection, String dirPath, String outputFileName) throws IOException {
-        outputFileName = outputFileName.replace("\\", "-").replace("/", "-").replace("\"", "");
-        String filePath = dirPath + outputFileName.replace("\\", "-").replace("/", "-").replace("\"", "") + " - Mosaic.html";
+        String sanitizedName = sanitizeFileName(outputFileName);
+        String filePath = dirPath + sanitizedName + " - Mosaic.html";
         createHtmlFile(filePath);
-        String relativeImagePath = "..\\Images\\";
+        String relativeImagePath = ".." + java.io.File.separator + "Images" + java.io.File.separator;
         String imagesDirPath = dirPath + relativeImagePath;
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
-            addHeader(writer, outputFileName, relativeImagePath, dirPath);
-            addTitle(writer, outputFileName, collection.getCardCount(), collection.getPrice());
-            addListButton(writer, outputFileName);
+
+        try (BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
+            addHeader(writer, sanitizedName, relativeImagePath, dirPath);
+            addTitle(writer, sanitizedName, collection.getCardCount(), collection.getPrice());
+            addListButton(writer, sanitizedName);
             addCollectionButton(writer);
 
-            for (int i = 0; i < collection.getOwnedCollection().size(); i++) {
+            for (Box box : collection.getOwnedCollection()) {
                 addRectangleBeginning(writer);
-                addTitle2(writer, collection.getOwnedCollection().get(i).getName().replace("=", ""), collection.getOwnedCollection().get(i).getCardCount(), collection.getOwnedCollection().get(i).getPrice());
-                for (int j = 0; j < collection.getOwnedCollection().get(i).getContent().size(); j++) {
-                    HtmlGenerator.addTitle3(writer, collection.getOwnedCollection().get(i).getContent().get(j).getName().replace("-", ""), collection.getOwnedCollection().get(i).getContent().get(j).getCardCount(), collection.getOwnedCollection().get(i).getContent().get(j).getPrice());
+                addTitle2(writer,
+                        box.getName().replace("=", ""),
+                        box.getCardCount(),
+                        box.getPrice());
 
-                    for (int k = 0; k < collection.getOwnedCollection().get(i).getContent().get(j).cardList.size(); k++) {
-                        writeCardElement(writer, collection.getOwnedCollection().get(i).getContent().get(j).cardList.get(k), imagesDirPath, relativeImagePath);
+                for (CardsGroup group : box.getContent()) {
+                    HtmlGenerator.addTitle3(writer,
+                            group.getName().replace("-", ""),
+                            group.getCardCount(),
+                            group.getPrice());
+
+                    for (CardElement card : group.getCardList()) {
+                        writeCardElement(writer, card, imagesDirPath, relativeImagePath);
                     }
                 }
                 addRectangleEnd(writer);
@@ -131,7 +152,15 @@ public class OwnedCardsCollectionToHtml {
 
             addFooter(writer);
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("Failed to write mosaic HTML for collection '{}' to '{}'", sanitizedName, filePath, e);
+            throw e;
         }
+    }
+
+    /**
+     * Strips characters that are illegal in file names and trims surrounding whitespace.
+     */
+    private static String sanitizeFileName(String name) {
+        return name.replace("\\", "-").replace("/", "-").replace("\"", "").trim();
     }
 }
