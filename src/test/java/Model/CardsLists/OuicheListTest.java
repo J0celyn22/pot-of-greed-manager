@@ -12,13 +12,11 @@ import static org.junit.jupiter.api.Assertions.*;
 public class OuicheListTest {
 
     // ─────────────────────────────────────────────────────────────────────────
-    // State reset
+    // Reset all OuicheList static state before each test
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Creates a minimal {@link Card} with the given KonamiId and passCode (no
-     * imagePath, no printCode) so that {@link OuicheList#cardKey} returns
-     * {@code passCode + "|||"}.
+     * Creates a minimal Card whose cardKey resolves to {@code passCode + "|||"}.
      */
     private static Card makeCard(String konamiId, String passCode) {
         Card card = new Card();
@@ -88,9 +86,7 @@ public class OuicheListTest {
     }
 
     /**
-     * Creates a {@link CardElement} wrapping {@code card} with the given
-     * {@code status} (no condition, no rarity set — quality checks will always
-     * pass since the same defaults apply to both the wanted slot and the owned copy).
+     * Wraps {@code card} in a CardElement with the given ownership status.
      */
     private static CardElement makeSlot(Card card, OwnershipStatus status) {
         CardElement element = new CardElement(card);
@@ -102,10 +98,7 @@ public class OuicheListTest {
     // Helpers shared by move-scenario tests
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Builds a standalone {@link Deck} with the given name whose main section
-     * contains {@code mainSlots} (extra and side sections are empty).
-     */
+    /** Builds a standalone Deck whose main section contains {@code mainSlots}. */
     private static Deck makeDeck(String name, List<CardElement> mainSlots) {
         Deck deck = new Deck();
         deck.setName(name);
@@ -115,10 +108,7 @@ public class OuicheListTest {
         return deck;
     }
 
-    /**
-     * Builds a non-loose {@link ThemeCollection} with the given name whose
-     * cardsList contains {@code slots} (no linked decks).
-     */
+    /** Builds a non-loose ThemeCollection whose cardsList contains {@code slots}. */
     private static ThemeCollection makeCollection(String name, List<CardElement> slots) {
         ThemeCollection collection = new ThemeCollection();
         collection.setName(name);
@@ -128,10 +118,8 @@ public class OuicheListTest {
     }
 
     /**
-     * Initialises the compact missing-cards maps so that
-     * {@link OuicheList#getMaOuicheList()} and its counts map contain exactly
-     * one entry per element in {@code slots}.  The substandard maps are
-     * initialised to empty.
+     * Initialises the compact missing-cards maps so each element in {@code slots}
+     * appears once. Substandard maps are initialised empty.
      */
     private static void initMissingMaps(CardElement... slots) {
         LinkedHashMap<String, CardElement> missingMap = new LinkedHashMap<>();
@@ -148,9 +136,16 @@ public class OuicheListTest {
     }
 
     /**
-     * Resets all OuicheList static state before each test so that no residual
-     * data from a previous test can influence the next one.
+     * Initialises empty compact maps and the given unusedCards list.
      */
+    private static void initEmptyMaps(List<CardElement> unusedCards) {
+        OuicheList.setMaOuicheList(new LinkedHashMap<>());
+        OuicheList.setMaOuicheListCounts(new LinkedHashMap<>());
+        OuicheList.setMaOuicheListSubstandard(new LinkedHashMap<>());
+        OuicheList.setMaOuicheListSubstandardCounts(new LinkedHashMap<>());
+        OuicheList.setUnusedCards(unusedCards);
+    }
+
     @BeforeEach
     void resetOuicheList() {
         OuicheList.setDetailedOuicheList(null);
@@ -168,6 +163,7 @@ public class OuicheListTest {
     public void testGetThirdPartyCardsINeedList() {
         List<CardElement> cards = new ArrayList<>();
         OuicheList.setThirdPartyCardsINeedList(cards);
+        // Fixed: was incorrectly asserting against getThirdPartyList()
         assertEquals(cards, OuicheList.getThirdPartyCardsINeedList());
     }
 
@@ -176,18 +172,14 @@ public class OuicheListTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Moving a MISSING slot from one standalone deck's main section to another
-     * standalone deck's main section: the slot must disappear from the source
-     * section and appear as MISSING in the destination section.  The missing-card
-     * count for that card stays at 1 (one need removed from the source, one need
-     * added to the destination).
+     * Moving a MISSING slot from one deck's main section to another: the source
+     * section must be empty afterwards and the destination must gain a MISSING slot.
+     * The missing count stays at 1 (one need removed, one need added).
      */
     @Test
     void moveMissingCard_betweenStandaloneDecks_slotTransferred() {
         Card cardX = makeCard("K_X", "P_X");
-        // ouicheSlot is the OuicheList's copy held in DeckA's main section.
         CardElement ouicheSlot = makeSlot(cardX, OwnershipStatus.MISSING);
-        // liveElement is the physical deck element being dragged by the user.
         CardElement liveElement = makeSlot(cardX, OwnershipStatus.MISSING);
 
         List<CardElement> deckAMain = new ArrayList<>(List.of(ouicheSlot));
@@ -201,36 +193,27 @@ public class OuicheListTest {
         initMissingMaps(ouicheSlot);
         OuicheList.setUnusedCards(new ArrayList<>());
 
-        // Simulate the MOVE: remove from DeckA, add to DeckB.
         OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null);
         OuicheList.onDeckCardAdded(liveElement, "DeckB", "main", null);
 
-        assertTrue(deckAMain.isEmpty(),
-                "Source section must be empty after the move");
-        assertEquals(1, deckBMain.size(),
-                "Destination section must contain exactly one slot");
+        assertTrue(deckAMain.isEmpty(), "Source section must be empty after the move");
+        assertEquals(1, deckBMain.size(), "Destination must contain exactly one slot");
         assertEquals(OwnershipStatus.MISSING, deckBMain.get(0).getOwnershipStatus(),
-                "The moved slot has no owned copy to fill it → stays MISSING");
-        assertEquals(1, OuicheList.getMaOuicheListCounts()
+                "No owned copy available — slot must be MISSING");
+        assertEquals(1,
+                OuicheList.getMaOuicheListCounts()
                         .getOrDefault(OuicheList.cardKey(liveElement), 0),
-                "Missing count for the card must still be 1 after a MISSING→MISSING move");
+                "Missing count must still be 1 after a MISSING→MISSING move");
         assertTrue(OuicheList.getUnusedCards().isEmpty(),
                 "unusedCards must remain empty — no owned copy was involved");
     }
 
     /**
-     * Moving an OWNED slot from one standalone deck section to another when no
-     * other MISSING slot exists for that card.
+     * Moving an OWNED slot when no other MISSING slot for that card exists.
      *
-     * <p>Expected chain:
-     * <ol>
-     *   <li>{@code onDeckCardRemoved} removes the OWNED slot from the OuicheList's
-     *       source section; finding no next MISSING slot to promote, it places the
-     *       physical card back into {@code unusedCards}.</li>
-     *   <li>{@code onDeckCardAdded} creates the new slot in the destination section
-     *       and immediately finds the physical card in {@code unusedCards}, so the
-     *       slot is marked OWNED and {@code unusedCards} is drained back to empty.</li>
-     * </ol>
+     * <p>onDeckCardRemoved frees the owned copy into unusedCards (new behaviour).
+     * onDeckCardAdded picks it up from unusedCards and marks the new slot OWNED.
+     * Net result: source empty, destination OWNED, unusedCards drained.</p>
      */
     @Test
     void moveOwnedCard_betweenStandaloneDecks_ownershipTransferredViaUnusedCards() {
@@ -246,42 +229,30 @@ public class OuicheListTest {
         dal.addDeck(makeDeck("DeckB", deckBMain));
         OuicheList.setDetailedOuicheList(dal);
 
-        // OWNED slot: not in the missing map.
-        OuicheList.setMaOuicheList(new LinkedHashMap<>());
-        OuicheList.setMaOuicheListCounts(new LinkedHashMap<>());
-        OuicheList.setMaOuicheListSubstandard(new LinkedHashMap<>());
-        OuicheList.setMaOuicheListSubstandardCounts(new LinkedHashMap<>());
         List<CardElement> unusedCards = new ArrayList<>();
-        OuicheList.setUnusedCards(unusedCards);
+        initEmptyMaps(unusedCards);
 
         OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null);
         OuicheList.onDeckCardAdded(liveElement, "DeckB", "main", null);
 
-        assertTrue(deckAMain.isEmpty(),
-                "Source section must be empty after the move");
-        assertEquals(1, deckBMain.size(),
-                "Destination section must contain exactly one slot");
+        assertTrue(deckAMain.isEmpty(), "Source section must be empty after the move");
+        assertEquals(1, deckBMain.size(), "Destination must contain exactly one slot");
         assertEquals(OwnershipStatus.OWNED, deckBMain.get(0).getOwnershipStatus(),
                 "Physical card still owned — destination slot must be OWNED");
         assertTrue(unusedCards.isEmpty(),
                 "Physical card must have been consumed from unusedCards by onDeckCardAdded");
         assertTrue(OuicheList.getMaOuicheList().isEmpty(),
-                "No new MISSING entry must appear — the slot is fully OWNED");
+                "No MISSING entry must appear — the slot is fully OWNED");
     }
 
     /**
      * Moving an OWNED slot when another MISSING slot for the same card already
-     * exists elsewhere in the OuicheList.
+     * exists in DeckC (listed before the destination DeckB).
      *
-     * <p>Expected chain:
-     * <ol>
-     *   <li>{@code onDeckCardRemoved} removes the OWNED slot from DeckA; finding
-     *       the existing MISSING slot in DeckC, it promotes that slot to OWNED
-     *       (the freed copy satisfies DeckC's need) and does NOT put anything in
-     *       {@code unusedCards}.</li>
-     *   <li>{@code onDeckCardAdded} adds the new slot to DeckB but finds
-     *       {@code unusedCards} empty, so the new slot is MISSING.</li>
-     * </ol>
+     * <p>onDeckCardRemoved finds DeckC's MISSING slot and promotes it to OWNED
+     * (the freed copy fills that existing need). Nothing goes into unusedCards.
+     * onDeckCardAdded then creates a new MISSING slot in DeckB because unusedCards
+     * is empty.</p>
      */
     @Test
     void moveOwnedCard_whenAnotherMissingSlotExists_ownershipPropagatesAndNewSlotIsMissing() {
@@ -294,8 +265,8 @@ public class OuicheListTest {
         List<CardElement> deckCMain = new ArrayList<>(List.of(ouicheSlotC));
         List<CardElement> deckBMain = new ArrayList<>();
 
-        // Add DeckA, DeckC, then DeckB: findNextMissingSlotByKonamiId walks
-        // decks in list order, so DeckC's MISSING slot is found before DeckB.
+        // DeckA first, DeckC second — findNextMissingSlotByKonamiId walks this order,
+        // so DeckC's MISSING slot is found before DeckB is even considered.
         DecksAndCollectionsList dal = new DecksAndCollectionsList();
         dal.addDeck(makeDeck("DeckA", deckAMain));
         dal.addDeck(makeDeck("DeckC", deckCMain));
@@ -309,26 +280,24 @@ public class OuicheListTest {
         OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null);
         OuicheList.onDeckCardAdded(liveElement, "DeckB", "main", null);
 
-        assertTrue(deckAMain.isEmpty(),
-                "Source section DeckA must be empty after the move");
+        assertTrue(deckAMain.isEmpty(), "Source section DeckA must be empty");
         assertEquals(OwnershipStatus.OWNED, ouicheSlotC.getOwnershipStatus(),
                 "Freed ownership must propagate to the existing MISSING slot in DeckC");
-        assertEquals(1, deckBMain.size(),
-                "Destination section DeckB must contain the moved slot");
+        assertEquals(1, deckBMain.size(), "Destination DeckB must contain the moved slot");
         assertEquals(OwnershipStatus.MISSING, deckBMain.get(0).getOwnershipStatus(),
-                "DeckB slot is MISSING — the freed copy was used for DeckC, not DeckB");
+                "DeckB slot is MISSING — freed copy was consumed by DeckC");
         assertTrue(unusedCards.isEmpty(),
-                "unusedCards must be empty — the freed copy was consumed by the DeckC slot");
-        assertEquals(1, OuicheList.getMaOuicheListCounts()
+                "unusedCards must be empty — freed copy went to DeckC, not unusedCards");
+        assertEquals(1,
+                OuicheList.getMaOuicheListCounts()
                         .getOrDefault(OuicheList.cardKey(liveElement), 0),
-                "Missing count must be 1: DeckC's MISSING entry was replaced by DeckB's new MISSING entry");
+                "Missing count must be 1: DeckC's MISSING became OWNED, DeckB added a new MISSING");
     }
 
     /**
-     * {@link OuicheList#onDeckCardRemoved} for an OWNED slot with no other
-     * MISSING slot in the OuicheList must place the physical card into
-     * {@code unusedCards} so the next {@code onDeckCardAdded} (i.e. the "add"
-     * half of a MOVE) can reclaim it.  This tests the fix in isolation.
+     * onDeckCardRemoved for an OWNED slot with no next MISSING: the physical card
+     * must appear in unusedCards so the add-half of a subsequent MOVE can find it.
+     * This tests the fix in isolation.
      */
     @Test
     void onDeckCardRemoved_ownedCard_noNextMissing_placedInUnusedCards() {
@@ -342,25 +311,21 @@ public class OuicheListTest {
         dal.addDeck(makeDeck("DeckA", deckAMain));
         OuicheList.setDetailedOuicheList(dal);
 
-        OuicheList.setMaOuicheList(new LinkedHashMap<>());
-        OuicheList.setMaOuicheListCounts(new LinkedHashMap<>());
-        OuicheList.setMaOuicheListSubstandard(new LinkedHashMap<>());
-        OuicheList.setMaOuicheListSubstandardCounts(new LinkedHashMap<>());
         List<CardElement> unusedCards = new ArrayList<>();
-        OuicheList.setUnusedCards(unusedCards);
+        initEmptyMaps(unusedCards);
 
         OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null);
 
         assertEquals(1, unusedCards.size(),
                 "Physical card must be in unusedCards after removing an OWNED slot "
-                        + "with no next MISSING slot to promote");
+                        + "with no next MISSING slot");
         assertSame(liveElement, unusedCards.get(0),
                 "The exact liveElement reference must be added to unusedCards");
     }
 
     /**
-     * {@link OuicheList#onDeckCardRemoved} for an OWNED_SUBSTANDARD slot with no
-     * other MISSING slot must also free the physical card into {@code unusedCards}.
+     * onDeckCardRemoved for an OWNED_SUBSTANDARD slot with no next MISSING slot
+     * must also free the physical card into unusedCards.
      */
     @Test
     void onDeckCardRemoved_ownedSubstandardCard_noNextMissing_placedInUnusedCards() {
@@ -374,7 +339,7 @@ public class OuicheListTest {
         dal.addDeck(makeDeck("DeckA", deckAMain));
         OuicheList.setDetailedOuicheList(dal);
 
-        // Substandard slot is in the substandard compact map, not the missing map.
+        // OWNED_SUBSTANDARD slot lives in the substandard compact map.
         OuicheList.setMaOuicheList(new LinkedHashMap<>());
         OuicheList.setMaOuicheListCounts(new LinkedHashMap<>());
         LinkedHashMap<String, CardElement> substandardMap = new LinkedHashMap<>();
@@ -391,13 +356,12 @@ public class OuicheListTest {
 
         assertEquals(1, unusedCards.size(),
                 "Physical card must be in unusedCards after removing an OWNED_SUBSTANDARD "
-                        + "slot with no next MISSING slot to promote");
+                        + "slot with no next MISSING slot");
     }
 
     /**
      * Moving a MISSING slot from a standalone deck's main section to a
-     * {@link ThemeCollection}'s cardsList: the deck section must become empty and
-     * the collection's cardsList must gain the MISSING slot.
+     * ThemeCollection's cardsList.
      */
     @Test
     void moveMissingCard_fromDeckToCollection_slotTransferred() {
@@ -416,25 +380,22 @@ public class OuicheListTest {
         initMissingMaps(ouicheSlot);
         OuicheList.setUnusedCards(new ArrayList<>());
 
-        // Remove from DeckA.main; add to ColB.cardsList (deckName=null, collectionName="ColB").
         OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null);
         OuicheList.onDeckCardAdded(liveElement, null, null, "ColB");
 
-        assertTrue(deckAMain.isEmpty(),
-                "Source deck section must be empty after the move");
-        assertEquals(1, colBCards.size(),
-                "Destination collection must contain exactly one slot");
+        assertTrue(deckAMain.isEmpty(), "Source deck section must be empty after the move");
+        assertEquals(1, colBCards.size(), "Destination collection must contain one slot");
         assertEquals(OwnershipStatus.MISSING, colBCards.get(0).getOwnershipStatus(),
                 "No owned copy available — slot must be MISSING");
-        assertEquals(1, OuicheList.getMaOuicheListCounts()
+        assertEquals(1,
+                OuicheList.getMaOuicheListCounts()
                         .getOrDefault(OuicheList.cardKey(liveElement), 0),
                 "Missing count must remain 1 after a MISSING→MISSING cross-entity move");
     }
 
     /**
-     * Moving a MISSING slot from a {@link ThemeCollection}'s cardsList to a
-     * standalone deck's main section: the collection's cardsList must become empty
-     * and the deck's main section must gain the MISSING slot.
+     * Moving a MISSING slot from a ThemeCollection's cardsList to a standalone
+     * deck's main section.
      */
     @Test
     void moveMissingCard_fromCollectionToDeck_slotTransferred() {
@@ -453,25 +414,24 @@ public class OuicheListTest {
         initMissingMaps(ouicheSlot);
         OuicheList.setUnusedCards(new ArrayList<>());
 
-        // Remove from ColA.cardsList (deckName=null); add to DeckB.main.
         OuicheList.onDeckCardRemoved(liveElement, null, null, "ColA");
         OuicheList.onDeckCardAdded(liveElement, "DeckB", "main", null);
 
-        assertTrue(colACards.isEmpty(),
-                "Source collection must be empty after the move");
-        assertEquals(1, deckBMain.size(),
-                "Destination deck section must contain exactly one slot");
+        assertTrue(colACards.isEmpty(), "Source collection must be empty after the move");
+        assertEquals(1, deckBMain.size(), "Destination deck section must contain one slot");
         assertEquals(OwnershipStatus.MISSING, deckBMain.get(0).getOwnershipStatus(),
                 "No owned copy available — slot must be MISSING");
-        assertEquals(1, OuicheList.getMaOuicheListCounts()
+        assertEquals(1,
+                OuicheList.getMaOuicheListCounts()
                         .getOrDefault(OuicheList.cardKey(liveElement), 0),
                 "Missing count must remain 1 after a MISSING→MISSING cross-entity move");
     }
 
     /**
-     * Moving an OWNED slot from a collection's cardsList to a standalone deck's
-     * main section when no other MISSING slot for that card exists.  The physical
-     * card must flow through unusedCards so the destination slot ends up OWNED.
+     * Moving an OWNED slot from a ThemeCollection's cardsList to a standalone
+     * deck's main section when no other MISSING slot exists for that card.
+     * The physical card must flow through unusedCards so the destination slot
+     * ends up OWNED.
      */
     @Test
     void moveOwnedCard_fromCollectionToDeck_ownershipTransferredViaUnusedCards() {
@@ -487,20 +447,14 @@ public class OuicheListTest {
         dal.addDeck(makeDeck("DeckB", deckBMain));
         OuicheList.setDetailedOuicheList(dal);
 
-        OuicheList.setMaOuicheList(new LinkedHashMap<>());
-        OuicheList.setMaOuicheListCounts(new LinkedHashMap<>());
-        OuicheList.setMaOuicheListSubstandard(new LinkedHashMap<>());
-        OuicheList.setMaOuicheListSubstandardCounts(new LinkedHashMap<>());
         List<CardElement> unusedCards = new ArrayList<>();
-        OuicheList.setUnusedCards(unusedCards);
+        initEmptyMaps(unusedCards);
 
         OuicheList.onDeckCardRemoved(liveElement, null, null, "ColA");
         OuicheList.onDeckCardAdded(liveElement, "DeckB", "main", null);
 
-        assertTrue(colACards.isEmpty(),
-                "Source collection must be empty after the move");
-        assertEquals(1, deckBMain.size(),
-                "Destination deck section must contain exactly one slot");
+        assertTrue(colACards.isEmpty(), "Source collection must be empty after the move");
+        assertEquals(1, deckBMain.size(), "Destination deck section must contain one slot");
         assertEquals(OwnershipStatus.OWNED, deckBMain.get(0).getOwnershipStatus(),
                 "Physical card still owned — destination slot must be OWNED");
         assertTrue(unusedCards.isEmpty(),

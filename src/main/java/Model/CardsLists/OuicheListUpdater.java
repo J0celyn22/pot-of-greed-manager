@@ -9,7 +9,7 @@ import java.util.List;
  *
  * <p>These methods keep an already-generated {@link OuicheList#getDetailedOuicheList()}
  * (and the derived compact maps) close to what a full
- * {@link OuicheList#createOuicheList} regeneration would produce, after a single card
+ * {@link OuicheList#CreateOuicheList} regeneration would produce, after a single card
  * is added to or removed from the {@link OwnedCardsCollection} (My Collection tab) or
  * from a {@link Deck} / {@link ThemeCollection#getCardsList()} (Decks and Collections
  * tab).
@@ -30,7 +30,7 @@ final class OuicheListUpdater {
      * Handles a card being added to the {@link OwnedCardsCollection}.
      *
      * <p>Tries to fill the first eligible MISSING slot in the detailed OuicheList,
-     * walking the slots in the same order as {@link OuicheList#createDetailedOuicheList}:
+     * walking the slots in the same order as {@link OuicheList#CreateDetailedOuicheList}:
      * non-loose collections (linked decks then cardsList), standalone decks, then loose
      * collections (linked decks then cardsList). Round 1 requires the slot's quality
      * requirement to be met (marks {@link OwnershipStatus#OWNED}); round 2 accepts any
@@ -176,7 +176,7 @@ final class OuicheListUpdater {
     /**
      * Searches {@code section} for the first MISSING slot that {@code ownedCopy}
      * can fill, mirroring the artwork-then-KonamiId sub-pass order of
-     * {@link OuicheList#createDetailedOuicheList}.
+     * {@link OuicheList#CreateDetailedOuicheList}.
      */
     private static CardElement findFillableSlotInSection(
             List<CardElement> section, CardElement ownedCopy, boolean qualityRequired) {
@@ -264,7 +264,7 @@ final class OuicheListUpdater {
     static void onOwnedCardRemoved(CardElement removedCard) {
         // The removed copy might simply have been sitting in the "Available cards" list
         // (an exact-attribute copy, since unusedCards holds copies built from the owned
-        // collection — see OuicheList.createDetailedOuicheList).
+        // collection — see OuicheList.CreateDetailedOuicheList).
         List<CardElement> unusedCards = OuicheList.getUnusedCards();
         if (unusedCards != null && removeMatchingCopy(unusedCards, removedCard)) {
             return;
@@ -393,8 +393,8 @@ final class OuicheListUpdater {
      * My Collection).
      *
      * @param contextName the deck or collection name to look for as a category name,
-     *                    or {@code null} if unknown (in which case this returns
-     *                    {@code false})
+     *                     or {@code null} if unknown (in which case this returns
+     *                     {@code false})
      * @param removedCard the card that was just removed (used for matching)
      * @return {@code true} if a matching category with a matching card still exists
      */
@@ -451,7 +451,7 @@ final class OuicheListUpdater {
 
     /**
      * Collects every OWNED / OWNED_SUBSTANDARD slot in the detailed OuicheList,
-     * in the same generation order as {@link OuicheList#createDetailedOuicheList}:
+     * in the same generation order as {@link OuicheList#CreateDetailedOuicheList}:
      * non-loose collections (linked decks then cardsList), standalone decks, then
      * loose collections (linked decks then cardsList).
      *
@@ -491,6 +491,75 @@ final class OuicheListUpdater {
         return occupiedSlots;
     }
 
+    /**
+     * Handles a wanted-card slot being removed from a {@link Deck} section or from a
+     * {@link ThemeCollection#getCardsList()}.
+     *
+     * <p>The slot is removed from {@code detailedOuicheList} (matched by reference
+     * first, falling back to the same-card identity check used elsewhere in this
+     * class). Behaviour then depends on the removed slot's ownership status:
+     * <ul>
+     *   <li>{@link OwnershipStatus#MISSING}: the slot is dropped from the MISSING
+     *       compact map.</li>
+     *   <li>{@link OwnershipStatus#OWNED} or {@link OwnershipStatus#OWNED_SUBSTANDARD}:
+     *       the slot is dropped from the corresponding compact map, and the freed
+     *       "ownership" is propagated to the next eligible MISSING slot across the
+     *       whole detailed OuicheList that shares the same KonamiId — that slot is
+     *       marked {@link OwnershipStatus#OWNED} (a substandard slot's ownership is
+     *       always promoted to full OWNED on the receiving slot, mirroring "mark the
+     *       next missing one as owned"). If a substandard slot existed for this card,
+     *       its substandard marking moves to the next eligible MISSING slot, if any.</li>
+     * </ul>
+     */
+    static void onDeckCardRemoved(CardElement removedCard, String deckName, String section,
+                                  String collectionName) {
+
+        List<CardElement> targetSection = resolveTargetSection(deckName, section, collectionName);
+        if (targetSection == null) {
+            return;
+        }
+
+        CardElement removedSlot = removeFromSection(targetSection, removedCard);
+        if (removedSlot == null) {
+            return;
+        }
+
+        OwnershipStatus removedStatus = removedSlot.getOwnershipStatus();
+
+        if (removedStatus == OwnershipStatus.MISSING) {
+            removeOneFromCompactMap(removedSlot, OwnershipStatus.MISSING);
+            return;
+        }
+
+        // The removed slot was OWNED or OWNED_SUBSTANDARD: drop it from its compact
+        // map, then propagate the freed ownership to the next eligible MISSING slot
+        // sharing the same KonamiId.
+        removeOneFromCompactMap(removedSlot, removedStatus);
+
+        if (removedSlot.getCard() == null || removedSlot.getCard().getKonamiId() == null) {
+            return;
+        }
+
+        CardElement nextMissing = findNextMissingSlotByKonamiId(removedSlot.getCard().getKonamiId());
+        if (nextMissing == null) {
+            // No other slot in the OuicheList needs this copy right now. Put the
+            // physical card back into unusedCards so it can immediately fill any
+            // slot added next (e.g. when this call is the "remove" half of a MOVE
+            // drag from one deck/collection to another — the subsequent
+            // onDeckCardAdded call for the same card will find it here and mark
+            // the new slot OWNED rather than MISSING).
+            addToUnusedCards(removedCard);
+            return;
+        }
+
+        // "Mark the next missing one as owned" — a freed substandard slot also
+        // promotes the receiving slot to OWNED, since the freed copy is, by
+        // definition, the same physical card the receiving slot would otherwise
+        // need to find independently.
+        nextMissing.setOwnershipStatus(OwnershipStatus.OWNED);
+        moveSlotBetweenCompactMaps(nextMissing, OwnershipStatus.MISSING, OwnershipStatus.OWNED);
+    }
+
     private static void collectOccupiedSlotsInCollection(
             ThemeCollection collection, List<OccupiedSlot> occupiedSlots, boolean isLoose) {
 
@@ -528,6 +597,10 @@ final class OuicheListUpdater {
             }
         }
     }
+
+    // =========================================================================
+    // Decks and Collections — card added
+    // =========================================================================
 
     /**
      * Handles a new wanted-card slot being added to a {@link Deck} section or to a
@@ -588,10 +661,6 @@ final class OuicheListUpdater {
         addNewMissingSlotToCompactMap(addedCard);
     }
 
-    // =========================================================================
-    // Decks and Collections — card added
-    // =========================================================================
-
     /**
      * Searches {@code unusedCards} for a card that can fill {@code wantedSlot},
      * trying artwork match first (for specific-artwork slots), then KonamiId.
@@ -639,78 +708,26 @@ final class OuicheListUpdater {
         return null;
     }
 
-    /**
-     * Handles a wanted-card slot being removed from a {@link Deck} section or from a
-     * {@link ThemeCollection#getCardsList()}.
-     *
-     * <p>The slot is removed from {@code detailedOuicheList} (matched by reference
-     * first, falling back to the same-card identity check used elsewhere in this
-     * class). Behaviour then depends on the removed slot's ownership status:
-     * <ul>
-     *   <li>{@link OwnershipStatus#MISSING}: the slot is dropped from the MISSING
-     *       compact map.</li>
-     *   <li>{@link OwnershipStatus#OWNED} or {@link OwnershipStatus#OWNED_SUBSTANDARD}:
-     *       the slot is dropped from the corresponding compact map, and the freed
-     *       "ownership" is propagated to the next eligible MISSING slot across the
-     *       whole detailed OuicheList that shares the same KonamiId — that slot is
-     *       marked {@link OwnershipStatus#OWNED} (a substandard slot's ownership is
-     *       always promoted to full OWNED on the receiving slot, mirroring "mark the
-     *       next missing one as owned"). If a substandard slot existed for this card,
-     *       its substandard marking moves to the next eligible MISSING slot, if any.</li>
-     * </ul>
-     */
-    static void onDeckCardRemoved(CardElement removedCard, String deckName, String section,
-                                  String collectionName) {
-
-        List<CardElement> targetSection = resolveTargetSection(deckName, section, collectionName);
-        if (targetSection == null) {
-            return;
-        }
-
-        CardElement removedSlot = removeFromSection(targetSection, removedCard);
-        if (removedSlot == null) {
-            return;
-        }
-
-        OwnershipStatus removedStatus = removedSlot.getOwnershipStatus();
-
-        if (removedStatus == OwnershipStatus.MISSING) {
-            removeOneFromCompactMap(removedSlot, OwnershipStatus.MISSING);
-            return;
-        }
-
-        // The removed slot was OWNED or OWNED_SUBSTANDARD: drop it from its compact
-        // map, then try to propagate the freed ownership to the next eligible MISSING
-        // slot sharing the same KonamiId.
-        removeOneFromCompactMap(removedSlot, removedStatus);
-
-        if (removedSlot.getCard() == null || removedSlot.getCard().getKonamiId() == null) {
-            return;
-        }
-
-        CardElement nextMissing = findNextMissingSlotByKonamiId(removedSlot.getCard().getKonamiId());
-        if (nextMissing == null) {
-            // No other slot in the OuicheList needs this copy right now. Put the
-            // physical card back into unusedCards so it can immediately fill any
-            // slot added next (e.g. when this call is the "remove" half of a MOVE
-            // drag from one deck/collection to another — the subsequent
-            // onDeckCardAdded call for the same card will find it here and mark
-            // the new slot OWNED rather than MISSING).
-            addToUnusedCards(removedCard);
-            return;
-        }
-
-        // "Mark the next missing one as owned" — a freed substandard slot also
-        // promotes the receiving slot to OWNED, since the freed copy is, by
-        // definition, the same physical card the receiving slot would otherwise
-        // need to find independently.
-        nextMissing.setOwnershipStatus(OwnershipStatus.OWNED);
-        moveSlotBetweenCompactMaps(nextMissing, OwnershipStatus.MISSING, OwnershipStatus.OWNED);
-    }
-
     // =========================================================================
     // Decks and Collections — card removed
     // =========================================================================
+
+    /**
+     * Pairs an OWNED / OWNED_SUBSTANDARD slot in the detailed OuicheList with the
+     * name of the deck or collection it belongs to (used to look up a matching
+     * category in the owned collection).
+     */
+    private static final class OccupiedSlot {
+        final CardElement slot;
+        final String contextName;
+        final boolean isLoose;
+
+        OccupiedSlot(CardElement slot, String contextName, boolean isLoose) {
+            this.slot = slot;
+            this.contextName = contextName;
+            this.isLoose = isLoose;
+        }
+    }
 
     /**
      * Removes the slot corresponding to {@code removedCard} from {@code section},
@@ -827,6 +844,10 @@ final class OuicheListUpdater {
         return null;
     }
 
+    // =========================================================================
+    // Shared helpers
+    // =========================================================================
+
     /**
      * Resolves the live list (within the detailed OuicheList) that backs the section
      * named {@code section} ({@code "main"}, {@code "extra"}, or {@code "side"}) of the
@@ -875,10 +896,6 @@ final class OuicheListUpdater {
 
         return null;
     }
-
-    // =========================================================================
-    // Shared helpers
-    // =========================================================================
 
     /**
      * Finds a {@link Deck} by name within the detailed OuicheList.
@@ -1067,22 +1084,5 @@ final class OuicheListUpdater {
      */
     private static void addNewOwnedSlotToCompactMap(CardElement slot, OwnershipStatus status) {
         addOneToCompactMap(slot, status);
-    }
-
-    /**
-     * Pairs an OWNED / OWNED_SUBSTANDARD slot in the detailed OuicheList with the
-     * name of the deck or collection it belongs to (used to look up a matching
-     * category in the owned collection).
-     */
-    private static final class OccupiedSlot {
-        final CardElement slot;
-        final String contextName;
-        final boolean isLoose;
-
-        OccupiedSlot(CardElement slot, String contextName, boolean isLoose) {
-            this.slot = slot;
-            this.contextName = contextName;
-            this.isLoose = isLoose;
-        }
     }
 }
