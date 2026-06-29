@@ -4,11 +4,9 @@ import Controller.CardGroupRegistry;
 import Controller.MenuActionHandler;
 import Controller.UserInterfaceFunctions;
 import Model.CardsLists.*;
-import Model.Database.DataBaseUpdate;
 import Utils.CardCollectionQuery;
 import Utils.CardMatcher;
 import Utils.CardNameUtils;
-import Utils.LruImageCache;
 import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
 import javafx.geometry.Bounds;
@@ -18,7 +16,6 @@ import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.effect.ColorAdjust;
 import javafx.scene.effect.DropShadow;
-import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -30,11 +27,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 
 /**
  * CardTreeCell - updated to accept DataTreeItem data that may be:
@@ -53,7 +45,6 @@ public class CardTreeCell extends TreeCell<String> {
 
     private static final Logger logger = LoggerFactory.getLogger(CardTreeCell.class);
 
-    static final ConcurrentHashMap<String, String> imagePathCache = new ConcurrentHashMap<>();
     /**
      * When {@code true}, cards in the My Collection tab that have a missing
      * printCode glow red, and cards missing condition or rarity glow orange.
@@ -61,20 +52,21 @@ public class CardTreeCell extends TreeCell<String> {
      */
     static volatile boolean incompleteMarkingEnabled = true;
 
+    static final ConcurrentHashMap<String, String> imagePathCache = new ConcurrentHashMap<>();
+
     /**
      * When {@code true}, the condition/rarity overlay is rendered on cards
      * in the grid views. Toggled by the "Show condition/rarity" button in the header.
      */
     private static volatile boolean showConditionRarityOverlayEnabled = false;
 
-    private static final ExecutorService imageLoadingExecutor = Executors.newFixedThreadPool(4);
-    private static final ExecutorService pathResolverExecutor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "image-path-resolver");
-        t.setDaemon(true);
-        return t;
-    });
     final DoubleProperty cardWidthProperty;
     final DoubleProperty cardHeightProperty;
+
+    /**
+     * Handles all async image loading for this cell.
+     */
+    final CardImageLoader imageLoader;
 
     private Label customTriangleLabel;
     private GridView<CardElement> cardGridView;
@@ -100,7 +92,6 @@ public class CardTreeCell extends TreeCell<String> {
      * Populated by RealMainController when building the D&C / OuicheList tree.
      * WeakHashMap: entries are GC'd when the CardsGroup is no longer referenced.
      */
-    final ConcurrentHashMap<ImageView, Future<?>> outstandingLoads = new ConcurrentHashMap<>();
 
     /**
      * Legacy global set kept for compatibility; preferred flow is per-group missing sets.
@@ -138,6 +129,7 @@ public class CardTreeCell extends TreeCell<String> {
     public CardTreeCell(DoubleProperty cardWidthProperty, DoubleProperty cardHeightProperty) {
         this.cardWidthProperty = cardWidthProperty;
         this.cardHeightProperty = cardHeightProperty;
+        this.imageLoader = new CardImageLoader(cardWidthProperty, cardHeightProperty);
         getStyleClass().add("card-tree-cell");
 
         // One popup per CardTreeCell, shared across all CardGridCell instances
@@ -810,8 +802,7 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     public static void shutdownImageLoadingExecutor() {
-        imageLoadingExecutor.shutdownNow();
-        pathResolverExecutor.shutdownNow();
+        CardImageLoader.shutdown();
     }
 
     /**
@@ -931,9 +922,7 @@ public class CardTreeCell extends TreeCell<String> {
         return false;
     }
 
-    private static class PlaceholderHolder {
-        static final Image PLACEHOLDER = new Image("file:./src/main/resources/placeholder.jpg");
-    }
+
 
     /**
      * Static counterpart of adjustGridViewHeight, driven by the grid's own bound properties.
@@ -1198,37 +1187,7 @@ public class CardTreeCell extends TreeCell<String> {
                     imageView.setFitHeight(cardHeightProperty.get());
                     imageView.setPreserveRatio(true);
 
-                    String imageKey = safeImageKey(cardElement);
-                    String cachedFullPath = imageKey == null ? null : imagePathCache.get(imageKey);
-                    if (cachedFullPath != null) {
-                        Image cached = LruImageCache.getImage(cachedFullPath);
-                        if (cached != null) {
-                            imageView.setImage(cached);
-                        } else {
-                            imageView.setImage(getPlaceholderImage());
-                            Future<?> f = loadImageWithResolvedPathAsync(cardElement, imageView, cachedFullPath);
-                            if (f != null) outstandingLoads.put(imageView, f);
-                        }
-                    } else {
-                        imageView.setImage(getPlaceholderImage());
-                        resolveImagePathAsync(imageKey, resolvedPath -> {
-                            if (resolvedPath == null) return;
-                            Image cached = LruImageCache.getImage(resolvedPath);
-                            if (cached != null) {
-                                Platform.runLater(() -> {
-                                    Object expected = imageView.getProperties().get("expectedImagePath");
-                                    if (Objects.equals(expected, resolvedPath) || expected == null) {
-                                        imageView.setImage(cached);
-                                        imageView.getProperties().remove("expectedImagePath");
-                                    }
-                                });
-                            } else {
-                                imageView.getProperties().put("expectedImagePath", resolvedPath);
-                                Future<?> f = loadImageWithResolvedPathAsync(cardElement, imageView, resolvedPath);
-                                if (f != null) outstandingLoads.put(imageView, f);
-                            }
-                        });
-                    }
+                    imageLoader.loadCardImage(cardElement, imageView);
 
                     Label nameLabel = new Label(cardElement.getCard() == null ? "" : cardElement.getCard().getName_EN());
                     nameLabel.setTextFill(javafx.scene.paint.Color.WHITE);
@@ -1814,32 +1773,7 @@ public class CardTreeCell extends TreeCell<String> {
         return false;
     }
 
-    void resolveImagePathAsync(String imageKey, Consumer<String> callback) {
-        if (imageKey == null) {
-            callback.accept(null);
-            return;
-        }
-        String cached = imagePathCache.get(imageKey);
-        if (cached != null) {
-            callback.accept(cached);
-            return;
-        }
 
-        pathResolverExecutor.submit(() -> {
-            try {
-                String[] addresses = DataBaseUpdate.getAddresses(imageKey + ".jpg");
-                String resolved = null;
-                if (addresses != null && addresses.length > 0) {
-                    resolved = "file:" + addresses[0];
-                    imagePathCache.put(imageKey, resolved);
-                }
-                callback.accept(resolved);
-            } catch (Exception e) {
-                logger.warn("Failed to resolve image path for key {}", imageKey, e);
-                callback.accept(null);
-            }
-        });
-    }
 
     /**
      * If {@code targetGroup} is a Deck's main or extra deck section and the
@@ -1895,72 +1829,6 @@ public class CardTreeCell extends TreeCell<String> {
         return redirectGroup != null ? redirectGroup : targetGroup;
     }
 
-    Future<?> loadImageWithResolvedPathAsync(CardElement cardElement, ImageView imageView, String resolvedPath) {
-        if (resolvedPath == null) {
-            Platform.runLater(() -> imageView.setImage(getPlaceholderImage()));
-            return null;
-        }
-
-        Image cached = LruImageCache.getImage(resolvedPath);
-        if (cached != null) {
-            Platform.runLater(() -> {
-                Object expected = imageView.getProperties().get("expectedImagePath");
-                if (Objects.equals(expected, resolvedPath) || expected == null) {
-                    imageView.setImage(cached);
-                    imageView.getProperties().remove("expectedImagePath");
-                }
-            });
-            return null;
-        }
-
-        imageView.getProperties().put("expectedImagePath", resolvedPath);
-
-        AtomicReference<Future<?>> futureRef = new AtomicReference<>();
-        Future<?> future = imageLoadingExecutor.submit(() -> {
-            try {
-                Image img = new Image(resolvedPath, cardWidthProperty.get(), cardHeightProperty.get(), true, true, true);
-
-                if (img.getProgress() >= 1.0) {
-                    LruImageCache.addImage(resolvedPath, img);
-                    Platform.runLater(() -> {
-                        Object expected = imageView.getProperties().get("expectedImagePath");
-                        if (Objects.equals(expected, resolvedPath)) {
-                            imageView.setImage(img);
-                            imageView.getProperties().remove("expectedImagePath");
-                        }
-                    });
-                } else {
-                    Platform.runLater(() -> {
-                        img.progressProperty().addListener((obs, oldV, newV) -> {
-                            if (newV.doubleValue() >= 1.0) {
-                                LruImageCache.addImage(resolvedPath, img);
-                                Object expected = imageView.getProperties().get("expectedImagePath");
-                                if (Objects.equals(expected, resolvedPath)) {
-                                    imageView.setImage(img);
-                                    imageView.getProperties().remove("expectedImagePath");
-                                }
-                            }
-                        });
-                    });
-                }
-            } catch (Exception e) {
-                logger.error("Error loading image for card " + (cardElement != null && cardElement.getCard() != null ? cardElement.getCard().getName_EN() : "unknown"), e);
-                Platform.runLater(() -> {
-                    Object expected = imageView.getProperties().get("expectedImagePath");
-                    if (expected == null || Objects.equals(expected, resolvedPath)) {
-                        imageView.setImage(getPlaceholderImage());
-                        imageView.getProperties().remove("expectedImagePath");
-                    }
-                });
-            } finally {
-                outstandingLoads.remove(imageView, futureRef.get());
-            }
-        });
-
-        futureRef.set(future);
-        outstandingLoads.put(imageView, future);
-        return future;
-    }
 
     /**
      * Build menu items for Decks and Collections proposals.
@@ -2207,9 +2075,7 @@ public class CardTreeCell extends TreeCell<String> {
         return -1;
     }
 
-    Image getPlaceholderImage() {
-        return PlaceholderHolder.PLACEHOLDER;
-    }
+
 
     /**
      * Reads the elementName from the ancestor GridView userData (best-effort).
@@ -2260,20 +2126,7 @@ public class CardTreeCell extends TreeCell<String> {
         return sb.toString();
     }
 
-    String safeImageKey(CardElement item) {
-        if (item == null) return null;
-        try {
-            Card c = item.getCard();
-            if (c != null) return c.getImagePath();
-        } catch (Exception ignored) {
-        }
-        try {
-            String s = item.toString();
-            if (s != null && !s.trim().isEmpty()) return s.trim();
-        } catch (Exception ignored) {
-        }
-        return null;
-    }
+
 
     /**
      * Given a local X coordinate inside a {@link GridView} cell and the cell width,
@@ -2955,39 +2808,7 @@ public class CardTreeCell extends TreeCell<String> {
                 img.setFitHeight(58.0);
                 img.setPreserveRatio(true);
 
-                String imageKey = safeImageKey(cardElement);
-                String cachedFullPath = imageKey == null ? null : imagePathCache.get(imageKey);
-                if (cachedFullPath != null) {
-                    Image cached = LruImageCache.getImage(cachedFullPath);
-                    if (cached != null) {
-                        img.setImage(cached);
-                    } else {
-                        img.setImage(getPlaceholderImage());
-                        Future<?> f = loadImageWithResolvedPathAsync(cardElement, img, cachedFullPath);
-                        if (f != null) {
-                            outstandingLoads.put(img, f);
-                        }
-                    }
-                } else {
-                    img.setImage(getPlaceholderImage());
-                    final ImageView finalImg = img;
-                    final CardElement finalCardElement = cardElement;
-                    resolveImagePathAsync(imageKey, resolvedPath -> {
-                        if (resolvedPath == null) {
-                            return;
-                        }
-                        Image cached = LruImageCache.getImage(resolvedPath);
-                        if (cached != null) {
-                            Platform.runLater(() -> finalImg.setImage(cached));
-                        } else {
-                            finalImg.getProperties().put("expectedImagePath", resolvedPath);
-                            Future<?> f = loadImageWithResolvedPathAsync(finalCardElement, finalImg, resolvedPath);
-                            if (f != null) {
-                                outstandingLoads.put(finalImg, f);
-                            }
-                        }
-                    });
-                }
+                imageLoader.loadCardImage(cardElement, img);
 
                 // Grayscale for fully-owned cards
                 if (isOwned) {

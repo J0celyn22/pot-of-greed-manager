@@ -141,7 +141,7 @@ class CardGridCell extends GridCell<CardElement> {
                 for (int i = 0; i < ghostCount; i++) {
                     Card c = cards.get(i);
                     String key = c.getImagePath();
-                    String rp = key != null ? outer.imagePathCache.get(key) : null;
+                    String rp = key != null ? CardImageLoader.imagePathCache.get(key) : null;
                     ghostImages.add(rp != null ? LruImageCache.getImage(rp) : null);
                 }
                 javafx.scene.input.Dragboard db =
@@ -178,7 +178,7 @@ class CardGridCell extends GridCell<CardElement> {
                 CardElement el = dragElements.get(i);
                 Card c = el.getCard();
                 String key = c != null ? c.getImagePath() : null;
-                String resolvedPath = key != null ? outer.imagePathCache.get(key) : null;
+                String resolvedPath = key != null ? CardImageLoader.imagePathCache.get(key) : null;
                 ghostImages.add(resolvedPath != null ? LruImageCache.getImage(resolvedPath) : null);
             }
 
@@ -597,37 +597,7 @@ class CardGridCell extends GridCell<CardElement> {
         }
 
         // --- Image loading (unchanged logic) ---
-        String imageKey = outer.safeImageKey(cardElement);
-        String cachedFullPath = imageKey == null ? null : outer.imagePathCache.get(imageKey);
-        if (cachedFullPath != null) {
-            Image cached = LruImageCache.getImage(cachedFullPath);
-            if (cached != null) {
-                cardImageView.setImage(cached);
-            } else {
-                cardImageView.setImage(outer.getPlaceholderImage());
-                Future<?> f = outer.loadImageWithResolvedPathAsync(cardElement, cardImageView, cachedFullPath);
-                if (f != null) outer.outstandingLoads.put(cardImageView, f);
-            }
-        } else {
-            cardImageView.setImage(outer.getPlaceholderImage());
-            outer.resolveImagePathAsync(imageKey, resolvedPath -> {
-                if (resolvedPath == null) return;
-                Image cached = LruImageCache.getImage(resolvedPath);
-                if (cached != null) {
-                    Platform.runLater(() -> {
-                        Object expected = cardImageView.getProperties().get("expectedImagePath");
-                        if (Objects.equals(expected, resolvedPath) || expected == null) {
-                            cardImageView.setImage(cached);
-                            cardImageView.getProperties().remove("expectedImagePath");
-                        }
-                    });
-                } else {
-                    cardImageView.getProperties().put("expectedImagePath", resolvedPath);
-                    Future<?> f = outer.loadImageWithResolvedPathAsync(cardElement, cardImageView, resolvedPath);
-                    if (f != null) outer.outstandingLoads.put(cardImageView, f);
-                }
-            });
-        }
+        outer.imageLoader.loadCardImage(cardElement, cardImageView);
 
         // ── Tooltip list: always computed, regardless of marking toggle ───────────────
         // Each entry: [message, cssColor]
