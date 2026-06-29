@@ -1399,80 +1399,8 @@ public class RealMainController {
     }
 
     public void handleDeleteMiddleSelection() {
-        java.util.Set<CardElement> selectedElements =
-                SelectionManager.getSelectedMiddleElements();
-        if (selectedElements.isEmpty()) {
-            return;
-        }
-
-        if (selectedElements.size() > 10) {
-            boolean confirmed = View.NavigationContextMenuBuilder.confirmWithCustomMessage(
-                    "Delete " + selectedElements.size() + " cards?");
-            if (!confirmed) {
-                return;
-            }
-        }
-
-        Card cardToReselect = null;
-        CardElement elementBeingRemoved = null;
-        if (selectedElements.size() == 1) {
-            elementBeingRemoved = selectedElements.iterator().next();
-            cardToReselect = elementBeingRemoved != null ? elementBeingRemoved.getCard() : null;
-        }
-
-        int activeTabIndex = mainTabPane.getSelectionModel().getSelectedIndex();
-        if (activeTabIndex == 0) {
-            MenuActionHandler.handleBulkRemoveFromOwnedCollection(
-                    new ArrayList<>(selectedElements));
-        } else if (activeTabIndex == 1) {
-            MenuActionHandler.handleBulkRemoveElementsFromDecksAndCollections(
-                    new ArrayList<>(SelectionManager.getSelectedMiddleElements()));
-        }
-        SelectionManager.clearSelection();
-
-        if (cardToReselect != null) {
-            final Card targetCard = cardToReselect;
-            final CardElement removedElement = elementBeingRemoved;
-            Platform.runLater(() -> {
-                TreeView<String> treeView = getActiveMiddleTreeView();
-                if (treeView == null) {
-                    return;
-                }
-                List<CardElement> allElements =
-                        View.CardTreeCell.collectAllElementsInTreeOrder(treeView.getRoot());
-                CardElement candidate = null;
-                for (CardElement cardElement : allElements) {
-                    if (cardElement == removedElement) {
-                        continue;
-                    }
-                    Card card = cardElement.getCard();
-                    if (card == null) {
-                        continue;
-                    }
-                    if (card == targetCard) {
-                        candidate = cardElement;
-                        continue;
-                    }
-                    if (targetCard.getPassCode() != null
-                            && targetCard.getPassCode().equals(card.getPassCode())) {
-                        candidate = cardElement;
-                        continue;
-                    }
-                    if (targetCard.getPrintCode() != null
-                            && targetCard.getPrintCode().equals(card.getPrintCode())) {
-                        candidate = cardElement;
-                        continue;
-                    }
-                    if (targetCard.getKonamiId() != null
-                            && targetCard.getKonamiId().equals(card.getKonamiId())) {
-                        candidate = cardElement;
-                    }
-                }
-                if (candidate != null) {
-                    SelectionManager.selectElement(candidate);
-                }
-            });
-        }
+        MiddleSelectionActionHandler.handleDeleteMiddleSelection(
+                mainTabPane.getSelectionModel().getSelectedIndex(), this::getActiveMiddleTreeView);
     }
 
     private void handleCutFromKeyboard() {

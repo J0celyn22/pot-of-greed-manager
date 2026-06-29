@@ -788,4 +788,95 @@ final class MiddleSelectionActionHandler {
         return CardTreeCell.collectAllElementsInTreeOrder(activeTreeView.getRoot())
                 .contains(element);
     }
+
+    /**
+     * Removes the current middle-pane selection from the owned collection or from
+     * decks/collections (depending on the active tab), then — if exactly one element
+     * was selected — tries to reselect whatever now occupies its place, matching by
+     * identity first and falling back to passCode/printCode/konamiId.
+     *
+     * @param activeTabIndex         the currently selected main-tab index (0 = My
+     *                               Collection, 1 = Decks and Collections)
+     * @param activeTreeViewSupplier supplies the active middle TreeView; called again
+     *                               after the deletion's UI refresh has run (via
+     *                               {@code Platform.runLater}), not at the time this
+     *                               method is invoked, so that the reselect logic sees
+     *                               the up-to-date tree
+     */
+    static void handleDeleteMiddleSelection(int activeTabIndex,
+                                            java.util.function.Supplier<TreeView<String>> activeTreeViewSupplier) {
+        java.util.Set<CardElement> selectedElements =
+                SelectionManager.getSelectedMiddleElements();
+        if (selectedElements.isEmpty()) {
+            return;
+        }
+
+        if (selectedElements.size() > 10) {
+            boolean confirmed = View.NavigationContextMenuBuilder.confirmWithCustomMessage(
+                    "Delete " + selectedElements.size() + " cards?");
+            if (!confirmed) {
+                return;
+            }
+        }
+
+        Card cardToReselect = null;
+        CardElement elementBeingRemoved = null;
+        if (selectedElements.size() == 1) {
+            elementBeingRemoved = selectedElements.iterator().next();
+            cardToReselect = elementBeingRemoved != null ? elementBeingRemoved.getCard() : null;
+        }
+
+        if (activeTabIndex == 0) {
+            MenuActionHandler.handleBulkRemoveFromOwnedCollection(
+                    new java.util.ArrayList<>(selectedElements));
+        } else if (activeTabIndex == 1) {
+            MenuActionHandler.handleBulkRemoveElementsFromDecksAndCollections(
+                    new java.util.ArrayList<>(SelectionManager.getSelectedMiddleElements()));
+        }
+        SelectionManager.clearSelection();
+
+        if (cardToReselect != null) {
+            final Card targetCard = cardToReselect;
+            final CardElement removedElement = elementBeingRemoved;
+            javafx.application.Platform.runLater(() -> {
+                TreeView<String> treeView = activeTreeViewSupplier.get();
+                if (treeView == null) {
+                    return;
+                }
+                List<CardElement> allElements =
+                        CardTreeCell.collectAllElementsInTreeOrder(treeView.getRoot());
+                CardElement candidate = null;
+                for (CardElement cardElement : allElements) {
+                    if (cardElement == removedElement) {
+                        continue;
+                    }
+                    Card card = cardElement.getCard();
+                    if (card == null) {
+                        continue;
+                    }
+                    if (card == targetCard) {
+                        candidate = cardElement;
+                        continue;
+                    }
+                    if (targetCard.getPassCode() != null
+                            && targetCard.getPassCode().equals(card.getPassCode())) {
+                        candidate = cardElement;
+                        continue;
+                    }
+                    if (targetCard.getPrintCode() != null
+                            && targetCard.getPrintCode().equals(card.getPrintCode())) {
+                        candidate = cardElement;
+                        continue;
+                    }
+                    if (targetCard.getKonamiId() != null
+                            && targetCard.getKonamiId().equals(card.getKonamiId())) {
+                        candidate = cardElement;
+                    }
+                }
+                if (candidate != null) {
+                    SelectionManager.selectElement(candidate);
+                }
+            });
+        }
+    }
 }
