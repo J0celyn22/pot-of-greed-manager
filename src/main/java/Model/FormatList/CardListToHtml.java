@@ -2,6 +2,9 @@ package Model.FormatList;
 
 import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
+import Model.CardsLists.OuicheList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedWriter;
 import java.io.FileOutputStream;
@@ -10,144 +13,138 @@ import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import static Model.FormatList.HtmlGenerator.*;
 
 public class CardListToHtml {
+
+    private static final Logger logger = LoggerFactory.getLogger(CardListToHtml.class);
+
     /**
-     * Generate an HTML file from a list of CardElements.
-     * The HTML file contains the names and prices of the cards.
-     * The file also contains a link to the Menu.html file.
-     * If the Menu.html file doesn't exist, it is created using the generateMenu method.
+     * Generates an HTML file from a list of CardElements, showing each card's name
+     * and price. Includes a link to Menu.html, creating it if it does not yet exist.
+     * If the output file name is "OuicheList", an extra mosaic button and a substandard
+     * section are appended.
      *
-     * @param cards          the list of cards to be displayed
+     * @param cards          the list of cards to display
      * @param dirPath        the directory path where the HTML file will be created
-     * @param outputFileName the name of the HTML file to be created
-     * @throws IOException if the file cannot be created
+     * @param outputFileName the base name of the output file (without extension)
+     * @throws IOException if the file cannot be created or written
      */
     public static void generateHtml(List<CardElement> cards, String dirPath, String outputFileName) throws IOException {
-        outputFileName = outputFileName.replace("\\", "-").replace("/", "-").replace("\"", "");
-        String filePath = dirPath + outputFileName + ".html";
+        String sanitizedName = sanitizeFileName(outputFileName);
+        String filePath = dirPath + sanitizedName + ".html";
         createHtmlFile(filePath);
-        String relativeImagePath = "..\\Images\\";
+        String relativeImagePath = ".." + java.io.File.separator + "Images" + java.io.File.separator;
         String imagesDirPath = dirPath + relativeImagePath;
-        //try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
-            addHeader(writer, outputFileName, relativeImagePath, dirPath);
 
-            addTitle(writer, outputFileName, cards.size(), getPriceCardElement(cards));
+        try (BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
+            addHeader(writer, sanitizedName, relativeImagePath, dirPath);
+            addTitle(writer, sanitizedName, cards.size(), getPriceCardElement(cards));
             addLinkButtons(writer);
 
-            if ("OuicheList".equals(outputFileName)) {
+            if ("OuicheList".equals(sanitizedName)) {
                 addOuicheListMosaicButton(writer);
             }
 
             Map<Card, Integer> cardCount = createCardsMap(cards);
-
             for (Map.Entry<Card, Integer> entry : cardCount.entrySet()) {
                 writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, relativeImagePath);
             }
 
-            // ── Substandard section (OuicheList only) ────────────────────────────────
-            // Read directly from the static OuicheList maps — no caller change required.
-            if ("OuicheList".equals(outputFileName)) {
-                java.util.LinkedHashMap<String, CardElement> substandardMap =
-                        Model.CardsLists.OuicheList.getMaOuicheListSubstandard();
-                java.util.LinkedHashMap<String, Integer> substandardCounts =
-                        Model.CardsLists.OuicheList.getMaOuicheListSubstandardCounts();
+            // Substandard section: only rendered for the OuicheList output.
+            // Reads directly from the static OuicheList maps — no caller change required.
+            if ("OuicheList".equals(sanitizedName)) {
+                LinkedHashMap<String, CardElement> substandardMap = OuicheList.getMaOuicheListSubstandard();
+                LinkedHashMap<String, Integer> substandardCounts = OuicheList.getMaOuicheListSubstandardCounts();
                 if (substandardMap != null && !substandardMap.isEmpty()) {
                     writer.write("<h2 style=\"color:#EB9E34;\">"
                             + "Copies to upgrade (owned but below required quality)</h2>\n");
                     for (Map.Entry<String, CardElement> entry : substandardMap.entrySet()) {
-                        int count = (substandardCounts != null
-                                && substandardCounts.containsKey(entry.getKey()))
+                        int count = (substandardCounts != null && substandardCounts.containsKey(entry.getKey()))
                                 ? substandardCounts.get(entry.getKey()) : 1;
-                        writeCardElementSubstandardList(writer, entry.getValue(), count,
-                                imagesDirPath, relativeImagePath);
+                        writeCardElementSubstandardList(writer, entry.getValue(), count, imagesDirPath, relativeImagePath);
                     }
                 }
             }
 
             addFooter(writer);
 
-            //If Menu.html doesn't exist, create it using generateMenu method
-            if (!Files.exists(Paths.get(dirPath + "..\\Menu.html"))) {
-                generateMenu(dirPath + "..\\");
+            // Create Menu.html alongside the lists directory if it does not yet exist.
+            String menuPath = dirPath + ".." + java.io.File.separator + "Menu.html";
+            if (!Files.exists(Paths.get(menuPath))) {
+                generateMenu(dirPath + ".." + java.io.File.separator);
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("Failed to write HTML for card list '{}' to '{}'", sanitizedName, filePath, e);
+            throw e;
         }
     }
 
     /**
      * Generates a flat mosaic HTML page for the OuicheList: one image per unique card
-     * (deduplicated by imagePath), wrapped in a flex-wrap layout, with no counts or
-     * card-detail text. Owned cards are displayed in grayscale.
+     * (deduplicated by imagePath), in a flex-wrap layout, with no counts or card-detail
+     * text. Includes a substandard section at the end.
      *
      * @param cards   the list of card elements to display
      * @param dirPath the directory path where the HTML file will be created
-     * @throws IOException if the file cannot be created
+     * @throws IOException if the file cannot be created or written
      */
     public static void generateOuicheListMosaicHtml(List<CardElement> cards, String dirPath) throws IOException {
         String outputFileName = "OuicheList - Mosaic";
         String filePath = dirPath + outputFileName + ".html";
         createHtmlFile(filePath);
-        String relativeImagePath = "..\\Images\\";
+        String relativeImagePath = ".." + java.io.File.separator + "Images" + java.io.File.separator;
         String imagesDirPath = dirPath + relativeImagePath;
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
-                new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
+
+        try (BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             addHeader(writer, outputFileName, relativeImagePath, dirPath);
             addTitle(writer, outputFileName, cards.size(), getPriceCardElement(cards));
-            // Link back to the list page
             addOuicheListButton(writer);
             addLinkButtons(writer);
 
-            // Deduplicate by imagePath, preserve insertion order
-            java.util.Map<String, CardElement> byImagePath = new java.util.LinkedHashMap<>();
-            for (CardElement ce : cards) {
-                if (ce.getCard() != null && ce.getCard().getImagePath() != null) {
-                    byImagePath.putIfAbsent(ce.getCard().getImagePath(), ce);
+            // Deduplicate by imagePath, preserving insertion order.
+            Map<String, CardElement> byImagePath = new LinkedHashMap<>();
+            for (CardElement cardElement : cards) {
+                if (cardElement.getCard() != null && cardElement.getCard().getImagePath() != null) {
+                    byImagePath.putIfAbsent(cardElement.getCard().getImagePath(), cardElement);
                 }
             }
-
-            // Write one image per unique card
-            for (CardElement ce : byImagePath.values()) {
-                writeCardElement(writer, ce, imagesDirPath, relativeImagePath);
+            for (CardElement cardElement : byImagePath.values()) {
+                writeCardElement(writer, cardElement, imagesDirPath, relativeImagePath);
             }
 
-            // ── Substandard section ───────────────────────────────────────────────────
-            // Read directly from the static OuicheList maps — no caller change required.
-            java.util.LinkedHashMap<String, CardElement> substandardMap =
-                    Model.CardsLists.OuicheList.getMaOuicheListSubstandard();
+            // Substandard section.
+            LinkedHashMap<String, CardElement> substandardMap = OuicheList.getMaOuicheListSubstandard();
             if (substandardMap != null && !substandardMap.isEmpty()) {
                 writer.write("<h2 style=\"color:#EB9E34;\">"
                         + "Copies to upgrade (owned but below required quality)</h2>\n");
-                for (CardElement ce : substandardMap.values()) {
-                    if (ce.getCard() != null) {
-                        writeCardElementSubstandardMosaic(writer, ce.getCard(),
-                                imagesDirPath, relativeImagePath);
+                for (CardElement cardElement : substandardMap.values()) {
+                    if (cardElement.getCard() != null) {
+                        writeCardElementSubstandardMosaic(writer, cardElement.getCard(), imagesDirPath, relativeImagePath);
                     }
                 }
             }
 
             addFooter(writer);
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("Failed to write OuicheList mosaic HTML to '{}'", filePath, e);
+            throw e;
         }
     }
 
     /**
-     * Generates "OuicheList.html" with two sections: MISSING cards first (yellow-green
-     * borders), then OWNED_SUBSTANDARD cards (orange borders + required quality labels).
-     * The caller should supply the flat compact maps produced by
-     * {@link Model.CardsLists.OuicheList#getMaOuicheList()} and
-     * {@link Model.CardsLists.OuicheList#getMaOuicheListSubstandard()}.
+     * Generates "OuicheList.html" with two sections: missing cards first (yellow-green
+     * borders), then owned-substandard cards (orange borders with required quality labels).
      *
      * @param missingCards     flat list of MISSING card elements (may be null)
      * @param substandardCards flat list of OWNED_SUBSTANDARD card elements (may be null)
-     * @param dirPath          output directory
+     * @param dirPath          output directory path
      * @throws IOException if the file cannot be written
      */
     public static void generateOuicheListHtml(
@@ -158,7 +155,7 @@ public class CardListToHtml {
         String outputFileName = "OuicheList";
         String filePath = dirPath + outputFileName + ".html";
         createHtmlFile(filePath);
-        String relativeImagePath = "..\\Images\\";
+        String relativeImagePath = ".." + java.io.File.separator + "Images" + java.io.File.separator;
         String imagesDirPath = dirPath + relativeImagePath;
 
         try (BufferedWriter writer = new BufferedWriter(
@@ -166,68 +163,65 @@ public class CardListToHtml {
 
             int totalCount = (missingCards != null ? missingCards.size() : 0)
                     + (substandardCards != null ? substandardCards.size() : 0);
-            String totalPrice = missingCards != null
-                    ? getPriceCardElement(missingCards) : "0.00";
+            String totalPrice = missingCards != null ? getPriceCardElement(missingCards) : "0.00";
 
             addHeader(writer, outputFileName, relativeImagePath, dirPath);
             addTitle(writer, outputFileName, totalCount, totalPrice);
             addOuicheListMosaicButton(writer);
             addLinkButtons(writer);
 
-            // ── Missing cards section ──────────────────────────────────────
             if (missingCards != null && !missingCards.isEmpty()) {
                 writer.write("<h2>Cards to acquire</h2>\n");
                 Map<Card, Integer> missingCount = createCardsMap(missingCards);
                 for (Map.Entry<Card, Integer> entry : missingCount.entrySet()) {
-                    writeCardElement(writer, entry.getKey(), entry.getValue(),
-                            false, imagesDirPath, relativeImagePath);
+                    writeCardElement(writer, entry.getKey(), entry.getValue(), false, imagesDirPath, relativeImagePath);
                 }
             }
 
-            // ── Substandard cards section ──────────────────────────────────
             if (substandardCards != null && !substandardCards.isEmpty()) {
                 writer.write("<h2 style=\"color:#EB9E34;\">"
                         + "Copies to upgrade (owned but below required quality)</h2>\n");
 
-                Map<CardElement, Integer> subCount = new java.util.LinkedHashMap<>();
-                for (CardElement ce : substandardCards) {
-                    if (ce.getCard() == null) {
+                // Deduplicate substandard cards by imagePath, summing counts.
+                Map<CardElement, Integer> substandardCount = new LinkedHashMap<>();
+                for (CardElement cardElement : substandardCards) {
+                    if (cardElement.getCard() == null) {
                         continue;
                     }
                     boolean found = false;
-                    for (Map.Entry<CardElement, Integer> entry : subCount.entrySet()) {
+                    for (Map.Entry<CardElement, Integer> entry : substandardCount.entrySet()) {
                         if (entry.getKey().getCard().getImagePath() != null
-                                && ce.getCard().getImagePath() != null
+                                && cardElement.getCard().getImagePath() != null
                                 && entry.getKey().getCard().getImagePath()
-                                .equals(ce.getCard().getImagePath())) {
-                            subCount.put(entry.getKey(), entry.getValue() + 1);
+                                .equals(cardElement.getCard().getImagePath())) {
+                            substandardCount.put(entry.getKey(), entry.getValue() + 1);
                             found = true;
                             break;
                         }
                     }
                     if (!found) {
-                        subCount.put(ce, 1);
+                        substandardCount.put(cardElement, 1);
                     }
                 }
-                for (Map.Entry<CardElement, Integer> entry : subCount.entrySet()) {
-                    writeCardElementSubstandardList(writer, entry.getKey(), entry.getValue(),
-                            imagesDirPath, relativeImagePath);
+                for (Map.Entry<CardElement, Integer> entry : substandardCount.entrySet()) {
+                    writeCardElementSubstandardList(writer, entry.getKey(), entry.getValue(), imagesDirPath, relativeImagePath);
                 }
             }
 
             addFooter(writer);
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("Failed to write OuicheList HTML to '{}'", filePath, e);
+            throw e;
         }
     }
 
     /**
-     * Generates "OuicheList - Mosaic.html" with two sections: MISSING cards first
-     * (normal images), then OWNED_SUBSTANDARD cards (red glow).
+     * Generates "OuicheList - Mosaic.html" with two sections: missing cards first
+     * (normal images), then owned-substandard cards (red glow).
      *
      * @param missingCards     flat list of MISSING card elements (may be null)
      * @param substandardCards flat list of OWNED_SUBSTANDARD card elements (may be null)
-     * @param dirPath          output directory
+     * @param dirPath          output directory path
      * @throws IOException if the file cannot be written
      */
     public static void generateOuicheListMosaicHtml(
@@ -238,7 +232,7 @@ public class CardListToHtml {
         String outputFileName = "OuicheList - Mosaic";
         String filePath = dirPath + outputFileName + ".html";
         createHtmlFile(filePath);
-        String relativeImagePath = "..\\Images\\";
+        String relativeImagePath = ".." + java.io.File.separator + "Images" + java.io.File.separator;
         String imagesDirPath = dirPath + relativeImagePath;
 
         try (BufferedWriter writer = new BufferedWriter(
@@ -246,64 +240,63 @@ public class CardListToHtml {
 
             int totalCount = (missingCards != null ? missingCards.size() : 0)
                     + (substandardCards != null ? substandardCards.size() : 0);
-            String totalPrice = missingCards != null
-                    ? getPriceCardElement(missingCards) : "0.00";
+            String totalPrice = missingCards != null ? getPriceCardElement(missingCards) : "0.00";
 
             addHeader(writer, outputFileName, relativeImagePath, dirPath);
             addTitle(writer, outputFileName, totalCount, totalPrice);
             addOuicheListButton(writer);
             addLinkButtons(writer);
 
-            // ── Missing cards section ──────────────────────────────────────
             if (missingCards != null && !missingCards.isEmpty()) {
                 writer.write("<h2>Cards to acquire</h2>\n");
-                java.util.Map<String, CardElement> byImagePath = new java.util.LinkedHashMap<>();
-                for (CardElement ce : missingCards) {
-                    if (ce.getCard() != null && ce.getCard().getImagePath() != null) {
-                        byImagePath.putIfAbsent(ce.getCard().getImagePath(), ce);
+                Map<String, CardElement> byImagePath = new LinkedHashMap<>();
+                for (CardElement cardElement : missingCards) {
+                    if (cardElement.getCard() != null && cardElement.getCard().getImagePath() != null) {
+                        byImagePath.putIfAbsent(cardElement.getCard().getImagePath(), cardElement);
                     }
                 }
-                for (CardElement ce : byImagePath.values()) {
-                    writeCardElement(writer, ce, imagesDirPath, relativeImagePath);
+                for (CardElement cardElement : byImagePath.values()) {
+                    writeCardElement(writer, cardElement, imagesDirPath, relativeImagePath);
                 }
             }
 
-            // ── Substandard cards section ──────────────────────────────────
             if (substandardCards != null && !substandardCards.isEmpty()) {
                 writer.write("<h2 style=\"color:#EB9E34;\">"
                         + "Copies to upgrade (owned but below required quality)</h2>\n");
-                java.util.Map<String, CardElement> byImagePath = new java.util.LinkedHashMap<>();
-                for (CardElement ce : substandardCards) {
-                    if (ce.getCard() != null && ce.getCard().getImagePath() != null) {
-                        byImagePath.putIfAbsent(ce.getCard().getImagePath(), ce);
+                Map<String, CardElement> byImagePath = new LinkedHashMap<>();
+                for (CardElement cardElement : substandardCards) {
+                    if (cardElement.getCard() != null && cardElement.getCard().getImagePath() != null) {
+                        byImagePath.putIfAbsent(cardElement.getCard().getImagePath(), cardElement);
                     }
                 }
-                for (CardElement ce : byImagePath.values()) {
-                    writeCardElementSubstandardMosaic(writer, ce.getCard(),
-                            imagesDirPath, relativeImagePath);
+                for (CardElement cardElement : byImagePath.values()) {
+                    writeCardElementSubstandardMosaic(writer, cardElement.getCard(), imagesDirPath, relativeImagePath);
                 }
             }
 
             addFooter(writer);
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("Failed to write OuicheList mosaic HTML to '{}'", filePath, e);
+            throw e;
         }
     }
 
     /**
-     * Generates a menu HTML file in the given directory with the given name.
-     * The menu contains links to all the available lists.
-     * The file also contains a link to the Menu.html file, which is created if it doesn't exist.
+     * Generates a Menu.html file in the given directory, with links to all available lists.
+     * Note: the href paths inside the HTML are intentionally Windows-style as they are
+     * browser-relative paths within the output folder structure, not Java filesystem paths.
      *
      * @param dirPath the directory path where the menu HTML file will be created
-     * @throws IOException if the file cannot be created
+     * @throws IOException if the file cannot be created or written
      */
     public static void generateMenu(String dirPath) throws IOException {
         String outputFileName = "Menu";
         String filePath = dirPath + outputFileName + ".html";
         createHtmlFile(filePath);
-        String relativeImagePath = "Images\\";
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
+        String relativeImagePath = "Images" + java.io.File.separator;
+
+        try (BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             addHeader(writer, outputFileName, relativeImagePath, dirPath);
             addTitle(writer, outputFileName);
 
@@ -385,51 +378,59 @@ public class CardListToHtml {
 
             addFooter(writer);
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("Failed to write Menu HTML to '{}'", filePath, e);
+            throw e;
         }
     }
 
     /**
-     * Writes a list of CardElements to the given writer as an HTML list, where cards which are not owned are displayed first, followed by cards which are owned.
+     * Generates an HTML file from a list of CardElements, with unowned cards displayed
+     * first and optionally owned cards appended afterward.
      *
-     * <p>This method generates an HTML list of CardElements, each of which is displayed
-     * with a link to its corresponding HTML page. A title is also generated, which
-     * displays the name of the list and the total number of cards in the list.
-     *
-     * @param cards          A list of CardElements to be written to the writer.
-     * @param dirPath        The directory path used to construct the links to the HTML pages.
-     * @param outputFileName The name of the output file.
-     * @param printOwned     A boolean indicating whether the cards which are owned should be printed.
-     * @throws IOException If an I/O error occurs while writing to the writer.
+     * @param cards          the list of cards to display
+     * @param dirPath        the directory path where the HTML file will be created
+     * @param outputFileName the base name of the output file (without extension)
+     * @param printOwned     whether to include owned cards in the output
+     * @throws IOException if the file cannot be created or written
      */
-    public static void generateHtmlWithOwned(List<CardElement> cards, String dirPath, String outputFileName, Boolean printOwned) throws IOException {
-        outputFileName = outputFileName.replace("\\", "-").replace("/", "-").replace("\"", "");
-        String filePath = dirPath + outputFileName + ".html";
+    public static void generateHtmlWithOwned(List<CardElement> cards, String dirPath, String outputFileName, boolean printOwned) throws IOException {
+        String sanitizedName = sanitizeFileName(outputFileName);
+        String filePath = dirPath + sanitizedName + ".html";
         createHtmlFile(filePath);
-        String relativeImagePath = "..\\Images\\";
+        String relativeImagePath = ".." + java.io.File.separator + "Images" + java.io.File.separator;
         String imagesDirPath = dirPath + relativeImagePath;
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
-            addHeader(writer, outputFileName, relativeImagePath, dirPath);
-            addTitle(writer, outputFileName, cards.size(), getPriceCardElement(cards));
+
+        try (BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
+            addHeader(writer, sanitizedName, relativeImagePath, dirPath);
+            addTitle(writer, sanitizedName, cards.size(), getPriceCardElement(cards));
             addLinkButtons(writer);
 
             Map<CardElement, Integer>[] cardCount = createCardsMapWithNotOwned(cards);
-            Map<CardElement, Integer> cardCountWithO = cardCount[0];
-            Map<CardElement, Integer> cardCountWithoutO = cardCount[1];
+            Map<CardElement, Integer> ownedCards = cardCount[0];
+            Map<CardElement, Integer> unownedCards = cardCount[1];
 
-            for (Map.Entry<CardElement, Integer> entry : cardCountWithoutO.entrySet()) {
+            for (Map.Entry<CardElement, Integer> entry : unownedCards.entrySet()) {
                 writeCardElement(writer, entry.getKey(), entry.getValue(), imagesDirPath, relativeImagePath);
             }
 
             if (printOwned) {
-                for (Map.Entry<CardElement, Integer> entry : cardCountWithO.entrySet()) {
+                for (Map.Entry<CardElement, Integer> entry : ownedCards.entrySet()) {
                     writeCardElement(writer, entry.getKey(), entry.getValue(), imagesDirPath, relativeImagePath);
                 }
             }
 
             addFooter(writer);
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("Failed to write HTML with owned cards for '{}' to '{}'", sanitizedName, filePath, e);
+            throw e;
         }
+    }
+
+    /**
+     * Strips characters illegal in file names and trims surrounding whitespace.
+     */
+    private static String sanitizeFileName(String name) {
+        return name.replace("\\", "-").replace("/", "-").replace("\"", "").trim();
     }
 }

@@ -4,6 +4,8 @@ import Model.CardsLists.CardElement;
 import Model.CardsLists.Deck;
 import Model.CardsLists.DecksAndCollectionsList;
 import Model.CardsLists.ThemeCollection;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedWriter;
 import java.io.FileOutputStream;
@@ -16,38 +18,38 @@ import java.util.List;
 import static Model.FormatList.HtmlGenerator.*;
 
 public class OuicheListToHtml {
+
+    private static final Logger logger = LoggerFactory.getLogger(OuicheListToHtml.class);
+
     /**
-     * Generates an HTML file displaying a detailed list of the OuicheList.
+     * Generates an HTML file displaying the OuicheList as a detailed card list,
+     * grouped by collection and deck with ownership advancement statistics.
      *
-     * <p>This function creates an HTML file that represents the provided OuicheList as a detailed list.
-     * It includes headers, titles, and buttons for navigation, as well as sections for both collections
-     * and decks. Each section displays relevant card information and utilizes the provided directory path
-     * for saving the file.</p>
-     *
-     * @param ouicheList The DecksAndCollectionsList to display.
-     * @param dirPath    The path of the output file.
-     * @param fileName   The name of the file, which will be sanitized and used as the HTML file name.
-     * @throws IOException If an I/O error occurs during file creation or writing.
+     * @param ouicheList the list to display
+     * @param dirPath    the path of the output directory
+     * @param fileName   the base name of the output file (without extension)
+     * @throws IOException if an I/O error occurs during file creation or writing
      */
     public static void generateOuicheListAsListHtml(DecksAndCollectionsList ouicheList, String dirPath, String fileName) throws IOException {
-        String filePath = dirPath + fileName.replace("\\", "-").replace("/", "-").replace("\"", "") + " - List.html";
+        String sanitizedName = sanitizeFileName(fileName);
+        String filePath = dirPath + sanitizedName + " - List.html";
         createHtmlFile(filePath);
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
-            String relativeImagePath = "..\\Images\\";
-            addHeader(writer, fileName, relativeImagePath, dirPath);
+        String relativeImagePath = ".." + java.io.File.separator + "Images" + java.io.File.separator;
+
+        try (BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
+            addHeader(writer, sanitizedName, relativeImagePath, dirPath);
 
             AdvancementStats ouicheListAdvancement = computeAdvancement(collectAllCards(ouicheList));
-            addTitle1WithAdvancement(writer, fileName, ouicheListAdvancement);
-
-            addMosaicButton(writer, fileName);
+            addTitle1WithAdvancement(writer, sanitizedName, ouicheListAdvancement);
+            addMosaicButton(writer, sanitizedName);
             addOuicheListButton(writer);
 
             if (ouicheList.getCollections() != null) {
                 AdvancementStats collectionsAdvancement = computeAdvancement(collectAllCardsFromCollections(ouicheList));
                 addTitle2WithAdvancement(writer, "Collections", collectionsAdvancement);
 
-                for (int i = 0; i < ouicheList.getCollections().size(); i++) {
-                    ThemeCollection collection = ouicheList.getCollections().get(i);
+                for (ThemeCollection collection : ouicheList.getCollections()) {
                     addRectangleBeginning(writer);
 
                     AdvancementStats collectionAdvancement = computeAdvancement(collectAllCardsFromCollection(collection));
@@ -57,10 +59,9 @@ public class OuicheListToHtml {
                     displayListWithOwnershipStatus(collection.getCardsList(), "Collection", writer, dirPath, relativeImagePath);
                     addRectangleEnd(writer);
 
-                    for (int j = 0; j < collection.getLinkedDecks().size(); j++) {
+                    for (List<Deck> deckUnit : collection.getLinkedDecks()) {
                         addRectangleBeginning(writer);
-                        for (int k = 0; k < collection.getLinkedDecks().get(j).size(); k++) {
-                            Deck deck = collection.getLinkedDecks().get(j).get(k);
+                        for (Deck deck : deckUnit) {
                             addRectangleBeginning(writer);
 
                             AdvancementStats deckAdvancement = computeAdvancement(deck.toList());
@@ -82,8 +83,7 @@ public class OuicheListToHtml {
                 AdvancementStats decksAdvancement = computeAdvancement(collectAllCardsFromDecks(ouicheList));
                 addTitle2WithAdvancement(writer, "Decks", decksAdvancement);
 
-                for (int i = 0; i < ouicheList.getDecks().size(); i++) {
-                    Deck deck = ouicheList.getDecks().get(i);
+                for (Deck deck : ouicheList.getDecks()) {
                     addRectangleBeginning(writer);
 
                     AdvancementStats deckAdvancement = computeAdvancement(deck.toList());
@@ -98,43 +98,40 @@ public class OuicheListToHtml {
 
             addFooter(writer);
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("Failed to write OuicheList list HTML '{}' to '{}'", sanitizedName, filePath, e);
+            throw e;
         }
     }
 
     /**
-     * Generates an HTML file displaying the OuicheList as a mosaic.
+     * Generates an HTML file displaying the OuicheList as a card mosaic,
+     * grouped by collection and deck with ownership advancement statistics.
      *
-     * <p>This method creates an HTML file that represents the provided OuicheList
-     * in a mosaic format. It includes headers, titles, and buttons for navigation,
-     * and displays information about collections and decks with their respective
-     * card details. The file is saved to the specified directory path with the
-     * given file name.</p>
-     *
-     * @param ouicheList The DecksAndCollectionsList to display.
-     * @param dirPath    The path of the output directory.
-     * @param fileName   The name of the file, which will be sanitized and used as the HTML file name.
-     * @throws IOException If an I/O error occurs during file creation or writing.
+     * @param ouicheList the list to display
+     * @param dirPath    the path of the output directory
+     * @param fileName   the base name of the output file (without extension)
+     * @throws IOException if an I/O error occurs during file creation or writing
      */
     public static void generateOuicheListAsMosaicHtml(DecksAndCollectionsList ouicheList, String dirPath, String fileName) throws IOException {
-        String filePath = dirPath + fileName.replace("\\", "-").replace("/", "-").replace("\"", "") + " - Mosaic.html";
+        String sanitizedName = sanitizeFileName(fileName);
+        String filePath = dirPath + sanitizedName + " - Mosaic.html";
         createHtmlFile(filePath);
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
-            String relativeImagePath = "..\\Images\\";
-            addHeader(writer, fileName, relativeImagePath, dirPath);
+        String relativeImagePath = ".." + java.io.File.separator + "Images" + java.io.File.separator;
+
+        try (BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
+            addHeader(writer, sanitizedName, relativeImagePath, dirPath);
 
             AdvancementStats ouicheListAdvancement = computeAdvancement(collectAllCards(ouicheList));
-            addTitle1WithAdvancement(writer, fileName, ouicheListAdvancement);
-
-            addListButton(writer, fileName);
+            addTitle1WithAdvancement(writer, sanitizedName, ouicheListAdvancement);
+            addListButton(writer, sanitizedName);
             addOuicheListButton(writer);
 
             if (ouicheList.getCollections() != null) {
                 AdvancementStats collectionsAdvancement = computeAdvancement(collectAllCardsFromCollections(ouicheList));
                 addTitle2WithAdvancement(writer, "Collections", collectionsAdvancement);
 
-                for (int i = 0; i < ouicheList.getCollections().size(); i++) {
-                    ThemeCollection collection = ouicheList.getCollections().get(i);
+                for (ThemeCollection collection : ouicheList.getCollections()) {
                     addRectangleBeginning(writer);
 
                     AdvancementStats collectionAdvancement = computeAdvancement(collectAllCardsFromCollection(collection));
@@ -144,10 +141,9 @@ public class OuicheListToHtml {
                     displayMosaicWithOwnershipStatus(collection.getCardsList(), "Collection", writer, dirPath, relativeImagePath);
                     addRectangleEnd(writer);
 
-                    for (int j = 0; j < collection.getLinkedDecks().size(); j++) {
+                    for (List<Deck> deckUnit : collection.getLinkedDecks()) {
                         addRectangleBeginning(writer);
-                        for (int k = 0; k < collection.getLinkedDecks().get(j).size(); k++) {
-                            Deck deck = collection.getLinkedDecks().get(j).get(k);
+                        for (Deck deck : deckUnit) {
                             addRectangleBeginning(writer);
 
                             AdvancementStats deckAdvancement = computeAdvancement(deck.toList());
@@ -169,8 +165,7 @@ public class OuicheListToHtml {
                 AdvancementStats decksAdvancement = computeAdvancement(collectAllCardsFromDecks(ouicheList));
                 addTitle2WithAdvancement(writer, "Decks", decksAdvancement);
 
-                for (int i = 0; i < ouicheList.getDecks().size(); i++) {
-                    Deck deck = ouicheList.getDecks().get(i);
+                for (Deck deck : ouicheList.getDecks()) {
                     addRectangleBeginning(writer);
 
                     AdvancementStats deckAdvancement = computeAdvancement(deck.toList());
@@ -185,17 +180,13 @@ public class OuicheListToHtml {
 
             addFooter(writer);
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("Failed to write OuicheList mosaic HTML '{}' to '{}'", sanitizedName, filePath, e);
+            throw e;
         }
     }
 
     /**
-     * Collects all CardElements from every collection and standalone deck in the given list.
-     * Cards shared between a ThemeCollection's cardsList and its linked decks are each
-     * included once per slot they occupy, mirroring how the OuicheList counts them.
-     *
-     * @param ouicheList The DecksAndCollectionsList to collect cards from.
-     * @return A flat list of all CardElements.
+     * Collects all CardElements from every collection and standalone deck in the list.
      */
     private static List<CardElement> collectAllCards(DecksAndCollectionsList ouicheList) {
         List<CardElement> allCards = new ArrayList<>();
@@ -213,10 +204,7 @@ public class OuicheListToHtml {
     }
 
     /**
-     * Collects all CardElements from every collection in the given list.
-     *
-     * @param ouicheList The DecksAndCollectionsList to collect from.
-     * @return A flat list of all CardElements belonging to collections.
+     * Collects all CardElements from every collection in the list.
      */
     private static List<CardElement> collectAllCardsFromCollections(DecksAndCollectionsList ouicheList) {
         List<CardElement> allCards = new ArrayList<>();
@@ -230,15 +218,12 @@ public class OuicheListToHtml {
 
     /**
      * Collects all CardElements from a single ThemeCollection: all linked deck cards
-     * followed by the collection's own cardsList.
-     *
-     * @param collection The ThemeCollection to collect cards from.
-     * @return A flat list of all CardElements in the collection.
+     * followed by the collection's own card list.
      */
     private static List<CardElement> collectAllCardsFromCollection(ThemeCollection collection) {
         List<CardElement> allCards = new ArrayList<>();
-        for (List<Deck> deckGroup : collection.getLinkedDecks()) {
-            for (Deck deck : deckGroup) {
+        for (List<Deck> deckUnit : collection.getLinkedDecks()) {
+            for (Deck deck : deckUnit) {
                 allCards.addAll(deck.toList());
             }
         }
@@ -247,10 +232,7 @@ public class OuicheListToHtml {
     }
 
     /**
-     * Collects all CardElements from every standalone deck in the given list.
-     *
-     * @param ouicheList The DecksAndCollectionsList to collect from.
-     * @return A flat list of all CardElements belonging to standalone decks.
+     * Collects all CardElements from every standalone deck in the list.
      */
     private static List<CardElement> collectAllCardsFromDecks(DecksAndCollectionsList ouicheList) {
         List<CardElement> allCards = new ArrayList<>();
@@ -260,5 +242,12 @@ public class OuicheListToHtml {
             }
         }
         return allCards;
+    }
+
+    /**
+     * Strips characters illegal in file names and trims surrounding whitespace.
+     */
+    private static String sanitizeFileName(String name) {
+        return name.replace("\\", "-").replace("/", "-").replace("\"", "").trim();
     }
 }
