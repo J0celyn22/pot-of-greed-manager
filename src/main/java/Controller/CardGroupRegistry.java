@@ -5,7 +5,6 @@ import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.collections.transformation.FilteredList;
-import javafx.geometry.Insets;
 import org.controlsfx.control.GridView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,12 +35,6 @@ public final class CardGroupRegistry {
     public static final String ARCHETYPE_MARKER = "[ARCHETYPE]";
 
     // ── Sentinel / marker values ──────────────────────────────────────────────
-    /**
-     * Padding added on each side by the {@code StackPane} wrapper inside every
-     * {@link View.CardGridCell}.  Used when computing how many columns/rows fit in a
-     * {@link GridView} and when computing its preferred height.
-     */
-    public static final double CELL_INNER_PADDING = 5.0;
     /**
      * Maps each {@link CardsGroup} to the {@link ObservableList} that wraps its
      * backing card list and drives the corresponding {@link GridView}.
@@ -869,67 +862,47 @@ public final class CardGroupRegistry {
     /**
      * Recomputes and applies the preferred height of {@code grid} for the given item count.
      * No-ops silently when {@code grid} is {@code null}.
+     *
+     * @deprecated use {@link View.GridViewSizer#adjustGridViewHeight} directly.
+     * Kept as a forwarding stub for existing callers.
      */
+    @Deprecated
     public static void adjustGridViewHeightStatic(GridView<CardElement> grid, int numItems) {
-        if (grid == null) {
-            return;
-        }
-        if (numItems <= 0) {
-            applyGridPrefHeight(grid, 0);
-            return;
-        }
-        applyGridPrefHeight(grid, computeGridPrefHeight(grid, numItems));
+        View.GridViewSizer.adjustGridViewHeight(grid, numItems);
     }
 
     /**
      * Computes the correct preferred height for a GridView given its current width and
-     * the number of items to display.  Uses the actual rendered cell dimensions
-     * (card dimension + 2 × {@link #CELL_INNER_PADDING}) to determine row count.
+     * the number of items to display.
+     *
+     * @deprecated use {@link View.GridViewSizer#computeGridPrefHeight} directly.
+     * Kept as a forwarding stub for existing callers.
      */
+    @Deprecated
     public static double computeGridPrefHeight(GridView<CardElement> grid, int numItems) {
-        if (numItems <= 0) {
-            return 0;
-        }
-        int columnCount = computeGridColumns(grid);
-        int rowCount = (int) Math.ceil((double) numItems / columnCount);
-        Insets padding = grid.getPadding();
-        double paddingTop = (padding != null) ? padding.getTop() : 0;
-        double paddingBottom = (padding != null) ? padding.getBottom() : 0;
-        double cellHeight = grid.getCellHeight();
-        double verticalSpacing = grid.getVerticalCellSpacing();
-        double actualCellHeight = cellHeight + 2 * CELL_INNER_PADDING;
-        double rowSpan = actualCellHeight + verticalSpacing;
-        return paddingTop + paddingBottom + rowCount * rowSpan + 1.0;
+        return View.GridViewSizer.computeGridPrefHeight(grid, numItems);
     }
 
     /**
      * Computes the number of columns that fit inside the current width of {@code grid}.
+     *
+     * @deprecated use {@link View.GridViewSizer#computeGridColumns} directly.
+     * Kept as a forwarding stub for existing callers.
      */
+    @Deprecated
     public static int computeGridColumns(GridView<CardElement> grid) {
-        double totalWidth = grid.getWidth();
-        if (totalWidth <= 0) {
-            totalWidth = grid.getPrefWidth();
-        }
-        if (totalWidth <= 0) {
-            return 1;
-        }
-        Insets padding = grid.getPadding();
-        double horizontalPadding = (padding != null) ? padding.getLeft() + padding.getRight() : 0;
-        double innerWidth = totalWidth - horizontalPadding;
-        double cardWidth = grid.getCellWidth();
-        double horizontalSpacing = grid.getHorizontalCellSpacing();
-        double actualCellWidth = cardWidth + 2 * CELL_INNER_PADDING;
-        return (int) Math.max(1,
-                Math.floor((innerWidth + horizontalSpacing) / (actualCellWidth + horizontalSpacing)));
+        return View.GridViewSizer.computeGridColumns(grid);
     }
 
     /**
      * Applies the given height as the preferred, minimum, and maximum height of the grid.
+     *
+     * @deprecated use {@link View.GridViewSizer#applyGridPrefHeight} directly.
+     * Kept as a forwarding stub for existing callers.
      */
+    @Deprecated
     public static void applyGridPrefHeight(GridView<CardElement> grid, double height) {
-        grid.setPrefHeight(height);
-        grid.setMinHeight(height);
-        grid.setMaxHeight(height);
+        View.GridViewSizer.applyGridPrefHeight(grid, height);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

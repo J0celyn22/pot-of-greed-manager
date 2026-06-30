@@ -298,7 +298,7 @@ class CardGridCell extends GridCell<CardElement> {
 
             // Determine left/right half using mouse X relative to the wrapper
             double localX = event.getX();
-            boolean insertAfter = outer.isRightHalf(localX, outer.cardWidthProperty.get());
+            boolean insertAfter = GridViewSizer.isRightHalf(localX, outer.cardWidthProperty.get());
             int insertionIndex = insertAfter ? anchorIdx + 1 : anchorIdx;
 
             String srcPane = Controller.DragDropManager.getDragSourcePane();

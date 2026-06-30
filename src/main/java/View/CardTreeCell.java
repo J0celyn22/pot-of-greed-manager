@@ -323,7 +323,6 @@ public class CardTreeCell extends TreeCell<String> {
      * adding 2×5 = 10 px to both the rendered cell width and height beyond the bound
      * cardWidth / cardHeight properties.
      */
-    private static final double CELL_INNER_PADDING = 5.0;
 
     /**
      * Returns (or creates) the ObservableList that backs the GridView for {@code group}.
@@ -356,7 +355,7 @@ public class CardTreeCell extends TreeCell<String> {
                 return;
             }
             int numItems = group.getCardList() == null ? 0 : group.getCardList().size();
-            adjustGridViewHeightStatic(grid, numItems);
+            GridViewSizer.adjustGridViewHeight(grid, numItems);
         });
     }
 
@@ -830,7 +829,7 @@ public class CardTreeCell extends TreeCell<String> {
             // Recompute height using the post-filter count
             java.lang.ref.WeakReference<GridView<CardElement>> gridRef = CardGroupRegistry.GROUP_GRID_VIEWS.get(group);
             GridView<CardElement> grid = gridRef != null ? gridRef.get() : null;
-            adjustGridViewHeightStatic(grid, fl.size());
+            GridViewSizer.adjustGridViewHeight(grid, fl.size());
         }
     }
 
@@ -925,18 +924,6 @@ public class CardTreeCell extends TreeCell<String> {
 
 
     /**
-     * Static counterpart of adjustGridViewHeight, driven by the grid's own bound properties.
-     */
-    private static void adjustGridViewHeightStatic(GridView<CardElement> grid, int numItems) {
-        if (grid == null) return;
-        if (numItems <= 0) {
-            applyGridPrefHeight(grid, 0);
-            return;
-        }
-        applyGridPrefHeight(grid, computeGridPrefHeight(grid, numItems));
-    }
-
-    /**
      * Helper: determine whether the currently selected Tab is the OuicheList tab.
      * Uses the TreeView ancestor to find a TabPane and checks the selected Tab text.
      * Returns true only when the selected tab's text equals "OuicheList" (case-insensitive).
@@ -956,38 +943,6 @@ public class CardTreeCell extends TreeCell<String> {
         } catch (Exception ignored) {
         }
         return false;
-    }
-
-    /**
-     * Correct column count: uses the ACTUAL rendered cell width (cardWidth + 2×padding).
-     */
-    private static int computeGridColumns(GridView<CardElement> grid) {
-        double totalW = grid.getWidth();
-        if (totalW <= 0) totalW = grid.getPrefWidth();
-        if (totalW <= 0) return 1;
-
-        Insets pad = grid.getPadding();
-        double padLR = (pad != null) ? pad.getLeft() + pad.getRight() : 0;
-        double innerW = totalW - padLR;
-
-        double cardW = grid.getCellWidth();
-        double hSpace = grid.getHorizontalCellSpacing();
-        double actualCellW = cardW + 2 * CELL_INNER_PADDING;   // e.g. 100 + 10 = 110
-
-        int cols = (int) Math.max(1,
-                Math.floor((innerW + hSpace) / (actualCellW + hSpace)));
-
-        /*org.slf4j.LoggerFactory.getLogger(CardTreeCell.class).debug(
-                "[GridView-cols] totalW={}  padLR={}  innerW={}  cardW={}  actualCellW={}  hSpace={}  cols={}",
-                String.format("%.1f", totalW),
-                String.format("%.1f", padLR),
-                String.format("%.1f", innerW),
-                String.format("%.1f", cardW),
-                String.format("%.1f", actualCellW),
-                String.format("%.1f", hSpace),
-                cols);*/
-
-        return cols;
     }
 
     /**
@@ -1649,41 +1604,6 @@ public class CardTreeCell extends TreeCell<String> {
      * Correct preferred height: uses the ACTUAL rendered row span
      * (cardHeight + 2×padding + verticalSpacing).
      */
-    private static double computeGridPrefHeight(GridView<CardElement> grid, int numItems) {
-        if (numItems <= 0) return 0;
-
-        int cols = computeGridColumns(grid);
-        int rows = (int) Math.ceil((double) numItems / cols);
-        Insets pad = grid.getPadding();
-        double top = (pad != null) ? pad.getTop() : 0;
-        double bottom = (pad != null) ? pad.getBottom() : 0;
-        double cardH = grid.getCellHeight();
-        double vSpace = grid.getVerticalCellSpacing();
-        double actualCellH = cardH + 2 * CELL_INNER_PADDING;  // e.g. 146 + 10 = 156
-        double rowSpan = actualCellH + vSpace;              // e.g. 156 + 5  = 161
-        double h = top + bottom + rows * rowSpan + 1.0;
-
-        /*org.slf4j.LoggerFactory.getLogger(CardTreeCell.class).debug(
-                "[GridView-h] items={}  cols={}  rows={}  cardH={}  actualCellH={}  "
-                        + "vSpace={}  rowSpan={}  top={}  bot={}  h={}",
-                numItems, cols, rows,
-                String.format("%.1f", cardH),
-                String.format("%.1f", actualCellH),
-                String.format("%.1f", vSpace),
-                String.format("%.1f", rowSpan),
-                String.format("%.1f", top),
-                String.format("%.1f", bottom),
-                String.format("%.2f", h));*/
-
-        return h;
-    }
-
-    private static void applyGridPrefHeight(GridView<CardElement> grid, double h) {
-        grid.setPrefHeight(h);
-        grid.setMinHeight(h);
-        grid.setMaxHeight(h);
-    }
-
     /**
      * Collects all Card objects from the entire TreeView in display order
      * (depth-first traversal, collecting only from CardsGroup nodes).
@@ -2128,63 +2048,11 @@ public class CardTreeCell extends TreeCell<String> {
 
 
 
-    /**
-     * Given a local X coordinate inside a {@link GridView} cell and the cell width,
-     * returns {@code true} if the point is on the right half of the card image
-     * (i.e. insert AFTER), {@code false} for the left half (insert BEFORE).
-     */
-    public static boolean isRightHalf(double localX, double cardWidth) {
-        return localX >= (cardWidth + 2 * CELL_INNER_PADDING) / 2.0;
-    }
 
     /**
      * Finds the CardsGroup whose observable list contains the given CardElement,
      * by searching the live CardGroupRegistry.GROUP_OBSERVABLE_LISTS registry.
      */
-
-    /**
-     * Computes the insertion index inside {@code group}'s list when the user
-     * drops between cards at pixel position {@code gridLocalX, gridLocalY} inside
-     * the {@link GridView}.
-     *
-     * <p>Returns -1 when the drop position is outside the card rows entirely
-     * (e.g. below the last row).
-     */
-    public static int computeGapInsertionIndex(
-            GridView<CardElement> grid, CardsGroup group,
-            double gridLocalX, double gridLocalY) {
-        if (group == null || group.getCardList() == null) return -1;
-        int n = group.getCardList().size();
-        if (n == 0) return 0;
-
-        Insets pad = grid.getPadding();
-        double padL = pad != null ? pad.getLeft() : 0;
-        double padT = pad != null ? pad.getTop() : 0;
-        double hSpace = grid.getHorizontalCellSpacing();
-        double vSpace = grid.getVerticalCellSpacing();
-        double cellW = grid.getCellWidth() + 2 * CELL_INNER_PADDING;
-        double cellH = grid.getCellHeight() + 2 * CELL_INNER_PADDING;
-        int cols = computeGridColumns(grid);
-
-        double x = gridLocalX - padL;
-        double y = gridLocalY - padT;
-        if (x < 0 || y < 0) return 0;
-
-        int col = (int) Math.floor(x / (cellW + hSpace));
-        int row = (int) Math.floor(y / (cellH + vSpace));
-
-        double colFrac = (x - col * (cellW + hSpace)) / cellW;
-        // If click is in the spacing gap between columns, treat as right-half of left card
-        boolean inHGap = colFrac > 1.0;
-        col = Math.min(col, cols - 1);
-
-        int flatIndex = row * cols + col;
-        if (flatIndex >= n) return -1; // below last row content
-
-        // If in the right half (or in a gap), insert after this card
-        if (inHGap || colFrac >= 0.5) flatIndex++;
-        return Math.min(flatIndex, n);
-    }
 
     // ── Drop execution helpers (called from drag-drop handlers) ────────────────
 
@@ -2956,7 +2824,7 @@ public class CardTreeCell extends TreeCell<String> {
                     return;
                 }
 
-                int insertionIndex = computeGapInsertionIndex(
+                int insertionIndex = GridViewSizer.computeGapInsertionIndex(
                         grid, group, event.getX(), event.getY());
                 if (insertionIndex < 0) {
                     // Click is outside the card rows — treat as append
@@ -3031,16 +2899,10 @@ public class CardTreeCell extends TreeCell<String> {
         } else {
             numItems = group.getCardList() == null ? 0 : group.getCardList().size();
         }
-        if (numItems <= 0) {
-            applyGridPrefHeight(cardGridView, 0);
-            return;
-        }
-        applyGridPrefHeight(cardGridView, computeGridPrefHeight(cardGridView, numItems));
+        GridViewSizer.adjustGridViewHeight(cardGridView, numItems);
         logger.debug("Adjusted grid view height to {} for {} items",
                 cardGridView.getPrefHeight(), numItems);
     }
-    // Add this static method to CardTreeCell, after the existing refreshAllGridViews-like statics:
 
-    // Replace the existing inner class CardGridCell with this complete implementation
-    // CardGridCell extracted to View/CardGridCell.java — instantiated via new CardGridCell(this)
+    // CardGridCell is implemented in View/CardGridCell.java — instantiated via new CardGridCell(this)
 }

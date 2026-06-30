@@ -241,7 +241,7 @@ public final class CardGridCellDropHandler {
         }
 
         // Determine insertion side: left half = before the card, right half = after.
-        boolean insertAfterAnchor = CardTreeCell.isRightHalf(
+        boolean insertAfterAnchor = GridViewSizer.isRightHalf(
                 event.getX(), cell.outer.cardWidthProperty.get());
         int insertionIndex = insertAfterAnchor ? anchorIndex + 1 : anchorIndex;
 
