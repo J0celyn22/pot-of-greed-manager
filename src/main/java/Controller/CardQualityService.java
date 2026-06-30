@@ -30,6 +30,139 @@ public final class CardQualityService {
         throw new UnsupportedOperationException("Utility class");
     }
 
+    /**
+     * Returns whether {@code referenceCard} and {@code elementCard} represent the
+     * same physical card for sorting/matching purposes.
+     *
+     * <p>Match by printCode only when BOTH sides have one; otherwise fall back to
+     * passCode. Deck definitions typically store entries by passCode only (no
+     * printCode), so requiring a printCode match when the definition entry has
+     * none would cause all owned cards that carry a printCode to fail matching
+     * entirely.</p>
+     *
+     * @param referenceCard the card being searched for
+     * @param elementCard   the candidate card to compare against
+     * @return {@code true} if the two cards should be treated as the same card
+     */
+    static boolean cardsMatch(Model.CardsLists.Card referenceCard, Model.CardsLists.Card elementCard) {
+        if (referenceCard == null || elementCard == null) {
+            return false;
+        }
+        if (referenceCard.getPrintCode() != null && elementCard.getPrintCode() != null) {
+            return referenceCard.getPrintCode().equals(elementCard.getPrintCode());
+        }
+        if (referenceCard.getPassCode() != null && elementCard.getPassCode() != null) {
+            return referenceCard.getPassCode().equals(elementCard.getPassCode());
+        }
+        return false;
+    }
+
+    /**
+     * Builds the normalized-type-name → predicate map used by {@link #computeCardNeedsSorting}
+     * to recognise category names (monster subtypes, spell/trap subtypes, both French and
+     * English) and check whether a given card belongs to that category.
+     *
+     * @param normalizer the same name-normalization function used by the caller, so map keys
+     *                   and lookup keys are normalized identically
+     * @return the populated type-name → predicate map
+     */
+    private static Map<String, Predicate<Model.CardsLists.Card>> buildTypePredicates(
+            Function<String, String> normalizer) {
+        Map<String, Predicate<Model.CardsLists.Card>> typePredicates = new HashMap<>();
+
+        // Monster subtype predicates (check cardProperties contains the subtype string as used in SubListCreator)
+        typePredicates.put(normalizer.apply("Pyro"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Pyro"));
+        typePredicates.put(normalizer.apply("Aqua"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Aqua"));
+        typePredicates.put(normalizer.apply("Machine"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Machine"));
+        typePredicates.put(normalizer.apply("Dragon"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Dragon"));
+        typePredicates.put(normalizer.apply("Bete Guerrier"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Beast-Warrior"));
+        typePredicates.put(normalizer.apply("Reptile"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Reptile"));
+        typePredicates.put(normalizer.apply("Plante"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Plant"));
+        typePredicates.put(normalizer.apply("Demon"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Fiend"));
+        typePredicates.put(normalizer.apply("Wyrm"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Wyrm"));
+        typePredicates.put(normalizer.apply("Dinosaure"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Dinosaur"));
+        typePredicates.put(normalizer.apply("Magicien"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Spellcaster"));
+        typePredicates.put(normalizer.apply("Poisson"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Fish"));
+        typePredicates.put(normalizer.apply("Bete Divine"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Divine-Beast"));
+        typePredicates.put(normalizer.apply("Cyberse"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Cyberse"));
+        typePredicates.put(normalizer.apply("Insecte"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Insect"));
+        typePredicates.put(normalizer.apply("Bete Ailee"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Winged Beast"));
+        typePredicates.put(normalizer.apply("Guerrier"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Warrior"));
+        typePredicates.put(normalizer.apply("Rocher"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Rock"));
+        typePredicates.put(normalizer.apply("Tonnerre"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Thunder"));
+        typePredicates.put(normalizer.apply("Zombie"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Zombie"));
+        typePredicates.put(normalizer.apply("Serpent de Mer"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Sea Serpent"));
+        typePredicates.put(normalizer.apply("Bete"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Beast"));
+        typePredicates.put(normalizer.apply("Psychique"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Psychic"));
+        typePredicates.put(normalizer.apply("Elfe"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Fairy"));
+        typePredicates.put(normalizer.apply("Illusion"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Illusion"));
+
+        // Normal / subtype monster lists (properties like "Normal", "Toon", "Tuner", etc.)
+        typePredicates.put(normalizer.apply("Monstres normaux"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Normal"));
+        typePredicates.put(normalizer.apply("Monstres Toon"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Toon"));
+        typePredicates.put(normalizer.apply("Syntoniseurs"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Tuner"));
+        typePredicates.put(normalizer.apply("Monstres Union"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Union"));
+        typePredicates.put(normalizer.apply("Monstres Synchro"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Synchro"));
+        typePredicates.put(normalizer.apply("Monstres Pendule"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Pendulum"));
+        typePredicates.put(normalizer.apply("Monstres Rituels"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Ritual"));
+        typePredicates.put(normalizer.apply("Monstres Flip"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Flip"));
+        typePredicates.put(normalizer.apply("Monstres Spirit"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Spirit"));
+        typePredicates.put(normalizer.apply("Monstres XYZ"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Xyz"));
+        typePredicates.put(normalizer.apply("Monstres a Effet"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Effect"));
+        typePredicates.put(normalizer.apply("Monstres Fusion"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Fusion"));
+        typePredicates.put(normalizer.apply("Monstres Lien"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Link"));
+        typePredicates.put(normalizer.apply("Monstres Gemeaux"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Gemini"));
+
+        // Spell subtypes: require cardType contains "Spell" and property equals subtype
+        Predicate<Model.CardsLists.Card> spellPredicateBase = c -> c.getCardType() != null && c.getCardType().contains("Spell");
+        typePredicates.put(normalizer.apply("Magies Normales"), c -> spellPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Normal"));
+        typePredicates.put(normalizer.apply("Magies Continues"), c -> spellPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Continuous"));
+        typePredicates.put(normalizer.apply("Magies Jeu Rapide"), c -> spellPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Quick-Play"));
+        typePredicates.put(normalizer.apply("Magies dEquipement"), c -> spellPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Equip"));
+        typePredicates.put(normalizer.apply("Magies de Terrain"), c -> spellPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Field"));
+        typePredicates.put(normalizer.apply("Magies Rituelles"), c -> spellPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Ritual"));
+
+        // Trap subtypes: require cardType contains "Trap" and property equals subtype
+        Predicate<Model.CardsLists.Card> trapPredicateBase = c -> c.getCardType() != null && c.getCardType().contains("Trap");
+        typePredicates.put(normalizer.apply("Pieges normaux"), c -> trapPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Normal"));
+        typePredicates.put(normalizer.apply("Pieges continus"), c -> trapPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Continuous"));
+        typePredicates.put(normalizer.apply("Pieges contre"), c -> trapPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Counter"));
+
+        // Add English equivalents mapping to same predicates (normalized keys)
+        typePredicates.put(normalizer.apply("Beast Warrior"), typePredicates.get(normalizer.apply("Bete Guerrier")));
+        typePredicates.put(normalizer.apply("Plant"), typePredicates.get(normalizer.apply("Plante")));
+        typePredicates.put(normalizer.apply("Fiend"), typePredicates.get(normalizer.apply("Demon")));
+        typePredicates.put(normalizer.apply("Dinosaur"), typePredicates.get(normalizer.apply("Dinosaure")));
+        typePredicates.put(normalizer.apply("Spellcaster"), typePredicates.get(normalizer.apply("Magicien")));
+        typePredicates.put(normalizer.apply("Fish"), typePredicates.get(normalizer.apply("Poisson")));
+        typePredicates.put(normalizer.apply("Divine Beast"), typePredicates.get(normalizer.apply("Bete Divine")));
+        typePredicates.put(normalizer.apply("Insect"), typePredicates.get(normalizer.apply("Insecte")));
+        typePredicates.put(normalizer.apply("Winged Beast"), typePredicates.get(normalizer.apply("Bete Ailee")));
+        typePredicates.put(normalizer.apply("Warrior"), typePredicates.get(normalizer.apply("Guerrier")));
+        typePredicates.put(normalizer.apply("Rock"), typePredicates.get(normalizer.apply("Rocher")));
+        typePredicates.put(normalizer.apply("Thunder"), typePredicates.get(normalizer.apply("Tonnerre")));
+        typePredicates.put(normalizer.apply("Sea Serpent"), typePredicates.get(normalizer.apply("Serpent de Mer")));
+        typePredicates.put(normalizer.apply("Beast"), typePredicates.get(normalizer.apply("Bete")));
+        typePredicates.put(normalizer.apply("Psychic"), typePredicates.get(normalizer.apply("Psychique")));
+        typePredicates.put(normalizer.apply("Fairy"), typePredicates.get(normalizer.apply("Elfe")));
+
+        // Normal monster / spell / trap English keys
+        typePredicates.put(normalizer.apply("Normal Monsters"), typePredicates.get(normalizer.apply("Monstres normaux")));
+        typePredicates.put(normalizer.apply("Toon Monsters"), typePredicates.get(normalizer.apply("Monstres Toon")));
+        typePredicates.put(normalizer.apply("Tuner Monsters"), typePredicates.get(normalizer.apply("Syntoniseurs")));
+        typePredicates.put(normalizer.apply("Normal Spells"), typePredicates.get(normalizer.apply("Magies Normales")));
+        typePredicates.put(normalizer.apply("Continuous Spells"), typePredicates.get(normalizer.apply("Magies Continues")));
+        typePredicates.put(normalizer.apply("Quick Play Spells"), typePredicates.get(normalizer.apply("Magies Jeu Rapide")));
+        typePredicates.put(normalizer.apply("Equip Spells"), typePredicates.get(normalizer.apply("Magies dEquipement")));
+        typePredicates.put(normalizer.apply("Field Spells"), typePredicates.get(normalizer.apply("Magies de Terrain")));
+        typePredicates.put(normalizer.apply("Ritual Spells"), typePredicates.get(normalizer.apply("Magies Rituelles")));
+        typePredicates.put(normalizer.apply("Normal traps"), typePredicates.get(normalizer.apply("Pieges normaux")));
+        typePredicates.put(normalizer.apply("Continuous traps"), typePredicates.get(normalizer.apply("Pieges continus")));
+        typePredicates.put(normalizer.apply("Counter traps"), typePredicates.get(normalizer.apply("Pieges contre")));
+
+        return typePredicates;
+    }
+
     // -----------------------------------------------------------------------
     // Card-sorting decision
     // -----------------------------------------------------------------------
@@ -69,27 +202,11 @@ public final class CardQualityService {
                 }
             }
 
-            // Helper: compare a CardElement to the Card.
-            // Match by printCode only when BOTH sides have one; otherwise fall back to passCode.
-            // Deck definitions typically store entries by passCode only (no printCode), so requiring
-            // a printCode match when the definition entry has none would cause all owned cards that
-            // carry a printCode to fail matching entirely.
+            // Helper: compare a CardElement to the Card, delegating to the shared
+            // cardsMatch comparison (printCode when both sides have one, else passCode).
             BiPredicate<Model.CardsLists.CardElement, Model.CardsLists.Card> matches =
-                    (cardElement, referenceCard) -> {
-                        if (cardElement == null || cardElement.getCard() == null || referenceCard == null) {
-                            return false;
-                        }
-                        Model.CardsLists.Card elementCard = cardElement.getCard();
-                        // Strict printCode match only when both sides have a printCode.
-                        if (referenceCard.getPrintCode() != null && elementCard.getPrintCode() != null) {
-                            return referenceCard.getPrintCode().equals(elementCard.getPrintCode());
-                        }
-                        // Otherwise fall back to passCode.
-                        if (referenceCard.getPassCode() != null && elementCard.getPassCode() != null) {
-                            return referenceCard.getPassCode().equals(elementCard.getPassCode());
-                        }
-                        return false;
-                    };
+                    (cardElement, referenceCard) -> cardElement != null
+                            && cardsMatch(referenceCard, cardElement.getCard());
 
             // -------------------------
             // 1) Collections with same name (non-destructive)
@@ -269,102 +386,11 @@ public final class CardQualityService {
             // -------------------------
             // Build a map of normalized type names -> predicate that checks whether a Card matches that type.
             // Include both French and English names (normalized).
-            Map<String, Predicate<Model.CardsLists.Card>> typePredicates = new HashMap<>();
-
-            // Helper to normalize keys
             Function<String, String> normalizer = s -> s == null ? "" :
                     Normalizer.normalize(s, Normalizer.Form.NFD)
                             .replaceAll("\\p{M}", "").trim().toLowerCase(Locale.ROOT);
 
-            // Monster subtype predicates (check cardProperties contains the subtype string as used in SubListCreator)
-            typePredicates.put(normalizer.apply("Pyro"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Pyro"));
-            typePredicates.put(normalizer.apply("Aqua"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Aqua"));
-            typePredicates.put(normalizer.apply("Machine"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Machine"));
-            typePredicates.put(normalizer.apply("Dragon"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Dragon"));
-            typePredicates.put(normalizer.apply("Bete Guerrier"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Beast-Warrior"));
-            typePredicates.put(normalizer.apply("Reptile"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Reptile"));
-            typePredicates.put(normalizer.apply("Plante"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Plant"));
-            typePredicates.put(normalizer.apply("Demon"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Fiend"));
-            typePredicates.put(normalizer.apply("Wyrm"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Wyrm"));
-            typePredicates.put(normalizer.apply("Dinosaure"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Dinosaur"));
-            typePredicates.put(normalizer.apply("Magicien"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Spellcaster"));
-            typePredicates.put(normalizer.apply("Poisson"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Fish"));
-            typePredicates.put(normalizer.apply("Bete Divine"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Divine-Beast"));
-            typePredicates.put(normalizer.apply("Cyberse"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Cyberse"));
-            typePredicates.put(normalizer.apply("Insecte"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Insect"));
-            typePredicates.put(normalizer.apply("Bete Ailee"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Winged Beast"));
-            typePredicates.put(normalizer.apply("Guerrier"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Warrior"));
-            typePredicates.put(normalizer.apply("Rocher"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Rock"));
-            typePredicates.put(normalizer.apply("Tonnerre"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Thunder"));
-            typePredicates.put(normalizer.apply("Zombie"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Zombie"));
-            typePredicates.put(normalizer.apply("Serpent de Mer"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Sea Serpent"));
-            typePredicates.put(normalizer.apply("Bete"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Beast"));
-            typePredicates.put(normalizer.apply("Psychique"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Psychic"));
-            typePredicates.put(normalizer.apply("Elfe"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Fairy"));
-            typePredicates.put(normalizer.apply("Illusion"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Illusion"));
-
-            // Normal / subtype monster lists (properties like "Normal", "Toon", "Tuner", etc.)
-            typePredicates.put(normalizer.apply("Monstres normaux"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Normal"));
-            typePredicates.put(normalizer.apply("Monstres Toon"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Toon"));
-            typePredicates.put(normalizer.apply("Syntoniseurs"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Tuner"));
-            typePredicates.put(normalizer.apply("Monstres Union"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Union"));
-            typePredicates.put(normalizer.apply("Monstres Synchro"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Synchro"));
-            typePredicates.put(normalizer.apply("Monstres Pendule"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Pendulum"));
-            typePredicates.put(normalizer.apply("Monstres Rituels"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Ritual"));
-            typePredicates.put(normalizer.apply("Monstres Flip"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Flip"));
-            typePredicates.put(normalizer.apply("Monstres Spirit"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Spirit"));
-            typePredicates.put(normalizer.apply("Monstres XYZ"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Xyz"));
-            typePredicates.put(normalizer.apply("Monstres a Effet"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Effect"));
-            typePredicates.put(normalizer.apply("Monstres Fusion"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Fusion"));
-            typePredicates.put(normalizer.apply("Monstres Lien"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Link"));
-            typePredicates.put(normalizer.apply("Monstres Gemeaux"), c -> c.getCardProperties() != null && c.getCardProperties().contains("Gemini"));
-
-            // Spell subtypes: require cardType contains "Spell" and property equals subtype
-            Predicate<Model.CardsLists.Card> spellPredicateBase = c -> c.getCardType() != null && c.getCardType().contains("Spell");
-            typePredicates.put(normalizer.apply("Magies Normales"), c -> spellPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Normal"));
-            typePredicates.put(normalizer.apply("Magies Continues"), c -> spellPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Continuous"));
-            typePredicates.put(normalizer.apply("Magies Jeu Rapide"), c -> spellPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Quick-Play"));
-            typePredicates.put(normalizer.apply("Magies dEquipement"), c -> spellPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Equip"));
-            typePredicates.put(normalizer.apply("Magies de Terrain"), c -> spellPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Field"));
-            typePredicates.put(normalizer.apply("Magies Rituelles"), c -> spellPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Ritual"));
-
-            // Trap subtypes: require cardType contains "Trap" and property equals subtype
-            Predicate<Model.CardsLists.Card> trapPredicateBase = c -> c.getCardType() != null && c.getCardType().contains("Trap");
-            typePredicates.put(normalizer.apply("Pieges normaux"), c -> trapPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Normal"));
-            typePredicates.put(normalizer.apply("Pieges continus"), c -> trapPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Continuous"));
-            typePredicates.put(normalizer.apply("Pieges contre"), c -> trapPredicateBase.test(c) && c.getCardProperties() != null && c.getCardProperties().contains("Counter"));
-
-            // Add English equivalents mapping to same predicates (normalized keys)
-            typePredicates.put(normalizer.apply("Beast Warrior"), typePredicates.get(normalizer.apply("Bete Guerrier")));
-            typePredicates.put(normalizer.apply("Plant"), typePredicates.get(normalizer.apply("Plante")));
-            typePredicates.put(normalizer.apply("Fiend"), typePredicates.get(normalizer.apply("Demon")));
-            typePredicates.put(normalizer.apply("Dinosaur"), typePredicates.get(normalizer.apply("Dinosaure")));
-            typePredicates.put(normalizer.apply("Spellcaster"), typePredicates.get(normalizer.apply("Magicien")));
-            typePredicates.put(normalizer.apply("Fish"), typePredicates.get(normalizer.apply("Poisson")));
-            typePredicates.put(normalizer.apply("Divine Beast"), typePredicates.get(normalizer.apply("Bete Divine")));
-            typePredicates.put(normalizer.apply("Insect"), typePredicates.get(normalizer.apply("Insecte")));
-            typePredicates.put(normalizer.apply("Winged Beast"), typePredicates.get(normalizer.apply("Bete Ailee")));
-            typePredicates.put(normalizer.apply("Warrior"), typePredicates.get(normalizer.apply("Guerrier")));
-            typePredicates.put(normalizer.apply("Rock"), typePredicates.get(normalizer.apply("Rocher")));
-            typePredicates.put(normalizer.apply("Thunder"), typePredicates.get(normalizer.apply("Tonnerre")));
-            typePredicates.put(normalizer.apply("Sea Serpent"), typePredicates.get(normalizer.apply("Serpent de Mer")));
-            typePredicates.put(normalizer.apply("Beast"), typePredicates.get(normalizer.apply("Bete")));
-            typePredicates.put(normalizer.apply("Psychic"), typePredicates.get(normalizer.apply("Psychique")));
-            typePredicates.put(normalizer.apply("Fairy"), typePredicates.get(normalizer.apply("Elfe")));
-
-            // Normal monster / spell / trap English keys
-            typePredicates.put(normalizer.apply("Normal Monsters"), typePredicates.get(normalizer.apply("Monstres normaux")));
-            typePredicates.put(normalizer.apply("Toon Monsters"), typePredicates.get(normalizer.apply("Monstres Toon")));
-            typePredicates.put(normalizer.apply("Tuner Monsters"), typePredicates.get(normalizer.apply("Syntoniseurs")));
-            typePredicates.put(normalizer.apply("Normal Spells"), typePredicates.get(normalizer.apply("Magies Normales")));
-            typePredicates.put(normalizer.apply("Continuous Spells"), typePredicates.get(normalizer.apply("Magies Continues")));
-            typePredicates.put(normalizer.apply("Quick Play Spells"), typePredicates.get(normalizer.apply("Magies Jeu Rapide")));
-            typePredicates.put(normalizer.apply("Equip Spells"), typePredicates.get(normalizer.apply("Magies dEquipement")));
-            typePredicates.put(normalizer.apply("Field Spells"), typePredicates.get(normalizer.apply("Magies de Terrain")));
-            typePredicates.put(normalizer.apply("Ritual Spells"), typePredicates.get(normalizer.apply("Magies Rituelles")));
-            typePredicates.put(normalizer.apply("Normal traps"), typePredicates.get(normalizer.apply("Pieges normaux")));
-            typePredicates.put(normalizer.apply("Continuous traps"), typePredicates.get(normalizer.apply("Pieges continus")));
-            typePredicates.put(normalizer.apply("Counter traps"), typePredicates.get(normalizer.apply("Pieges contre")));
+            Map<String, Predicate<Model.CardsLists.Card>> typePredicates = buildTypePredicates(normalizer);
 
             // If element name corresponds to a known type, apply the logic described
             if (typePredicates.containsKey(normalizedElement)) {
@@ -528,10 +554,6 @@ public final class CardQualityService {
             // that computeCardNeedsSortingWithUpgrade can evaluate the upgrade-candidate
             // case without being blocked by a spurious true here.
             try {
-                Function<String, String> defaultNormalizer = s -> s == null ? "" :
-                        java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
-                                .replaceAll("\\p{M}", "").trim().toLowerCase(java.util.Locale.ROOT);
-
                 Model.CardsLists.OwnedCardsCollection ownedForDefault =
                         Model.CardsLists.OuicheList.getMyCardsCollection();
 
@@ -540,7 +562,7 @@ public final class CardQualityService {
                         if (collection == null || collection.getName() == null) {
                             continue;
                         }
-                        if (alreadyConsidered.contains(defaultNormalizer.apply(collection.getName()))) {
+                        if (alreadyConsidered.contains(normalizer.apply(collection.getName()))) {
                             continue;
                         }
 
@@ -551,7 +573,7 @@ public final class CardQualityService {
                             int placedCount = ownedForDefault == null ? 0
                                     : collectPlacedCopies(
                                     ownedForDefault, collection.getName(), card,
-                                    defaultNormalizer).size();
+                                    normalizer).size();
                             if (requiredCount > placedCount) {
                                 return true;
                             }
@@ -567,7 +589,7 @@ public final class CardQualityService {
                                         continue;
                                     }
                                     if (alreadyConsidered.contains(
-                                            defaultNormalizer.apply(deck.getName()))) {
+                                            normalizer.apply(deck.getName()))) {
                                         continue;
                                     }
                                     int requiredTotal =
@@ -578,7 +600,7 @@ public final class CardQualityService {
                                         int placedCount = ownedForDefault == null ? 0
                                                 : collectPlacedCopies(
                                                 ownedForDefault, deck.getName(), card,
-                                                defaultNormalizer).size();
+                                                normalizer).size();
                                         if (requiredTotal > placedCount) {
                                             return true;
                                         }
@@ -594,7 +616,7 @@ public final class CardQualityService {
                         if (deck == null || deck.getName() == null) {
                             continue;
                         }
-                        if (alreadyConsidered.contains(defaultNormalizer.apply(deck.getName()))) {
+                        if (alreadyConsidered.contains(normalizer.apply(deck.getName()))) {
                             continue;
                         }
                         int requiredTotal =
@@ -605,7 +627,7 @@ public final class CardQualityService {
                             int placedCount = ownedForDefault == null ? 0
                                     : collectPlacedCopies(
                                     ownedForDefault, deck.getName(), card,
-                                    defaultNormalizer).size();
+                                    normalizer).size();
                             if (requiredTotal > placedCount) {
                                 return true;
                             }
@@ -867,20 +889,10 @@ public final class CardQualityService {
 
             String normalizedElement = normalizer.apply(elementName);
 
-            // Card-matching predicate (same logic as the matches predicate in computeCardNeedsSorting)
-            Predicate<Model.CardsLists.CardElement> matchesCard = candidateElement -> {
-                if (candidateElement == null || candidateElement.getCard() == null) {
-                    return false;
-                }
-                Model.CardsLists.Card other = candidateElement.getCard();
-                if (card.getPrintCode() != null && other.getPrintCode() != null) {
-                    return card.getPrintCode().equals(other.getPrintCode());
-                }
-                if (card.getPassCode() != null && other.getPassCode() != null) {
-                    return card.getPassCode().equals(other.getPassCode());
-                }
-                return false;
-            };
+            // Card-matching predicate, delegating to the shared cardsMatch comparison
+            // used throughout this class (printCode when both sides have one, else passCode).
+            Predicate<Model.CardsLists.CardElement> matchesCard = candidateElement ->
+                    candidateElement != null && cardsMatch(card, candidateElement.getCard());
 
             Function<java.util.List<Model.CardsLists.CardElement>, Integer> countMatchingIn =
                     list -> {
