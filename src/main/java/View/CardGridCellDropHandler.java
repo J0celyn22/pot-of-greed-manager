@@ -111,7 +111,7 @@ public final class CardGridCellDropHandler {
             CardElement element = dragElements.get(imageIndex);
             Card card = element.getCard();
             String imageKey = card != null ? card.getImagePath() : null;
-            String resolvedPath = imageKey != null ? CardTreeCell.imagePathCache.get(imageKey) : null;
+            String resolvedPath = imageKey != null ? CardImageLoader.imagePathCache.get(imageKey) : null;
             ghostImages.add(resolvedPath != null
                     ? Utils.LruImageCache.getImage(resolvedPath) : null);
         }
@@ -158,7 +158,7 @@ public final class CardGridCellDropHandler {
         for (int imageIndex = 0; imageIndex < ghostImageCount; imageIndex++) {
             Card card = draggedCards.get(imageIndex);
             String imageKey = card.getImagePath();
-            String resolvedPath = imageKey != null ? CardTreeCell.imagePathCache.get(imageKey) : null;
+            String resolvedPath = imageKey != null ? CardImageLoader.imagePathCache.get(imageKey) : null;
             ghostImages.add(resolvedPath != null
                     ? Utils.LruImageCache.getImage(resolvedPath) : null);
         }

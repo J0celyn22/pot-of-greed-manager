@@ -1,9 +1,6 @@
 package Controller;
 
-import Model.CardsLists.CardElement;
-import Model.CardsLists.DecksAndCollectionsList;
-import Model.CardsLists.OwnedCardsCollection;
-import Model.CardsLists.SubListCreator;
+import Model.CardsLists.*;
 import Model.FormatList.*;
 import javafx.application.Platform;
 import javafx.collections.ObservableList;
@@ -728,7 +725,7 @@ public class UserInterfaceFunctions {
      */
     public static void loadThirdPartyAvailableCards() throws Exception {
         String dirPath = thirdPartyListPath.getAbsolutePath();
-        importThirdPartyList(dirPath);
+        OuicheListIO.importThirdPartyList(dirPath);
 
         thirdPartyCollectionIsLoaded = true;
     }
@@ -740,7 +737,7 @@ public class UserInterfaceFunctions {
      */
     public static void loadOuicheList() throws Exception {
         String dirPath = ouicheListPath.getAbsolutePath();
-        importOuicheList(dirPath);
+        OuicheListIO.importOuicheList(dirPath);
 
         ouicheListIsLoaded = true;
     }
@@ -771,7 +768,7 @@ public class UserInterfaceFunctions {
         }
 
         if (ouicheListIsLoaded) {
-            generateThirdPartyCardsINeedList();
+            OuicheListIO.generateThirdPartyCardsINeedList();
         }
     }
 
@@ -782,7 +779,7 @@ public class UserInterfaceFunctions {
      * @throws IOException If the file could not be created.
      */
     public static void saveThirdPartyList() throws IOException {
-        thirdPartyCardsINeedListSave(outputPath, "3rdPartyList.txt");
+        OuicheListIO.thirdPartyCardsINeedListSave(outputPath, "3rdPartyList.txt");
     }
 
     /**
@@ -815,7 +812,7 @@ public class UserInterfaceFunctions {
             logger.warn("OuicheList must be generated or loaded");
         } else {
             Files.createDirectories(Paths.get(outputPath));
-            ouicheListSave(outputPath + "OuicheList.txt");
+            OuicheListIO.ouicheListSave(outputPath + "OuicheList.txt");
             clearOuicheListDirty();
             logger.info("OuicheList saved.");
         }

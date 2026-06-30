@@ -1,6 +1,5 @@
 package Model.CardsLists;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -491,46 +490,6 @@ public class OuicheList {
     static boolean ownedCopySatisfiesQuality(CardElement wantedSlot, CardElement ownedCopy) {
         return OuicheListComputer.ownedCopySatisfiesQuality(wantedSlot, ownedCopy);
     }
-
-
-
-    // ── I/O delegation stubs ─────────────────────────────────────────────────
-    // These methods have moved to OuicheListIO. The stubs below keep existing
-    // call sites working without changes; update them to call OuicheListIO
-    // directly when convenient.
-
-    /**
-     * @deprecated Use {@link OuicheListIO#importOuicheList(String)} instead.
-     */
-    @Deprecated
-    public static void importOuicheList(String filePath) throws Exception {
-        OuicheListIO.importOuicheList(filePath);
-    }
-
-    /** @deprecated Use {@link OuicheListIO#importThirdPartyList(String)} instead. */
-    @Deprecated
-    public static void importThirdPartyList(String filePath) throws Exception {
-        OuicheListIO.importThirdPartyList(filePath);
-    }
-
-    /** @deprecated Use {@link OuicheListIO#generateThirdPartyCardsINeedList()} instead. */
-    @Deprecated
-    public static void generateThirdPartyCardsINeedList() {
-        OuicheListIO.generateThirdPartyCardsINeedList();
-    }
-
-    /** @deprecated Use {@link OuicheListIO#ouicheListSave(String)} instead. */
-    @Deprecated
-    public static void ouicheListSave(String filePath) throws IOException {
-        OuicheListIO.ouicheListSave(filePath);
-    }
-
-    /** @deprecated Use {@link OuicheListIO#thirdPartyCardsINeedListSave(String, String)} instead. */
-    @Deprecated
-    public static void thirdPartyCardsINeedListSave(String directoryPath, String filePath) throws IOException {
-        OuicheListIO.thirdPartyCardsINeedListSave(directoryPath, filePath);
-    }
-
 
     /**
      * Returns a string representation of this OuicheList.
