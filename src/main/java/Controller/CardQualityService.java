@@ -812,7 +812,7 @@ public final class CardQualityService {
      * This helper operates on the list instance passed — caller should pass a copy
      * if non-destructive behaviour is required.
      */
-    private static boolean removeFirstMatchingFromList(
+    static boolean removeFirstMatchingFromList(
             List<Model.CardsLists.CardElement> list,
             Model.CardsLists.Card card,
             BiPredicate<Model.CardsLists.CardElement, Model.CardsLists.Card> matches) {
@@ -1330,7 +1330,7 @@ public final class CardQualityService {
      * Internal overload that accepts an already-normalised name and a shared
      * {@code decksList} / {@code normalizer} to avoid redundant loading.
      */
-    private static boolean isDeckOrCollectionName(
+    static boolean isDeckOrCollectionName(
             String normalizedName,
             Model.CardsLists.DecksAndCollectionsList decksList,
             Function<String, String> normalizer) {
@@ -1382,7 +1382,7 @@ public final class CardQualityService {
      * definition-slot entries from the deck/collection file which carry no physical
      * condition.</p>
      */
-    private static List<Model.CardsLists.CardElement> collectPlacedCopies(
+    static List<Model.CardsLists.CardElement> collectPlacedCopies(
             Model.CardsLists.OwnedCardsCollection owned,
             String dcName,
             Model.CardsLists.Card card,
@@ -1435,7 +1435,7 @@ public final class CardQualityService {
      * {@link #computeCardNeedsSortingWithUpgrade}, extracted so it can be shared
      * with the new implementation without re-declaring the lambda in every loop.</p>
      */
-    private static List<Model.CardsLists.CardElement> collectMatchingElementsInList(
+    static List<Model.CardsLists.CardElement> collectMatchingElementsInList(
             List<Model.CardsLists.CardElement> list,
             Model.CardsLists.Card card) {
         List<Model.CardsLists.CardElement> result = new ArrayList<>();
