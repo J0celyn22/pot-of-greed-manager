@@ -177,31 +177,11 @@ public final class CardGridCellContextMenuBuilder {
                     sortingMenu.getItems().add(new SeparatorMenuItem());
                 }
 
-                // 3) Swap proposals (via reflection for safe late-binding)
-                try {
-                    java.lang.reflect.Method swapMethod = null;
-                    try {
-                        swapMethod = cell.outer.getClass().getDeclaredMethod(
-                                "buildSwapProposals", Card.class, CardElement.class);
-                    } catch (NoSuchMethodException firstTry) {
-                        try {
-                            swapMethod = cell.outer.getClass().getMethod(
-                                    "buildSwapProposals", Card.class, CardElement.class);
-                        } catch (NoSuchMethodException ignored) {
-                        }
-                    }
-                    if (swapMethod != null) {
-                        swapMethod.setAccessible(true);
-                        @SuppressWarnings("unchecked")
-                        List<MenuItem> swapItems =
-                                (List<MenuItem>) swapMethod.invoke(cell.outer, card, cardElement);
-                        if (swapItems != null && !swapItems.isEmpty()) {
-                            sortingMenu.getItems().addAll(swapItems);
-                        }
-                    }
-                } catch (Throwable reflectionError) {
-                    logger.debug("Failed to invoke buildSwapProposals via reflection", reflectionError);
-                    sortingMenu.getItems().add(disabledItem("Error building swap proposals"));
+                // 3) Swap proposals
+                List<MenuItem> swapItems =
+                        SwapProposalBuilder.buildSwapProposals(card, cardElement, cell);
+                if (!swapItems.isEmpty()) {
+                    sortingMenu.getItems().addAll(swapItems);
                 }
 
                 if (sortingMenu.getItems().isEmpty()) {

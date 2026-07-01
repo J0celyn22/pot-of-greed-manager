@@ -2,6 +2,7 @@ package View;
 
 import Controller.CardGroupRegistry;
 import Model.CardsLists.*;
+import Utils.CardNameUtils;
 import Utils.LruImageCache;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -1006,14 +1007,14 @@ class CardGridCell extends GridCell<CardElement> {
 
             // Direct child of a ThemeCollection (e.g. "Cards" or "Cards not to add")
             if (parentData instanceof ThemeCollection) {
-                String collName = outer.sanitizeDisplayName(((ThemeCollection) parentData).getName());
+                String collName = CardNameUtils.sanitize(((ThemeCollection) parentData).getName());
                 if ("Cards not to add".equals(groupName)) return collName + " / Exclusion List";
                 return collName;
             }
 
             // Child of a Deck (Main/Extra/Side Deck group)
             if (parentData instanceof Deck) {
-                String deckName = outer.sanitizeDisplayName(((Deck) parentData).getName());
+                String deckName = CardNameUtils.sanitize(((Deck) parentData).getName());
                 TreeItem<String> sectionItem = parent.getParent(); // DECKS_SECTION
                 if (sectionItem != null) {
                     TreeItem<String> collOrRoot = sectionItem.getParent();
@@ -1021,7 +1022,7 @@ class CardGridCell extends GridCell<CardElement> {
                         Object collData = (collOrRoot instanceof DataTreeItem)
                                 ? ((DataTreeItem<?>) collOrRoot).getData() : null;
                         if (collData instanceof ThemeCollection) {
-                            String collName = outer.sanitizeDisplayName(((ThemeCollection) collData).getName());
+                            String collName = CardNameUtils.sanitize(((ThemeCollection) collData).getName());
                             return collName + " / " + deckName + " / " + groupName;
                         }
                     }
@@ -1156,7 +1157,7 @@ class CardGridCell extends GridCell<CardElement> {
         if (dac == null || dac.getCollections() == null) return null;
         for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
             if (tc == null) continue;
-            if (outer.sanitizeDisplayName(tc.getName()).equals(displayName)) return tc;
+            if (CardNameUtils.sanitize(tc.getName()).equals(displayName)) return tc;
         }
         return null;
     }
@@ -1166,7 +1167,7 @@ class CardGridCell extends GridCell<CardElement> {
         if (dac == null || dac.getDecks() == null) return null;
         for (Model.CardsLists.Deck d : dac.getDecks()) {
             if (d == null) continue;
-            if (outer.sanitizeDisplayName(d.getName()).equals(displayName)) return d;
+            if (CardNameUtils.sanitize(d.getName()).equals(displayName)) return d;
         }
         return null;
     }
@@ -1178,7 +1179,7 @@ class CardGridCell extends GridCell<CardElement> {
             if (unit == null) continue;
             for (Model.CardsLists.Deck d : unit) {
                 if (d == null) continue;
-                if (outer.sanitizeDisplayName(d.getName()).equals(displayName)) return d;
+                if (CardNameUtils.sanitize(d.getName()).equals(displayName)) return d;
             }
         }
         return null;
