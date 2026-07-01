@@ -58,12 +58,20 @@ public final class CardQualityService {
     }
 
     /**
+     * Compares a {@link Model.CardsLists.CardElement} against a {@link Model.CardsLists.Card},
+     * delegating to {@link #cardsMatch}. Used throughout the card-sorting logic in this class.
+     */
+    private static final BiPredicate<Model.CardsLists.CardElement, Model.CardsLists.Card> ELEMENT_MATCHES_CARD =
+            (cardElement, referenceCard) -> cardElement != null
+                    && cardsMatch(referenceCard, cardElement.getCard());
+
+    /**
      * Builds the normalized-type-name → predicate map used by {@link #computeCardNeedsSorting}
      * to recognise category names (monster subtypes, spell/trap subtypes, both French and
      * English) and check whether a given card belongs to that category.
      *
      * @param normalizer the same name-normalization function used by the caller, so map keys
-     *                   and lookup keys are normalized identically
+     *                    and lookup keys are normalized identically
      * @return the populated type-name → predicate map
      */
     private static Map<String, Predicate<Model.CardsLists.Card>> buildTypePredicates(
@@ -168,6 +176,222 @@ public final class CardQualityService {
     // -----------------------------------------------------------------------
 
     /**
+     * Section 1 of {@link #computeCardNeedsSorting}: checks whether {@code normalizedElement}
+     * names a {@link Model.CardsLists.ThemeCollection} and, if so, whether {@code card} is
+     * already accounted for in that collection's definition (cardsList) or in any of its
+     * linked decks.
+     *
+     * <p>Operates non-destructively: any "removal" used to detect an already-accounted-for
+     * copy happens on local copies of the lists, never on the live collection/deck lists.</p>
+     *
+     * @param card              the card being checked
+     * @param normalizedElement the normalized element/category name being matched against
+     * @param decksList         the loaded decks/collections list, or {@code null}
+     * @param alreadyConsidered names already matched so far in this call; mutated by this
+     *                          method as collections/linked-deck names are matched, so later
+     *                          sections (type-category, default) don't double-count them
+     * @return {@code true} (needs sorting) or {@code false} (sorted) the moment a matching
+     * named collection resolves the question, or {@code null} if no collection with this
+     * name accounted for the card at all (caller should fall through to the next section)
+     */
+    private static Boolean checkNamedCollectionMatch(
+            Model.CardsLists.Card card,
+            String normalizedElement,
+            Model.CardsLists.DecksAndCollectionsList decksList,
+            Set<String> alreadyConsidered) {
+        if (decksList == null || decksList.getCollections() == null) {
+            return null;
+        }
+
+        for (Model.CardsLists.ThemeCollection collection : decksList.getCollections()) {
+            if (collection == null || collection.getName() == null) {
+                continue;
+            }
+            String collectionName = Normalizer.normalize(collection.getName(), Normalizer.Form.NFD)
+                    .replaceAll("\\p{M}", "").trim().toLowerCase(Locale.ROOT);
+            if (!collectionName.equals(normalizedElement)) {
+                continue;
+            }
+
+            // Mark as considered
+            alreadyConsidered.add(collectionName);
+
+            // Work on a local copy of the collection's cardsList (non-destructive)
+            List<Model.CardsLists.CardElement> collCardsOrig = collection.getCardsList();
+            List<Model.CardsLists.CardElement> collCards = collCardsOrig == null
+                    ? new ArrayList<>()
+                    : new ArrayList<>(collCardsOrig);
+
+            // Search the collection's cardsList (but NOT exceptionsToNotAdd nor archetypes)
+            Model.CardsLists.CardElement matchedElement = null;
+            for (Model.CardsLists.CardElement collElement : collCards) {
+                if (ELEMENT_MATCHES_CARD.test(collElement, card)) {
+                    matchedElement = collElement;
+                    break;
+                }
+            }
+
+            if (matchedElement != null) {
+                // If dontRemove == true: consider sorted — unless the owned card is a quality upgrade
+                Boolean dontRemove = matchedElement.getDontRemove() == null
+                        ? false
+                        : matchedElement.getDontRemove();
+                if (dontRemove) {
+                    // Still mark as needing sorting when the owned card has better condition or
+                    // satisfies the expected rarity that the existing copy does not.
+                    // We need a CardElement for the owned card to compare; here `card` is just a Card,
+                    // so we rely on the caller (CardTreeCell) to do the full check via
+                    // computeCardNeedsSortingWithUpgrade.  From computeCardNeedsSorting itself we
+                    // conservatively return sorted (false) — upgrade detection is done at the
+                    // context-menu level where the CardElement is available.
+                    return false; // sorted
+                }
+
+                // dontRemove == false: we consider the card sorted for the collection,
+                // but we must also analyze the linked decks and remove one occurrence per deck in each unit.
+                // Operate on temporary copies of each deck's lists (non-destructive).
+                if (collection.getLinkedDecks() != null) {
+                    for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
+                        if (unit == null) {
+                            continue;
+                        }
+                        for (Model.CardsLists.Deck deck : unit) {
+                            if (deck == null) {
+                                continue;
+                            }
+                            // Create shallow copies of the deck lists
+                            List<Model.CardsLists.CardElement> mainDeck = deck.getMainDeck() == null
+                                    ? new ArrayList<>()
+                                    : new ArrayList<>(deck.getMainDeck());
+                            List<Model.CardsLists.CardElement> extraDeck = deck.getExtraDeck() == null
+                                    ? new ArrayList<>()
+                                    : new ArrayList<>(deck.getExtraDeck());
+                            List<Model.CardsLists.CardElement> sideDeck = deck.getSideDeck() == null
+                                    ? new ArrayList<>()
+                                    : new ArrayList<>(deck.getSideDeck());
+
+                            // Remove at most one occurrence per deck (from main, then extra, then side)
+                            removeFirstMatchingFromList(mainDeck, card, ELEMENT_MATCHES_CARD);
+                            removeFirstMatchingFromList(extraDeck, card, ELEMENT_MATCHES_CARD);
+                            removeFirstMatchingFromList(sideDeck, card, ELEMENT_MATCHES_CARD);
+
+                            // Note: we do not write these back to the original deck; this is non-destructive.
+                        }
+                    }
+                }
+
+                // Also mark the collection card as "consumed" in our local copy (non-destructive)
+                removeFirstMatchingFromList(collCards, card, ELEMENT_MATCHES_CARD);
+
+                // After processing collection card + linked decks (non-destructively), consider the card sorted
+                return false;
+            }
+
+            // If not found in collection's cardsList, search the linked decks (non-destructive).
+            boolean removedFromAnyDeck = false;
+            if (collection.getLinkedDecks() != null) {
+                for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
+                    if (unit == null) {
+                        continue;
+                    }
+                    // For each deck in the unit, attempt to remove one occurrence if present (on temp copies)
+                    for (Model.CardsLists.Deck deck : unit) {
+                        if (deck == null) {
+                            continue;
+                        }
+                        List<Model.CardsLists.CardElement> mainDeck = deck.getMainDeck() == null
+                                ? new ArrayList<>()
+                                : new ArrayList<>(deck.getMainDeck());
+                        List<Model.CardsLists.CardElement> extraDeck = deck.getExtraDeck() == null
+                                ? new ArrayList<>()
+                                : new ArrayList<>(deck.getExtraDeck());
+                        List<Model.CardsLists.CardElement> sideDeck = deck.getSideDeck() == null
+                                ? new ArrayList<>()
+                                : new ArrayList<>(deck.getSideDeck());
+
+                        boolean removed = removeFirstMatchingFromList(mainDeck, card, ELEMENT_MATCHES_CARD)
+                                || removeFirstMatchingFromList(extraDeck, card, ELEMENT_MATCHES_CARD)
+                                || removeFirstMatchingFromList(sideDeck, card, ELEMENT_MATCHES_CARD);
+
+                        if (removed) {
+                            removedFromAnyDeck = true;
+                        }
+                        // continue checking other decks in the same unit (we remove at most one per deck)
+                    }
+                }
+            }
+
+            if (removedFromAnyDeck) {
+                // We found and "removed" at least one occurrence in linked decks (non-destructively) -> sorted
+                return false;
+            }
+
+            // No match in this collection's cards nor linked decks -> keep checking other collections
+        }
+        return null;
+    }
+
+    /**
+     * Section 2 of {@link #computeCardNeedsSorting}: checks whether {@code normalizedElement}
+     * names a standalone {@link Model.CardsLists.Deck} and, if so, whether {@code card} is
+     * already present in any of that deck's sections (main/extra/side).
+     *
+     * <p>Operates non-destructively, on local copies of the deck's lists.</p>
+     *
+     * @param card              the card being checked
+     * @param normalizedElement the normalized element/category name being matched against
+     * @param decksList         the loaded decks/collections list, or {@code null}
+     * @param alreadyConsidered names already matched so far in this call; mutated by this
+     *                          method when a matching deck is found
+     * @return {@code true} (needs sorting) or {@code false} (sorted) the moment a deck with
+     * this name is found, or {@code null} if no standalone deck has this name at all
+     * (caller should fall through to the next section)
+     */
+    private static Boolean checkNamedDeckMatch(
+            Model.CardsLists.Card card,
+            String normalizedElement,
+            Model.CardsLists.DecksAndCollectionsList decksList,
+            Set<String> alreadyConsidered) {
+        if (decksList == null || decksList.getDecks() == null) {
+            return null;
+        }
+
+        for (Model.CardsLists.Deck deck : decksList.getDecks()) {
+            if (deck == null || deck.getName() == null) {
+                continue;
+            }
+            String deckName = Normalizer.normalize(deck.getName(), Normalizer.Form.NFD)
+                    .replaceAll("\\p{M}", "").trim().toLowerCase(Locale.ROOT);
+            if (!deckName.equals(normalizedElement)) {
+                continue;
+            }
+
+            // Mark as considered
+            alreadyConsidered.add(deckName);
+
+            // Work on shallow copies of the lists so we don't mutate the real deck
+            List<Model.CardsLists.CardElement> mainDeck = deck.getMainDeck() == null
+                    ? new ArrayList<>()
+                    : new ArrayList<>(deck.getMainDeck());
+            List<Model.CardsLists.CardElement> extraDeck = deck.getExtraDeck() == null
+                    ? new ArrayList<>()
+                    : new ArrayList<>(deck.getExtraDeck());
+            List<Model.CardsLists.CardElement> sideDeck = deck.getSideDeck() == null
+                    ? new ArrayList<>()
+                    : new ArrayList<>(deck.getSideDeck());
+
+            boolean removed = removeFirstMatchingFromList(mainDeck, card, ELEMENT_MATCHES_CARD)
+                    || removeFirstMatchingFromList(extraDeck, card, ELEMENT_MATCHES_CARD)
+                    || removeFirstMatchingFromList(sideDeck, card, ELEMENT_MATCHES_CARD);
+
+            // Found in the deck matched by name (non-destructive removal) -> sorted;
+            // deck matched by name but card not found -> unsorted
+            return !removed;
+        }
+        return null;
+    }
+
+    /**
      * computeCardNeedsSorting (non-destructive version)
      *
      * <p>Same semantics as the previous implementation, but strictly non-destructive:
@@ -202,446 +426,254 @@ public final class CardQualityService {
                 }
             }
 
-            // Helper: compare a CardElement to the Card, delegating to the shared
-            // cardsMatch comparison (printCode when both sides have one, else passCode).
-            BiPredicate<Model.CardsLists.CardElement, Model.CardsLists.Card> matches =
-                    (cardElement, referenceCard) -> cardElement != null
-                            && cardsMatch(referenceCard, cardElement.getCard());
-
-            // -------------------------
-            // 1) Collections with same name (non-destructive)
-            // -------------------------
-            if (decksList != null && decksList.getCollections() != null) {
-                for (Model.CardsLists.ThemeCollection collection : decksList.getCollections()) {
-                    if (collection == null || collection.getName() == null) {
-                        continue;
-                    }
-                    String collectionName = Normalizer.normalize(collection.getName(), Normalizer.Form.NFD)
-                            .replaceAll("\\p{M}", "").trim().toLowerCase(Locale.ROOT);
-                    if (!collectionName.equals(normalizedElement)) {
-                        continue;
-                    }
-
-                    // Mark as considered
-                    alreadyConsidered.add(collectionName);
-
-                    // Work on a local copy of the collection's cardsList (non-destructive)
-                    List<Model.CardsLists.CardElement> collCardsOrig = collection.getCardsList();
-                    List<Model.CardsLists.CardElement> collCards = collCardsOrig == null
-                            ? new ArrayList<>()
-                            : new ArrayList<>(collCardsOrig);
-
-                    // Search the collection's cardsList (but NOT exceptionsToNotAdd nor archetypes)
-                    Model.CardsLists.CardElement matchedElement = null;
-                    for (Model.CardsLists.CardElement collElement : collCards) {
-                        if (matches.test(collElement, card)) {
-                            matchedElement = collElement;
-                            break;
-                        }
-                    }
-
-                    if (matchedElement != null) {
-                        // If dontRemove == true: consider sorted — unless the owned card is a quality upgrade
-                        Boolean dontRemove = matchedElement.getDontRemove() == null
-                                ? false
-                                : matchedElement.getDontRemove();
-                        if (dontRemove) {
-                            // Still mark as needing sorting when the owned card has better condition or
-                            // satisfies the expected rarity that the existing copy does not.
-                            // We need a CardElement for the owned card to compare; here `card` is just a Card,
-                            // so we rely on the caller (CardTreeCell) to do the full check via
-                            // computeCardNeedsSortingWithUpgrade.  From computeCardNeedsSorting itself we
-                            // conservatively return sorted (false) — upgrade detection is done at the
-                            // context-menu level where the CardElement is available.
-                            return false; // sorted
-                        }
-
-                        // dontRemove == false: we consider the card sorted for the collection,
-                        // but we must also analyze the linked decks and remove one occurrence per deck in each unit.
-                        // Operate on temporary copies of each deck's lists (non-destructive).
-                        if (collection.getLinkedDecks() != null) {
-                            for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
-                                if (unit == null) {
-                                    continue;
-                                }
-                                for (Model.CardsLists.Deck deck : unit) {
-                                    if (deck == null) {
-                                        continue;
-                                    }
-                                    // Create shallow copies of the deck lists
-                                    List<Model.CardsLists.CardElement> mainDeck = deck.getMainDeck() == null
-                                            ? new ArrayList<>()
-                                            : new ArrayList<>(deck.getMainDeck());
-                                    List<Model.CardsLists.CardElement> extraDeck = deck.getExtraDeck() == null
-                                            ? new ArrayList<>()
-                                            : new ArrayList<>(deck.getExtraDeck());
-                                    List<Model.CardsLists.CardElement> sideDeck = deck.getSideDeck() == null
-                                            ? new ArrayList<>()
-                                            : new ArrayList<>(deck.getSideDeck());
-
-                                    // Remove at most one occurrence per deck (from main, then extra, then side)
-                                    removeFirstMatchingFromList(mainDeck, card, matches);
-                                    removeFirstMatchingFromList(extraDeck, card, matches);
-                                    removeFirstMatchingFromList(sideDeck, card, matches);
-
-                                    // Note: we do not write these back to the original deck; this is non-destructive.
-                                }
-                            }
-                        }
-
-                        // Also mark the collection card as "consumed" in our local copy (non-destructive)
-                        removeFirstMatchingFromList(collCards, card, matches);
-
-                        // After processing collection card + linked decks (non-destructively), consider the card sorted
-                        return false;
-                    }
-
-                    // If not found in collection's cardsList, search the linked decks (non-destructive).
-                    boolean removedFromAnyDeck = false;
-                    if (collection.getLinkedDecks() != null) {
-                        for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
-                            if (unit == null) {
-                                continue;
-                            }
-                            // For each deck in the unit, attempt to remove one occurrence if present (on temp copies)
-                            for (Model.CardsLists.Deck deck : unit) {
-                                if (deck == null) {
-                                    continue;
-                                }
-                                List<Model.CardsLists.CardElement> mainDeck = deck.getMainDeck() == null
-                                        ? new ArrayList<>()
-                                        : new ArrayList<>(deck.getMainDeck());
-                                List<Model.CardsLists.CardElement> extraDeck = deck.getExtraDeck() == null
-                                        ? new ArrayList<>()
-                                        : new ArrayList<>(deck.getExtraDeck());
-                                List<Model.CardsLists.CardElement> sideDeck = deck.getSideDeck() == null
-                                        ? new ArrayList<>()
-                                        : new ArrayList<>(deck.getSideDeck());
-
-                                boolean removed = removeFirstMatchingFromList(mainDeck, card, matches)
-                                        || removeFirstMatchingFromList(extraDeck, card, matches)
-                                        || removeFirstMatchingFromList(sideDeck, card, matches);
-
-                                if (removed) {
-                                    removedFromAnyDeck = true;
-                                }
-                                // continue checking other decks in the same unit (we remove at most one per deck)
-                            }
-                        }
-                    }
-
-                    if (removedFromAnyDeck) {
-                        // We found and "removed" at least one occurrence in linked decks (non-destructively) -> sorted
-                        return false;
-                    }
-
-                    // No match in collection cards nor linked decks -> continue to other checks
-                }
+            Boolean collectionResult = checkNamedCollectionMatch(card, normalizedElement, decksList, alreadyConsidered);
+            if (collectionResult != null) {
+                return collectionResult;
             }
 
-            // -------------------------
-            // 2) Deck (loose deck) with same name (non-destructive)
-            // -------------------------
-            if (decksList != null && decksList.getDecks() != null) {
-                for (Model.CardsLists.Deck deck : decksList.getDecks()) {
-                    if (deck == null || deck.getName() == null) {
-                        continue;
-                    }
-                    String deckName = Normalizer.normalize(deck.getName(), Normalizer.Form.NFD)
-                            .replaceAll("\\p{M}", "").trim().toLowerCase(Locale.ROOT);
-                    if (!deckName.equals(normalizedElement)) {
-                        continue;
-                    }
-
-                    // Mark as considered
-                    alreadyConsidered.add(deckName);
-
-                    // Work on shallow copies of the lists so we don't mutate the real deck
-                    List<Model.CardsLists.CardElement> mainDeck = deck.getMainDeck() == null
-                            ? new ArrayList<>()
-                            : new ArrayList<>(deck.getMainDeck());
-                    List<Model.CardsLists.CardElement> extraDeck = deck.getExtraDeck() == null
-                            ? new ArrayList<>()
-                            : new ArrayList<>(deck.getExtraDeck());
-                    List<Model.CardsLists.CardElement> sideDeck = deck.getSideDeck() == null
-                            ? new ArrayList<>()
-                            : new ArrayList<>(deck.getSideDeck());
-
-                    boolean removed = removeFirstMatchingFromList(mainDeck, card, matches)
-                            || removeFirstMatchingFromList(extraDeck, card, matches)
-                            || removeFirstMatchingFromList(sideDeck, card, matches);
-
-                    if (removed) {
-                        // Found in the deck matched by name (non-destructive removal) -> sorted
-                        return false;
-                    } else {
-                        // Deck matched by name but card not found -> unsorted
-                        return true;
-                    }
-                }
+            Boolean deckResult = checkNamedDeckMatch(card, normalizedElement, decksList, alreadyConsidered);
+            if (deckResult != null) {
+                return deckResult;
             }
 
             // -------------------------
             // 3) Type-name matching step
             // -------------------------
-            // Build a map of normalized type names -> predicate that checks whether a Card matches that type.
-            // Include both French and English names (normalized).
             Function<String, String> normalizer = s -> s == null ? "" :
                     Normalizer.normalize(s, Normalizer.Form.NFD)
                             .replaceAll("\\p{M}", "").trim().toLowerCase(Locale.ROOT);
 
             Map<String, Predicate<Model.CardsLists.Card>> typePredicates = buildTypePredicates(normalizer);
 
-            // If element name corresponds to a known type, apply the logic described
             if (typePredicates.containsKey(normalizedElement)) {
-                Predicate<Model.CardsLists.Card> predicate = typePredicates.get(normalizedElement);
-                boolean matchesType = predicate != null && predicate.test(card);
-
-                if (!matchesType) {
-                    // Card does not match the expected type of this category → it is misplaced
-                    // and should be marked as needing sorting.
-                    return true;
-                }
-
-                // Card matches the type.
-                // A deck "needs" this card if its definition contains an entry matching this card.
-                // If found → the owned copy is already accounted for → sorted (false).
-                // If a deck contains an entry for the same card AND the owned copy is not yet there →
-                // that is handled by sections 1 & 2 (name-based matching).  Here we just check
-                // whether the specific card is listed in any deck/collection definition at all.
-
-                // Helper to search a deck's lists for a match (non-destructive check)
-                Predicate<Model.CardsLists.Deck> deckNeedsThisCard = candidateDeck -> {
-                    if (candidateDeck == null) {
-                        return false;
-                    }
-                    List<Model.CardsLists.CardElement> mainDeck = candidateDeck.getMainDeck();
-                    if (mainDeck != null) {
-                        for (Model.CardsLists.CardElement cardElement : mainDeck) {
-                            if (matches.test(cardElement, card)) {
-                                return true;
-                            }
-                        }
-                    }
-                    List<Model.CardsLists.CardElement> extraDeck = candidateDeck.getExtraDeck();
-                    if (extraDeck != null) {
-                        for (Model.CardsLists.CardElement cardElement : extraDeck) {
-                            if (matches.test(cardElement, card)) {
-                                return true;
-                            }
-                        }
-                    }
-                    List<Model.CardsLists.CardElement> sideDeck = candidateDeck.getSideDeck();
-                    if (sideDeck != null) {
-                        for (Model.CardsLists.CardElement cardElement : sideDeck) {
-                            if (matches.test(cardElement, card)) {
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
-                };
-
-                // Load the owned collection once for placed-copy counts.
-                // Only return true when required copies exceed already-placed copies.
-                // If the slot is already fully filled, computeCardNeedsSortingWithUpgrade
-                // handles the upgrade-candidate check (reason 3) separately.
-                Model.CardsLists.OwnedCardsCollection ownedForSection3 = null;
+                Model.CardsLists.OwnedCardsCollection ownedCollection = null;
                 try {
-                    ownedForSection3 = Model.CardsLists.OuicheList.getMyCardsCollection();
+                    ownedCollection = Model.CardsLists.OuicheList.getMyCardsCollection();
                 } catch (Exception ignored) {
                 }
-                final Model.CardsLists.OwnedCardsCollection ownedSection3 = ownedForSection3;
-
-                // Search collections (cardsList + linked decks), skipping alreadyConsidered.
-                if (decksList != null && decksList.getCollections() != null) {
-                    for (Model.CardsLists.ThemeCollection collection : decksList.getCollections()) {
-                        if (collection == null || collection.getName() == null) {
-                            continue;
-                        }
-                        String collectionName = normalizer.apply(collection.getName());
-                        if (alreadyConsidered.contains(collectionName)) {
-                            continue;
-                        }
-
-                        // Check collection's own card list.
-                        List<Model.CardsLists.CardElement> collCards = collection.getCardsList();
-                        List<Model.CardsLists.CardElement> collDefinitionMatches =
-                                collectMatchingElementsInList(collCards, card);
-                        if (!collDefinitionMatches.isEmpty()) {
-                            int requiredCount = collDefinitionMatches.size();
-                            int placedCount = ownedSection3 == null ? 0
-                                    : collectPlacedCopies(
-                                    ownedSection3, collection.getName(), card, normalizer)
-                                    .size();
-                            if (requiredCount > placedCount) {
-                                return true;
-                            }
-                            // Fully sorted — mark considered so linked decks don't double-count.
-                            alreadyConsidered.add(collectionName);
-                        }
-
-                        // Check every linked deck.
-                        if (collection.getLinkedDecks() != null) {
-                            for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
-                                if (unit == null) {
-                                    continue;
-                                }
-                                for (Model.CardsLists.Deck deck : unit) {
-                                    if (deck == null) {
-                                        continue;
-                                    }
-                                    String deckName = deck.getName() == null
-                                            ? ""
-                                            : normalizer.apply(deck.getName());
-                                    if (alreadyConsidered.contains(deckName)) {
-                                        continue;
-                                    }
-                                    int requiredTotal =
-                                            collectMatchingElementsInList(deck.getMainDeck(), card).size()
-                                                    + collectMatchingElementsInList(deck.getExtraDeck(), card).size()
-                                                    + collectMatchingElementsInList(deck.getSideDeck(), card).size();
-                                    if (requiredTotal > 0) {
-                                        int placedCount = ownedSection3 == null ? 0
-                                                : collectPlacedCopies(
-                                                ownedSection3, deck.getName(), card, normalizer)
-                                                .size();
-                                        if (requiredTotal > placedCount) {
-                                            return true;
-                                        }
-                                        alreadyConsidered.add(deckName);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Search loose decks.
-                if (decksList != null && decksList.getDecks() != null) {
-                    for (Model.CardsLists.Deck deck : decksList.getDecks()) {
-                        if (deck == null || deck.getName() == null) {
-                            continue;
-                        }
-                        String deckName = normalizer.apply(deck.getName());
-                        if (alreadyConsidered.contains(deckName)) {
-                            continue;
-                        }
-                        int requiredTotal =
-                                collectMatchingElementsInList(deck.getMainDeck(), card).size()
-                                        + collectMatchingElementsInList(deck.getExtraDeck(), card).size()
-                                        + collectMatchingElementsInList(deck.getSideDeck(), card).size();
-                        if (requiredTotal > 0) {
-                            int placedCount = ownedSection3 == null ? 0
-                                    : collectPlacedCopies(
-                                    ownedSection3, deck.getName(), card, normalizer).size();
-                            if (requiredTotal > placedCount) {
-                                return true;
-                            }
-                        }
-                    }
-                }
-
-                // Card matches the type but no deck/collection definition lists this specific card
-                // → nothing to sort it into → not unsorted
-                return false;
+                return checkTypeCategoryMatch(card, normalizedElement, decksList,
+                        alreadyConsidered, normalizer, typePredicates, ownedCollection);
             }
 
+            // -------------------------
             // 4) Default: element name did not match any known type.
-            // Still check whether any D&C genuinely needs this card and has unfilled
-            // placed copies before marking it as needing sorting.  If all D&C slots
-            // are already filled (or no D&C needs this card at all) we return false so
-            // that computeCardNeedsSortingWithUpgrade can evaluate the upgrade-candidate
-            // case without being blocked by a spurious true here.
+            // -------------------------
+            Model.CardsLists.OwnedCardsCollection ownedCollection = null;
             try {
-                Model.CardsLists.OwnedCardsCollection ownedForDefault =
-                        Model.CardsLists.OuicheList.getMyCardsCollection();
-
-                if (decksList != null && decksList.getCollections() != null) {
-                    for (Model.CardsLists.ThemeCollection collection : decksList.getCollections()) {
-                        if (collection == null || collection.getName() == null) {
-                            continue;
-                        }
-                        if (alreadyConsidered.contains(normalizer.apply(collection.getName()))) {
-                            continue;
-                        }
-
-                        List<Model.CardsLists.CardElement> collDefinitionMatches =
-                                collectMatchingElementsInList(collection.getCardsList(), card);
-                        if (!collDefinitionMatches.isEmpty()) {
-                            int requiredCount = collDefinitionMatches.size();
-                            int placedCount = ownedForDefault == null ? 0
-                                    : collectPlacedCopies(
-                                    ownedForDefault, collection.getName(), card,
-                                    normalizer).size();
-                            if (requiredCount > placedCount) {
-                                return true;
-                            }
-                        }
-
-                        if (collection.getLinkedDecks() != null) {
-                            for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
-                                if (unit == null) {
-                                    continue;
-                                }
-                                for (Model.CardsLists.Deck deck : unit) {
-                                    if (deck == null || deck.getName() == null) {
-                                        continue;
-                                    }
-                                    if (alreadyConsidered.contains(
-                                            normalizer.apply(deck.getName()))) {
-                                        continue;
-                                    }
-                                    int requiredTotal =
-                                            collectMatchingElementsInList(deck.getMainDeck(), card).size()
-                                                    + collectMatchingElementsInList(deck.getExtraDeck(), card).size()
-                                                    + collectMatchingElementsInList(deck.getSideDeck(), card).size();
-                                    if (requiredTotal > 0) {
-                                        int placedCount = ownedForDefault == null ? 0
-                                                : collectPlacedCopies(
-                                                ownedForDefault, deck.getName(), card,
-                                                normalizer).size();
-                                        if (requiredTotal > placedCount) {
-                                            return true;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (decksList != null && decksList.getDecks() != null) {
-                    for (Model.CardsLists.Deck deck : decksList.getDecks()) {
-                        if (deck == null || deck.getName() == null) {
-                            continue;
-                        }
-                        if (alreadyConsidered.contains(normalizer.apply(deck.getName()))) {
-                            continue;
-                        }
-                        int requiredTotal =
-                                collectMatchingElementsInList(deck.getMainDeck(), card).size()
-                                        + collectMatchingElementsInList(deck.getExtraDeck(), card).size()
-                                        + collectMatchingElementsInList(deck.getSideDeck(), card).size();
-                        if (requiredTotal > 0) {
-                            int placedCount = ownedForDefault == null ? 0
-                                    : collectPlacedCopies(
-                                    ownedForDefault, deck.getName(), card,
-                                    normalizer).size();
-                            if (requiredTotal > placedCount) {
-                                return true;
-                            }
-                        }
-                    }
-                }
+                ownedCollection = Model.CardsLists.OuicheList.getMyCardsCollection();
             } catch (Exception ignored) {
             }
-            return false;
+            return checkDefaultCoverageMatch(card, decksList, alreadyConsidered, normalizer, ownedCollection);
+
         } catch (Exception ex) {
             // On unexpected error, be conservative and return false (do not mark as unsorted)
             logger.debug("computeCardNeedsSorting failed for element '{}': {}", elementName, ex.toString());
             return false;
         }
+    }
+
+    /**
+     * Section 3 of {@link #computeCardNeedsSorting}: the element name is a recognised
+     * card-type category (e.g. "Dragon", "Monstres Fusion", "Magies Continues"). Returns
+     * {@code true} (needs sorting) when the card doesn't belong to that type, or when any
+     * deck/collection that lists this card still has unfilled placed copies. Returns
+     * {@code false} (sorted) when the card's type matches but no deck needs it, or all
+     * that do are already fully filled.
+     *
+     * @param ownedCollection the user's owned collection (for placed-copy counts), or
+     *                        {@code null} if unavailable
+     */
+    private static boolean checkTypeCategoryMatch(
+            Model.CardsLists.Card card,
+            String normalizedElement,
+            Model.CardsLists.DecksAndCollectionsList decksList,
+            Set<String> alreadyConsidered,
+            Function<String, String> normalizer,
+            Map<String, Predicate<Model.CardsLists.Card>> typePredicates,
+            Model.CardsLists.OwnedCardsCollection ownedCollection) {
+        Predicate<Model.CardsLists.Card> predicate = typePredicates.get(normalizedElement);
+        boolean matchesType = predicate != null && predicate.test(card);
+
+        if (!matchesType) {
+            // Card does not match the expected type of this category → misplaced → needs sorting.
+            return true;
+        }
+
+        // Card matches the type. Search every collection (cardsList + linked decks) and every
+        // loose deck, skipping ones already accounted for by sections 1/2, to find whether any
+        // deck/collection definition still has an unfilled slot for this card.
+        if (decksList != null && decksList.getCollections() != null) {
+            for (Model.CardsLists.ThemeCollection collection : decksList.getCollections()) {
+                if (collection == null || collection.getName() == null) {
+                    continue;
+                }
+                String collectionName = normalizer.apply(collection.getName());
+                if (alreadyConsidered.contains(collectionName)) {
+                    continue;
+                }
+
+                List<Model.CardsLists.CardElement> collDefinitionMatches =
+                        collectMatchingElementsInList(collection.getCardsList(), card);
+                if (!collDefinitionMatches.isEmpty()) {
+                    int requiredCount = collDefinitionMatches.size();
+                    int placedCount = ownedCollection == null ? 0
+                            : collectPlacedCopies(ownedCollection, collection.getName(), card, normalizer).size();
+                    if (requiredCount > placedCount) {
+                        return true;
+                    }
+                    // Fully filled — mark considered so linked decks don't double-count.
+                    alreadyConsidered.add(collectionName);
+                }
+
+                if (collection.getLinkedDecks() != null) {
+                    for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
+                        if (unit == null) {
+                            continue;
+                        }
+                        for (Model.CardsLists.Deck deck : unit) {
+                            if (deck == null) {
+                                continue;
+                            }
+                            String deckName = deck.getName() == null ? "" : normalizer.apply(deck.getName());
+                            if (alreadyConsidered.contains(deckName)) {
+                                continue;
+                            }
+                            int requiredTotal =
+                                    collectMatchingElementsInList(deck.getMainDeck(), card).size()
+                                            + collectMatchingElementsInList(deck.getExtraDeck(), card).size()
+                                            + collectMatchingElementsInList(deck.getSideDeck(), card).size();
+                            if (requiredTotal > 0) {
+                                int placedCount = ownedCollection == null ? 0
+                                        : collectPlacedCopies(ownedCollection, deck.getName(), card, normalizer).size();
+                                if (requiredTotal > placedCount) {
+                                    return true;
+                                }
+                                alreadyConsidered.add(deckName);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (decksList != null && decksList.getDecks() != null) {
+            for (Model.CardsLists.Deck deck : decksList.getDecks()) {
+                if (deck == null || deck.getName() == null) {
+                    continue;
+                }
+                String deckName = normalizer.apply(deck.getName());
+                if (alreadyConsidered.contains(deckName)) {
+                    continue;
+                }
+                int requiredTotal =
+                        collectMatchingElementsInList(deck.getMainDeck(), card).size()
+                                + collectMatchingElementsInList(deck.getExtraDeck(), card).size()
+                                + collectMatchingElementsInList(deck.getSideDeck(), card).size();
+                if (requiredTotal > 0) {
+                    int placedCount = ownedCollection == null ? 0
+                            : collectPlacedCopies(ownedCollection, deck.getName(), card, normalizer).size();
+                    if (requiredTotal > placedCount) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Card matches the type but no deck/collection definition lists this specific card
+        // → nothing to sort it into → considered sorted.
+        return false;
+    }
+
+    /**
+     * Section 4 of {@link #computeCardNeedsSorting}: the element name didn't match any
+     * named collection, named deck, or recognised type category. Before giving up and
+     * returning {@code false} (sorted), we scan every D&amp;C that lists this card for
+     * unfilled placed copies. This prevents a spurious {@code false} that would block
+     * {@link #computeCardNeedsSortingWithUpgrade} from evaluating the upgrade-candidate
+     * case.
+     *
+     * @param ownedCollection the user's owned collection (for placed-copy counts), or
+     *                        {@code null} if unavailable
+     * @return {@code true} when any D&amp;C has unfilled slots for this card, {@code false}
+     * when all slots are filled (or no D&amp;C lists this card at all)
+     */
+    private static boolean checkDefaultCoverageMatch(
+            Model.CardsLists.Card card,
+            Model.CardsLists.DecksAndCollectionsList decksList,
+            Set<String> alreadyConsidered,
+            Function<String, String> normalizer,
+            Model.CardsLists.OwnedCardsCollection ownedCollection) {
+        if (decksList != null && decksList.getCollections() != null) {
+            for (Model.CardsLists.ThemeCollection collection : decksList.getCollections()) {
+                if (collection == null || collection.getName() == null) {
+                    continue;
+                }
+                if (alreadyConsidered.contains(normalizer.apply(collection.getName()))) {
+                    continue;
+                }
+
+                List<Model.CardsLists.CardElement> collDefinitionMatches =
+                        collectMatchingElementsInList(collection.getCardsList(), card);
+                if (!collDefinitionMatches.isEmpty()) {
+                    int requiredCount = collDefinitionMatches.size();
+                    int placedCount = ownedCollection == null ? 0
+                            : collectPlacedCopies(ownedCollection, collection.getName(), card, normalizer).size();
+                    if (requiredCount > placedCount) {
+                        return true;
+                    }
+                }
+
+                if (collection.getLinkedDecks() != null) {
+                    for (List<Model.CardsLists.Deck> unit : collection.getLinkedDecks()) {
+                        if (unit == null) {
+                            continue;
+                        }
+                        for (Model.CardsLists.Deck deck : unit) {
+                            if (deck == null || deck.getName() == null) {
+                                continue;
+                            }
+                            if (alreadyConsidered.contains(normalizer.apply(deck.getName()))) {
+                                continue;
+                            }
+                            int requiredTotal =
+                                    collectMatchingElementsInList(deck.getMainDeck(), card).size()
+                                            + collectMatchingElementsInList(deck.getExtraDeck(), card).size()
+                                            + collectMatchingElementsInList(deck.getSideDeck(), card).size();
+                            if (requiredTotal > 0) {
+                                int placedCount = ownedCollection == null ? 0
+                                        : collectPlacedCopies(ownedCollection, deck.getName(), card, normalizer).size();
+                                if (requiredTotal > placedCount) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (decksList != null && decksList.getDecks() != null) {
+            for (Model.CardsLists.Deck deck : decksList.getDecks()) {
+                if (deck == null || deck.getName() == null) {
+                    continue;
+                }
+                if (alreadyConsidered.contains(normalizer.apply(deck.getName()))) {
+                    continue;
+                }
+                int requiredTotal =
+                        collectMatchingElementsInList(deck.getMainDeck(), card).size()
+                                + collectMatchingElementsInList(deck.getExtraDeck(), card).size()
+                                + collectMatchingElementsInList(deck.getSideDeck(), card).size();
+                if (requiredTotal > 0) {
+                    int placedCount = ownedCollection == null ? 0
+                            : collectPlacedCopies(ownedCollection, deck.getName(), card, normalizer).size();
+                    if (requiredTotal > placedCount) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**
