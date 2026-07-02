@@ -27,7 +27,6 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 import static Model.CardsLists.OuicheList.*;
 import static Model.CardsLists.SubListCreator.*;
@@ -64,9 +63,11 @@ public class UserInterfaceFunctions {
 
     private static final Logger logger = LoggerFactory.getLogger(UserInterfaceFunctions.class);
 
-    private static final CopyOnWriteArrayList<Runnable> explicitRefreshers = new CopyOnWriteArrayList<>();
+    private static final ViewRefresherRegistry explicitRefreshers =
+            new ViewRefresherRegistry("refreshOwnedCollectionView");
 
-    private static final CopyOnWriteArrayList<Runnable> explicitStructureRefreshers = new CopyOnWriteArrayList<>();
+    private static final ViewRefresherRegistry explicitStructureRefreshers =
+            new ViewRefresherRegistry("refreshOwnedCollectionStructure");
     private static Object pendingRenameTarget = null;
 
     private static Object pendingDecksRenameTarget = null;
@@ -375,7 +376,8 @@ public class UserInterfaceFunctions {
     // ── Archetypes refreshers ──────────────────────────────────────────────────
     // Called whenever decks/collections or the owned collection change, because
     // archetype glow states depend on which cards are present in both.
-    private static final CopyOnWriteArrayList<Runnable> explicitArchetypesRefreshers = new CopyOnWriteArrayList<>();
+    private static final ViewRefresherRegistry explicitArchetypesRefreshers =
+            new ViewRefresherRegistry("refreshArchetypesView");
     // ── Decks tree-view refreshers ────────────────────────────────────────────
     // A lightweight tree.refresh() (no model rebuild) called on every model
     // change so that archetype-card glow states inside Collections stay in sync.
@@ -468,31 +470,9 @@ public class UserInterfaceFunctions {
             logger.error("savePathsToFile: failed to write default_folders.txt", exception);
         }
     }
-
-    /**
-     * Plays the Pot of Greed's laugh sound effect.
-     * <p>
-     * The sound effect is loaded from the file "PotOfGreedLaugh.mp3" in the resources
-     * directory. If the file does not exist, the method does nothing.
-     */
-    public static void playLaughSound() {
-        // Load the audio file
-        String audioFilePath;
-        Media media;
-        MediaPlayer mediaPlayer;
-        try { //TODO find a better way to do this without having to put the jar version of the path in a catch
-            audioFilePath = ".\\src\\main\\resources\\PotOfGreedLaugh.mp3";
-            media = new Media(new File(audioFilePath).toURI().toString());
-            mediaPlayer = new MediaPlayer(media);
-        } catch (Exception e) {
-            audioFilePath = "resources\\PotOfGreedLaugh.mp3";
-            media = new Media(new File(audioFilePath).toURI().toString());
-            mediaPlayer = new MediaPlayer(media);
-        }
-
-        // Play the audio
-        mediaPlayer.play();
-    }
+    // ── Decks and Collections refreshers (mirrors the owned-collection pattern) ──
+    private static final ViewRefresherRegistry explicitDecksRefreshers =
+            new ViewRefresherRegistry("refreshDecksAndCollectionsView");
 
     /**
      * Generates the detailed ouiche list in both list and mosaic formats.
@@ -936,22 +916,35 @@ public class UserInterfaceFunctions {
             throw new RuntimeException(exception);
         }
     }
+    // ── OuicheList refreshers ──────────────────────────────────────────────────
+    private static final ViewRefresherRegistry explicitOuicheListRefreshers =
+            new ViewRefresherRegistry("refreshOuicheListView");
+
+    /**
+     * Plays the Pot of Greed's laugh sound effect.
+     * <p>
+     * The sound effect is loaded from the file "PotOfGreedLaugh.mp3" in the resources
+     * directory. If the file does not exist, the method does nothing.
+     */
+    public static void playLaughSound() {
+        String audioFilePath = ".\\src\\main\\resources\\PotOfGreedLaugh.mp3";
+        if (!new File(audioFilePath).exists()) {
+            audioFilePath = "resources\\PotOfGreedLaugh.mp3";
+        }
+        Media media = new Media(new File(audioFilePath).toURI().toString());
+        MediaPlayer mediaPlayer = new MediaPlayer(media);
+
+        // Play the audio
+        mediaPlayer.play();
+    }
 
     /**
      * Register an explicit refresher to be called when the owned-collection view should refresh.
      * Example: OwnedCollectionController can register a lambda that calls its refresh method.
      */
     public static void registerOwnedCollectionRefresher(Runnable refresher) {
-        if (refresher != null) {
-            explicitRefreshers.addIfAbsent(refresher);
-        }
+        explicitRefreshers.register(refresher);
     }
-
-    // ── Decks and Collections refreshers (mirrors the owned-collection pattern) ──
-    private static final CopyOnWriteArrayList<Runnable> explicitDecksRefreshers = new CopyOnWriteArrayList<>();
-
-    // ── OuicheList refreshers ──────────────────────────────────────────────────
-    private static final CopyOnWriteArrayList<Runnable> explicitOuicheListRefreshers = new CopyOnWriteArrayList<>();
 
     /**
      * Registers a callback that is invoked by {@link #refreshOuicheListView()} to
@@ -961,9 +954,7 @@ public class UserInterfaceFunctions {
      * @param refresher the callback to register (ignored if {@code null})
      */
     public static void registerOuicheListRefresher(Runnable refresher) {
-        if (refresher != null) {
-            explicitOuicheListRefreshers.addIfAbsent(refresher);
-        }
+        explicitOuicheListRefreshers.register(refresher);
     }
 
     /**
@@ -972,9 +963,7 @@ public class UserInterfaceFunctions {
      * @param refresher the callback to unregister (ignored if {@code null})
      */
     public static void unregisterOuicheListRefresher(Runnable refresher) {
-        if (refresher != null) {
-            explicitOuicheListRefreshers.remove(refresher);
-        }
+        explicitOuicheListRefreshers.unregister(refresher);
     }
 
     /**
@@ -991,13 +980,7 @@ public class UserInterfaceFunctions {
     }
 
     private static void doRefreshOuicheListView() {
-        for (Runnable refresher : explicitOuicheListRefreshers) {
-            try {
-                refresher.run();
-            } catch (Throwable throwable) {
-                logger.debug("refreshOuicheListView: refresher threw", throwable);
-            }
-        }
+        explicitOuicheListRefreshers.runAll();
     }
 
     /**
@@ -1035,15 +1018,11 @@ public class UserInterfaceFunctions {
     }
 
     public static void registerArchetypesRefresher(Runnable refresher) {
-        if (refresher != null) {
-            explicitArchetypesRefreshers.addIfAbsent(refresher);
-        }
+        explicitArchetypesRefreshers.register(refresher);
     }
 
     public static void unregisterArchetypesRefresher(Runnable refresher) {
-        if (refresher != null) {
-            explicitArchetypesRefreshers.remove(refresher);
-        }
+        explicitArchetypesRefreshers.unregister(refresher);
     }
 
     /**
@@ -1064,19 +1043,11 @@ public class UserInterfaceFunctions {
         // This is a lightweight .refresh() (no model rebuild) and is safe to call
         // at any time without losing selection or scroll position.
         decksTreeRefreshers.runAll();
-        for (Runnable runnable : explicitArchetypesRefreshers) {
-            try {
-                runnable.run();
-            } catch (Throwable throwable) {
-                logger.debug("refreshArchetypesView: refresher threw", throwable);
-            }
-        }
+        explicitArchetypesRefreshers.runAll();
     }
 
     public static void registerDecksCollectionsRefresher(Runnable refresher) {
-        if (refresher != null) {
-            explicitDecksRefreshers.addIfAbsent(refresher);
-        }
+        explicitDecksRefreshers.register(refresher);
     }
 
     public static void refreshDecksAndCollectionsView() {
@@ -1099,22 +1070,14 @@ public class UserInterfaceFunctions {
         // Always request a full tree rebuild so that archetype missing-sets (and
         // therefore archetype-card glow states) recompute from the updated model.
         setPendingDecksFullRebuild();
-        for (Runnable runnable : explicitDecksRefreshers) {
-            try {
-                runnable.run();
-            } catch (Throwable throwable) {
-                logger.debug("refreshDecksAndCollectionsView: refresher threw", throwable);
-            }
-        }
+        explicitDecksRefreshers.runAll();
     }
 
     /**
      * Unregister a previously registered refresher.
      */
     public static void unregisterOwnedCollectionRefresher(Runnable refresher) {
-        if (refresher != null) {
-            explicitRefreshers.remove(refresher);
-        }
+        explicitRefreshers.unregister(refresher);
     }
 
     /**
@@ -1133,17 +1096,8 @@ public class UserInterfaceFunctions {
     private static void doRefreshOwnedCollectionView() {
         try {
             // 1) Call any explicit registered refreshers first (preferred)
-            if (!explicitRefreshers.isEmpty()) {
-                for (Runnable refresher : explicitRefreshers) {
-                    try {
-                        refresher.run();
-                        logger.debug("refreshOwnedCollectionView: called explicit refresher {}", refresher);
-                    } catch (Throwable throwable) {
-                        logger.debug("refreshOwnedCollectionView: explicit refresher threw", throwable);
-                    }
-                }
-                // We still continue to scan and refresh controls to be safe.
-            }
+            explicitRefreshers.runAll();
+            // We still continue to scan and refresh controls to be safe.
 
             // 2) Walk all open windows and refresh TreeView/ListView controls found
             boolean refreshedAny = false;
@@ -1220,9 +1174,7 @@ public class UserInterfaceFunctions {
     }
 
     public static void registerOwnedCollectionStructureRefresher(Runnable refresher) {
-        if (refresher != null) {
-            explicitStructureRefreshers.addIfAbsent(refresher);
-        }
+        explicitStructureRefreshers.register(refresher);
     }
 
     /**
@@ -1241,13 +1193,7 @@ public class UserInterfaceFunctions {
     }
 
     private static void doRefreshOwnedCollectionStructure() {
-        for (Runnable runnable : explicitStructureRefreshers) {
-            try {
-                runnable.run();
-            } catch (Throwable throwable) {
-                logger.debug("refreshOwnedCollectionStructure: refresher threw", throwable);
-            }
-        }
+        explicitStructureRefreshers.runAll();
     }
 
     /**
