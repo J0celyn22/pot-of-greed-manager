@@ -230,8 +230,10 @@ public class DecksCollectionsController {
                     NavigationHelper.createNavigationItem(collection.getName(), 0);
             collectionNavItem.setUserData(collection);
             collectionNavItem.setItemType(NavigationItem.ItemType.COLLECTION);
-            attachNavItemDropHandlers(collectionNavItem, collection);
-            enableNavItemAsNavDndTarget(collectionNavItem, collection,
+            NavigationDragDropWiring.attachNavItemDropHandlers(
+                    collectionNavItem, collection, coordinator);
+            NavigationDragDropWiring.enableNavItemAsNavDndTarget(
+                    collectionNavItem, collection, coordinator,
                     (dragged, pos) ->
                             handleDecksNavDrop(dragged, collection, pos, decksCollection));
 
@@ -317,9 +319,11 @@ public class DecksCollectionsController {
                         NavigationHelper.createNavigationItem(linkedDeck.getName(), 1);
                 deckSubItem.setUserData(linkedDeck);
                 deckSubItem.setItemType(NavigationItem.ItemType.DECK);
-                attachNavItemDropHandlers(deckSubItem, linkedDeck);
-                enableNavDragSource(deckSubItem, linkedDeck);
-                enableNavItemAsNavDndTarget(deckSubItem, linkedDeck,
+                NavigationDragDropWiring.attachNavItemDropHandlers(
+                        deckSubItem, linkedDeck, coordinator);
+                NavigationDragDropWiring.enableNavDragSource(deckSubItem, linkedDeck);
+                NavigationDragDropWiring.enableNavItemAsNavDndTarget(
+                        deckSubItem, linkedDeck, coordinator,
                         (dragged, pos) ->
                                 handleDecksNavDrop(dragged, linkedDeck, pos, decksCollection));
                 if (UserInterfaceFunctions.isDirty(linkedDeck)) {
@@ -354,9 +358,9 @@ public class DecksCollectionsController {
                     NavigationHelper.createNavigationItem(deck.getName(), 0);
             navItem.setUserData(deck);
             navItem.setItemType(NavigationItem.ItemType.DECK);
-            attachNavItemDropHandlers(navItem, deck);
-            enableNavDragSource(navItem, deck);
-            enableNavItemAsNavDndTarget(navItem, deck,
+            NavigationDragDropWiring.attachNavItemDropHandlers(navItem, deck, coordinator);
+            NavigationDragDropWiring.enableNavDragSource(navItem, deck);
+            NavigationDragDropWiring.enableNavItemAsNavDndTarget(navItem, deck, coordinator,
                     (dragged, pos) ->
                             handleDecksNavDrop(dragged, deck, pos, decksCollection));
             if (UserInterfaceFunctions.isDirty(deck)) {
@@ -1659,92 +1663,6 @@ public class DecksCollectionsController {
                     archetypeName, exception.getMessage());
         }
         return elements;
-    }
-
-    // ── Nav DnD wiring ────────────────────────────────────────────────────────
-
-    private void attachNavItemDropHandlers(NavigationItem navItem, Object modelObj) {
-        navItem.setOnDragOver(event -> {
-            if (event.getDragboard().hasString()
-                    && DragDropManager.getDragSourcePane() != null) {
-                event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
-            }
-            event.consume();
-        });
-        navItem.setOnDragDropped(event -> {
-            String sourcePane = DragDropManager.getDragSourcePane();
-            if (sourcePane == null) {
-                event.setDropCompleted(false);
-                event.consume();
-                return;
-            }
-            coordinator.doCardPasteOnNavItem(modelObj, sourcePane, event);
-            event.setDropCompleted(true);
-            event.consume();
-        });
-    }
-
-    private void enableNavDragSource(NavigationItem navItem, Object modelObj) {
-        Label label = navItem.getLabel();
-        label.setOnDragDetected(event -> {
-            javafx.scene.input.Dragboard dragboard =
-                    label.startDragAndDrop(javafx.scene.input.TransferMode.MOVE);
-            javafx.scene.input.ClipboardContent content =
-                    new javafx.scene.input.ClipboardContent();
-            content.putString("NAV");
-            dragboard.setContent(content);
-            DragDropManager.startNavDrag(modelObj);
-            event.consume();
-        });
-        label.setOnDragDone(event -> {
-            DragDropManager.clearCurrentlyDraggedCard();
-            navItem.clearDropIndicator();
-            event.consume();
-        });
-    }
-
-    private void enableNavItemAsNavDndTarget(NavigationItem navItem, Object modelObj,
-                                             java.util.function.BiConsumer<Object,
-                                                     NavigationItem.DropPosition> onNavDrop) {
-        navItem.setOnDragOver(event -> {
-            String sourcePane = DragDropManager.getDragSourcePane();
-            if (event.getDragboard().hasString() && sourcePane != null) {
-                event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
-                if ("NAV".equals(sourcePane)) {
-                    boolean isContainer = modelObj instanceof Box;
-                    NavigationItem.DropPosition dropPos =
-                            NavigationHelper.resolveDropPosition(navItem, event.getY(), isContainer);
-                    navItem.showDropIndicator(dropPos);
-                }
-            }
-            event.consume();
-        });
-        navItem.setOnDragExited(event -> {
-            navItem.clearDropIndicator();
-            event.consume();
-        });
-        navItem.setOnDragDropped(event -> {
-            String sourcePane = DragDropManager.getDragSourcePane();
-            if (sourcePane == null) {
-                event.setDropCompleted(false);
-                event.consume();
-                return;
-            }
-            if ("NAV".equals(sourcePane)) {
-                Object dragged = DragDropManager.getDraggedNavObject();
-                if (dragged != null && dragged != modelObj) {
-                    boolean isContainer = modelObj instanceof Box;
-                    NavigationItem.DropPosition dropPos =
-                            NavigationHelper.resolveDropPosition(navItem, event.getY(), isContainer);
-                    navItem.clearDropIndicator();
-                    onNavDrop.accept(dragged, dropPos);
-                }
-            } else {
-                coordinator.doCardPasteOnNavItem(modelObj, sourcePane, event);
-            }
-            event.setDropCompleted(true);
-            event.consume();
-        });
     }
 
     // ── Accessors ─────────────────────────────────────────────────────────────

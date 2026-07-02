@@ -6,7 +6,10 @@ import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
 import javafx.geometry.Bounds;
 import javafx.scene.Node;
-import javafx.scene.control.*;
+import javafx.scene.control.ContextMenu;
+import javafx.scene.control.TreeCell;
+import javafx.scene.control.TreeItem;
+import javafx.scene.control.TreeView;
 import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
@@ -233,9 +236,9 @@ public class MyCollectionController {
             NavigationItem boxItem = NavigationHelper.createNavigationItem(boxName, 0);
             boxItem.setUserData(box);
             boxItem.setItemType(NavigationItem.ItemType.BOX);
-            attachNavItemDropHandlers(boxItem, box);
-            enableNavDragSource(boxItem, box);
-            enableNavItemAsNavDndTarget(boxItem, box,
+            NavigationDragDropWiring.attachNavItemDropHandlers(boxItem, box, coordinator);
+            NavigationDragDropWiring.enableNavDragSource(boxItem, box);
+            NavigationDragDropWiring.enableNavItemAsNavDndTarget(boxItem, box, coordinator,
                     (dragged, pos) -> handleMyCollectionNavDrop(dragged, box, pos, finalCollection));
             boxItem.setOnLabelClicked(evt -> {
                 SelectionManager.setLastClickedNavigationItem(box);
@@ -276,9 +279,9 @@ public class MyCollectionController {
                     NavigationItem groupItem = NavigationHelper.createNavigationItem(groupName, 1);
                     groupItem.setUserData(group);
                     groupItem.setItemType(NavigationItem.ItemType.CATEGORY);
-                    attachNavItemDropHandlers(groupItem, group);
-                    enableNavDragSource(groupItem, group);
-                    enableNavItemAsNavDndTarget(groupItem, group,
+                    NavigationDragDropWiring.attachNavItemDropHandlers(groupItem, group, coordinator);
+                    NavigationDragDropWiring.enableNavDragSource(groupItem, group);
+                    NavigationDragDropWiring.enableNavItemAsNavDndTarget(groupItem, group, coordinator,
                             (dragged, pos) -> handleMyCollectionNavDrop(
                                     dragged, group, pos, finalCollection));
                     groupItem.setOnLabelClicked(evt -> {
@@ -325,9 +328,9 @@ public class MyCollectionController {
                             NavigationHelper.createNavigationItem(subBoxName, 1);
                     subBoxItem.setUserData(subBox);
                     subBoxItem.setItemType(NavigationItem.ItemType.BOX);
-                    attachNavItemDropHandlers(subBoxItem, subBox);
-                    enableNavDragSource(subBoxItem, subBox);
-                    enableNavItemAsNavDndTarget(subBoxItem, subBox,
+                    NavigationDragDropWiring.attachNavItemDropHandlers(subBoxItem, subBox, coordinator);
+                    NavigationDragDropWiring.enableNavDragSource(subBoxItem, subBox);
+                    NavigationDragDropWiring.enableNavItemAsNavDndTarget(subBoxItem, subBox, coordinator,
                             (dragged, pos) -> handleMyCollectionNavDrop(
                                     dragged, subBox, pos, finalCollection));
                     subBoxItem.setOnLabelClicked(evt -> {
@@ -374,9 +377,11 @@ public class MyCollectionController {
                                     NavigationHelper.createNavigationItem(groupName, 2);
                             groupItem.setUserData(group);
                             groupItem.setItemType(NavigationItem.ItemType.CATEGORY);
-                            attachNavItemDropHandlers(groupItem, group);
-                            enableNavDragSource(groupItem, group);
-                            enableNavItemAsNavDndTarget(groupItem, group,
+                            NavigationDragDropWiring.attachNavItemDropHandlers(
+                                    groupItem, group, coordinator);
+                            NavigationDragDropWiring.enableNavDragSource(groupItem, group);
+                            NavigationDragDropWiring.enableNavItemAsNavDndTarget(
+                                    groupItem, group, coordinator,
                                     (dragged, pos) -> handleMyCollectionNavDrop(
                                             dragged, group, pos, finalCollection));
                             groupItem.setOnLabelClicked(evt -> {
@@ -1266,95 +1271,6 @@ public class MyCollectionController {
             }
         }
         return collection;
-    }
-
-    // ── Nav DnD wiring (shared with DecksCollectionsController) ──────────────
-
-    private void attachNavItemDropHandlers(NavigationItem navItem, Object modelObj) {
-        navItem.setOnDragOver(event -> {
-            if (event.getDragboard().hasString()
-                    && DragDropManager.getDragSourcePane() != null) {
-                event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
-            }
-            event.consume();
-        });
-
-        navItem.setOnDragDropped(event -> {
-            String sourcePane = DragDropManager.getDragSourcePane();
-            if (sourcePane == null) {
-                event.setDropCompleted(false);
-                event.consume();
-                return;
-            }
-            coordinator.doCardPasteOnNavItem(modelObj, sourcePane, event);
-            event.setDropCompleted(true);
-            event.consume();
-        });
-    }
-
-    private void enableNavDragSource(NavigationItem navItem, Object modelObj) {
-        Label label = navItem.getLabel();
-        label.setOnDragDetected(event -> {
-            javafx.scene.input.Dragboard dragboard =
-                    label.startDragAndDrop(javafx.scene.input.TransferMode.MOVE);
-            javafx.scene.input.ClipboardContent content =
-                    new javafx.scene.input.ClipboardContent();
-            content.putString("NAV");
-            dragboard.setContent(content);
-            DragDropManager.startNavDrag(modelObj);
-            event.consume();
-        });
-        label.setOnDragDone(event -> {
-            DragDropManager.clearCurrentlyDraggedCard();
-            navItem.clearDropIndicator();
-            event.consume();
-        });
-    }
-
-    private void enableNavItemAsNavDndTarget(NavigationItem navItem, Object modelObj,
-                                             java.util.function.BiConsumer<Object,
-                                                     NavigationItem.DropPosition> onNavDrop) {
-        navItem.setOnDragOver(event -> {
-            String sourcePane = DragDropManager.getDragSourcePane();
-            if (event.getDragboard().hasString() && sourcePane != null) {
-                event.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
-                if ("NAV".equals(sourcePane)) {
-                    boolean isContainer = modelObj instanceof Box;
-                    NavigationItem.DropPosition dropPos =
-                            NavigationHelper.resolveDropPosition(navItem, event.getY(), isContainer);
-                    navItem.showDropIndicator(dropPos);
-                }
-            }
-            event.consume();
-        });
-
-        navItem.setOnDragExited(event -> {
-            navItem.clearDropIndicator();
-            event.consume();
-        });
-
-        navItem.setOnDragDropped(event -> {
-            String sourcePane = DragDropManager.getDragSourcePane();
-            if (sourcePane == null) {
-                event.setDropCompleted(false);
-                event.consume();
-                return;
-            }
-            if ("NAV".equals(sourcePane)) {
-                Object dragged = DragDropManager.getDraggedNavObject();
-                if (dragged != null && dragged != modelObj) {
-                    boolean isContainer = modelObj instanceof Box;
-                    NavigationItem.DropPosition dropPos =
-                            NavigationHelper.resolveDropPosition(navItem, event.getY(), isContainer);
-                    navItem.clearDropIndicator();
-                    onNavDrop.accept(dragged, dropPos);
-                }
-            } else {
-                coordinator.doCardPasteOnNavItem(modelObj, sourcePane, event);
-            }
-            event.setDropCompleted(true);
-            event.consume();
-        });
     }
 
     // ── Accessor ──────────────────────────────────────────────────────────────
