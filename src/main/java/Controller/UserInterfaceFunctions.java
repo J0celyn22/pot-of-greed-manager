@@ -379,7 +379,8 @@ public class UserInterfaceFunctions {
     // ── Decks tree-view refreshers ────────────────────────────────────────────
     // A lightweight tree.refresh() (no model rebuild) called on every model
     // change so that archetype-card glow states inside Collections stay in sync.
-    private static final CopyOnWriteArrayList<Runnable> decksTreeRefreshers = new CopyOnWriteArrayList<>();
+    private static final ViewRefresherRegistry decksTreeRefreshers =
+            new ViewRefresherRegistry("doRefreshArchetypesView (decksTree)");
 
     // Setter and getter for decksList.
     public static void setDecksList(DecksAndCollectionsList list) {
@@ -1026,15 +1027,11 @@ public class UserInterfaceFunctions {
     }
 
     public static void registerDecksTreeRefresher(Runnable refresher) {
-        if (refresher != null) {
-            decksTreeRefreshers.addIfAbsent(refresher);
-        }
+        decksTreeRefreshers.register(refresher);
     }
 
     public static void unregisterDecksTreeRefresher(Runnable refresher) {
-        if (refresher != null) {
-            decksTreeRefreshers.remove(refresher);
-        }
+        decksTreeRefreshers.unregister(refresher);
     }
 
     public static void registerArchetypesRefresher(Runnable refresher) {
@@ -1066,13 +1063,7 @@ public class UserInterfaceFunctions {
         // Re-render the D&C tree cells so archetype-card glow states update.
         // This is a lightweight .refresh() (no model rebuild) and is safe to call
         // at any time without losing selection or scroll position.
-        for (Runnable runnable : decksTreeRefreshers) {
-            try {
-                runnable.run();
-            } catch (Throwable throwable) {
-                logger.debug("doRefreshArchetypesView: decksTree refresher threw", throwable);
-            }
-        }
+        decksTreeRefreshers.runAll();
         for (Runnable runnable : explicitArchetypesRefreshers) {
             try {
                 runnable.run();
