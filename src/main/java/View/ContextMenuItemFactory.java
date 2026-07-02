@@ -86,6 +86,16 @@ public final class ContextMenuItemFactory {
         return placeholder;
     }
 
+    /**
+     * Creates a disabled {@link MenuItem} with the given text, used as an
+     * inert placeholder (e.g. "No destinations available") inside a menu.
+     */
+    public static MenuItem disabledItem(String text) {
+        MenuItem menuItem = new MenuItem(text);
+        menuItem.setDisable(true);
+        return menuItem;
+    }
+
     // ── Selection resolution ───────────────────────────────────────────────────
 
     /**

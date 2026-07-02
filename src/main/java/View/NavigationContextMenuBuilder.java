@@ -28,16 +28,16 @@ public final class NavigationContextMenuBuilder {
     // =========================================================================
 
     public static MenuItem makeItem(String text) {
-        MenuItem mi = new MenuItem();
+        MenuItem menuItem = new MenuItem();
         Label label = new Label(text);
         label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
         HBox graphic = new HBox(label);
         graphic.setAlignment(Pos.CENTER_LEFT);
         graphic.setPadding(new Insets(2, 6, 2, 6));
-        mi.setGraphic(graphic);
-        mi.setText("");
-        mi.setOnAction(e -> { /* TODO: implement action for: " + text + " */ });
-        return mi;
+        menuItem.setGraphic(graphic);
+        menuItem.setText("");
+        menuItem.setOnAction(e -> { /* TODO: implement action for: " + text + " */ });
+        return menuItem;
     }
 
     /**
@@ -51,7 +51,7 @@ public final class NavigationContextMenuBuilder {
      * Remove item wired to the given action.
      */
     public static MenuItem makeRemoveItem(Runnable action) {
-        MenuItem mi = new MenuItem();
+        MenuItem menuItem = new MenuItem();
         Label trashIcon = new Label("\uD83D\uDDD1");
         trashIcon.setStyle("-fx-text-fill: #ff4d4d; -fx-font-size: 13;");
         Label removeLabel = new Label("Remove");
@@ -59,26 +59,18 @@ public final class NavigationContextMenuBuilder {
         HBox graphic = new HBox(6, trashIcon, removeLabel);
         graphic.setAlignment(Pos.CENTER_LEFT);
         graphic.setPadding(new Insets(2, 6, 2, 6));
-        mi.setGraphic(graphic);
-        mi.setText("");
-        mi.setOnAction(e -> {
+        menuItem.setGraphic(graphic);
+        menuItem.setText("");
+        menuItem.setOnAction(e -> {
             if (action != null) {
                 action.run();
             }
         });
-        return mi;
+        return menuItem;
     }
 
     public static ContextMenu styledContextMenu() {
-        ContextMenu cm = new ContextMenu();
-        cm.setStyle(
-                "-fx-background-color: #100317; "
-                        + "-fx-background-radius: 6; "
-                        + "-fx-border-color: #3a3a3a; "
-                        + "-fx-border-radius: 6; "
-                        + "-fx-border-width: 1;"
-        );
-        return cm;
+        return ContextMenuItemFactory.styledContextMenu();
     }
 
     // =========================================================================
@@ -101,48 +93,46 @@ public final class NavigationContextMenuBuilder {
     }
 
     static MenuItem disabledItem(String text) {
-        MenuItem mi = new MenuItem(text);
-        mi.setDisable(true);
-        return mi;
+        return ContextMenuItemFactory.disabledItem(text);
     }
 
     static MenuItem makeActionItem(String text, Runnable action) {
-        MenuItem mi = new MenuItem();
+        MenuItem menuItem = new MenuItem();
         Label label = new Label(text);
         label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
         HBox graphic = new HBox(label);
         graphic.setAlignment(Pos.CENTER_LEFT);
         graphic.setPadding(new Insets(2, 6, 2, 6));
-        mi.setGraphic(graphic);
-        mi.setText("");
-        mi.setOnAction(e -> {
+        menuItem.setGraphic(graphic);
+        menuItem.setText("");
+        menuItem.setOnAction(e -> {
             if (action != null) {
                 action.run();
             }
         });
-        return mi;
+        return menuItem;
     }
 
     static MenuItem makePasteItem(Runnable pasteAction) {
-        MenuItem mi = new MenuItem();
+        MenuItem menuItem = new MenuItem();
         Label label = new Label("Paste");
         label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
         HBox graphic = new HBox(label);
         graphic.setAlignment(Pos.CENTER_LEFT);
         graphic.setPadding(new Insets(2, 6, 2, 6));
-        mi.setGraphic(graphic);
-        mi.setText("");
-        mi.setVisible(!Controller.CardClipboard.isEmpty());
+        menuItem.setGraphic(graphic);
+        menuItem.setText("");
+        menuItem.setVisible(!Controller.CardClipboard.isEmpty());
         Controller.CardClipboard.addChangeListener(() -> {
             javafx.application.Platform.runLater(() ->
-                    mi.setVisible(!Controller.CardClipboard.isEmpty()));
+                    menuItem.setVisible(!Controller.CardClipboard.isEmpty()));
         });
-        mi.setOnAction(e -> {
+        menuItem.setOnAction(e -> {
             if (!Controller.CardClipboard.isEmpty()) {
                 pasteAction.run();
             }
         });
-        return mi;
+        return menuItem;
     }
 
     // ── Emptiness checks ─────────────────────────────────────────────────────

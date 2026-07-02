@@ -9,12 +9,16 @@ import javafx.scene.Scene;
 import javafx.scene.image.Image;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 
 public class RealMain extends Application {
+
+    private static final Logger logger = LoggerFactory.getLogger(RealMain.class);
 
     public static void main(String[] args) {
         launch(args);
@@ -26,10 +30,14 @@ public class RealMain extends Application {
      */
     private URL resolveResource(String classpathPath, String fallbackFilePath) {
         URL url = getClass().getResource(classpathPath);
-        if (url != null) return url;
+        if (url != null) {
+            return url;
+        }
         try {
-            File f = new File(fallbackFilePath);
-            if (f.exists()) return f.toURI().toURL();
+            File file = new File(fallbackFilePath);
+            if (file.exists()) {
+                return file.toURI().toURL();
+            }
         } catch (Exception ignored) {
         }
         return null;
@@ -61,9 +69,9 @@ public class RealMain extends Application {
         URL cssUrl = resolveResource("/styles.css", "src/main/resources/styles.css");
         if (cssUrl != null) {
             scene.getStylesheets().add(cssUrl.toExternalForm());
-            System.out.println("Loaded stylesheet: " + cssUrl.toExternalForm());
+            logger.info("Loaded stylesheet: {}", cssUrl.toExternalForm());
         } else {
-            System.out.println("Could not find styles.css");
+            logger.warn("Could not find styles.css");
         }
 
         primaryStage.setScene(scene);

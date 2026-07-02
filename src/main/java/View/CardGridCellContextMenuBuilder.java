@@ -49,7 +49,7 @@ public final class CardGridCellContextMenuBuilder {
      * separator, Remove.
      */
     public static ContextMenu buildMyCollectionContextMenu(CardGridCell cell) {
-        ContextMenu contextMenu = styledContextMenu();
+        ContextMenu contextMenu = ContextMenuItemFactory.styledContextMenu();
 
         Menu sortingMenu = buildSortingSubMenu(cell);
         Menu moveToMenu = buildMoveToSubMenu(cell);
@@ -88,7 +88,7 @@ public final class CardGridCellContextMenuBuilder {
      * Contains: Move to... (submenu), Copy, Cut, Paste, Edit Card, separator, Remove.
      */
     public static ContextMenu buildDecksContextMenu(CardGridCell cell) {
-        ContextMenu contextMenu = styledContextMenu();
+        ContextMenu contextMenu = ContextMenuItemFactory.styledContextMenu();
 
         Menu decksMoveMenu = buildDecksMoveSubMenu(cell);
 
@@ -121,7 +121,7 @@ public final class CardGridCellContextMenuBuilder {
      * Contains: Add to... (submenu), Copy.
      */
     public static ContextMenu buildArchetypeCardContextMenu(CardGridCell cell) {
-        ContextMenu contextMenu = styledContextMenu();
+        ContextMenu contextMenu = ContextMenuItemFactory.styledContextMenu();
 
         Menu archetypeAddMenu = buildArchetypeAddSubMenu(cell);
         MenuItem archetypeCopyMenuItem = buildCopyMenuItem(cell);
@@ -158,7 +158,7 @@ public final class CardGridCellContextMenuBuilder {
                 sortingMenu.getItems().clear();
                 CardElement cardElement = cell.getItem();
                 if (cardElement == null || cardElement.getCard() == null) {
-                    sortingMenu.getItems().add(disabledItem("No card selected"));
+                    sortingMenu.getItems().add(ContextMenuItemFactory.disabledItem("No card selected"));
                     return;
                 }
                 Card card = cardElement.getCard();
@@ -185,12 +185,12 @@ public final class CardGridCellContextMenuBuilder {
                 }
 
                 if (sortingMenu.getItems().isEmpty()) {
-                    sortingMenu.getItems().add(disabledItem("No proposals"));
+                    sortingMenu.getItems().add(ContextMenuItemFactory.disabledItem("No proposals"));
                 }
             } catch (Throwable buildError) {
                 logger.debug("Error building sorting submenu", buildError);
                 sortingMenu.getItems().clear();
-                sortingMenu.getItems().add(disabledItem("Error building proposals"));
+                sortingMenu.getItems().add(ContextMenuItemFactory.disabledItem("Error building proposals"));
             }
         });
 
@@ -243,7 +243,7 @@ public final class CardGridCellContextMenuBuilder {
             String currentPath = cell.findCurrentLocationPath();
             List<MenuItem> moveItems = buildMoveDestinationMenuItems(currentPath, cell);
             if (moveItems.isEmpty()) {
-                decksMoveMenu.getItems().add(disabledItem("No destinations available"));
+                decksMoveMenu.getItems().add(ContextMenuItemFactory.disabledItem("No destinations available"));
             } else {
                 decksMoveMenu.getItems().addAll(moveItems);
             }
@@ -273,7 +273,7 @@ public final class CardGridCellContextMenuBuilder {
             addMenu.getItems().clear();
             List<MenuItem> addItems = buildAddDestinationMenuItems(cell);
             if (addItems.isEmpty()) {
-                addMenu.getItems().add(disabledItem("No destinations available"));
+                addMenu.getItems().add(ContextMenuItemFactory.disabledItem("No destinations available"));
             } else {
                 addMenu.getItems().addAll(addItems);
             }
@@ -428,7 +428,7 @@ public final class CardGridCellContextMenuBuilder {
 
         CardElement clickedElement = cell.getItem();
         if (clickedElement == null) {
-            moveToMenu.getItems().add(disabledItem("No card selected"));
+            moveToMenu.getItems().add(ContextMenuItemFactory.disabledItem("No card selected"));
             return;
         }
 
@@ -436,7 +436,7 @@ public final class CardGridCellContextMenuBuilder {
         if (ownedCollection == null
                 || ownedCollection.getOwnedCollection() == null
                 || ownedCollection.getOwnedCollection().isEmpty()) {
-            moveToMenu.getItems().add(disabledItem("No boxes available"));
+            moveToMenu.getItems().add(ContextMenuItemFactory.disabledItem("No boxes available"));
             return;
         }
 
@@ -585,7 +585,7 @@ public final class CardGridCellContextMenuBuilder {
         }
 
         if (moveToMenu.getItems().isEmpty()) {
-            moveToMenu.getItems().add(disabledItem("No other destinations"));
+            moveToMenu.getItems().add(ContextMenuItemFactory.disabledItem("No other destinations"));
         }
     }
 
@@ -1299,33 +1299,19 @@ public final class CardGridCellContextMenuBuilder {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Creates a styled {@link ContextMenu} matching the application's dark theme.
-     */
-    private static ContextMenu styledContextMenu() {
-        ContextMenu contextMenu = new ContextMenu();
-        contextMenu.setStyle(
-                "-fx-background-color: #100317; "
-                        + "-fx-background-radius: 6; "
-                        + "-fx-border-color: #3a3a3a; "
-                        + "-fx-border-radius: 6; "
-                        + "-fx-border-width: 1;");
-        return contextMenu;
-    }
-
-    /**
      * Creates a lime-accented menu item with the given label text.
      * Used for most non-destructive actions.
      */
     private static MenuItem accentItem(String labelText) {
-        MenuItem mi = new MenuItem();
+        MenuItem menuItem = new MenuItem();
         Label label = new Label(labelText);
         label.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 13;");
         HBox graphic = new HBox(label);
         graphic.setAlignment(Pos.CENTER_LEFT);
         graphic.setPadding(new Insets(2, 6, 2, 6));
-        mi.setGraphic(graphic);
-        mi.setText("");
-        return mi;
+        menuItem.setGraphic(graphic);
+        menuItem.setText("");
+        return menuItem;
     }
 
     /**
@@ -1333,7 +1319,7 @@ public final class CardGridCellContextMenuBuilder {
      * Used for destructive remove actions.
      */
     private static MenuItem redRemoveItem() {
-        MenuItem mi = new MenuItem();
+        MenuItem menuItem = new MenuItem();
         Label trashIcon = new Label("\uD83D\uDDD1");
         trashIcon.setStyle("-fx-text-fill: #ff4d4d; -fx-font-size: 13;");
         Label removeLabel = new Label("Remove");
@@ -1341,15 +1327,9 @@ public final class CardGridCellContextMenuBuilder {
         HBox graphic = new HBox(6, trashIcon, removeLabel);
         graphic.setAlignment(Pos.CENTER_LEFT);
         graphic.setPadding(new Insets(2, 6, 2, 6));
-        mi.setGraphic(graphic);
-        mi.setText("");
-        return mi;
-    }
-
-    private static MenuItem disabledItem(String text) {
-        MenuItem mi = new MenuItem(text);
-        mi.setDisable(true);
-        return mi;
+        menuItem.setGraphic(graphic);
+        menuItem.setText("");
+        return menuItem;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
