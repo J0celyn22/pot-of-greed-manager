@@ -37,91 +37,10 @@ public final class MyCollectionNavMenuBuilder {
             Model.CardsLists.Box box,
             Model.CardsLists.OwnedCardsCollection owned) {
 
-        ContextMenu cm = NavigationContextMenuBuilder.styledContextMenu();
+        ContextMenu contextMenu = NavigationContextMenuBuilder.styledContextMenu();
 
         Menu moveMenu = NavigationContextMenuBuilder.makeLazyMenu("Move to...");
-        moveMenu.setOnShowing(evt -> {
-            moveMenu.getItems().clear();
-
-            if (owned == null || owned.getOwnedCollection() == null) {
-                moveMenu.getItems().add(NavigationContextMenuBuilder.disabledItem(
-                        "No destinations available"));
-                return;
-            }
-
-            Model.CardsLists.Box parentOfBox = findParentOfBox(box, owned);
-            boolean isSubBox = parentOfBox != null;
-
-            java.util.Set<Model.CardsLists.Box> descendants = collectDescendants(box);
-
-            for (Model.CardsLists.Box topBox : owned.getOwnedCollection()) {
-                if (topBox == null || topBox == box) {
-                    continue;
-                }
-                if (descendants.contains(topBox)) {
-                    continue;
-                }
-
-                String name = sanitize(topBox.getName());
-                if (name.isEmpty()) {
-                    name = "(Unnamed box)";
-                }
-                final Model.CardsLists.Box target = topBox;
-                MenuItem mi = NavigationContextMenuBuilder.makeActionItem(name, () -> {
-                    doMoveBoxToSubBox(box, target, owned);
-                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
-                    Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-                    NavigationContextMenuBuilder.refreshOwnedCollectionView();
-                });
-                moveMenu.getItems().add(mi);
-
-                if (topBox.getSubBoxes() != null) {
-                    for (Model.CardsLists.Box sub : topBox.getSubBoxes()) {
-                        if (sub == null || sub == box) {
-                            continue;
-                        }
-                        if (descendants.contains(sub)) {
-                            continue;
-                        }
-                        String subName = sanitize(sub.getName());
-                        if (subName.isEmpty()) {
-                            subName = "(Unnamed sub-box)";
-                        }
-                        final Model.CardsLists.Box subTarget = sub;
-                        final String finalName = name;
-                        final String finalSubName = subName;
-                        MenuItem subMi = NavigationContextMenuBuilder.makeActionItem(
-                                finalName + " / " + finalSubName, () -> {
-                                    doMoveBoxToSubBox(box, subTarget, owned);
-                                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
-                                    Controller.UserInterfaceFunctions
-                                            .triggerTabDirtyIndicatorUpdate();
-                                    NavigationContextMenuBuilder.refreshOwnedCollectionView();
-                                });
-                        moveMenu.getItems().add(subMi);
-                    }
-                }
-            }
-
-            if (isSubBox) {
-                if (!moveMenu.getItems().isEmpty()) {
-                    moveMenu.getItems().add(new SeparatorMenuItem());
-                }
-                MenuItem noBox = NavigationContextMenuBuilder.makeActionItem(
-                        "No Box (top level)", () -> {
-                            doMoveBoxToTopLevel(box, owned);
-                            Controller.UserInterfaceFunctions.markMyCollectionDirty();
-                            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-                            NavigationContextMenuBuilder.refreshOwnedCollectionView();
-                        });
-                moveMenu.getItems().add(noBox);
-            }
-
-            if (moveMenu.getItems().isEmpty()) {
-                moveMenu.getItems().add(NavigationContextMenuBuilder.disabledItem(
-                        "No other boxes"));
-            }
-        });
+        moveMenu.setOnShowing(evt -> populateBoxMoveMenu(moveMenu, box, owned));
 
         Runnable removeAction = () -> {
             if (!NavigationContextMenuBuilder.isBoxEmpty(box)
@@ -149,7 +68,7 @@ public final class MyCollectionNavMenuBuilder {
             }
         };
 
-        cm.getItems().addAll(
+        contextMenu.getItems().addAll(
                 moveMenu,
                 makeAddBoxInItem(box, owned),
                 makeAddBoxAfterItem(box, owned),
@@ -178,7 +97,7 @@ public final class MyCollectionNavMenuBuilder {
                 new SeparatorMenuItem(),
                 NavigationContextMenuBuilder.makeRemoveItem(removeAction)
         );
-        return cm;
+        return contextMenu;
     }
 
     /**
@@ -190,113 +109,10 @@ public final class MyCollectionNavMenuBuilder {
             Model.CardsLists.Box parentBox,
             Model.CardsLists.OwnedCardsCollection owned) {
 
-        ContextMenu cm = NavigationContextMenuBuilder.styledContextMenu();
+        ContextMenu contextMenu = NavigationContextMenuBuilder.styledContextMenu();
 
         Menu moveMenu = NavigationContextMenuBuilder.makeLazyMenu("Move to...");
-        moveMenu.setOnShowing(evt -> {
-            moveMenu.getItems().clear();
-
-            if (owned == null || owned.getOwnedCollection() == null) {
-                moveMenu.getItems().add(NavigationContextMenuBuilder.disabledItem(
-                        "No destinations available"));
-                return;
-            }
-
-            for (Model.CardsLists.Box box : owned.getOwnedCollection()) {
-                if (box == null) {
-                    continue;
-                }
-                String boxName = sanitize(box.getName());
-                if (boxName.isEmpty()) {
-                    boxName = "(Unnamed box)";
-                }
-
-                final Model.CardsLists.Box destBox = box;
-                final String destBoxName = boxName;
-                MenuItem miBox = NavigationContextMenuBuilder.makeActionItem(destBoxName, () -> {
-                    doMoveCategory(category, parentBox, destBox, null, owned);
-                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
-                    Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-                    NavigationContextMenuBuilder.refreshOwnedCollectionView();
-                });
-                moveMenu.getItems().add(miBox);
-
-                if (box.getContent() != null) {
-                    for (Model.CardsLists.CardsGroup group : box.getContent()) {
-                        if (group == null || group == category) {
-                            continue;
-                        }
-                        String groupName = sanitize(group.getName());
-                        if (groupName.isEmpty()) {
-                            continue;
-                        }
-                        final Model.CardsLists.CardsGroup afterGroup = group;
-                        MenuItem miGroup = NavigationContextMenuBuilder.makeActionItem(
-                                destBoxName + " / " + groupName, () -> {
-                                    doMoveCategory(category, parentBox, destBox, afterGroup, owned);
-                                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
-                                    Controller.UserInterfaceFunctions
-                                            .triggerTabDirtyIndicatorUpdate();
-                                    NavigationContextMenuBuilder.refreshOwnedCollectionView();
-                                });
-                        moveMenu.getItems().add(miGroup);
-                    }
-                }
-
-                if (box.getSubBoxes() != null) {
-                    for (Model.CardsLists.Box subBox : box.getSubBoxes()) {
-                        if (subBox == null) {
-                            continue;
-                        }
-                        String subName = sanitize(subBox.getName());
-                        if (subName.isEmpty()) {
-                            subName = "(Unnamed sub-box)";
-                        }
-                        final Model.CardsLists.Box destSub = subBox;
-                        final String destSubName = subName;
-                        MenuItem miSub = NavigationContextMenuBuilder.makeActionItem(
-                                destSubName, () -> {
-                                    doMoveCategory(category, parentBox, destSub, null, owned);
-                                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
-                                    Controller.UserInterfaceFunctions
-                                            .triggerTabDirtyIndicatorUpdate();
-                                    NavigationContextMenuBuilder.refreshOwnedCollectionView();
-                                });
-                        moveMenu.getItems().add(miSub);
-
-                        if (subBox.getContent() != null) {
-                            for (Model.CardsLists.CardsGroup group : subBox.getContent()) {
-                                if (group == null || group == category) {
-                                    continue;
-                                }
-                                String groupName = sanitize(group.getName());
-                                if (groupName.isEmpty()) {
-                                    continue;
-                                }
-                                final Model.CardsLists.CardsGroup afterGroup = group;
-                                MenuItem miSubGroup = NavigationContextMenuBuilder.makeActionItem(
-                                        destSubName + " / " + groupName, () -> {
-                                            doMoveCategory(category, parentBox, destSub,
-                                                    afterGroup, owned);
-                                            Controller.UserInterfaceFunctions
-                                                    .markMyCollectionDirty();
-                                            Controller.UserInterfaceFunctions
-                                                    .triggerTabDirtyIndicatorUpdate();
-                                            NavigationContextMenuBuilder
-                                                    .refreshOwnedCollectionView();
-                                        });
-                                moveMenu.getItems().add(miSubGroup);
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (moveMenu.getItems().isEmpty()) {
-                moveMenu.getItems().add(NavigationContextMenuBuilder.disabledItem(
-                        "No destinations available"));
-            }
-        });
+        moveMenu.setOnShowing(evt -> populateCategoryMoveMenu(moveMenu, category, parentBox, owned));
 
         Runnable removeAction = () -> {
             if (!NavigationContextMenuBuilder.isCategoryEmpty(category)
@@ -311,7 +127,7 @@ public final class MyCollectionNavMenuBuilder {
             }
         };
 
-        cm.getItems().addAll(
+        contextMenu.getItems().addAll(
                 moveMenu,
                 makeAddCategoryItem(parentBox, category, owned),
                 makeRenameItem(null, category, owned),
@@ -333,7 +149,7 @@ public final class MyCollectionNavMenuBuilder {
                 new SeparatorMenuItem(),
                 NavigationContextMenuBuilder.makeRemoveItem(removeAction)
         );
-        return cm;
+        return contextMenu;
     }
 
     /**
@@ -341,14 +157,221 @@ public final class MyCollectionNavMenuBuilder {
      * navigation pane. Provides only an "Add Box" action.
      */
     public static ContextMenu forMyCollectionEmpty() {
-        ContextMenu cm = NavigationContextMenuBuilder.styledContextMenu();
-        cm.getItems().add(makeAddBoxAtTopLevelItem());
-        return cm;
+        ContextMenu contextMenu = NavigationContextMenuBuilder.styledContextMenu();
+        contextMenu.getItems().add(makeAddBoxAtTopLevelItem());
+        return contextMenu;
     }
 
     // =========================================================================
     // Private helpers
     // =========================================================================
+
+    /**
+     * Populates {@code moveMenu} with every valid "move this box to..." destination:
+     * every other top-level box (and its sub-boxes), plus a "No Box (top level)"
+     * entry when {@code box} is currently a sub-box. Boxes that are {@code box}
+     * itself or one of its own descendants are excluded to prevent creating a cycle.
+     */
+    private static void populateBoxMoveMenu(
+            Menu moveMenu,
+            Model.CardsLists.Box box,
+            Model.CardsLists.OwnedCardsCollection owned) {
+        moveMenu.getItems().clear();
+
+        if (owned == null || owned.getOwnedCollection() == null) {
+            moveMenu.getItems().add(NavigationContextMenuBuilder.disabledItem(
+                    "No destinations available"));
+            return;
+        }
+
+        Model.CardsLists.Box parentOfBox = findParentOfBox(box, owned);
+        boolean isSubBox = parentOfBox != null;
+
+        java.util.Set<Model.CardsLists.Box> descendants = collectDescendants(box);
+
+        for (Model.CardsLists.Box topBox : owned.getOwnedCollection()) {
+            if (topBox == null || topBox == box) {
+                continue;
+            }
+            if (descendants.contains(topBox)) {
+                continue;
+            }
+
+            String name = sanitize(topBox.getName());
+            if (name.isEmpty()) {
+                name = "(Unnamed box)";
+            }
+            final Model.CardsLists.Box target = topBox;
+            MenuItem boxMenuItem = NavigationContextMenuBuilder.makeActionItem(name, () -> {
+                doMoveBoxToSubBox(box, target, owned);
+                Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                NavigationContextMenuBuilder.refreshOwnedCollectionView();
+            });
+            moveMenu.getItems().add(boxMenuItem);
+
+            if (topBox.getSubBoxes() != null) {
+                for (Model.CardsLists.Box sub : topBox.getSubBoxes()) {
+                    if (sub == null || sub == box) {
+                        continue;
+                    }
+                    if (descendants.contains(sub)) {
+                        continue;
+                    }
+                    String subName = sanitize(sub.getName());
+                    if (subName.isEmpty()) {
+                        subName = "(Unnamed sub-box)";
+                    }
+                    final Model.CardsLists.Box subTarget = sub;
+                    final String finalName = name;
+                    final String finalSubName = subName;
+                    MenuItem subBoxMenuItem = NavigationContextMenuBuilder.makeActionItem(
+                            finalName + " / " + finalSubName, () -> {
+                                doMoveBoxToSubBox(box, subTarget, owned);
+                                Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                                Controller.UserInterfaceFunctions
+                                        .triggerTabDirtyIndicatorUpdate();
+                                NavigationContextMenuBuilder.refreshOwnedCollectionView();
+                            });
+                    moveMenu.getItems().add(subBoxMenuItem);
+                }
+            }
+        }
+
+        if (isSubBox) {
+            if (!moveMenu.getItems().isEmpty()) {
+                moveMenu.getItems().add(new SeparatorMenuItem());
+            }
+            MenuItem noBoxMenuItem = NavigationContextMenuBuilder.makeActionItem(
+                    "No Box (top level)", () -> {
+                        doMoveBoxToTopLevel(box, owned);
+                        Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                        Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                        NavigationContextMenuBuilder.refreshOwnedCollectionView();
+                    });
+            moveMenu.getItems().add(noBoxMenuItem);
+        }
+
+        if (moveMenu.getItems().isEmpty()) {
+            moveMenu.getItems().add(NavigationContextMenuBuilder.disabledItem(
+                    "No other boxes"));
+        }
+    }
+
+    /**
+     * Populates {@code moveMenu} with every valid "move this category to..."
+     * destination: every box, its categories (for after-insertion), and its
+     * sub-boxes and their categories. The category itself is excluded from the
+     * after-insertion targets.
+     */
+    private static void populateCategoryMoveMenu(
+            Menu moveMenu,
+            Model.CardsLists.CardsGroup category,
+            Model.CardsLists.Box parentBox,
+            Model.CardsLists.OwnedCardsCollection owned) {
+        moveMenu.getItems().clear();
+
+        if (owned == null || owned.getOwnedCollection() == null) {
+            moveMenu.getItems().add(NavigationContextMenuBuilder.disabledItem(
+                    "No destinations available"));
+            return;
+        }
+
+        for (Model.CardsLists.Box box : owned.getOwnedCollection()) {
+            if (box == null) {
+                continue;
+            }
+            String boxName = sanitize(box.getName());
+            if (boxName.isEmpty()) {
+                boxName = "(Unnamed box)";
+            }
+
+            final Model.CardsLists.Box destBox = box;
+            final String destBoxName = boxName;
+            MenuItem boxMenuItem = NavigationContextMenuBuilder.makeActionItem(destBoxName, () -> {
+                doMoveCategory(category, parentBox, destBox, null, owned);
+                Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                NavigationContextMenuBuilder.refreshOwnedCollectionView();
+            });
+            moveMenu.getItems().add(boxMenuItem);
+
+            if (box.getContent() != null) {
+                for (Model.CardsLists.CardsGroup group : box.getContent()) {
+                    if (group == null || group == category) {
+                        continue;
+                    }
+                    String groupName = sanitize(group.getName());
+                    if (groupName.isEmpty()) {
+                        continue;
+                    }
+                    final Model.CardsLists.CardsGroup afterGroup = group;
+                    MenuItem groupMenuItem = NavigationContextMenuBuilder.makeActionItem(
+                            destBoxName + " / " + groupName, () -> {
+                                doMoveCategory(category, parentBox, destBox, afterGroup, owned);
+                                Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                                Controller.UserInterfaceFunctions
+                                        .triggerTabDirtyIndicatorUpdate();
+                                NavigationContextMenuBuilder.refreshOwnedCollectionView();
+                            });
+                    moveMenu.getItems().add(groupMenuItem);
+                }
+            }
+
+            if (box.getSubBoxes() != null) {
+                for (Model.CardsLists.Box subBox : box.getSubBoxes()) {
+                    if (subBox == null) {
+                        continue;
+                    }
+                    String subName = sanitize(subBox.getName());
+                    if (subName.isEmpty()) {
+                        subName = "(Unnamed sub-box)";
+                    }
+                    final Model.CardsLists.Box destSub = subBox;
+                    final String destSubName = subName;
+                    MenuItem subBoxMenuItem = NavigationContextMenuBuilder.makeActionItem(
+                            destSubName, () -> {
+                                doMoveCategory(category, parentBox, destSub, null, owned);
+                                Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                                Controller.UserInterfaceFunctions
+                                        .triggerTabDirtyIndicatorUpdate();
+                                NavigationContextMenuBuilder.refreshOwnedCollectionView();
+                            });
+                    moveMenu.getItems().add(subBoxMenuItem);
+
+                    if (subBox.getContent() != null) {
+                        for (Model.CardsLists.CardsGroup group : subBox.getContent()) {
+                            if (group == null || group == category) {
+                                continue;
+                            }
+                            String groupName = sanitize(group.getName());
+                            if (groupName.isEmpty()) {
+                                continue;
+                            }
+                            final Model.CardsLists.CardsGroup afterGroup = group;
+                            MenuItem subGroupMenuItem = NavigationContextMenuBuilder.makeActionItem(
+                                    destSubName + " / " + groupName, () -> {
+                                        doMoveCategory(category, parentBox, destSub,
+                                                afterGroup, owned);
+                                        Controller.UserInterfaceFunctions
+                                                .markMyCollectionDirty();
+                                        Controller.UserInterfaceFunctions
+                                                .triggerTabDirtyIndicatorUpdate();
+                                        NavigationContextMenuBuilder
+                                                .refreshOwnedCollectionView();
+                                    });
+                            moveMenu.getItems().add(subGroupMenuItem);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (moveMenu.getItems().isEmpty()) {
+            moveMenu.getItems().add(NavigationContextMenuBuilder.disabledItem(
+                    "No destinations available"));
+        }
+    }
 
     /**
      * "Add Box in" — creates a sub-box inside the clicked box.
@@ -473,19 +496,19 @@ public final class MyCollectionNavMenuBuilder {
             Model.CardsLists.CardsGroup category,
             Model.CardsLists.OwnedCardsCollection owned) {
 
-        MenuItem mi = new MenuItem();
+        MenuItem menuItem = new MenuItem();
         Label label = new Label("Rename");
         label.setStyle("-fx-text-fill: white; -fx-font-size: 13;");
         HBox graphic = new HBox(label);
         graphic.setAlignment(Pos.CENTER_LEFT);
         graphic.setPadding(new Insets(2, 6, 2, 6));
-        mi.setGraphic(graphic);
-        mi.setText("");
+        menuItem.setGraphic(graphic);
+        menuItem.setText("");
 
-        mi.setOnAction(e -> {
+        menuItem.setOnAction(e -> {
             javafx.scene.Node owner = null;
             try {
-                owner = mi.getParentPopup().getOwnerNode();
+                owner = menuItem.getParentPopup().getOwnerNode();
             } catch (Throwable ignored) {
             }
             NavigationItem navItem =
@@ -511,7 +534,7 @@ public final class MyCollectionNavMenuBuilder {
                     null
             );
         });
-        return mi;
+        return menuItem;
     }
 
     /**
