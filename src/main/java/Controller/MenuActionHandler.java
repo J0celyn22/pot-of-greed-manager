@@ -498,205 +498,59 @@ public final class MenuActionHandler {
     }
 
     /**
-     * Removes all elements in {@code elements} from the {@link OwnedCardsCollection}
-     * by object identity. Marks the collection dirty and triggers a view refresh.
+     * Public entry point for the bulk "remove from owned collection" menu item.
+     * Delegates to {@link CardBulkRemoveFromOwnedHandler}.
      *
      * @param elements the elements to remove
      */
     public static void handleBulkRemoveFromOwnedCollection(List<CardElement> elements) {
-        if (elements == null || elements.isEmpty()) {
-            return;
-        }
-        try {
-            if (Platform.isFxApplicationThread()) {
-                doBulkRemoveFromOwnedCollection(elements);
-            } else {
-                final List<CardElement> copy = new ArrayList<>(elements);
-                Platform.runLater(() -> doBulkRemoveFromOwnedCollection(copy));
-            }
-            UserInterfaceFunctions.markMyCollectionDirty();
-            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-            UserInterfaceFunctions.refreshOwnedCollectionView();
-        } catch (Throwable throwable) {
-            logger.debug("handleBulkRemoveFromOwnedCollection failed", throwable);
-        }
-    }
-
-    private static void doBulkRemoveFromOwnedCollection(List<CardElement> elements) {
-        OwnedCardsCollection owned = safeGetOwnedCollection();
-        if (owned == null || owned.getOwnedCollection() == null) {
-            return;
-        }
-        for (CardElement targetElement : elements) {
-            removeElementFromOwned(targetElement, owned);
-        }
-    }
-
-    private static void removeElementFromOwned(CardElement targetElement,
-                                               OwnedCardsCollection owned) {
-        if (targetElement == null) {
-            return;
-        }
-        for (Box box : owned.getOwnedCollection()) {
-            if (box == null) {
-                continue;
-            }
-            if (removeElementFromBox(targetElement, box)) {
-                OuicheList.onOwnedCardRemoved(targetElement);
-                UserInterfaceFunctions.refreshOuicheListView();
-                return;
-            }
-        }
-    }
-
-    private static boolean removeElementFromBox(CardElement targetElement, Box box) {
-        if (box.getContent() != null) {
-            for (CardsGroup group : box.getContent()) {
-                if (group == null) {
-                    continue;
-                }
-                javafx.collections.ObservableList<CardElement> observableList =
-                        CardTreeCell.observableListFor(group);
-                if (observableList.remove(targetElement)) {
-                    CardTreeCell.triggerHeightAdjustment(group);
-                    return true;
-                }
-            }
-        }
-        if (box.getSubBoxes() != null) {
-            for (Box subBox : box.getSubBoxes()) {
-                if (subBox != null && removeElementFromBox(targetElement, subBox)) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        CardBulkRemoveFromOwnedHandler.handleBulkRemoveFromOwnedCollection(elements);
     }
 
     /**
-     * Adds a copy of each card in {@code cards} to the group identified by
-     * {@code handlerTarget} in the owned collection.
+     * Public entry point for the bulk "add copy" menu item. Delegates to
+     * {@link CardBulkAddHandler}.
      *
      * @param cards         the cards to copy
      * @param handlerTarget canonical target string
      */
     public static void handleBulkAddCopy(java.util.Collection<Card> cards, String handlerTarget) {
-        if (cards == null || cards.isEmpty() || handlerTarget == null) {
-            return;
-        }
-        try {
-            if (Platform.isFxApplicationThread()) {
-                for (Card card : cards) {
-                    CardCopyHandler.doAddCopy(card, handlerTarget);
-                }
-            } else {
-                final List<Card> copy = new ArrayList<>(cards);
-                Platform.runLater(() -> {
-                    for (Card card : copy) {
-                        CardCopyHandler.doAddCopy(card, handlerTarget);
-                    }
-                });
-            }
-            UserInterfaceFunctions.refreshOwnedCollectionView();
-        } catch (Throwable throwable) {
-            logger.debug("handleBulkAddCopy failed for target {}", handlerTarget, throwable);
-        }
+        CardBulkAddHandler.handleBulkAddCopy(cards, handlerTarget);
     }
 
     /**
-     * Adds a copy of each card in {@code cards} to the deck list identified by
-     * {@code handlerTarget}.
+     * Public entry point for the bulk "add to deck" menu item. Delegates to
+     * {@link CardBulkAddHandler}.
      *
      * @param cards         the cards to add
      * @param handlerTarget canonical target string, e.g. {@code "DeckName / Main Deck"}
      */
     public static void handleBulkAddToDeck(java.util.Collection<Card> cards, String handlerTarget) {
-        if (cards == null || cards.isEmpty() || handlerTarget == null) {
-            return;
-        }
-        try {
-            if (Platform.isFxApplicationThread()) {
-                for (Card card : cards) {
-                    CardAddToListHandler.doAddToDeck(card, handlerTarget);
-                }
-            } else {
-                final List<Card> copy = new ArrayList<>(cards);
-                Platform.runLater(() -> {
-                    for (Card card : copy) {
-                        CardAddToListHandler.doAddToDeck(card, handlerTarget);
-                    }
-                });
-            }
-            lastDecksAddedTarget = handlerTarget;
-            UserInterfaceFunctions.refreshDecksAndCollectionsView();
-        } catch (Throwable throwable) {
-            logger.error("handleBulkAddToDeck failed for target '{}'", handlerTarget, throwable);
-        }
+        CardBulkAddHandler.handleBulkAddToDeck(cards, handlerTarget);
     }
 
     /**
-     * Adds a copy of each card in {@code cards} to the card list of the named
-     * {@link ThemeCollection}.
+     * Public entry point for the bulk "add to collection cards" menu item.
+     * Delegates to {@link CardBulkAddHandler}.
      *
      * @param cards          the cards to add
      * @param collectionName the name of the target collection
      */
     public static void handleBulkAddToCollectionCards(
             java.util.Collection<Card> cards, String collectionName) {
-        if (cards == null || cards.isEmpty() || collectionName == null) {
-            return;
-        }
-        try {
-            if (Platform.isFxApplicationThread()) {
-                for (Card card : cards) {
-                    CardAddToListHandler.doAddToCollectionCards(card, collectionName);
-                }
-            } else {
-                final List<Card> copy = new ArrayList<>(cards);
-                Platform.runLater(() -> {
-                    for (Card card : copy) {
-                        CardAddToListHandler.doAddToCollectionCards(card, collectionName);
-                    }
-                });
-            }
-            lastDecksAddedTarget = collectionName + " / Cards";
-            UserInterfaceFunctions.refreshDecksAndCollectionsView();
-        } catch (Throwable throwable) {
-            logger.error("handleBulkAddToCollectionCards failed for collection '{}'",
-                    collectionName, throwable);
-        }
+        CardBulkAddHandler.handleBulkAddToCollectionCards(cards, collectionName);
     }
 
     /**
-     * Adds a copy of each card in {@code cards} to the exclusion list of the named
-     * {@link ThemeCollection}.
+     * Public entry point for the bulk "add to exclusion list" menu item.
+     * Delegates to {@link CardBulkAddHandler}.
      *
      * @param cards          the cards to exclude
      * @param collectionName the name of the target collection
      */
     public static void handleBulkAddToExclusionList(
             java.util.Collection<Card> cards, String collectionName) {
-        if (cards == null || cards.isEmpty() || collectionName == null) {
-            return;
-        }
-        try {
-            if (Platform.isFxApplicationThread()) {
-                for (Card card : cards) {
-                    CardAddToListHandler.doAddToExclusionList(card, collectionName);
-                }
-            } else {
-                final List<Card> copy = new ArrayList<>(cards);
-                Platform.runLater(() -> {
-                    for (Card card : copy) {
-                        CardAddToListHandler.doAddToExclusionList(card, collectionName);
-                    }
-                });
-            }
-            lastDecksAddedTarget = collectionName + " / Cards not to add";
-            UserInterfaceFunctions.refreshDecksAndCollectionsView();
-        } catch (Throwable throwable) {
-            logger.debug("handleBulkAddToExclusionList failed for {}", collectionName, throwable);
-        }
+        CardBulkAddHandler.handleBulkAddToExclusionList(cards, collectionName);
     }
 
     /**
