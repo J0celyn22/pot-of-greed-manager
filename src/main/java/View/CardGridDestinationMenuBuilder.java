@@ -311,7 +311,7 @@ final class CardGridDestinationMenuBuilder {
                 for (Map.Entry<CardsGroup, ObservableList<CardElement>> registryEntry
                         : CardGroupRegistry.GROUP_OBSERVABLE_LISTS.entrySet()) {
                     if (registryEntry.getValue().remove(cardElement)) {
-                        Object owner = cell.findDacOwnerForCardsGroup(registryEntry.getKey());
+                        Object owner = cell.findDecksAndCollectionsOwnerForCardsGroup(registryEntry.getKey());
                         if (owner != null) {
                             sourceOwners.add(owner);
                         }

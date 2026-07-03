@@ -358,7 +358,7 @@ public final class CardGridCellContextMenuBuilder {
                     : CardGroupRegistry.GROUP_OBSERVABLE_LISTS.entrySet()) {
                 if (registryEntry.getValue() == deckGroupItems) {
                     CardGroupRegistry.triggerHeightAdjustment(registryEntry.getKey());
-                    Object pasteOwner = cell.findDacOwnerForCardsGroup(registryEntry.getKey());
+                    Object pasteOwner = cell.findDecksAndCollectionsOwnerForCardsGroup(registryEntry.getKey());
                     if (pasteOwner != null) {
                         UserInterfaceFunctions.markDirty(pasteOwner);
                     } else {
