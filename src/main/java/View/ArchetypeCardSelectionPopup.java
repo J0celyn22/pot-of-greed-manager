@@ -223,8 +223,8 @@ public class ArchetypeCardSelectionPopup extends Stage {
         scroll.getStyleClass().add("edge-to-edge");
 
         // ── Buttons ──────────────────────────────────────────────────────────
-        Button cancelBtn = makeButton("Cancel", false);
-        Button okBtn = makeButton("OK", true);
+        Button cancelBtn = PopupStyleHelper.makeButton("Cancel", false, ACCENT);
+        Button okBtn = PopupStyleHelper.makeButton("OK", true, ACCENT);
         cancelBtn.setOnAction(e -> close());
         okBtn.setOnAction(e -> {
             applyChanges();
@@ -235,7 +235,8 @@ public class ArchetypeCardSelectionPopup extends Stage {
         HBox buttonRow = new HBox(10, cancelBtn, okBtn);
         buttonRow.setAlignment(Pos.CENTER_RIGHT);
 
-        root.getChildren().addAll(title, makeSep(), cardsLabel, scroll, makeSep(), buttonRow);
+        root.getChildren().addAll(title, PopupStyleHelper.makeSeparator(ACCENT), cardsLabel, scroll,
+                PopupStyleHelper.makeSeparator(ACCENT), buttonRow);
         return root;
     }
 
@@ -352,30 +353,4 @@ public class ArchetypeCardSelectionPopup extends Stage {
         Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
     }
 
-    // ════════════════════════════════════════════════════════════════════════
-    // Style helpers
-    // ════════════════════════════════════════════════════════════════════════
-
-    private javafx.scene.control.Separator makeSep() {
-        javafx.scene.control.Separator sep = new javafx.scene.control.Separator();
-        sep.setStyle("-fx-background-color: " + ACCENT + "; -fx-opacity: 0.35;");
-        return sep;
-    }
-
-    private Button makeButton(String text, boolean isPrimary) {
-        Button b = new Button(text);
-        String base =
-                "-fx-background-color: " + (isPrimary ? "#2a0560" : "#1e0530") + ";" +
-                        "-fx-text-fill: " + ACCENT + ";" +
-                        "-fx-font-size: 12px; -fx-font-weight: bold;" +
-                        "-fx-border-color: " + ACCENT + "; -fx-border-width: 1;" +
-                        "-fx-border-radius: 3; -fx-background-radius: 3;" +
-                        "-fx-cursor: hand; -fx-padding: 5 18 5 18;";
-        b.setStyle(base);
-        b.setOnMouseEntered(e -> b.setStyle(base.replace(
-                isPrimary ? "#2a0560" : "#1e0530", "#3d0880")));
-        b.setOnMouseExited(e -> b.setStyle(base));
-        if (isPrimary) b.setDefaultButton(true);
-        return b;
-    }
 }

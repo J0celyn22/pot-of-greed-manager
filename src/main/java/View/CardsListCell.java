@@ -2,10 +2,8 @@ package View;
 
 import Controller.CardClipboard;
 import Controller.DragDropManager;
-import Controller.MenuActionHandler;
 import Controller.SelectionManager;
 import Model.CardsLists.Card;
-import Model.CardsLists.CardElement;
 import Model.Database.DataBaseUpdate;
 import Utils.LruImageCache;
 import javafx.geometry.Insets;
@@ -49,42 +47,10 @@ public class CardsListCell extends ListCell<Card> {
         this.imageHeight = imageHeight;
         setFocusTraversable(true);
         setupDragAndDrop();
-        setupDropTarget();
+        RightPaneRemovalDropTarget.install(this);
         setupSelectionHandler();
         myCollectionContextMenu = buildContextMenuForMyCollection();
         decksContextMenu = buildContextMenuForDecks();
-    }
-
-    // ── Drop target ────────────────────────────────────────────────────────────
-
-    /**
-     * Makes this cell a drop target for MIDDLE-pane drags. Dropping a middle-pane
-     * element here removes it from its source (delete / remove-from-deck semantics).
-     */
-    private void setupDropTarget() {
-        setOnDragOver(event -> {
-            if ("MIDDLE".equals(DragDropManager.getDragSourcePane())
-                    && event.getDragboard().hasString()) {
-                event.acceptTransferModes(TransferMode.MOVE);
-            }
-            event.consume();
-        });
-
-        setOnDragDropped(event -> {
-            if (!"MIDDLE".equals(DragDropManager.getDragSourcePane())) {
-                event.setDropCompleted(false);
-                event.consume();
-                return;
-            }
-            List<CardElement> draggedElements =
-                    new ArrayList<>(DragDropManager.getDraggedElements());
-            if (!draggedElements.isEmpty()) {
-                MenuActionHandler.handleBulkRemoveElementsFromDecksAndCollections(draggedElements);
-                MenuActionHandler.handleBulkRemoveFromOwnedCollection(draggedElements);
-            }
-            event.setDropCompleted(true);
-            event.consume();
-        });
     }
 
     // ── Drag source ────────────────────────────────────────────────────────────

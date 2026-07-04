@@ -10,7 +10,10 @@ import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
-import javafx.scene.control.*;
+import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.TextField;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.*;
@@ -315,8 +318,8 @@ public class CardEditPopup extends Stage {
 
 
         // ── Buttons ──────────────────────────────────────────────────────────
-        Button cancelBtn = makeButton("Cancel", false);
-        Button okBtn = makeButton("OK", true);
+        Button cancelBtn = PopupStyleHelper.makeButton("Cancel", false, ACCENT);
+        Button okBtn = PopupStyleHelper.makeButton("OK", true, ACCENT);
         cancelBtn.setOnAction(e -> close());
         okBtn.setOnAction(e -> {
             applyChanges();
@@ -329,14 +332,14 @@ public class CardEditPopup extends Stage {
 
         root.getChildren().addAll(
                 title,
-                makeSep(),
+                PopupStyleHelper.makeSeparator(ACCENT),
                 makeRow("Condition", conditionCombo),
                 makeRow("Rarity", rarityCombo),
                 makeRow("PrintCode", printCodeCombo),
                 makeRow("Tags", tagsField),
                 makeRow("Artwork",
                         new VBox(6, specificArtworkCheck, artworkBox)),
-                makeSep(),
+                PopupStyleHelper.makeSeparator(ACCENT),
                 buttonRow);
         return root;
     }
@@ -733,28 +736,6 @@ public class CardEditPopup extends Stage {
         row.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(control, Priority.ALWAYS);
         return row;
-    }
-
-    private Separator makeSep() {
-        Separator sep = new Separator();
-        sep.setStyle("-fx-background-color: " + ACCENT + "; -fx-opacity: 0.35;");
-        return sep;
-    }
-
-    private Button makeButton(String text, boolean isPrimary) {
-        Button b = new Button(text);
-        String base =
-                "-fx-background-color: " + (isPrimary ? "#2a0560" : "#1e0530") + ";" +
-                        "-fx-text-fill: " + ACCENT + ";" +
-                        "-fx-font-size: 12px; -fx-font-weight: bold;" +
-                        "-fx-border-color: " + ACCENT + "; -fx-border-width: 1;" +
-                        "-fx-border-radius: 3; -fx-background-radius: 3;" +
-                        "-fx-cursor: hand; -fx-padding: 5 18 5 18;";
-        b.setStyle(base);
-        b.setOnMouseEntered(e -> b.setStyle(base.replace(isPrimary ? "#2a0560" : "#1e0530", "#3d0880")));
-        b.setOnMouseExited(e -> b.setStyle(base));
-        if (isPrimary) b.setDefaultButton(true);
-        return b;
     }
 
     private Text grayNote(String msg) {

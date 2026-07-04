@@ -4,7 +4,6 @@ import Controller.CardClipboard;
 import Controller.DragDropManager;
 import Controller.SelectionManager;
 import Model.CardsLists.Card;
-import Model.CardsLists.CardElement;
 import Model.Database.DataBaseUpdate;
 import Utils.LruImageCache;
 import javafx.geometry.Insets;
@@ -52,7 +51,7 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
         setStyle("-fx-background-color: transparent;");
         setGraphic(rowContainer);
         setFocusTraversable(true);
-        setupDropTarget();
+        RightPaneRemovalDropTarget.install(this);
 
         hoverLabel.setWrapText(true);
         hoverLabel.setMaxWidth(260);
@@ -156,38 +155,6 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
     @Override
     public void updateSelected(boolean selected) {
         // Intentionally empty: per-card wrappers handle selection visuals.
-    }
-
-    /**
-     * Makes the row cell a drop target for MIDDLE-pane drags. Dropping removes
-     * the dragged elements from their source.
-     */
-    private void setupDropTarget() {
-        setOnDragOver(event -> {
-            if ("MIDDLE".equals(DragDropManager.getDragSourcePane())
-                    && event.getDragboard().hasString()) {
-                event.acceptTransferModes(TransferMode.MOVE);
-            }
-            event.consume();
-        });
-
-        setOnDragDropped(event -> {
-            if (!"MIDDLE".equals(DragDropManager.getDragSourcePane())) {
-                event.setDropCompleted(false);
-                event.consume();
-                return;
-            }
-            List<CardElement> draggedElements =
-                    new ArrayList<>(DragDropManager.getDraggedElements());
-            if (!draggedElements.isEmpty()) {
-                Controller.MenuActionHandler
-                        .handleBulkRemoveElementsFromDecksAndCollections(draggedElements);
-                Controller.MenuActionHandler
-                        .handleBulkRemoveFromOwnedCollection(draggedElements);
-            }
-            event.setDropCompleted(true);
-            event.consume();
-        });
     }
 
     // ── Cell rendering ─────────────────────────────────────────────────────────
