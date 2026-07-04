@@ -1103,17 +1103,23 @@ public class CardTreeCell extends TreeCell<String> {
                     try {
                         @SuppressWarnings("unchecked")
                         Map<String, Object> map = (Map<String, Object>) dataObject;
-                        Object g = map.get("group");
-                        Object m = map.get("missing");
-                        if (g instanceof CardsGroup) group = (CardsGroup) g;
-                        if (m instanceof Set) {
+                        Object groupValue = map.get("group");
+                        Object missingValue = map.get("missing");
+                        if (groupValue instanceof CardsGroup) {
+                            group = (CardsGroup) groupValue;
+                        }
+                        if (missingValue instanceof Set) {
                             @SuppressWarnings("unchecked")
-                            Set<String> s = (Set<String>) m;
-                            missingForThisGroup = s;
-                        } else if (m instanceof Collection) {
-                            Set<String> s = new HashSet<>();
-                            for (Object o : (Collection<?>) m) if (o != null) s.add(o.toString());
-                            missingForThisGroup = s;
+                            Set<String> castMissingSet = (Set<String>) missingValue;
+                            missingForThisGroup = castMissingSet;
+                        } else if (missingValue instanceof Collection) {
+                            Set<String> collectedSet = new HashSet<>();
+                            for (Object entry : (Collection<?>) missingValue) {
+                                if (entry != null) {
+                                    collectedSet.add(entry.toString());
+                                }
+                            }
+                            missingForThisGroup = collectedSet;
                         }
                     } catch (Exception e) {
                         logger.debug("Failed to extract archetype map data", e);
@@ -1123,137 +1129,7 @@ public class CardTreeCell extends TreeCell<String> {
                 if (group != null) {
                     createCardsGroupCell(itemName, group, missingForThisGroup);
                 } else if (dataObject instanceof CardElement) {
-                    CardElement cardElement = (CardElement) dataObject;
-                    HBox cardBox = new HBox(5);
-                    cardBox.setAlignment(Pos.CENTER_LEFT);
-
-                    ImageView imageView = new ImageView();
-                    imageView.setFitWidth(cardWidthProperty.get());
-                    imageView.setFitHeight(cardHeightProperty.get());
-                    imageView.setPreserveRatio(true);
-
-                    imageLoader.loadCardImage(cardElement, imageView);
-
-                    Label nameLabel = new Label(cardElement.getCard() == null ? "" : cardElement.getCard().getName_EN());
-                    nameLabel.setTextFill(javafx.scene.paint.Color.WHITE);
-
-                    cardBox.getChildren().addAll(imageView, nameLabel);
-
-                    // ----------------------------
-                    // Determine whether to apply the "unsorted" glow
-                    // ----------------------------
-                    boolean needsSorting = false;
-                    Set<String> missingSet = null;
-                    String elementNameFromUD = null;
-                    try {
-                        // Retrieve userData from the GridView that was stored in createCardsGroupCell.
-                        Object ud = null;
-                        try {
-                            if (this.cardGridView != null) ud = this.cardGridView.getUserData();
-                        } catch (Exception ignored) {
-                            ud = null;
-                        }
-
-                        if (ud instanceof Map) {
-                            @SuppressWarnings("unchecked")
-                            Map<String, Object> map = (Map<String, Object>) ud;
-                            Object ms = map.get("missingSet");
-                            if (ms instanceof Set) {
-                                @SuppressWarnings("unchecked")
-                                Set<String> s = (Set<String>) ms;
-                                missingSet = s;
-                            } else if (ms instanceof Collection) {
-                                Set<String> s = new HashSet<>();
-                                for (Object o : (Collection<?>) ms) if (o != null) s.add(o.toString());
-                                missingSet = s;
-                            }
-                            Object en = map.get("elementName");
-                            if (en instanceof String) elementNameFromUD = (String) en;
-                        } else if (ud instanceof Set) {
-                            @SuppressWarnings("unchecked")
-                            Set<String> s = (Set<String>) ud;
-                            missingSet = s;
-                        } else if (ud instanceof String) {
-                            elementNameFromUD = (String) ud;
-                        }
-
-                        // If a missing set exists and indicates this card is missing, use that (archetype glow)
-                        if (missingSet != null && !missingSet.isEmpty()) {
-                            String konamiId = cardElement.getCard() == null ? null : cardElement.getCard().getKonamiId();
-                            String passCode = cardElement.getCard() == null ? null : cardElement.getCard().getPassCode();
-                            boolean missing = false;
-                            if (konamiId != null && missingSet.contains(konamiId)) missing = true;
-                            if (!missing && passCode != null && missingSet.contains(passCode)) missing = true;
-                            // fallback to legacy global set if needed (keeps previous behavior)
-                            if (!missing && (missingSet.isEmpty())) {
-                                missing = CardGroupRegistry.LEGACY_GLOBAL_MISSING_SET.contains(konamiId) || CardGroupRegistry.LEGACY_GLOBAL_MISSING_SET.contains(passCode);
-                            }
-                            needsSorting = missing;
-                        } else {
-                            // 2) No archetype missing-set -> sorting/upgrade check.
-                            // My Collection: check if needs sorting, then if upgrade.
-                            // D&C: already handled by isDegraded block below.
-                            String elementName = elementNameFromUD;
-
-                            if (elementName != null && !elementName.trim().isEmpty() && isMyCollectionTabSelected()) {
-                                try {
-                                    boolean genuinelyNeeded = Controller.CardQualityService
-                                            .computeCardNeedsSorting(cardElement.getCard(), elementName);
-                                    if (genuinelyNeeded) {
-                                        needsSorting = true;
-                                    } else {
-                                        needsSorting = Controller.CardQualityService
-                                                .computeCardNeedsSortingWithUpgrade(cardElement, elementName);
-                                    }
-                                } catch (Throwable t) {
-                                    needsSorting = false;
-                                }
-                            } else {
-                                needsSorting = false;
-                            }
-                        }
-                    } catch (Exception e) {
-                        logger.debug("Failed to compute/apply archetype/sorting decision", e);
-                        needsSorting = false;
-                    }
-
-                    // Degraded-in-deck check: orange glow when a better owned copy exists.
-                    // Only run on D&C tab (not My Collection) and only when not already glowing.
-                    boolean isDegraded = false;
-                    if (!needsSorting && elementNameFromUD != null && !elementNameFromUD.trim().isEmpty()
-                            && isDecksAndCollectionsTabSelected()) {
-                        try {
-                            isDegraded = Controller.CardQualityService
-                                    .isDegradedCopyInDeckOrCollection(cardElement, elementNameFromUD);
-                        } catch (Throwable ignored) {
-                        }
-                    }
-
-                    // Apply glow if needed to the cardBox (keeps other visuals intact)
-                    if (needsSorting || isDegraded) {
-                        String glowColor = isDegraded ? "#EB9E34" : "#ffffff";
-                        double outerAlpha = isDegraded ? 0.35 : 0.22;
-                        DropShadow innerGlow = new DropShadow();
-                        innerGlow.setColor(javafx.scene.paint.Color.web(glowColor, 1.0));
-                        innerGlow.setOffsetX(0);
-                        innerGlow.setOffsetY(0);
-                        innerGlow.setRadius(4);
-                        innerGlow.setSpread(0.9);
-
-                        DropShadow outerGlow = new DropShadow();
-                        outerGlow.setColor(javafx.scene.paint.Color.web(glowColor, outerAlpha));
-                        outerGlow.setOffsetX(0);
-                        outerGlow.setOffsetY(0);
-                        outerGlow.setRadius(14);
-                        outerGlow.setSpread(0.12);
-
-                        outerGlow.setInput(innerGlow);
-                        cardBox.setEffect(outerGlow);
-                    } else {
-                        cardBox.setEffect(null);
-                    }
-
-                    setGraphic(cardBox);
+                    buildCardElementCell((CardElement) dataObject);
                 } else if (dataObject instanceof String && dataObject.equals("ROOT")) {
                     Label label = new Label(itemName);
                     label.getStyleClass().add("tree-root-label");
@@ -1263,158 +1139,20 @@ public class CardTreeCell extends TreeCell<String> {
                     // ── Collection header row ──────────────────────────────────
                     // Shown in the Decks & Collections and OuicheList tree.
                     // Right-click: "Add Deck" + "Add Archetype"
-                    Model.CardsLists.ThemeCollection tc =
-                            (Model.CardsLists.ThemeCollection) dataObject;
-                    Label label = new Label(itemName);
-                    label.getStyleClass().add("tree-item-label");
-
-                    if (isDecksAndCollectionsTabSelected()) {
-                        HBox titleRow = new HBox(6, label);
-                        titleRow.setAlignment(Pos.CENTER_LEFT);
-                        HBox spring = new HBox();
-                        HBox.setHgrow(spring, Priority.ALWAYS);
-                        Button renameBtn = makeInlineActionButton("✎ Rename");
-                        Button saveBtn = makeInlineActionButton("💾 Save");
-                        titleRow.getChildren().addAll(spring, renameBtn, saveBtn);
-
-                        renameBtn.setOnAction(e -> showRenamePopup(label, label.getText(),
-                                newName -> {
-                                    tc.setName(newName);
-                                    label.setText(newName);
-                                    UserInterfaceFunctions.markDirty(tc);
-                                    UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-                                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
-                                }));
-
-                        saveBtn.setOnAction(e -> {
-                            try {
-                                UserInterfaceFunctions.saveSingleDeckOrCollection(tc);
-                            } catch (Exception ex) {
-                                logger.error("Failed to save collection '{}'", tc.getName(), ex);
-                            }
-                        });
-
-                        ContextMenu collectionCm = NavigationContextMenuBuilder.styledContextMenu();
-                        collectionCm.getItems().addAll(
-                                NavigationContextMenuBuilder.makeItem("Add Deck"),
-                                NavigationContextMenuBuilder.makeItem("Add archetype")
-                        );
-                        titleRow.setOnContextMenuRequested(e -> {
-                            collectionCm.show(titleRow, e.getScreenX(), e.getScreenY());
-                            e.consume();
-                        });
-                        setGraphic(titleRow);
-                    } else if (isOuicheListTabSelected()) {
-                        List<CardElement> collectionCards = collectCardsFromCollection(tc);
-                        String stats = buildAdvancementLabel(collectionCards);
-                        setGraphic(buildOuicheListTitleRow(itemName, stats));
-                    } else {
-                        setGraphic(label);
-                    }
+                    buildCollectionHeaderCell(itemName, (Model.CardsLists.ThemeCollection) dataObject);
 
                 } else if (dataObject instanceof Model.CardsLists.Box) {
                     // ── Box header — My Collection tab ────────────────────────
-                    Model.CardsLists.Box box = (Model.CardsLists.Box) dataObject;
-                    Label label = new Label(itemName);
-                    label.getStyleClass().add("tree-item-label");
-                    if (isMyCollectionTabSelected()) {
-                        HBox titleRow = new HBox(6, label);
-                        titleRow.setAlignment(Pos.CENTER_LEFT);
-                        HBox spring = new HBox();
-                        HBox.setHgrow(spring, Priority.ALWAYS);
-                        Button renameBtn = makeInlineActionButton("✎ Rename");
-                        titleRow.getChildren().addAll(spring, renameBtn);
-                        renameBtn.setOnAction(e -> showRenamePopup(label, label.getText(),
-                                newName -> {
-                                    String raw = box.getName() == null ? "" : box.getName();
-                                    box.setName(CardNameUtils.rebuildDecoratedName(raw, newName, '='));
-                                    label.setText(newName);
-                                    UserInterfaceFunctions.markMyCollectionDirty();
-                                    UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-                                    UserInterfaceFunctions.refreshOwnedCollectionStructure();
-                                }));
-                        setGraphic(titleRow);
-                    } else {
-                        setGraphic(label);
-                    }
+                    buildBoxHeaderCell(itemName, (Model.CardsLists.Box) dataObject);
 
                 } else if (dataObject instanceof Model.CardsLists.Deck) {
                     // ── Deck header — Decks & Collections tab ─────────────────
-                    Model.CardsLists.Deck deck = (Model.CardsLists.Deck) dataObject;
-                    Label label = new Label(itemName);
-                    label.getStyleClass().add("tree-item-label");
-                    if (isDecksAndCollectionsTabSelected()) {
-                        HBox titleRow = new HBox(6, label);
-                        titleRow.setAlignment(Pos.CENTER_LEFT);
-                        HBox spring = new HBox();
-                        HBox.setHgrow(spring, Priority.ALWAYS);
-                        Button sortBtn = makeInlineActionButton("⇅ Sort");
-                        Button renameBtn = makeInlineActionButton("✎ Rename");
-                        Button saveBtn = makeInlineActionButton("💾 Save");
-                        titleRow.getChildren().addAll(spring, sortBtn, renameBtn, saveBtn);
-
-                        // Sort: sorts Main Deck, Extra Deck and Side Deck using the
-                        // standard middle-pane ordering (CardElementSorter).
-                        sortBtn.setOnAction(e -> {
-                            boolean changed = false;
-                            for (String section : new String[]{"main", "extra", "side"}) {
-                                CardsGroup sg = getDeckSectionGroup(deck, section);
-                                if (sg == null) continue;
-                                javafx.collections.ObservableList<CardElement> obs =
-                                        observableListFor(sg);
-                                java.util.List<CardElement> sorted =
-                                        Utils.CardElementSorter.sorted(
-                                                new java.util.ArrayList<>(obs));
-                                obs.setAll(sorted);
-                                changed = true;
-                            }
-                            if (changed) {
-                                UserInterfaceFunctions.markDirty(deck);
-                                UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-                                UserInterfaceFunctions.refreshDecksAndCollectionsView();
-                            }
-                        });
-
-                        renameBtn.setOnAction(e -> showRenamePopup(label, label.getText(),
-                                newName -> {
-                                    deck.setName(newName);
-                                    label.setText(newName);
-                                    UserInterfaceFunctions.markDirty(deck);
-                                    UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-                                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
-                                }));
-                        saveBtn.setOnAction(e -> {
-                            try {
-                                UserInterfaceFunctions.saveSingleDeckOrCollection(deck);
-                            } catch (Exception ex) {
-                                logger.error("Failed to save deck '{}'", deck.getName(), ex);
-                            }
-                        });
-                        setGraphic(titleRow);
-                    } else if (isOuicheListTabSelected()) {
-                        String stats = buildAdvancementLabel(deck.toList());
-                        setGraphic(buildOuicheListTitleRow(itemName, stats));
-                    } else {
-                        setGraphic(label);
-                    }
+                    buildDeckHeaderCell(itemName, (Model.CardsLists.Deck) dataObject);
 
                 } else if ("ARCHETYPES_SECTION".equals(dataObject)) {
                     // ── "Archetypes" section header ────────────────────────────
                     // Right-click: "Add" (add a new archetype to this collection)
-                    Label label = new Label(itemName);
-                    label.getStyleClass().add("tree-item-label");
-                    setGraphic(label);
-
-                    if (isDecksAndCollectionsTabSelected()) {
-                        ContextMenu archetypesSectionCm = NavigationContextMenuBuilder.styledContextMenu();
-                        archetypesSectionCm.getItems().add(
-                                NavigationContextMenuBuilder.makeItem("Add")
-                        );
-                        label.setOnContextMenuRequested(e -> {
-                            archetypesSectionCm.show(label, e.getScreenX(), e.getScreenY());
-                            e.consume();
-                        });
-                    }
+                    buildArchetypesSectionHeaderCell(itemName);
 
                 } else {
                     // Default: plain label (section headers like "Decks", deck names, etc.)
@@ -1427,6 +1165,331 @@ public class CardTreeCell extends TreeCell<String> {
                 label.getStyleClass().add("tree-item-label");
                 setGraphic(label);
             }
+        }
+    }
+
+    /**
+     * Builds a leaf card-tile cell for a bare {@link CardElement} in the tree
+     * (used for flat, non-grouped listings). Applies the same "needs sorting" /
+     * "upgrade candidate" / "degraded copy" white or orange glow logic as the
+     * mosaic grid cells, based on the missing-set / element-name metadata stored
+     * in {@code cardGridView}'s userData by {@link #createCardsGroupCell}.
+     */
+    private void buildCardElementCell(CardElement cardElement) {
+        HBox cardBox = new HBox(5);
+        cardBox.setAlignment(Pos.CENTER_LEFT);
+
+        ImageView imageView = new ImageView();
+        imageView.setFitWidth(cardWidthProperty.get());
+        imageView.setFitHeight(cardHeightProperty.get());
+        imageView.setPreserveRatio(true);
+
+        imageLoader.loadCardImage(cardElement, imageView);
+
+        Label nameLabel = new Label(cardElement.getCard() == null ? "" : cardElement.getCard().getName_EN());
+        nameLabel.setTextFill(javafx.scene.paint.Color.WHITE);
+
+        cardBox.getChildren().addAll(imageView, nameLabel);
+
+        // ----------------------------
+        // Determine whether to apply the "unsorted" glow
+        // ----------------------------
+        boolean needsSorting = false;
+        Set<String> missingSet = null;
+        String elementNameFromUserData = null;
+        try {
+            // Retrieve userData from the GridView that was stored in createCardsGroupCell.
+            Object userData = null;
+            try {
+                if (this.cardGridView != null) {
+                    userData = this.cardGridView.getUserData();
+                }
+            } catch (Exception ignored) {
+                userData = null;
+            }
+
+            if (userData instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> map = (Map<String, Object>) userData;
+                Object missingSetValue = map.get("missingSet");
+                if (missingSetValue instanceof Set) {
+                    @SuppressWarnings("unchecked")
+                    Set<String> castMissingSet = (Set<String>) missingSetValue;
+                    missingSet = castMissingSet;
+                } else if (missingSetValue instanceof Collection) {
+                    Set<String> collectedSet = new HashSet<>();
+                    for (Object entry : (Collection<?>) missingSetValue) {
+                        if (entry != null) {
+                            collectedSet.add(entry.toString());
+                        }
+                    }
+                    missingSet = collectedSet;
+                }
+                Object elementNameValue = map.get("elementName");
+                if (elementNameValue instanceof String) {
+                    elementNameFromUserData = (String) elementNameValue;
+                }
+            } else if (userData instanceof Set) {
+                @SuppressWarnings("unchecked")
+                Set<String> castMissingSet = (Set<String>) userData;
+                missingSet = castMissingSet;
+            } else if (userData instanceof String) {
+                elementNameFromUserData = (String) userData;
+            }
+
+            // If a missing set exists and indicates this card is missing, use that (archetype glow)
+            if (missingSet != null && !missingSet.isEmpty()) {
+                String konamiId = cardElement.getCard() == null ? null : cardElement.getCard().getKonamiId();
+                String passCode = cardElement.getCard() == null ? null : cardElement.getCard().getPassCode();
+                boolean missing = false;
+                if (konamiId != null && missingSet.contains(konamiId)) {
+                    missing = true;
+                }
+                if (!missing && passCode != null && missingSet.contains(passCode)) {
+                    missing = true;
+                }
+                // fallback to legacy global set if needed (keeps previous behavior)
+                if (!missing && (missingSet.isEmpty())) {
+                    missing = CardGroupRegistry.LEGACY_GLOBAL_MISSING_SET.contains(konamiId)
+                            || CardGroupRegistry.LEGACY_GLOBAL_MISSING_SET.contains(passCode);
+                }
+                needsSorting = missing;
+            } else {
+                // 2) No archetype missing-set -> sorting/upgrade check.
+                // My Collection: check if needs sorting, then if upgrade.
+                // D&C: already handled by isDegraded block below.
+                String elementName = elementNameFromUserData;
+
+                if (elementName != null && !elementName.trim().isEmpty() && isMyCollectionTabSelected()) {
+                    try {
+                        boolean genuinelyNeeded = Controller.CardQualityService
+                                .computeCardNeedsSorting(cardElement.getCard(), elementName);
+                        if (genuinelyNeeded) {
+                            needsSorting = true;
+                        } else {
+                            needsSorting = Controller.CardQualityService
+                                    .computeCardNeedsSortingWithUpgrade(cardElement, elementName);
+                        }
+                    } catch (Throwable t) {
+                        needsSorting = false;
+                    }
+                } else {
+                    needsSorting = false;
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to compute/apply archetype/sorting decision", e);
+            needsSorting = false;
+        }
+
+        // Degraded-in-deck check: orange glow when a better owned copy exists.
+        // Only run on D&C tab (not My Collection) and only when not already glowing.
+        boolean isDegraded = false;
+        if (!needsSorting && elementNameFromUserData != null && !elementNameFromUserData.trim().isEmpty()
+                && isDecksAndCollectionsTabSelected()) {
+            try {
+                isDegraded = Controller.CardQualityService
+                        .isDegradedCopyInDeckOrCollection(cardElement, elementNameFromUserData);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        // Apply glow if needed to the cardBox (keeps other visuals intact)
+        if (needsSorting || isDegraded) {
+            String glowColor = isDegraded ? "#EB9E34" : "#ffffff";
+            double outerAlpha = isDegraded ? 0.35 : 0.22;
+            DropShadow innerGlow = new DropShadow();
+            innerGlow.setColor(javafx.scene.paint.Color.web(glowColor, 1.0));
+            innerGlow.setOffsetX(0);
+            innerGlow.setOffsetY(0);
+            innerGlow.setRadius(4);
+            innerGlow.setSpread(0.9);
+
+            DropShadow outerGlow = new DropShadow();
+            outerGlow.setColor(javafx.scene.paint.Color.web(glowColor, outerAlpha));
+            outerGlow.setOffsetX(0);
+            outerGlow.setOffsetY(0);
+            outerGlow.setRadius(14);
+            outerGlow.setSpread(0.12);
+
+            outerGlow.setInput(innerGlow);
+            cardBox.setEffect(outerGlow);
+        } else {
+            cardBox.setEffect(null);
+        }
+
+        setGraphic(cardBox);
+    }
+
+    /**
+     * Builds the ThemeCollection header row shown in the Decks &amp; Collections and
+     * OuicheList tree: plain label everywhere else, but on Decks &amp; Collections it
+     * gets inline Rename/Save buttons and an "Add Deck" / "Add archetype" context
+     * menu, and on OuicheList it shows the advancement stats row instead.
+     */
+    private void buildCollectionHeaderCell(String itemName, Model.CardsLists.ThemeCollection themeCollection) {
+        Label label = new Label(itemName);
+        label.getStyleClass().add("tree-item-label");
+
+        if (isDecksAndCollectionsTabSelected()) {
+            HBox titleRow = new HBox(6, label);
+            titleRow.setAlignment(Pos.CENTER_LEFT);
+            HBox spring = new HBox();
+            HBox.setHgrow(spring, Priority.ALWAYS);
+            Button renameBtn = makeInlineActionButton("✎ Rename");
+            Button saveBtn = makeInlineActionButton("💾 Save");
+            titleRow.getChildren().addAll(spring, renameBtn, saveBtn);
+
+            renameBtn.setOnAction(e -> showRenamePopup(label, label.getText(),
+                    newName -> {
+                        themeCollection.setName(newName);
+                        label.setText(newName);
+                        UserInterfaceFunctions.markDirty(themeCollection);
+                        UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                        UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                    }));
+
+            saveBtn.setOnAction(e -> {
+                try {
+                    UserInterfaceFunctions.saveSingleDeckOrCollection(themeCollection);
+                } catch (Exception ex) {
+                    logger.error("Failed to save collection '{}'", themeCollection.getName(), ex);
+                }
+            });
+
+            ContextMenu collectionContextMenu = NavigationContextMenuBuilder.styledContextMenu();
+            collectionContextMenu.getItems().addAll(
+                    NavigationContextMenuBuilder.makeItem("Add Deck"),
+                    NavigationContextMenuBuilder.makeItem("Add archetype")
+            );
+            titleRow.setOnContextMenuRequested(e -> {
+                collectionContextMenu.show(titleRow, e.getScreenX(), e.getScreenY());
+                e.consume();
+            });
+            setGraphic(titleRow);
+        } else if (isOuicheListTabSelected()) {
+            List<CardElement> collectionCards = collectCardsFromCollection(themeCollection);
+            String stats = buildAdvancementLabel(collectionCards);
+            setGraphic(buildOuicheListTitleRow(itemName, stats));
+        } else {
+            setGraphic(label);
+        }
+    }
+
+    /**
+     * Builds the Box header row shown in the My Collection tree: plain label
+     * everywhere else, but on My Collection it gets an inline Rename button.
+     */
+    private void buildBoxHeaderCell(String itemName, Model.CardsLists.Box box) {
+        Label label = new Label(itemName);
+        label.getStyleClass().add("tree-item-label");
+        if (isMyCollectionTabSelected()) {
+            HBox titleRow = new HBox(6, label);
+            titleRow.setAlignment(Pos.CENTER_LEFT);
+            HBox spring = new HBox();
+            HBox.setHgrow(spring, Priority.ALWAYS);
+            Button renameBtn = makeInlineActionButton("✎ Rename");
+            titleRow.getChildren().addAll(spring, renameBtn);
+            renameBtn.setOnAction(e -> showRenamePopup(label, label.getText(),
+                    newName -> {
+                        String raw = box.getName() == null ? "" : box.getName();
+                        box.setName(CardNameUtils.rebuildDecoratedName(raw, newName, '='));
+                        label.setText(newName);
+                        UserInterfaceFunctions.markMyCollectionDirty();
+                        UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                        UserInterfaceFunctions.refreshOwnedCollectionStructure();
+                    }));
+            setGraphic(titleRow);
+        } else {
+            setGraphic(label);
+        }
+    }
+
+    /**
+     * Builds the Deck header row shown in the Decks &amp; Collections tree: plain
+     * label everywhere else, but on Decks &amp; Collections it gets inline
+     * Sort/Rename/Save buttons, and on OuicheList it shows the advancement stats
+     * row instead.
+     */
+    private void buildDeckHeaderCell(String itemName, Model.CardsLists.Deck deck) {
+        Label label = new Label(itemName);
+        label.getStyleClass().add("tree-item-label");
+        if (isDecksAndCollectionsTabSelected()) {
+            HBox titleRow = new HBox(6, label);
+            titleRow.setAlignment(Pos.CENTER_LEFT);
+            HBox spring = new HBox();
+            HBox.setHgrow(spring, Priority.ALWAYS);
+            Button sortBtn = makeInlineActionButton("⇅ Sort");
+            Button renameBtn = makeInlineActionButton("✎ Rename");
+            Button saveBtn = makeInlineActionButton("💾 Save");
+            titleRow.getChildren().addAll(spring, sortBtn, renameBtn, saveBtn);
+
+            // Sort: sorts Main Deck, Extra Deck and Side Deck using the
+            // standard middle-pane ordering (CardElementSorter).
+            sortBtn.setOnAction(e -> {
+                boolean changed = false;
+                for (String section : new String[]{"main", "extra", "side"}) {
+                    CardsGroup sectionGroup = getDeckSectionGroup(deck, section);
+                    if (sectionGroup == null) {
+                        continue;
+                    }
+                    javafx.collections.ObservableList<CardElement> obs =
+                            observableListFor(sectionGroup);
+                    java.util.List<CardElement> sorted =
+                            Utils.CardElementSorter.sorted(
+                                    new java.util.ArrayList<>(obs));
+                    obs.setAll(sorted);
+                    changed = true;
+                }
+                if (changed) {
+                    UserInterfaceFunctions.markDirty(deck);
+                    UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                }
+            });
+
+            renameBtn.setOnAction(e -> showRenamePopup(label, label.getText(),
+                    newName -> {
+                        deck.setName(newName);
+                        label.setText(newName);
+                        UserInterfaceFunctions.markDirty(deck);
+                        UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                        UserInterfaceFunctions.refreshDecksAndCollectionsView();
+                    }));
+            saveBtn.setOnAction(e -> {
+                try {
+                    UserInterfaceFunctions.saveSingleDeckOrCollection(deck);
+                } catch (Exception ex) {
+                    logger.error("Failed to save deck '{}'", deck.getName(), ex);
+                }
+            });
+            setGraphic(titleRow);
+        } else if (isOuicheListTabSelected()) {
+            String stats = buildAdvancementLabel(deck.toList());
+            setGraphic(buildOuicheListTitleRow(itemName, stats));
+        } else {
+            setGraphic(label);
+        }
+    }
+
+    /**
+     * Builds the "Archetypes" section header row. On Decks &amp; Collections it gets
+     * an "Add" context-menu item for adding a new archetype to this collection.
+     */
+    private void buildArchetypesSectionHeaderCell(String itemName) {
+        Label label = new Label(itemName);
+        label.getStyleClass().add("tree-item-label");
+        setGraphic(label);
+
+        if (isDecksAndCollectionsTabSelected()) {
+            ContextMenu archetypesSectionContextMenu = NavigationContextMenuBuilder.styledContextMenu();
+            archetypesSectionContextMenu.getItems().add(
+                    NavigationContextMenuBuilder.makeItem("Add")
+            );
+            label.setOnContextMenuRequested(e -> {
+                archetypesSectionContextMenu.show(label, e.getScreenX(), e.getScreenY());
+                e.consume();
+            });
         }
     }
 
