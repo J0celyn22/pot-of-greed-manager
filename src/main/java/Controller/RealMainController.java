@@ -1,6 +1,8 @@
 package Controller;
 
-import Model.CardsLists.*;
+import Model.CardsLists.Card;
+import Model.CardsLists.CardElement;
+import Model.CardsLists.SubListCreator;
 import View.*;
 import View.SharedCollectionTab.TabType;
 import javafx.application.Platform;
@@ -107,6 +109,7 @@ public class RealMainController {
     private ArchetypesController archetypesController;
     private KeyboardShortcutHandler keyboardShortcutHandler;
     private SaveStateCoordinator saveStateCoordinator;
+    private TabSwitchCoordinator tabSwitchCoordinator;
 
     // ── View-mode flags ───────────────────────────────────────────────────────
 
@@ -138,10 +141,7 @@ public class RealMainController {
     private TreeView<String> decksAndCollectionsTreeView;
     private TreeView<String> myCollectionTreeView;
     private TreeView<String> ouicheListTreeView;
-
-    // ── One-time load guards ──────────────────────────────────────────────────
     private TreeView<String> archetypesTreeView;
-    private boolean ouicheListLoaded = false;
 
     // ── Panes that have already had their ENTER shortcut wired ───────────────
     /**
@@ -393,9 +393,12 @@ public class RealMainController {
         }
 
         // ── 9. Wire tab-switch listener ───────────────────────────────────────
+        tabSwitchCoordinator = new TabSwitchCoordinator(
+                this, decksController, ouicheListController, archetypesController, decksTab);
         if (mainTabPane != null) {
             mainTabPane.getSelectionModel().selectedItemProperty()
-                    .addListener((obs, oldTab, newTab) -> handleTabSwitch(newTab));
+                    .addListener((obs, oldTab, newTab) ->
+                            tabSwitchCoordinator.handleTabSwitch(mainTabPane.getTabs().indexOf(newTab)));
         }
 
         // ── 11. Wire OuicheList toggle buttons ────────────────────────────────
@@ -454,171 +457,6 @@ public class RealMainController {
     }
 
     // =========================================================================
-    // Tab-switch handler
-    // =========================================================================
-
-    /**
-     * Called by the tab-change listener whenever the user selects a different tab.
-     * Injects the shared right panel, re-applies the middle-pane filter, and
-     * delegates to the appropriate sub-controller.
-     *
-     * @param newTab the newly selected tab (may be null)
-     */
-    private void handleTabSwitch(Tab newTab) {
-        if (newTab == null) {
-            return;
-        }
-        int selectedIndex = mainTabPane.getTabs().indexOf(newTab);
-
-        injectSharedRightPanel(getSharedTabAt(selectedIndex));
-        updateMiddlePaneDisplay();
-
-        switch (selectedIndex) {
-            case 1 -> handleDecksTabSelected();
-            case 2 -> handleOuicheListTabSelected();
-            case 3 -> handleArchetypesTabSelected();
-        }
-    }
-
-    private void handleDecksTabSelected() {
-        try {
-            decksController.populateDecksAndCollectionsMenu();
-            UserInterfaceFunctions.registerDecksCollectionsRefresher(() -> {
-                try {
-                    String cardTarget = MenuActionHandler.getAndClearLastDecksAddedTarget();
-                    Object deckMoveTarget =
-                            UserInterfaceFunctions.getAndClearPendingDecksScrollTarget();
-                    Object[] createCollData =
-                            UserInterfaceFunctions.getAndClearPendingDecksCreateCollectionData();
-                    Object renameTarget =
-                            UserInterfaceFunctions.getAndClearPendingDecksRenameTarget();
-                    boolean needsFullRebuild =
-                            UserInterfaceFunctions.getAndClearPendingDecksFullRebuild();
-                    Object expandTarget =
-                            UserInterfaceFunctions.getAndClearPendingDecksExpandTarget();
-
-                    decksController.populateDecksAndCollectionsMenu();
-
-                    boolean isStructuralChange = deckMoveTarget != null
-                            || createCollData != null
-                            || renameTarget != null
-                            || needsFullRebuild;
-
-                    if (isStructuralChange || cardTarget != null) {
-                        final double savedScroll = decksController.getDecksTreeScrollPosition();
-                        decksController.displayDecksAndCollections();
-                        Platform.runLater(() ->
-                                decksController.restoreDecksTreeScrollPosition(savedScroll));
-                    } else {
-                        if (decksAndCollectionsTreeView != null) {
-                            decksAndCollectionsTreeView.refresh();
-                            CardTreeCell.refreshAllGridViews();
-                        }
-                    }
-
-                    if (cardTarget != null) {
-                        decksController.scrollToTargetInDecksTree(cardTarget);
-                    }
-                    if (deckMoveTarget != null) {
-                        decksController.scrollToMovedDeck(deckMoveTarget);
-                    }
-
-                    if (createCollData != null && createCollData.length == 2
-                            && createCollData[0] instanceof ThemeCollection newCollection
-                            && createCollData[1] instanceof Deck movedDeck) {
-                        Platform.runLater(() -> {
-                            NavigationItem toRename = NavigationHelper.findNavItemInMenuVBox(
-                                    decksTab.getMenuVBox(), newCollection);
-                            if (toRename != null) {
-                                toRename.setExpanded(true);
-                                NavigationHelper.expandNavAncestors(toRename);
-                                NavigationHelper.scrollNavToItem(decksTab, toRename);
-                                decksController.startDecksCreateCollectionRename(
-                                        toRename, newCollection, movedDeck);
-                            } else {
-                                logger.warn("Create-Collection rename: NavigationItem not found"
-                                        + " for '{}'", newCollection.getName());
-                            }
-                        });
-                    }
-
-                    if (renameTarget != null) {
-                        final Object finalTarget = renameTarget;
-                        Platform.runLater(() -> {
-                            NavigationItem toRename = NavigationHelper.findNavItemInMenuVBox(
-                                    decksTab.getMenuVBox(), finalTarget);
-                            if (toRename != null) {
-                                NavigationHelper.expandNavAncestors(toRename);
-                                NavigationHelper.scrollNavToItem(decksTab, toRename);
-                                decksController.startDecksAddRename(toRename, finalTarget);
-                            } else {
-                                logger.warn(
-                                        "Pending decks rename: NavigationItem not found for {}",
-                                        finalTarget);
-                            }
-                        });
-                    }
-
-                    if (expandTarget != null) {
-                        final Object finalExpand = expandTarget;
-                        Platform.runLater(() -> {
-                            NavigationItem toExpand = NavigationHelper.findNavItemInMenuVBox(
-                                    decksTab.getMenuVBox(), finalExpand);
-                            if (toExpand != null) {
-                                toExpand.setExpanded(true);
-                                NavigationHelper.expandNavAncestors(toExpand);
-                                NavigationHelper.scrollNavToItem(decksTab, toExpand);
-                            }
-                        });
-                    }
-
-                    updateTabDirtyIndicators();
-                } catch (Exception exception) {
-                    logger.debug("Decks refresher failed", exception);
-                }
-            });
-            decksController.displayDecksAndCollections();
-        } catch (Exception exception) {
-            logger.error("Error displaying Decks and Collections", exception);
-        }
-
-        UserInterfaceFunctions.registerOuicheListRefresher(() -> {
-            if (!ouicheListLoaded) {
-                return;
-            }
-            try {
-                ouicheListController.displayOuicheListUnified();
-                ouicheListController.populateOuicheListMenu();
-                refreshOuicheListCompactViewIfVisible();
-            } catch (Exception exception) {
-                logger.debug("OuicheList refresher failed", exception);
-            }
-        });
-    }
-
-    private void handleOuicheListTabSelected() {
-        if (!ouicheListLoaded) {
-            try {
-                UserInterfaceFunctions.generateOuicheList();
-                ouicheListController.displayOuicheListUnified();
-                ouicheListController.populateOuicheListMenu();
-                ouicheListLoaded = true;
-            } catch (Exception exception) {
-                logger.error("Error displaying OuicheList", exception);
-            }
-        }
-    }
-
-    private void handleArchetypesTabSelected() {
-        try {
-            archetypesController.displayArchetypes();
-            archetypesController.populateArchetypesMenu();
-        } catch (Exception exception) {
-            logger.error("Error displaying Archetypes", exception);
-        }
-    }
-
-    // =========================================================================
     // Shared right panel
     // =========================================================================
 
@@ -633,7 +471,7 @@ public class RealMainController {
      *
      * @param tab the tab to inject into; no-op if {@code null}
      */
-    private void injectSharedRightPanel(SharedCollectionTab tab) {
+    void injectSharedRightPanel(SharedCollectionTab tab) {
         if (tab == null) {
             return;
         }
@@ -855,7 +693,7 @@ public class RealMainController {
      * the current left-pane filters, but only when the OuicheList tab is currently
      * showing the compact view.
      */
-    private void refreshOuicheListCompactViewIfVisible() {
+    void refreshOuicheListCompactViewIfVisible() {
         Button compactDetailedButton = ouicheListTab.getCompactDetailedButton();
         Button mosaicListButton = ouicheListTab.getMosaicListButton();
         if (compactDetailedButton == null || mosaicListButton == null) {
@@ -1051,6 +889,18 @@ public class RealMainController {
      */
     public void updateTabDirtyIndicators() {
         saveStateCoordinator.updateTabDirtyIndicators();
+    }
+
+    /**
+     * Refreshes the Decks &amp; Collections tree view and all grid views in place,
+     * without a full tree rebuild. Used by {@link TabSwitchCoordinator} after a
+     * non-structural model change.
+     */
+    void refreshDecksAndCollectionsTreeView() {
+        if (decksAndCollectionsTreeView != null) {
+            decksAndCollectionsTreeView.refresh();
+            CardTreeCell.refreshAllGridViews();
+        }
     }
 
     /**
@@ -1334,7 +1184,7 @@ public class RealMainController {
     // Tab mapping
     // =========================================================================
 
-    private SharedCollectionTab getSharedTabAt(int index) {
+    SharedCollectionTab getSharedTabAt(int index) {
         return switch (index) {
             case 0 -> myCollectionTab;
             case 1 -> decksTab;
