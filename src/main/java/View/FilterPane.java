@@ -196,114 +196,6 @@ public class FilterPane extends VBox {
     /** Set to true while loading a page so listeners do not fire. */
     private boolean suppressListeners = false;
 
-    /** Col 4: [1..5] / Disable / Disable all / Clear / Active+All / Camera */
-    private VBox buildColumn4() {
-        VBox col = new VBox(6);
-        col.setStyle("-fx-background-color: #100317;");
-        col.setAlignment(Pos.TOP_LEFT);
-        col.setPadding(new Insets(0, 0, 0, 4));
-
-        // Line 1 – number selectors [1][2][3][4][5]
-        // Using Labels instead of Buttons: Labels have no ButtonSkin, so setStyle()
-        // is never overridden by press/focus/hover CSS re-passes.
-        HBox numbersRow = new HBox(3);
-        numbersRow.setAlignment(Pos.CENTER_RIGHT);
-        for (int i = 0; i < 5; i++) {
-            final int idx = i;
-            Label nb = new Label(String.valueOf(i + 1));
-            nb.setPrefWidth(20);
-            nb.setPrefHeight(20);
-            nb.setMinWidth(20);
-            nb.setMinHeight(20);
-            nb.setMaxWidth(20);
-            nb.setMaxHeight(20);
-            nb.setAlignment(Pos.CENTER);
-            nb.setFocusTraversable(false);
-            nb.setOnMouseClicked(e -> selectPage(idx));
-            nb.addEventHandler(MouseEvent.MOUSE_ENTERED, e -> applyNumberSelectorStyle(idx, true));
-            nb.addEventHandler(MouseEvent.MOUSE_EXITED,  e -> applyNumberSelectorStyle(idx, false));
-            nb.addEventHandler(MouseEvent.MOUSE_PRESSED, e -> applyNumberSelectorStyle(idx, true));
-            nb.addEventHandler(MouseEvent.MOUSE_RELEASED,e -> applyNumberSelectorStyle(idx, true));
-            numberSelectors[i] = nb;
-            numbersRow.getChildren().add(nb);
-        }
-
-        // Line 2 – Disable/Enable (text updated dynamically)
-        disableButton = makeCol4Button("Enable");   // all pages start disabled
-
-        // Line 3 – Disable all
-        disableAllButton = makeCol4Button("Disable all");
-
-        // Line 4 – "Clear" plain text
-        Text clearText = styledText("Clear", false);
-        HBox clearRow = new HBox(clearText);
-        clearRow.setAlignment(Pos.CENTER_LEFT);
-
-        // Line 5 – Active + All
-        activeButton = makeCol4Button("Active");
-        activeButton.setPrefWidth(62);
-        activeButton.setMinWidth(62);
-        activeButton.setMaxWidth(62);
-        allButton = makeCol4Button("All");
-        allButton.setPrefWidth(38);
-        allButton.setMinWidth(38);
-        allButton.setMaxWidth(38);
-        HBox activeAllRow = new HBox(4, activeButton, allButton);
-        activeAllRow.setAlignment(Pos.CENTER_LEFT);
-
-        // Line 6 – Camera button
-        cameraButton = new Button();
-        cameraButton.getStyleClass().add("camera-button");
-        ImageView camIcon = loadIcon("camera.png", 18, 18);
-        if (camIcon != null) {
-            cameraButton.setGraphic(camIcon);
-        } else {
-            cameraButton.setText("\uD83D\uDCF7");
-        }
-        cameraButton.setPrefWidth(35);
-        cameraButton.setMinWidth(35);
-        cameraButton.setMaxWidth(35);
-        cameraButton.setPrefHeight(35);
-        cameraButton.setMinHeight(35);
-        cameraButton.setMaxHeight(35);
-        HBox cameraRow = new HBox(cameraButton);
-        cameraRow.setAlignment(Pos.CENTER_LEFT);
-        cameraRow.setMinHeight(35);
-        cameraRow.setPrefHeight(35);
-
-        Region gap1 = new Region();
-        gap1.setMinHeight(2);
-        gap1.setPrefHeight(2);
-        gap1.setMaxHeight(2);
-
-        Region gap2 = new Region();
-        gap2.setMinHeight(1);
-        gap2.setPrefHeight(1);
-        gap2.setMaxHeight(1);
-
-        Region gap3 = new Region();
-        gap3.setMinHeight(2);
-        gap3.setPrefHeight(2);
-        gap3.setMaxHeight(2);
-
-        col.getChildren().addAll(
-                numbersRow,
-                gap1,
-                disableButton,
-                disableAllButton,
-                gap2,
-                clearRow,
-                activeAllRow,
-                gap3,
-                cameraRow
-        );
-        return col;
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Page state initialisation
-    // ═══════════════════════════════════════════════════════════════════
-
     public FilterPane() {
         this.setStyle("-fx-background-color: #100317;");
         this.getStyleClass().add("filter-pane");
@@ -324,8 +216,8 @@ public class FilterPane extends VBox {
         columnsBox.getChildren().addAll(col1, col2, col3, col4);
 
         // ── Bottom images — default for page 0: left disabled, right enabled ──
-        bottomLeftIV = loadCornerImage("LM-BottomLeft_Disabled.png",  42, 42);
-        bottomRightIV = loadCornerImage("LM-BottomRight_Enabled.png", 42, 42);
+        bottomLeftIV = FilterPaneWidgetFactory.loadCornerImage("LM-BottomLeft_Disabled.png", 42, 42);
+        bottomRightIV = FilterPaneWidgetFactory.loadCornerImage("LM-BottomRight_Enabled.png", 42, 42);
 
         // The overlay HBox is purely decorative — fully mouse-transparent so it
         // never blocks the filter fields sitting underneath it in the StackPane.
@@ -386,6 +278,114 @@ public class FilterPane extends VBox {
         updateNumberButtonStyles();
         updateDisableButtonText();
         // bottomLeftIV / bottomRightIV already constructed with the page-0 defaults
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Page state initialisation
+    // ═══════════════════════════════════════════════════════════════════
+
+    /** Col 4: [1..5] / Disable / Disable all / Clear / Active+All / Camera */
+    private VBox buildColumn4() {
+        VBox col = new VBox(6);
+        col.setStyle("-fx-background-color: #100317;");
+        col.setAlignment(Pos.TOP_LEFT);
+        col.setPadding(new Insets(0, 0, 0, 4));
+
+        // Line 1 – number selectors [1][2][3][4][5]
+        // Using Labels instead of Buttons: Labels have no ButtonSkin, so setStyle()
+        // is never overridden by press/focus/hover CSS re-passes.
+        HBox numbersRow = new HBox(3);
+        numbersRow.setAlignment(Pos.CENTER_RIGHT);
+        for (int i = 0; i < 5; i++) {
+            final int idx = i;
+            Label nb = new Label(String.valueOf(i + 1));
+            nb.setPrefWidth(20);
+            nb.setPrefHeight(20);
+            nb.setMinWidth(20);
+            nb.setMinHeight(20);
+            nb.setMaxWidth(20);
+            nb.setMaxHeight(20);
+            nb.setAlignment(Pos.CENTER);
+            nb.setFocusTraversable(false);
+            nb.setOnMouseClicked(e -> selectPage(idx));
+            nb.addEventHandler(MouseEvent.MOUSE_ENTERED, e -> applyNumberSelectorStyle(idx, true));
+            nb.addEventHandler(MouseEvent.MOUSE_EXITED,  e -> applyNumberSelectorStyle(idx, false));
+            nb.addEventHandler(MouseEvent.MOUSE_PRESSED, e -> applyNumberSelectorStyle(idx, true));
+            nb.addEventHandler(MouseEvent.MOUSE_RELEASED,e -> applyNumberSelectorStyle(idx, true));
+            numberSelectors[i] = nb;
+            numbersRow.getChildren().add(nb);
+        }
+
+        // Line 2 – Disable/Enable (text updated dynamically)
+        disableButton = FilterPaneWidgetFactory.makeCol4Button("Enable");   // all pages start disabled
+
+        // Line 3 – Disable all
+        disableAllButton = FilterPaneWidgetFactory.makeCol4Button("Disable all");
+
+        // Line 4 – "Clear" plain text
+        Text clearText = FilterPaneWidgetFactory.styledText("Clear", false);
+        HBox clearRow = new HBox(clearText);
+        clearRow.setAlignment(Pos.CENTER_LEFT);
+
+        // Line 5 – Active + All
+        activeButton = FilterPaneWidgetFactory.makeCol4Button("Active");
+        activeButton.setPrefWidth(62);
+        activeButton.setMinWidth(62);
+        activeButton.setMaxWidth(62);
+        allButton = FilterPaneWidgetFactory.makeCol4Button("All");
+        allButton.setPrefWidth(38);
+        allButton.setMinWidth(38);
+        allButton.setMaxWidth(38);
+        HBox activeAllRow = new HBox(4, activeButton, allButton);
+        activeAllRow.setAlignment(Pos.CENTER_LEFT);
+
+        // Line 6 – Camera button
+        cameraButton = new Button();
+        cameraButton.getStyleClass().add("camera-button");
+        ImageView camIcon = FilterPaneWidgetFactory.loadIcon("camera.png", 18, 18);
+        if (camIcon != null) {
+            cameraButton.setGraphic(camIcon);
+        } else {
+            cameraButton.setText("\uD83D\uDCF7");
+        }
+        cameraButton.setPrefWidth(35);
+        cameraButton.setMinWidth(35);
+        cameraButton.setMaxWidth(35);
+        cameraButton.setPrefHeight(35);
+        cameraButton.setMinHeight(35);
+        cameraButton.setMaxHeight(35);
+        HBox cameraRow = new HBox(cameraButton);
+        cameraRow.setAlignment(Pos.CENTER_LEFT);
+        cameraRow.setMinHeight(35);
+        cameraRow.setPrefHeight(35);
+
+        Region gap1 = new Region();
+        gap1.setMinHeight(2);
+        gap1.setPrefHeight(2);
+        gap1.setMaxHeight(2);
+
+        Region gap2 = new Region();
+        gap2.setMinHeight(1);
+        gap2.setPrefHeight(1);
+        gap2.setMaxHeight(1);
+
+        Region gap3 = new Region();
+        gap3.setMinHeight(2);
+        gap3.setPrefHeight(2);
+        gap3.setMaxHeight(2);
+
+        col.getChildren().addAll(
+                numbersRow,
+                gap1,
+                disableButton,
+                disableAllButton,
+                gap2,
+                clearRow,
+                activeAllRow,
+                gap3,
+                cameraRow
+        );
+        return col;
     }
 
     private static String text(TextField tf) {
@@ -475,7 +475,7 @@ public class FilterPane extends VBox {
         VBox col = new VBox(6);
         col.setStyle("-fx-background-color: #100317;");
 
-        cardTypeCombo    = makeCombo();
+        cardTypeCombo = FilterPaneWidgetFactory.makeCombo();
         cardTypeCombo.getItems().addAll("Monster", "Spell", "Trap");
 
         // Anonymous subclass so hide() can be blocked during plain clicks.
@@ -501,9 +501,9 @@ public class FilterPane extends VBox {
             updateMonsterFieldsDisabled(newVal, null);
         });
 
-        HBox line1 = makeRow(makeFixedLabel("Category :", COL1_LABEL_WIDTH), cardTypeCombo, cardSubtypeCombo);
+        HBox line1 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeFixedLabel("Category :", COL1_LABEL_WIDTH), cardTypeCombo, cardSubtypeCombo);
 
-        attributeCombo = makeCombo();
+        attributeCombo = FilterPaneWidgetFactory.makeCombo();
         attributeCombo.getItems().addAll(
                 "Fire", "Water", "Wind", "Earth", "Light", "Dark", "Divine"
         );
@@ -513,13 +513,13 @@ public class FilterPane extends VBox {
         multipleArtworksButton.setFocusTraversable(false);
         applyMultipleArtworksButtonStyle(false);
 
-        HBox line2 = makeRow(
-                makeFixedLabel("Attribute :", COL1_LABEL_WIDTH),
+        HBox line2 = FilterPaneWidgetFactory.makeRow(
+                FilterPaneWidgetFactory.makeFixedLabel("Attribute :", COL1_LABEL_WIDTH),
                 attributeCombo,
                 multipleArtworksButton
         );
 
-        typeCombo = makeCombo();
+        typeCombo = FilterPaneWidgetFactory.makeCombo();
         typeCombo.getItems().addAll(
                 "Aqua", "Beast", "Beast-Warrior", "Cyberse", "Dinosaur",
                 "Divine-Beast", "Dragon", "Fairy", "Fiend", "Fish",
@@ -527,10 +527,10 @@ public class FilterPane extends VBox {
                 "Pyro", "Reptile", "Rock", "Sea Serpent", "Spellcaster",
                 "Thunder", "Warrior", "Winged Beast", "Wyrm", "Zombie"
         );
-        HBox line3 = makeRow(makeFixedLabel("Type :", COL1_LABEL_WIDTH), typeCombo);
+        HBox line3 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeFixedLabel("Type :", COL1_LABEL_WIDTH), typeCombo);
 
-        levelField = makeNarrowField(null, 55);
-        scaleField = makeNarrowField(null, 55);
+        levelField = FilterPaneWidgetFactory.makeNarrowField(null, 55);
+        scaleField = FilterPaneWidgetFactory.makeNarrowField(null, 55);
 
         linkMarkersButton = new Button("Link markers");
         linkMarkersButton.getStyleClass().add("link-markers-button");
@@ -543,24 +543,24 @@ public class FilterPane extends VBox {
         scaleGap.setPrefWidth(8);
         scaleGap.setMaxWidth(8);
 
-        HBox line4 = makeRow(
-                makeFixedLabel("Lv/Rank/Link :", COL1_LABEL_WIDTH),
+        HBox line4 = FilterPaneWidgetFactory.makeRow(
+                FilterPaneWidgetFactory.makeFixedLabel("Lv/Rank/Link :", COL1_LABEL_WIDTH),
                 levelField,
                 linkMarkersButton,
                 scaleGap,
-                makeLabel("Scale :"),
+                FilterPaneWidgetFactory.makeLabel("Scale :"),
                 scaleField
         );
 
-        atkField = makeNarrowField(null, 90);
-        defField = makeNarrowField(null, 90);
+        atkField = FilterPaneWidgetFactory.makeNarrowField(null, 90);
+        defField = FilterPaneWidgetFactory.makeNarrowField(null, 90);
         Region defGap = new Region();
         defGap.setMinWidth(12);
         defGap.setPrefWidth(12);
         defGap.setMaxWidth(12);
-        HBox line5 = makeRow(makeLabel("ATK :"), atkField, defGap, makeLabel("DEF :"), defField);
+        HBox line5 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeLabel("ATK :"), atkField, defGap, FilterPaneWidgetFactory.makeLabel("DEF :"), defField);
 
-        archetypeCombo = makeCombo();
+        archetypeCombo = FilterPaneWidgetFactory.makeCombo();
         archetypeCombo.setEditable(true);
         archetypeCombo.getEditor().getStyleClass().add("accent-text-field");
 
@@ -578,7 +578,7 @@ public class FilterPane extends VBox {
             }
         });
 
-        tagsField = makeNarrowField(null, 72);
+        tagsField = FilterPaneWidgetFactory.makeNarrowField(null, 72);
 
         // A growing spacer pushes "Archetype :" as far right as possible while
         // keeping it immediately before its combo box. "Tags :" and its field
@@ -586,11 +586,11 @@ public class FilterPane extends VBox {
         Region archetypeSpacer = new Region();
         HBox.setHgrow(archetypeSpacer, Priority.ALWAYS);
 
-        HBox line6 = makeRow(
+        HBox line6 = FilterPaneWidgetFactory.makeRow(
                 archetypeSpacer,
-                makeLabel("Archetype :"),
+                FilterPaneWidgetFactory.makeLabel("Archetype :"),
                 archetypeCombo,
-                makeLabel("Tags :"),
+                FilterPaneWidgetFactory.makeLabel("Tags :"),
                 tagsField
         );
 
@@ -618,32 +618,32 @@ public class FilterPane extends VBox {
         VBox col = new VBox(6);
         col.setStyle("-fx-background-color: #100317;");
 
-        nameTextField = makeField(null);
-        HBox line1 = makeRow(makeLabel("Name :"), nameTextField);
+        nameTextField = FilterPaneWidgetFactory.makeField(null);
+        HBox line1 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeLabel("Name :"), nameTextField);
         HBox.setHgrow(nameTextField, Priority.ALWAYS);
 
-        printcodeTextField = makeField(null);
+        printcodeTextField = FilterPaneWidgetFactory.makeField(null);
         printcodeAutoComplete = new ContextMenu();
         printcodeAutoComplete.setStyle(
                 "-fx-background-color: #100317;"
                         + "-fx-border-color: #cdfc04;-fx-border-width: 1;");
-        HBox line2 = makeRow(makeLabel("PrintCode :"), printcodeTextField);
+        HBox line2 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeLabel("PrintCode :"), printcodeTextField);
         HBox.setHgrow(printcodeTextField, Priority.ALWAYS);
 
-        passCodeTextField = makeField(null);
-        HBox line3 = makeRow(makeLabel("PassCode :"), passCodeTextField);
+        passCodeTextField = FilterPaneWidgetFactory.makeField(null);
+        HBox line3 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeLabel("PassCode :"), passCodeTextField);
         HBox.setHgrow(passCodeTextField, Priority.ALWAYS);
 
-        konamiIdTextField = makeField(null);
-        HBox line4 = makeRow(makeLabel("Konami ID :"), konamiIdTextField);
+        konamiIdTextField = FilterPaneWidgetFactory.makeField(null);
+        HBox line4 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeLabel("Konami ID :"), konamiIdTextField);
         HBox.setHgrow(konamiIdTextField, Priority.ALWAYS);
 
-        effectTextField = makeField(null);
-        HBox line5 = makeRow(makeLabel("Effect :"), effectTextField);
+        effectTextField = FilterPaneWidgetFactory.makeField(null);
+        HBox line5 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeLabel("Effect :"), effectTextField);
         HBox.setHgrow(effectTextField, Priority.ALWAYS);
 
-        genesysPointsField = makeNarrowField(null, 65);
-        HBox line6 = makeRow(makeLabel("Genesys Points :"), genesysPointsField);
+        genesysPointsField = FilterPaneWidgetFactory.makeNarrowField(null, 65);
+        HBox line6 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeLabel("Genesys Points :"), genesysPointsField);
 
         col.getChildren().addAll(line1, line2, line3, line4, line5, line6);
         return col;
@@ -654,22 +654,22 @@ public class FilterPane extends VBox {
         VBox col = new VBox(6);
         col.setStyle("-fx-background-color: #100317;");
 
-        yearField = makeNarrowField(null, 70);
-        HBox line1 = makeRow(makeFixedLabel("Year :", COL3_LABEL_WIDTH), yearField);
+        yearField = FilterPaneWidgetFactory.makeNarrowField(null, 70);
+        HBox line1 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeFixedLabel("Year :", COL3_LABEL_WIDTH), yearField);
 
-        wordCountField = makeNarrowField(null, 115);
-        HBox line2 = makeRow(makeFixedLabel("Word Count :", COL3_LABEL_WIDTH), wordCountField);
+        wordCountField = FilterPaneWidgetFactory.makeNarrowField(null, 115);
+        HBox line2 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeFixedLabel("Word Count :", COL3_LABEL_WIDTH), wordCountField);
 
-        priceField = makeNarrowField(null, 115);
-        HBox line3 = makeRow(makeFixedLabel("Price :", COL3_LABEL_WIDTH), priceField);
+        priceField = FilterPaneWidgetFactory.makeNarrowField(null, 115);
+        HBox line3 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeFixedLabel("Price :", COL3_LABEL_WIDTH), priceField);
 
-        packCombo   = makeCombo();
-        stateCombo = makeCombo();
-        rarityCombo = makeCombo();
+        packCombo = FilterPaneWidgetFactory.makeCombo();
+        stateCombo = FilterPaneWidgetFactory.makeCombo();
+        rarityCombo = FilterPaneWidgetFactory.makeCombo();
 
-        HBox line4 = makeRightRow(makeLabel("Pack :"), packCombo);
-        HBox line5 = makeRightRow(makeLabel("State :"), stateCombo);
-        HBox line6 = makeRightRow(makeLabel("Rarity :"), rarityCombo);
+        HBox line4 = FilterPaneWidgetFactory.makeRightRow(FilterPaneWidgetFactory.makeLabel("Pack :"), packCombo);
+        HBox line5 = FilterPaneWidgetFactory.makeRightRow(FilterPaneWidgetFactory.makeLabel("State :"), stateCombo);
+        HBox line6 = FilterPaneWidgetFactory.makeRightRow(FilterPaneWidgetFactory.makeLabel("Rarity :"), rarityCombo);
 
         col.getChildren().addAll(line1, line2, line3, line4, line5, line6);
         return col;
@@ -1262,7 +1262,7 @@ public class FilterPane extends VBox {
             String filename = ps.bottomLeftEnabled
                     ? "LM-BottomLeft_Enabled.png"
                     : "LM-BottomLeft_Disabled.png";
-            Image img = loadImage(filename);
+            Image img = FilterPaneWidgetFactory.loadImage(filename);
             if (img != null) bottomLeftIV.setImage(img);
         }
 
@@ -1270,7 +1270,7 @@ public class FilterPane extends VBox {
             String filename = ps.bottomRightEnabled
                     ? "LM-BottomRight_Enabled.png"
                     : "LM-BottomRight_Disabled.png";
-            Image img = loadImage(filename);
+            Image img = FilterPaneWidgetFactory.loadImage(filename);
             if (img != null) bottomRightIV.setImage(img);
         }
     }
@@ -1287,121 +1287,6 @@ public class FilterPane extends VBox {
         if (onLeftFilterChange != null) onLeftFilterChange.run();
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Factory helpers  (unchanged from original)
-    // ═══════════════════════════════════════════════════════════════════
-
-    private Text makeLabel(String text) {
-        return styledText(text, false);
-    }
-
-    private Text styledText(String text, boolean bold) {
-        Text t = new Text(text);
-        t.setStyle("-fx-fill: white; -fx-font-size: 13;"
-                + (bold ? " -fx-font-weight: bold;" : ""));
-        return t;
-    }
-
-    private HBox makeFixedLabel(String text, double width) {
-        Text t = makeLabel(text);
-        HBox box = new HBox(t);
-        box.setAlignment(Pos.CENTER_LEFT);
-        box.setMinWidth(width);
-        box.setPrefWidth(width);
-        box.setMaxWidth(width);
-        return box;
-    }
-
-    private TextField makeField(String prompt) {
-        TextField tf = new TextField();
-        if (prompt != null && !prompt.isEmpty()) tf.setPromptText(prompt);
-        tf.getStyleClass().add("accent-text-field");
-        tf.setPrefHeight(24);
-        tf.setMaxHeight(24);
-        return tf;
-    }
-
-    private TextField makeNarrowField(String prompt, double prefWidth) {
-        TextField tf = makeField(prompt);
-        tf.setPrefWidth(prefWidth);
-        tf.setMaxWidth(prefWidth);
-        return tf;
-    }
-
-    private ComboBox<String> makeCombo() {
-        ComboBox<String> cb = new ComboBox<>();
-        cb.getItems().add("(All)");
-        cb.setValue("(All)");
-        cb.getStyleClass().add("accent-combo");
-        cb.setPrefHeight(24);
-        cb.setMaxHeight(24);
-        cb.setPrefWidth(150);
-        cb.setMinWidth(150);
-        return cb;
-    }
-
-    private Button makeSmallButton(String text) {
-        Button b = new Button(text);
-        b.getStyleClass().add("small-button");
-        return b;
-    }
-
-    private Button makeCol4Button(String text) {
-        Button b = new Button(text);
-        b.getStyleClass().add("col4-button");
-        return b;
-    }
-
-    private HBox makeRow(javafx.scene.Node... nodes) {
-        HBox row = new HBox(5);
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.getChildren().addAll(nodes);
-        return row;
-    }
-
-    private HBox makeRightRow(javafx.scene.Node... nodes) {
-        HBox row = new HBox(5);
-        row.setAlignment(Pos.CENTER_LEFT);
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        row.getChildren().add(spacer);
-        row.getChildren().addAll(nodes);
-        return row;
-    }
-
-    private ImageView loadCornerImage(String filename, double w, double h) {
-        try {
-            Image img = new Image("file:./src/main/resources/" + filename);
-            ImageView iv = new ImageView(img);
-            iv.setFitWidth(w);
-            iv.setFitHeight(h);
-            iv.setPreserveRatio(true);
-            return iv;
-        } catch (Exception e) {
-            return new ImageView();
-        }
-    }
-
-    private ImageView loadIcon(String filename, double w, double h) {
-        try {
-            Image img = new Image("file:./src/main/resources/" + filename);
-            ImageView iv = new ImageView(img);
-            iv.setFitWidth(w);
-            iv.setFitHeight(h);
-            iv.setPreserveRatio(true);
-            return iv;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private Image loadImage(String filename) {
-        try {
-            return new Image("file:./src/main/resources/" + filename);
-        } catch (Exception e) {
-            return null;
-        }
-    }
 
     // ═══════════════════════════════════════════════════════════════════
     // Small value-extraction helpers
