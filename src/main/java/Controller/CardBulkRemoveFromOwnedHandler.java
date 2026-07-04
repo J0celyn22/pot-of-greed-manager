@@ -1,7 +1,6 @@
 package Controller;
 
 import Model.CardsLists.*;
-import View.CardTreeCell;
 import javafx.application.Platform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,9 +84,9 @@ final class CardBulkRemoveFromOwnedHandler {
                     continue;
                 }
                 javafx.collections.ObservableList<CardElement> observableList =
-                        CardTreeCell.observableListFor(group);
+                        CardGroupRegistry.observableListFor(group);
                 if (observableList.remove(targetElement)) {
-                    CardTreeCell.triggerHeightAdjustment(group);
+                    CardGroupRegistry.triggerHeightAdjustment(group);
                     return true;
                 }
             }

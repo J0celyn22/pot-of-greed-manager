@@ -247,7 +247,7 @@ public class RealMainController {
         UserInterfaceFunctions.registerDecksTreeRefresher(() -> {
             if (decksAndCollectionsTreeView != null) {
                 decksAndCollectionsTreeView.refresh();
-                View.CardTreeCell.refreshAllGridViews();
+                Controller.CardGroupRegistry.refreshAllGridViews();
             }
         });
 
@@ -255,7 +255,7 @@ public class RealMainController {
         UserInterfaceFunctions.registerArchetypesRefresher(() -> {
             if (archetypesTreeView != null) {
                 archetypesTreeView.refresh();
-                View.CardTreeCell.refreshAllGridViews();
+                Controller.CardGroupRegistry.refreshAllGridViews();
             }
         });
 
@@ -430,7 +430,7 @@ public class RealMainController {
             if (archetypesTreeView != null) {
                 archetypesTreeView.refresh();
             }
-            CardTreeCell.refreshAllGridViews();
+            CardGroupRegistry.refreshAllGridViews();
             if (cardsDisplayContainer != null) {
                 for (Node node : cardsDisplayContainer.getChildren()) {
                     if (node instanceof ListView) {
@@ -633,13 +633,13 @@ public class RealMainController {
         List<FilterPane.FilterPageState> activeStates = CardFilterMatcher.getActiveLeftFilterStates(filterPane);
 
         if (activeStates.isEmpty()) {
-            CardTreeCell.setMiddleFilter(null);
-            CardTreeCell.setMiddleElementFilter(null);
+            CardGroupRegistry.setMiddleFilter(null);
+            CardGroupRegistry.setMiddleElementFilter(null);
         } else {
             final List<FilterPane.FilterPageState> captured = activeStates;
 
             // Card-level predicate: all filters except Tags (Tags needs CardElement granularity).
-            CardTreeCell.setMiddleFilter(card -> {
+            CardGroupRegistry.setMiddleFilter(card -> {
                 for (FilterPane.FilterPageState pageState : captured) {
                     if (!CardFilterMatcher.matchesPageFilter(card, pageState, isPrintedMode)) {
                         return false;
@@ -654,7 +654,7 @@ public class RealMainController {
             boolean anyTagsFilter = captured.stream()
                     .anyMatch(ps -> ps.tags != null && !ps.tags.isBlank());
             if (anyTagsFilter) {
-                CardTreeCell.setMiddleElementFilter(element -> {
+                CardGroupRegistry.setMiddleElementFilter(element -> {
                     if (element == null) {
                         return false;
                     }
@@ -666,7 +666,7 @@ public class RealMainController {
                     return true;
                 });
             } else {
-                CardTreeCell.setMiddleElementFilter(null);
+                CardGroupRegistry.setMiddleElementFilter(null);
             }
         }
 
@@ -872,7 +872,7 @@ public class RealMainController {
                     for (int index = startIndex; index < targetElements.size(); index++) {
                         SelectionManager.toggleElementSelection(targetElements.get(index));
                     }
-                    CardTreeCell.refreshAllGridViews();
+                    CardGroupRegistry.refreshAllGridViews();
                 });
             }
         }
@@ -899,7 +899,7 @@ public class RealMainController {
     void refreshDecksAndCollectionsTreeView() {
         if (decksAndCollectionsTreeView != null) {
             decksAndCollectionsTreeView.refresh();
-            CardTreeCell.refreshAllGridViews();
+            CardGroupRegistry.refreshAllGridViews();
         }
     }
 
@@ -966,7 +966,7 @@ public class RealMainController {
                 }
                 if (myCollectionTreeView != null) {
                     myCollectionTreeView.refresh();
-                    CardTreeCell.refreshAllGridViews();
+                    CardGroupRegistry.refreshAllGridViews();
                 }
             });
         }
@@ -1065,7 +1065,7 @@ public class RealMainController {
                     if (ouicheListTreeView != null) {
                         ouicheListTreeView.refresh();
                     }
-                    CardTreeCell.refreshAllGridViews();
+                    CardGroupRegistry.refreshAllGridViews();
                 };
 
         if (myCollectionTab.getShowConditionRarityButton() != null) {
@@ -1128,7 +1128,7 @@ public class RealMainController {
         if (archetypesTreeView != null) {
             archetypesTreeView.refresh();
         }
-        CardTreeCell.refreshAllGridViews();
+        CardGroupRegistry.refreshAllGridViews();
     }
 
     // =========================================================================

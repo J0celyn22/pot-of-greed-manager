@@ -1,5 +1,6 @@
 package View;
 
+import Controller.CardGroupRegistry;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
@@ -81,7 +82,7 @@ public final class MyCollectionNavMenuBuilder {
                         return;
                     }
                     javafx.collections.ObservableList<Model.CardsLists.CardElement> observableList =
-                            CardTreeCell.observableListFor(defaultGroup);
+                            CardGroupRegistry.observableListFor(defaultGroup);
                     for (Model.CardsLists.CardElement clipboardElement
                             : Controller.CardClipboard.getContents()) {
                         if (clipboardElement != null) {
@@ -89,7 +90,7 @@ public final class MyCollectionNavMenuBuilder {
                                     new Model.CardsLists.CardElement(clipboardElement));
                         }
                     }
-                    CardTreeCell.triggerHeightAdjustment(defaultGroup);
+                    CardGroupRegistry.triggerHeightAdjustment(defaultGroup);
                     Controller.UserInterfaceFunctions.markMyCollectionDirty();
                     Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                     NavigationContextMenuBuilder.refreshOwnedCollectionView();
@@ -133,7 +134,7 @@ public final class MyCollectionNavMenuBuilder {
                 makeRenameItem(null, category, owned),
                 NavigationContextMenuBuilder.makePasteItem(() -> {
                     javafx.collections.ObservableList<Model.CardsLists.CardElement> observableList =
-                            CardTreeCell.observableListFor(category);
+                            CardGroupRegistry.observableListFor(category);
                     for (Model.CardsLists.CardElement clipboardElement
                             : Controller.CardClipboard.getContents()) {
                         if (clipboardElement != null) {
@@ -141,7 +142,7 @@ public final class MyCollectionNavMenuBuilder {
                                     new Model.CardsLists.CardElement(clipboardElement));
                         }
                     }
-                    CardTreeCell.triggerHeightAdjustment(category);
+                    CardGroupRegistry.triggerHeightAdjustment(category);
                     Controller.UserInterfaceFunctions.markMyCollectionDirty();
                     Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
                     NavigationContextMenuBuilder.refreshOwnedCollectionView();

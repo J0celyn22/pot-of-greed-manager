@@ -354,7 +354,7 @@ final class MiddleSelectionActionHandler {
                 return;
             }
             javafx.collections.ObservableList<CardElement> observableList =
-                    CardTreeCell.observableListFor(defaultGroup);
+                    CardGroupRegistry.observableListFor(defaultGroup);
             List<CardElement> addedElements = new java.util.ArrayList<>();
             for (CardElement element : elements) {
                 if (element != null) {
@@ -363,7 +363,7 @@ final class MiddleSelectionActionHandler {
                     addedElements.add(newElement);
                 }
             }
-            CardTreeCell.triggerHeightAdjustment(defaultGroup);
+            CardGroupRegistry.triggerHeightAdjustment(defaultGroup);
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
@@ -380,7 +380,7 @@ final class MiddleSelectionActionHandler {
 
         } else if (modelObj instanceof CardsGroup group) {
             javafx.collections.ObservableList<CardElement> observableList =
-                    CardTreeCell.observableListFor(group);
+                    CardGroupRegistry.observableListFor(group);
             List<CardElement> addedElements = new java.util.ArrayList<>();
             for (CardElement element : elements) {
                 if (element != null) {
@@ -389,7 +389,7 @@ final class MiddleSelectionActionHandler {
                     addedElements.add(newElement);
                 }
             }
-            CardTreeCell.triggerHeightAdjustment(group);
+            CardGroupRegistry.triggerHeightAdjustment(group);
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
@@ -437,26 +437,26 @@ final class MiddleSelectionActionHandler {
                 return;
             }
             javafx.collections.ObservableList<CardElement> observableList =
-                    CardTreeCell.observableListFor(defaultGroup);
+                    CardGroupRegistry.observableListFor(defaultGroup);
             for (Card card : cards) {
                 if (card != null) {
                     observableList.add(new CardElement(card));
                 }
             }
-            CardTreeCell.triggerHeightAdjustment(defaultGroup);
+            CardGroupRegistry.triggerHeightAdjustment(defaultGroup);
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
 
         } else if (modelObj instanceof CardsGroup group) {
             javafx.collections.ObservableList<CardElement> observableList =
-                    CardTreeCell.observableListFor(group);
+                    CardGroupRegistry.observableListFor(group);
             for (Card card : cards) {
                 if (card != null) {
                     observableList.add(new CardElement(card));
                 }
             }
-            CardTreeCell.triggerHeightAdjustment(group);
+            CardGroupRegistry.triggerHeightAdjustment(group);
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
@@ -491,16 +491,16 @@ final class MiddleSelectionActionHandler {
                             return;
                         }
                         CardsGroup sectionGroup =
-                                CardTreeCell.getDeckSectionGroup(deck, sectionKey);
+                                CardGroupRegistry.getDeckSectionGroup(deck, sectionKey);
                         if (sectionGroup != null) {
                             javafx.collections.ObservableList<CardElement> obs =
-                                    CardTreeCell.observableListFor(sectionGroup);
+                                    CardGroupRegistry.observableListFor(sectionGroup);
                             for (Card card : sectionCards) {
                                 CardElement newElement = new CardElement(card);
                                 obs.add(newElement);
                                 addedElements.add(newElement);
                             }
-                            CardTreeCell.triggerHeightAdjustment(sectionGroup);
+                            CardGroupRegistry.triggerHeightAdjustment(sectionGroup);
                         } else {
                             List<CardElement> rawList = "extra".equals(sectionKey)
                                     ? deck.getExtraDeck()
@@ -540,11 +540,11 @@ final class MiddleSelectionActionHandler {
                 collection.setCardsList(new java.util.ArrayList<>());
             }
 
-            CardsGroup cardsGroup = CardTreeCell.getCollectionCardsGroup(collection);
+            CardsGroup cardsGroup = CardGroupRegistry.getCollectionCardsGroup(collection);
             List<CardElement> addedElements = new java.util.ArrayList<>();
             if (cardsGroup != null) {
                 javafx.collections.ObservableList<CardElement> obs =
-                        CardTreeCell.observableListFor(cardsGroup);
+                        CardGroupRegistry.observableListFor(cardsGroup);
                 for (Card card : cards) {
                     if (card != null) {
                         CardElement newElement = new CardElement(card);
@@ -552,7 +552,7 @@ final class MiddleSelectionActionHandler {
                         addedElements.add(newElement);
                     }
                 }
-                CardTreeCell.triggerHeightAdjustment(cardsGroup);
+                CardGroupRegistry.triggerHeightAdjustment(cardsGroup);
             } else {
                 for (Card card : cards) {
                     if (card != null) {

@@ -788,7 +788,7 @@ public class OuicheListController {
                     // For the unified tree view, re-applying the FilteredList predicate is
                     // sufficient: owned cards are removed from (or restored to) every live
                     // GridView without rebuilding the whole tree.
-                    CardTreeCell.applyHideOwnedToAllGroups();
+                    CardGroupRegistry.applyHideOwnedToAllGroups();
                 }
             });
         }

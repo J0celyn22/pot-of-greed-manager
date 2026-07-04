@@ -88,16 +88,6 @@ public class CardTreeCell extends TreeCell<String> {
      * WeakHashMap: entries are GC'd when the CardsGroup is no longer referenced.
      */
 
-    /**
-     * Legacy global set kept for compatibility; preferred flow is per-group missing sets.
-     */
-
-    public static void markArchetypeMissing(String id, boolean missing) {
-        if (id == null) return;
-        if (missing) CardGroupRegistry.LEGACY_GLOBAL_MISSING_SET.add(id);
-        else CardGroupRegistry.LEGACY_GLOBAL_MISSING_SET.remove(id);
-    }
-
     // ── Static registries ──────────────────────────────────────────────────────
     // WeakHashMap: entries are GC'd when the CardsGroup itself is no longer referenced.
 
@@ -111,9 +101,6 @@ public class CardTreeCell extends TreeCell<String> {
      * Maps each ThemeCollection to its "Cards not to add" CardsGroup.
      */
 
-    public static void clearArchetypeMissingSet() {
-        CardGroupRegistry.LEGACY_GLOBAL_MISSING_SET.clear();
-    }
     /**
      * Container for per-warning labels shown below the main info in the hover
      * popup. Each applicable warning gets its own coloured Label added at
@@ -153,15 +140,6 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     /**
-     * Registers (or replaces) the missing-artwork set for {@code group}.
-     * Called by RealMainController after computing which cards in a Collection
-     * are missing at least one of their alternate artworks.
-     */
-    public static void setMissingArtworkSetForGroup(CardsGroup group, Set<String> artworks) {
-        if (group != null) CardGroupRegistry.MISSING_ARTWORK_SETS.put(group, artworks);
-    }
-
-    /**
      * Returns whether the incomplete-card marking overlay is currently active.
      */
     public static boolean isIncompleteMarkingEnabled() {
@@ -174,15 +152,6 @@ public class CardTreeCell extends TreeCell<String> {
     public static void setIncompleteMarkingEnabled(boolean enabled) {
         incompleteMarkingEnabled = enabled;
     }
-    /**
-     * Optional element-level filter ANDed into every FilteredList predicate.
-     * Unlike {@link #activeMiddleFilter} (which operates on {@link Card}), this
-     * predicate receives the individual {@link CardElement} so per-copy fields
-     * such as {@code customTags} can be tested precisely.
-     * {@code null} means inactive (pass all elements).
-     */
-    private static java.util.function.Predicate<CardElement> activeMiddleElementFilter = null;
-
     /**
      * Returns whether the condition/rarity overlay is currently active.
      */
@@ -259,55 +228,6 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     /**
-     * Public accessors used by RealMainController and MenuActionHandler paths.
-     */
-    public static void registerCollectionCardsGroup(
-            Model.CardsLists.ThemeCollection tc, CardsGroup group) {
-        if (tc != null && group != null) CardGroupRegistry.COLLECTION_CARDS_GROUPS.put(tc, group);
-    }
-
-    public static CardsGroup getCollectionCardsGroup(
-            Model.CardsLists.ThemeCollection tc) {
-        return tc == null ? null : CardGroupRegistry.COLLECTION_CARDS_GROUPS.get(tc);
-    }
-
-    public static void registerCollectionExceptionsGroup(
-            Model.CardsLists.ThemeCollection tc, CardsGroup group) {
-        if (tc != null && group != null) CardGroupRegistry.COLLECTION_EXCEPTIONS_GROUPS.put(tc, group);
-    }
-
-    public static CardsGroup getCollectionExceptionsGroup(
-            Model.CardsLists.ThemeCollection tc) {
-        return tc == null ? null : CardGroupRegistry.COLLECTION_EXCEPTIONS_GROUPS.get(tc);
-    }
-
-    public static void registerDeckSectionGroup(
-            Model.CardsLists.Deck deck, String section, CardsGroup group) {
-        if (deck == null || section == null || group == null) return;
-        CardGroupRegistry.DECK_SECTION_GROUPS
-                .computeIfAbsent(deck, d -> new java.util.HashMap<>())
-                .put(section, group);
-    }
-
-    public static CardsGroup getDeckSectionGroup(
-            Model.CardsLists.Deck deck, String section) {
-        if (deck == null || section == null) return null;
-        java.util.Map<String, CardsGroup> map = CardGroupRegistry.DECK_SECTION_GROUPS.get(deck);
-        return map == null ? null : map.get(section);
-    }
-
-    /**
-     * Tracks the FilteredList wrapping each group's ObservableList so the predicate
-     * can be updated without rebuilding the tree.
-     */
-    /**
-     * Active filter predicate for the middle pane.
-     * When non-null every GridView shows only cards that pass this predicate.
-     * When null all cards are shown (no filter).
-     */
-    private static java.util.function.Predicate<Card> activeMiddleFilter = null;
-
-    /**
      * Enables or disables the condition/rarity overlay on card grid cells.
      */
     public static void setShowConditionRarityOverlayEnabled(boolean enabled) {
@@ -318,41 +238,6 @@ public class CardTreeCell extends TreeCell<String> {
      * adding 2×5 = 10 px to both the rendered cell width and height beyond the bound
      * cardWidth / cardHeight properties.
      */
-
-    /**
-     * Returns (or creates) the ObservableList that backs the GridView for {@code group}.
-     * Adding/removing through this list updates both the model and the GridView automatically.
-     */
-    public static javafx.collections.ObservableList<CardElement> observableListFor(CardsGroup group) {
-        if (group == null) return javafx.collections.FXCollections.observableArrayList();
-        return CardGroupRegistry.GROUP_OBSERVABLE_LISTS.computeIfAbsent(group, g -> {
-            java.util.List<CardElement> backing = g.getCardList();
-            if (backing == null) {
-                backing = new java.util.ArrayList<>();
-                g.setCardList(backing);
-            }
-            return javafx.collections.FXCollections.observableList(backing);
-        });
-    }
-
-    /**
-     * Recomputes the prefHeight of the GridView currently rendering {@code group}.
-     * No-ops silently if the group's grid is not visible or has been GC'd.
-     */
-    public static void triggerHeightAdjustment(CardsGroup group) {
-        if (group == null) return;
-        javafx.application.Platform.runLater(() -> {
-            java.lang.ref.WeakReference<GridView<CardElement>> ref = CardGroupRegistry.GROUP_GRID_VIEWS.get(group);
-            if (ref == null) return;
-            GridView<CardElement> grid = ref.get();
-            if (grid == null) {
-                CardGroupRegistry.GROUP_GRID_VIEWS.remove(group);
-                return;
-            }
-            int numItems = group.getCardList() == null ? 0 : group.getCardList().size();
-            GridViewSizer.adjustGridViewHeight(grid, numItems);
-        });
-    }
 
     /**
      * Creates a small styled action button for tree-cell title rows.
@@ -405,107 +290,6 @@ public class CardTreeCell extends TreeCell<String> {
         if (tabText == null) return "";
         String trimmed = tabText.trim();
         return trimmed.startsWith("* ") ? trimmed.substring(2).trim() : trimmed;
-    }
-
-    /**
-     * Finds the dirty-markable owner (ThemeCollection or Deck) for a CardsGroup.
-     * <p>
-     * Rules matching the save-file structure:
-     * ThemeCollection.cardsList / exceptionsToNotAdd  → ThemeCollection
-     * Deck.mainDeck / extraDeck / sideDeck            → Deck  (NOT the parent collection)
-     * <p>
-     * Uses the typed registries as the primary source (O(1)), then falls back to
-     * raw-list identity comparison for any group not in the registry.
-     */
-    public static Object findOwnerForGroup(CardsGroup group) {
-        if (group == null) return null;
-        Model.CardsLists.DecksAndCollectionsList dac =
-                Controller.UserInterfaceFunctions.getDecksList();
-        if (dac == null) return null;
-
-        // ── 1. Registry lookup ────────────────────────────────────────────────
-        if (dac.getCollections() != null) {
-            for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
-                if (tc == null) continue;
-                // Collection-owned groups → mark the collection
-                if (group == getCollectionCardsGroup(tc)
-                        || group == getCollectionExceptionsGroup(tc)) return tc;
-                // Deck-section groups → mark the deck only
-                if (tc.getLinkedDecks() != null) {
-                    for (java.util.List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
-                        if (unit == null) continue;
-                        for (Model.CardsLists.Deck d : unit) {
-                            if (d == null) continue;
-                            java.util.Map<String, CardsGroup> secs = CardGroupRegistry.DECK_SECTION_GROUPS.get(d);
-                            if (secs != null && secs.containsValue(group)) return d;
-                        }
-                    }
-                }
-            }
-        }
-        if (dac.getDecks() != null) {
-            for (Model.CardsLists.Deck d : dac.getDecks()) {
-                if (d == null) continue;
-                java.util.Map<String, CardsGroup> secs = CardGroupRegistry.DECK_SECTION_GROUPS.get(d);
-                if (secs != null && secs.containsValue(group)) return d;
-            }
-        }
-
-        // ── 2. Raw-list identity fallback ─────────────────────────────────────
-        // For groups created outside the registries. Compares the CardsGroup's
-        // backing List (not the ObservableList wrapper) against model lists.
-        java.util.List<Model.CardsLists.CardElement> rawList = group.getCardList();
-        if (rawList != null) {
-            if (dac.getCollections() != null) {
-                for (Model.CardsLists.ThemeCollection tc : dac.getCollections()) {
-                    if (tc == null) continue;
-                    if (rawList == tc.getCardsList()
-                            || rawList == tc.getExceptionsToNotAdd()) return tc;
-                    if (tc.getLinkedDecks() != null) {
-                        for (java.util.List<Model.CardsLists.Deck> unit : tc.getLinkedDecks()) {
-                            if (unit == null) continue;
-                            for (Model.CardsLists.Deck d : unit) {
-                                if (d == null) continue;
-                                if (rawList == d.getMainDeck()
-                                        || rawList == d.getExtraDeck()
-                                        || rawList == d.getSideDeck()) return d;
-                            }
-                        }
-                    }
-                }
-            }
-            if (dac.getDecks() != null) {
-                for (Model.CardsLists.Deck d : dac.getDecks()) {
-                    if (d == null) continue;
-                    if (rawList == d.getMainDeck()
-                            || rawList == d.getExtraDeck()
-                            || rawList == d.getSideDeck()) return d;
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Marks the owner of {@code group} dirty (My Collection, or the specific
-     * Deck / ThemeCollection in D&C) and triggers the appropriate view refresh.
-     */
-    static void markDirtyAndRefreshForGroup(CardsGroup group) {
-        if (group == null) return;
-        Object dacOwner = findOwnerForGroup(group);
-        if (dacOwner != null) {
-            Controller.UserInterfaceFunctions.markDirty(dacOwner);
-            // Any card addition, removal or move in any D&C group can affect the
-            // archetype missing-sets inside Collections, so always force a full tree
-            // rebuild so that archetype-card glow states recompute correctly.
-            Controller.UserInterfaceFunctions.setPendingDecksFullRebuild();
-            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-            Controller.UserInterfaceFunctions.refreshDecksAndCollectionsView();
-        } else {
-            Controller.UserInterfaceFunctions.markMyCollectionDirty();
-            Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-            Controller.UserInterfaceFunctions.refreshOwnedCollectionView();
-        }
     }
 
     static void showRenamePopup(Label labelAnchor, String seedName,
@@ -643,245 +427,8 @@ public class CardTreeCell extends TreeCell<String> {
      * @param onConfirm   called with the trimmed non-empty new name on confirm
      */
 
-    /**
-     * Inserts {@code newElements} into {@code targetList} at {@code insertionIndex}.
-     * If {@code sourceElements} is non-null and non-empty, each source element is
-     * first removed from its current group (MOVE semantics); otherwise new
-     * {@link CardElement} wrappers are created from the cards (ADD semantics).
-     *
-     * <p>Dirty marking and view refresh are handled by the caller.
-     */
-    public static java.util.Set<CardsGroup> dropInsertIntoGroup(
-            CardsGroup targetGroup,
-            int insertionIndex,
-            java.util.List<Model.CardsLists.CardElement> sourceElements,
-            java.util.List<Model.CardsLists.Card> sourceCards) {
-
-        java.util.Set<CardsGroup> modifiedSourceGroups = new java.util.LinkedHashSet<>();
-
-        // ── Deck-compatibility redirect ────────────────────────────────────────
-        // If the target is a main/extra deck section and the payload is incompatible,
-        // redirect to the sibling section of the same Deck.
-        // CRITICAL: when redirected, insertionIndex belongs to the ORIGINAL (wrong)
-        // list — reset to MAX_VALUE so it clamps to end-of-list on the new target.
-        CardsGroup originalGroup = targetGroup;
-        targetGroup = resolveCompatibleTargetGroup(targetGroup, sourceElements, sourceCards);
-        if (targetGroup != originalGroup) {
-            insertionIndex = Integer.MAX_VALUE; // always append to the redirect target
-        }
-        // ──────────────────────────────────────────────────────────────────────
-
-        javafx.collections.ObservableList<CardElement> targetList = observableListFor(targetGroup);
-        int idx = Math.max(0, Math.min(insertionIndex, targetList.size()));
-
-        if (sourceElements != null && !sourceElements.isEmpty()) {
-            // MOVE: remove from sources first (may be in different groups)
-            for (CardElement ce : sourceElements) {
-                for (java.util.Map.Entry<CardsGroup,
-                        javafx.collections.ObservableList<CardElement>> entry
-                        : CardGroupRegistry.GROUP_OBSERVABLE_LISTS.entrySet()) {
-                    if (entry.getValue().remove(ce)) {
-                        CardsGroup srcGroup = entry.getKey();
-                        triggerHeightAdjustment(srcGroup);
-                        modifiedSourceGroups.add(srcGroup);
-                        break;
-                    }
-                }
-            }
-            // Re-compute index in case removals shifted it
-            idx = Math.min(idx, targetList.size());
-            for (int i = 0; i < sourceElements.size(); i++) {
-                int pos = Math.min(idx + i, targetList.size());
-                targetList.add(pos, sourceElements.get(i));
-            }
-        } else if (sourceCards != null && !sourceCards.isEmpty()) {
-            // ADD: create new elements
-            java.util.List<CardElement> newlyAddedElements = new java.util.ArrayList<>();
-            for (int i = 0; i < sourceCards.size(); i++) {
-                Model.CardsLists.Card card = sourceCards.get(i);
-                if (card == null) continue;
-                int pos = Math.min(idx + i, targetList.size());
-                CardElement newElement = new CardElement(card);
-                targetList.add(pos, newElement);
-                newlyAddedElements.add(newElement);
-            }
-            CardGroupRegistry.notifyOuicheListOfGroupAdditions(targetGroup, newlyAddedElements);
-        }
-        triggerHeightAdjustment(targetGroup);
-        return modifiedSourceGroups;
-    }
-
-    /**
-     * Returns the Deck that owns {@code group} via the registered section map,
-     * or null if not found.
-     */
-    public static Model.CardsLists.Deck findDeckOwnerForGroup(CardsGroup group) {
-        if (group == null) return null;
-        for (java.util.Map.Entry<Model.CardsLists.Deck,
-                java.util.Map<String, CardsGroup>> entry : CardGroupRegistry.DECK_SECTION_GROUPS.entrySet()) {
-            if (entry.getValue() != null && entry.getValue().containsValue(group))
-                return entry.getKey();
-        }
-        return null;
-    }
-
-    public static CardsGroup findGroupForCardElement(CardElement targetElement) {
-        if (targetElement == null) return null;
-        for (java.util.Map.Entry<CardsGroup,
-                javafx.collections.ObservableList<CardElement>> entry
-                : CardGroupRegistry.GROUP_OBSERVABLE_LISTS.entrySet()) {
-            if (entry.getValue().contains(targetElement)) return entry.getKey();
-        }
-        return null;
-    }
-
-    /**
-     * Calls refresh() on every GridView currently registered in CardGroupRegistry.GROUP_GRID_VIEWS.
-     * This propagates selection-state changes into nested GridViews that a plain
-     * TreeView.refresh() call does not reach.
-     */
-    public static void refreshAllGridViews() {
-        Platform.runLater(() -> {
-            for (java.lang.ref.WeakReference<GridView<CardElement>> ref : CardGroupRegistry.GROUP_GRID_VIEWS.values()) {
-                GridView<CardElement> grid = ref.get();
-                if (grid == null) {
-                    continue;
-                }
-                javafx.collections.ObservableList<CardElement> items = grid.getItems();
-                if (items == null) {
-                    continue;
-                }
-                // ControlsFX's GridView has no public refresh(); toggling the items
-                // property forces its skin to rebuild every cell so external state
-                // (e.g. selection highlighting) repaints. An empty list is used as
-                // the transient value instead of null, because the skin calls
-                // getItems().size() synchronously during the property change and
-                // has no null guard — passing null here throws a NullPointerException.
-                grid.setItems(javafx.collections.FXCollections.emptyObservableList());
-                grid.setItems(items);
-            }
-        });
-    }
-
-    /**
-     * Sets (or clears) the active filter for the middle pane.
-     * Pass {@code null} to remove all filtering and restore the full card lists.
-     * The change is applied immediately to every live GridView via their FilteredList.
-     *
-     * @param predicate a {@link java.util.function.Predicate} on {@link Card}, or {@code null}
-     */
-    public static void setMiddleFilter(java.util.function.Predicate<Card> predicate) {
-        activeMiddleFilter = predicate;
-        CardGroupRegistry.activeMiddleFilter = predicate;
-        Platform.runLater(CardTreeCell::applyFilterToAllGroups);
-    }
-
-    /**
-     * Registers (or clears) a {@link CardElement}-level filter for the middle pane.
-     *
-     * <p>This predicate is ANDed with the card-level {@link #activeMiddleFilter} inside
-     * {@link #buildCombinedPredicate}, allowing per-copy fields (e.g. {@code customTags})
-     * to be tested on individual elements rather than on the shared {@link Card} object.
-     *
-     * @param predicate a predicate on {@link CardElement}, or {@code null} to remove the filter
-     */
-    public static void setMiddleElementFilter(java.util.function.Predicate<CardElement> predicate) {
-        activeMiddleElementFilter = predicate;
-        Platform.runLater(CardTreeCell::applyFilterToAllGroups);
-    }
-
     public static void shutdownImageLoadingExecutor() {
         CardImageLoader.shutdown();
-    }
-
-    /**
-     * Pushes the current {@link #activeMiddleFilter} to every live FilteredList and
-     * recalculates each GridView's preferred height accordingly.
-     */
-    private static void applyFilterToAllGroups() {
-        // Iterate over a snapshot to avoid ConcurrentModificationException
-        List<Map.Entry<CardsGroup,
-                java.lang.ref.WeakReference<javafx.collections.transformation.FilteredList<CardElement>>>>
-                snapshot = new ArrayList<>(CardGroupRegistry.GROUP_FILTERED_LISTS.entrySet());
-
-        for (Map.Entry<CardsGroup,
-                java.lang.ref.WeakReference<javafx.collections.transformation.FilteredList<CardElement>>> entry
-                : snapshot) {
-            CardsGroup group = entry.getKey();
-            javafx.collections.transformation.FilteredList<CardElement> fl = entry.getValue().get();
-            if (fl == null) {
-                CardGroupRegistry.GROUP_FILTERED_LISTS.remove(group);
-                continue;
-            }
-
-            fl.setPredicate(buildCombinedPredicate(activeMiddleFilter));
-
-            // Recompute height using the post-filter count
-            java.lang.ref.WeakReference<GridView<CardElement>> gridRef = CardGroupRegistry.GROUP_GRID_VIEWS.get(group);
-            GridView<CardElement> grid = gridRef != null ? gridRef.get() : null;
-            GridViewSizer.adjustGridViewHeight(grid, fl.size());
-        }
-    }
-
-    /**
-     * Builds a combined {@link java.util.function.Predicate} for the middle-pane
-     * {@link javafx.collections.transformation.FilteredList} of a cards group.
-     *
-     * <p>The predicate ANDs two independent concerns:
-     * <ol>
-     *   <li>The active middle-pane card filter (may be {@code null} = pass all).</li>
-     *   <li>When "Hide owned cards" is active in the OuicheList, {@link CardElement}s
-     *       whose {@link CardElement#getOwned()} is {@code true} are excluded so they
-     *       occupy zero space in the {@link GridView} — not just rendered invisible.</li>
-     * </ol>
-     *
-     * @param middleFilter the currently active card filter, or {@code null} for none
-     * @return a predicate to pass to
-     * {@link javafx.collections.transformation.FilteredList#setPredicate},
-     * or {@code null} when neither filter is active (show everything)
-     */
-    private static java.util.function.Predicate<CardElement> buildCombinedPredicate(
-            java.util.function.Predicate<Card> middleFilter) {
-
-        boolean hideOwned = Controller.OuicheListController.isHideOwnedCardsEnabled();
-
-        if (!hideOwned && middleFilter == null && activeMiddleElementFilter == null) {
-            return null; // fastest path — no filtering at all
-        }
-
-        final java.util.function.Predicate<Card> capturedFilter = middleFilter;
-        final java.util.function.Predicate<CardElement> capturedElementFilter = activeMiddleElementFilter;
-
-        return ce -> {
-            if (ce == null) {
-                return false;
-            }
-            if (hideOwned && OwnershipStatus.OWNED.equals(ce.getOwnershipStatus())) {
-                return false;
-            }
-            if (capturedFilter != null) {
-                if (ce.getCard() == null || !capturedFilter.test(ce.getCard())) {
-                    return false;
-                }
-            }
-            if (capturedElementFilter != null) {
-                return capturedElementFilter.test(ce);
-            }
-            return true;
-        };
-    }
-
-    /**
-     * Re-applies the combined predicate (hide-owned + active middle filter) to every
-     * live {@link javafx.collections.transformation.FilteredList} and recalculates
-     * each GridView's preferred height.
-     *
-     * <p>Called by {@link Controller.OuicheListController} after toggling the
-     * "Hide owned cards" flag so that owned-card slots are removed or restored
-     * without rebuilding the whole tree.
-     */
-    public static void applyHideOwnedToAllGroups() {
-        Platform.runLater(CardTreeCell::applyFilterToAllGroups);
     }
 
     private void updateCustomTriangle(boolean isExpanded) {
@@ -1429,12 +976,12 @@ public class CardTreeCell extends TreeCell<String> {
             sortBtn.setOnAction(e -> {
                 boolean changed = false;
                 for (String section : new String[]{"main", "extra", "side"}) {
-                    CardsGroup sectionGroup = getDeckSectionGroup(deck, section);
+                    CardsGroup sectionGroup = CardGroupRegistry.getDeckSectionGroup(deck, section);
                     if (sectionGroup == null) {
                         continue;
                     }
                     javafx.collections.ObservableList<CardElement> obs =
-                            observableListFor(sectionGroup);
+                            CardGroupRegistry.observableListFor(sectionGroup);
                     java.util.List<CardElement> sorted =
                             Utils.CardElementSorter.sorted(
                                     new java.util.ArrayList<>(obs));
@@ -1738,61 +1285,6 @@ public class CardTreeCell extends TreeCell<String> {
 
 
     /**
-     * If {@code targetGroup} is a Deck's main or extra deck section and the
-     * payload is incompatible (e.g. extra-deck card dropped on Main Deck),
-     * returns the other section's CardsGroup for the same Deck.
-     * Falls back to {@code targetGroup} unchanged when redirection is not
-     * needed or not possible.
-     */
-    private static CardsGroup resolveCompatibleTargetGroup(
-            CardsGroup targetGroup,
-            java.util.List<Model.CardsLists.CardElement> sourceElements,
-            java.util.List<Model.CardsLists.Card> sourceCards) {
-
-        if (targetGroup == null) return targetGroup;
-        String groupName = targetGroup.getName();
-        if (groupName == null) return targetGroup;
-
-        boolean isMain = Utils.DeckCompatibility.isMainDeckSection(groupName);
-        boolean isExtra = Utils.DeckCompatibility.isExtraDeckSection(groupName);
-        if (!isMain && !isExtra) return targetGroup; // side deck or other — no restriction
-
-        // Collect first card to test
-        Model.CardsLists.Card sample = null;
-        if (sourceElements != null) {
-            for (Model.CardsLists.CardElement ce : sourceElements) {
-                if (ce != null && ce.getCard() != null) {
-                    sample = ce.getCard();
-                    break;
-                }
-            }
-        }
-        if (sample == null && sourceCards != null) {
-            for (Model.CardsLists.Card c : sourceCards) {
-                if (c != null) {
-                    sample = c;
-                    break;
-                }
-            }
-        }
-        if (sample == null) return targetGroup;
-
-        String redirect = Utils.DeckCompatibility.redirectSection(sample, groupName);
-        if (redirect == null) return targetGroup; // already compatible
-
-        // Find the Deck that owns this group
-        Model.CardsLists.Deck ownerDeck = findDeckOwnerForGroup(targetGroup);
-        if (ownerDeck == null) return targetGroup;
-
-        // Find the redirect group (other section) in the same Deck
-        String redirectKey = redirect.toLowerCase(java.util.Locale.ROOT)
-                .replace(" deck", "").trim(); // "main" or "extra"
-        CardsGroup redirectGroup = getDeckSectionGroup(ownerDeck, redirectKey);
-        return redirectGroup != null ? redirectGroup : targetGroup;
-    }
-
-
-    /**
      * Build menu items for Decks and Collections proposals.
      * Each MenuItem label follows the requested format:
      * - CollectionName
@@ -1846,7 +1338,7 @@ public class CardTreeCell extends TreeCell<String> {
         // Find the freshly-inserted CardElements at the tail of the group's list.
         // dropInsertIntoGroup appended them in order, so the last N elements correspond
         // to the N dropped cards (where N = noPrint.size() within droppedCards).
-        javafx.collections.ObservableList<CardElement> obsList = observableListFor(targetGroup);
+        javafx.collections.ObservableList<CardElement> obsList = CardGroupRegistry.observableListFor(targetGroup);
         int listSize = obsList.size();
 
         // Build a map: card → the last CardElement in the group that wraps it.
@@ -1895,10 +1387,10 @@ public class CardTreeCell extends TreeCell<String> {
         vBox.getChildren().add(hbox);
 
         // ── Card items: shared setup for both display modes ──────────────────────
-        javafx.collections.ObservableList<CardElement> groupItems = observableListFor(group);
+        javafx.collections.ObservableList<CardElement> groupItems = CardGroupRegistry.observableListFor(group);
         javafx.collections.transformation.FilteredList<CardElement> filteredItems =
                 new javafx.collections.transformation.FilteredList<>(groupItems);
-        filteredItems.setPredicate(buildCombinedPredicate(activeMiddleFilter));
+        filteredItems.setPredicate(CardGroupRegistry.buildCombinedPredicate(CardGroupRegistry.activeMiddleFilter));
         CardGroupRegistry.GROUP_FILTERED_LISTS.put(group, new java.lang.ref.WeakReference<>(filteredItems));
 
         boolean useListMode = isOuicheListTabSelected()
@@ -1977,12 +1469,12 @@ public class CardTreeCell extends TreeCell<String> {
             final CardsGroup capturedGroup = group;
             sortBtn.setOnAction(e -> {
                 javafx.collections.ObservableList<CardElement> obs =
-                        observableListFor(capturedGroup);
+                        CardGroupRegistry.observableListFor(capturedGroup);
                 java.util.List<CardElement> sorted =
                         Utils.CardElementSorter.sorted(
                                 new java.util.ArrayList<>(obs));
                 obs.setAll(sorted);
-                markDirtyAndRefreshForGroup(capturedGroup);
+                CardGroupRegistry.markDirtyAndRefreshForGroup(capturedGroup);
             });
             hbox.getChildren().addAll(sortSpring, sortBtn);
         }
@@ -2205,20 +1697,20 @@ public class CardTreeCell extends TreeCell<String> {
                 java.util.List<CardElement> srcElements =
                         new java.util.ArrayList<>(Controller.DragDropManager.getDraggedElements());
                 java.util.Set<CardsGroup> srcGroups =
-                        dropInsertIntoGroup(group, insertionIndex, srcElements, null);
+                        CardGroupRegistry.dropInsertIntoGroup(group, insertionIndex, srcElements, null);
                 for (CardsGroup sourceGroup : srcGroups) {
-                    markDirtyAndRefreshForGroup(sourceGroup);
+                    CardGroupRegistry.markDirtyAndRefreshForGroup(sourceGroup);
                 }
             } else {
                 java.util.List<Model.CardsLists.Card> srcCards =
                         new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
-                dropInsertIntoGroup(group, insertionIndex, null, srcCards);
+                CardGroupRegistry.dropInsertIntoGroup(group, insertionIndex, null, srcCards);
                 // My Collection only: open edit popup for cards dropped without a printCode.
                 if (isMyCollectionTabSelected()) {
                     openEditPopupsForNoPrintCode(srcCards, group, this);
                 }
             }
-            markDirtyAndRefreshForGroup(group);
+            CardGroupRegistry.markDirtyAndRefreshForGroup(group);
             event.setDropCompleted(true);
             event.consume();
         });

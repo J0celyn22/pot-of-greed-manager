@@ -273,7 +273,7 @@ public final class MenuActionHandler {
 
         if (src != null && src.group != null) {
             // Use the ObservableList so the source GridView shrinks immediately
-            CardTreeCell.observableListFor(src.group).remove(src.element);
+            CardGroupRegistry.observableListFor(src.group).remove(src.element);
             logger.debug("doAddCategoryAndMove: removed card '{}' from group '{}'",
                     toAdd.getCard() != null ? toAdd.getCard().getName_EN() : "?",
                     src.group.getName());
@@ -284,7 +284,7 @@ public final class MenuActionHandler {
         }
 
         // 4) Add the element to the new category via its ObservableList
-        CardTreeCell.observableListFor(newGroup).add(toAdd);
+        CardGroupRegistry.observableListFor(newGroup).add(toAdd);
         logger.debug("doAddCategoryAndMove: card '{}' added to new category '{}'",
                 toAdd.getCard() != null ? toAdd.getCard().getName_EN() : "?",
                 categoryName);
@@ -653,7 +653,7 @@ public final class MenuActionHandler {
         if (group == null) {
             return null;
         }
-        return CardTreeCell.findDeckOwnerForGroup(group);
+        return CardGroupRegistry.findDeckOwnerForGroup(group);
     }
 
     // ── Swap ──────────────────────────────────────────────────────────────────

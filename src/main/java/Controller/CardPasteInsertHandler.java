@@ -1,7 +1,6 @@
 package Controller;
 
 import Model.CardsLists.*;
-import View.CardTreeCell;
 import javafx.application.Platform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,7 +56,7 @@ final class CardPasteInsertHandler {
             return false;
         }
 
-        CardsGroup hostGroup = CardTreeCell.findGroupForCardElement(afterElement);
+        CardsGroup hostGroup = CardGroupRegistry.findGroupForCardElement(afterElement);
         if (hostGroup == null) {
             OwnedCardsCollection owned = MenuActionHandler.safeGetOwnedCollection();
             if (owned != null) {
@@ -94,7 +93,7 @@ final class CardPasteInsertHandler {
             List<CardElement> addedToHost = new ArrayList<>();
             if (!compatible.isEmpty()) {
                 javafx.collections.ObservableList<CardElement> list =
-                        CardTreeCell.observableListFor(hostGroup);
+                        CardGroupRegistry.observableListFor(hostGroup);
                 int insertionIndex = list.indexOf(afterElement);
                 if (insertionIndex < 0) {
                     insertionIndex = list.size() - 1;
@@ -105,7 +104,7 @@ final class CardPasteInsertHandler {
                     list.add(pos, newElement);
                     addedToHost.add(newElement);
                 }
-                CardTreeCell.triggerHeightAdjustment(hostGroup);
+                CardGroupRegistry.triggerHeightAdjustment(hostGroup);
             }
             CardGroupRegistry.notifyOuicheListOfGroupAdditions(hostGroup, addedToHost);
 
@@ -114,23 +113,23 @@ final class CardPasteInsertHandler {
                 String redirect = Utils.DeckCompatibility.redirectSection(
                         incompatible.get(0).getCard(), groupName);
                 if (redirect != null) {
-                    Deck ownerDeck = CardTreeCell.findDeckOwnerForGroup(hostGroup);
+                    Deck ownerDeck = CardGroupRegistry.findDeckOwnerForGroup(hostGroup);
                     if (ownerDeck != null) {
                         String sectionKey = redirect
                                 .toLowerCase(java.util.Locale.ROOT)
                                 .replace(" deck", "")
                                 .trim();
                         CardsGroup altGroup =
-                                CardTreeCell.getDeckSectionGroup(ownerDeck, sectionKey);
+                                CardGroupRegistry.getDeckSectionGroup(ownerDeck, sectionKey);
                         if (altGroup != null) {
                             javafx.collections.ObservableList<CardElement> altList =
-                                    CardTreeCell.observableListFor(altGroup);
+                                    CardGroupRegistry.observableListFor(altGroup);
                             for (CardElement source : incompatible) {
                                 CardElement newElement = new CardElement(source);
                                 altList.add(newElement);
                                 addedToAlt.add(newElement);
                             }
-                            CardTreeCell.triggerHeightAdjustment(altGroup);
+                            CardGroupRegistry.triggerHeightAdjustment(altGroup);
                             CardGroupRegistry.notifyOuicheListOfGroupAdditions(altGroup, addedToAlt);
                         }
                     }
@@ -142,7 +141,7 @@ final class CardPasteInsertHandler {
 
         // Normal (non-deck-section) insertion
         javafx.collections.ObservableList<CardElement> observableList =
-                CardTreeCell.observableListFor(hostGroup);
+                CardGroupRegistry.observableListFor(hostGroup);
         int insertionIndex = observableList.indexOf(afterElement);
         if (insertionIndex < 0) {
             insertionIndex = observableList.size() - 1;
@@ -161,7 +160,7 @@ final class CardPasteInsertHandler {
             observableList.add(targetIndex, newElement);
             addedToGroup.add(newElement);
         }
-        CardTreeCell.triggerHeightAdjustment(hostGroup);
+        CardGroupRegistry.triggerHeightAdjustment(hostGroup);
         CardGroupRegistry.notifyOuicheListOfGroupAdditions(hostGroup, addedToGroup);
         return !addedToGroup.isEmpty();
     }
@@ -220,7 +219,7 @@ final class CardPasteInsertHandler {
             return;
         }
         javafx.collections.ObservableList<CardElement> observableList =
-                CardTreeCell.observableListFor(targetGroup);
+                CardGroupRegistry.observableListFor(targetGroup);
         int insertionIndex = observableList.indexOf(afterElement);
         if (insertionIndex < 0) {
             insertionIndex = observableList.size() - 1;
@@ -236,7 +235,7 @@ final class CardPasteInsertHandler {
             }
             observableList.add(targetIndex, new CardElement(source));
         }
-        CardTreeCell.triggerHeightAdjustment(targetGroup);
+        CardGroupRegistry.triggerHeightAdjustment(targetGroup);
     }
 
     /**
@@ -282,7 +281,7 @@ final class CardPasteInsertHandler {
             return;
         }
         javafx.collections.ObservableList<CardElement> observableList =
-                CardTreeCell.observableListFor(targetGroup);
+                CardGroupRegistry.observableListFor(targetGroup);
         int insertionIndex = observableList.indexOf(afterElement);
         if (insertionIndex < 0) {
             insertionIndex = observableList.size() - 1;
@@ -298,7 +297,7 @@ final class CardPasteInsertHandler {
             }
             observableList.add(targetIndex, new CardElement(card));
         }
-        CardTreeCell.triggerHeightAdjustment(targetGroup);
+        CardGroupRegistry.triggerHeightAdjustment(targetGroup);
     }
 
     // ── Paste after element ───────────────────────────────────────────────────
@@ -369,7 +368,7 @@ final class CardPasteInsertHandler {
             return false;
         }
 
-        CardsGroup hostGroup = CardTreeCell.findGroupForCardElement(afterElement);
+        CardsGroup hostGroup = CardGroupRegistry.findGroupForCardElement(afterElement);
         if (hostGroup == null) {
             OwnedCardsCollection owned = MenuActionHandler.safeGetOwnedCollection();
             if (owned != null) {
@@ -407,7 +406,7 @@ final class CardPasteInsertHandler {
             List<CardElement> addedToHost = new ArrayList<>();
             if (!compatible.isEmpty()) {
                 javafx.collections.ObservableList<CardElement> list =
-                        CardTreeCell.observableListFor(hostGroup);
+                        CardGroupRegistry.observableListFor(hostGroup);
                 int insertionIndex = list.indexOf(afterElement);
                 if (insertionIndex < 0) {
                     insertionIndex = list.size() - 1;
@@ -418,7 +417,7 @@ final class CardPasteInsertHandler {
                     list.add(pos, newElement);
                     addedToHost.add(newElement);
                 }
-                CardTreeCell.triggerHeightAdjustment(hostGroup);
+                CardGroupRegistry.triggerHeightAdjustment(hostGroup);
             }
             CardGroupRegistry.notifyOuicheListOfGroupAdditions(hostGroup, addedToHost);
 
@@ -427,21 +426,21 @@ final class CardPasteInsertHandler {
                 String redirect = Utils.DeckCompatibility.redirectSection(
                         incompatible.get(0), groupName);
                 if (redirect != null) {
-                    Deck ownerDeck = CardTreeCell.findDeckOwnerForGroup(hostGroup);
+                    Deck ownerDeck = CardGroupRegistry.findDeckOwnerForGroup(hostGroup);
                     if (ownerDeck != null) {
                         String sectionKey = redirect.toLowerCase(java.util.Locale.ROOT)
                                 .replace(" deck", "").trim();
                         CardsGroup altGroup =
-                                CardTreeCell.getDeckSectionGroup(ownerDeck, sectionKey);
+                                CardGroupRegistry.getDeckSectionGroup(ownerDeck, sectionKey);
                         if (altGroup != null) {
                             javafx.collections.ObservableList<CardElement> altList =
-                                    CardTreeCell.observableListFor(altGroup);
+                                    CardGroupRegistry.observableListFor(altGroup);
                             for (Card card : incompatible) {
                                 CardElement newElement = new CardElement(card);
                                 altList.add(newElement);
                                 addedToAlt.add(newElement);
                             }
-                            CardTreeCell.triggerHeightAdjustment(altGroup);
+                            CardGroupRegistry.triggerHeightAdjustment(altGroup);
                             CardGroupRegistry.notifyOuicheListOfGroupAdditions(altGroup, addedToAlt);
                         }
                     }
@@ -453,7 +452,7 @@ final class CardPasteInsertHandler {
 
         // Normal (non-deck-section) insertion
         javafx.collections.ObservableList<CardElement> observableList =
-                CardTreeCell.observableListFor(hostGroup);
+                CardGroupRegistry.observableListFor(hostGroup);
         int insertionIndex = observableList.indexOf(afterElement);
         if (insertionIndex < 0) {
             insertionIndex = observableList.size() - 1;
@@ -472,7 +471,7 @@ final class CardPasteInsertHandler {
             observableList.add(targetIndex, newElement);
             addedToGroup.add(newElement);
         }
-        CardTreeCell.triggerHeightAdjustment(hostGroup);
+        CardGroupRegistry.triggerHeightAdjustment(hostGroup);
         CardGroupRegistry.notifyOuicheListOfGroupAdditions(hostGroup, addedToGroup);
         return !addedToGroup.isEmpty();
     }

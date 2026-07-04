@@ -69,7 +69,7 @@ public final class SwapProposalBuilder {
             CardsGroup parentGroup = getParentGroup(clicked);
             boolean inDeckContext =
                     parentGroup != null
-                            && CardTreeCell.findDeckOwnerForGroup(parentGroup) != null;
+                            && CardGroupRegistry.findDeckOwnerForGroup(parentGroup) != null;
 
             OwnedCardsCollection owned = OuicheList.getMyCardsCollection();
             List<CardElement> allOwnedCopies =

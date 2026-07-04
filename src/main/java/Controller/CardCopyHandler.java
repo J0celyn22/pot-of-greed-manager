@@ -1,7 +1,6 @@
 package Controller;
 
 import Model.CardsLists.*;
-import View.CardTreeCell;
 import javafx.application.Platform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,8 +71,8 @@ final class CardCopyHandler {
         CardElement newElement = new CardElement(card);
 
         // Add through the ObservableList: updates the model backing list AND notifies the GridView.
-        CardTreeCell.observableListFor(dest).add(newElement);
-        CardTreeCell.triggerHeightAdjustment(dest);
+        CardGroupRegistry.observableListFor(dest).add(newElement);
+        CardGroupRegistry.triggerHeightAdjustment(dest);
         logger.debug("doAddCopy: added '{}' to '{}'", card.getName_EN(), handlerTarget);
 
         MenuActionHandler.setLastAddedTarget(handlerTarget);

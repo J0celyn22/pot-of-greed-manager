@@ -1,7 +1,6 @@
 package Controller;
 
 import Model.CardsLists.*;
-import View.CardTreeCell;
 import javafx.application.Platform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -107,7 +106,7 @@ final class CardSwapHandler {
         // 4. Swap in owned collection (in-place via ObservableList)
         try {
             javafx.collections.ObservableList<CardElement> srcObs =
-                    CardTreeCell.observableListFor(incomingLoc.group);
+                    CardGroupRegistry.observableListFor(incomingLoc.group);
             int insertionIndex = incomingLoc.index;
             if (insertionIndex >= 0
                     && insertionIndex < srcObs.size()
@@ -121,7 +120,7 @@ final class CardSwapHandler {
                     srcObs.add(outgoing);
                 }
             }
-            CardTreeCell.triggerHeightAdjustment(incomingLoc.group);
+            CardGroupRegistry.triggerHeightAdjustment(incomingLoc.group);
         } catch (Throwable exception) {
             logger.debug("doSwap: failed to replace incoming in owned collection", exception);
         }
@@ -305,7 +304,7 @@ final class CardSwapHandler {
         if (locA.group == locB.group) {
             // Same group: swap in one ObservableList operation.
             javafx.collections.ObservableList<CardElement> obs =
-                    CardTreeCell.observableListFor(locA.group);
+                    CardGroupRegistry.observableListFor(locA.group);
             int idxA = (locA.index >= 0 && locA.index < obs.size()
                     && obs.get(locA.index) == elementA)
                     ? locA.index : obs.indexOf(elementA);
@@ -316,13 +315,13 @@ final class CardSwapHandler {
                 obs.set(idxA, elementB);
                 obs.set(idxB, elementA);
             }
-            CardTreeCell.triggerHeightAdjustment(locA.group);
+            CardGroupRegistry.triggerHeightAdjustment(locA.group);
         } else {
             // Different groups: replace each element with the other.
             javafx.collections.ObservableList<CardElement> obsA =
-                    CardTreeCell.observableListFor(locA.group);
+                    CardGroupRegistry.observableListFor(locA.group);
             javafx.collections.ObservableList<CardElement> obsB =
-                    CardTreeCell.observableListFor(locB.group);
+                    CardGroupRegistry.observableListFor(locB.group);
             int idxA = (locA.index >= 0 && locA.index < obsA.size()
                     && obsA.get(locA.index) == elementA)
                     ? locA.index : obsA.indexOf(elementA);
@@ -339,8 +338,8 @@ final class CardSwapHandler {
             } else {
                 obsB.add(elementA);
             }
-            CardTreeCell.triggerHeightAdjustment(locA.group);
-            CardTreeCell.triggerHeightAdjustment(locB.group);
+            CardGroupRegistry.triggerHeightAdjustment(locA.group);
+            CardGroupRegistry.triggerHeightAdjustment(locB.group);
         }
 
         UserInterfaceFunctions.markMyCollectionDirty();

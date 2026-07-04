@@ -331,14 +331,14 @@ class CardGridCell extends GridCell<CardElement> {
                 return;
             }
 
-            CardsGroup group = outer.findGroupForCardElement(anchor);
+            CardsGroup group = CardGroupRegistry.findGroupForCardElement(anchor);
             if (group == null) {
                 event.setDropCompleted(false);
                 event.consume();
                 return;
             }
 
-            javafx.collections.ObservableList<CardElement> list = outer.observableListFor(group);
+            javafx.collections.ObservableList<CardElement> list = CardGroupRegistry.observableListFor(group);
             int anchorIdx = list.indexOf(anchor);
             if (anchorIdx < 0) {
                 event.setDropCompleted(false);
@@ -369,21 +369,21 @@ class CardGridCell extends GridCell<CardElement> {
                     return;
                 }
                 moveSourceGroups =
-                        outer.dropInsertIntoGroup(group, insertionIndex, srcElements, null);
+                        CardGroupRegistry.dropInsertIntoGroup(group, insertionIndex, srcElements, null);
                 movedElements = srcElements;
                 for (CardsGroup sourceGroup : moveSourceGroups) {
-                    outer.markDirtyAndRefreshForGroup(sourceGroup);
+                    CardGroupRegistry.markDirtyAndRefreshForGroup(sourceGroup);
                 }
             } else {
                 java.util.List<Model.CardsLists.Card> srcCards =
                         new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
-                outer.dropInsertIntoGroup(group, insertionIndex, null, srcCards);
+                CardGroupRegistry.dropInsertIntoGroup(group, insertionIndex, null, srcCards);
                 // My Collection only: open edit popup for cards dropped without a printCode.
                 if (outer.isMyCollectionTabSelected()) {
                     outer.openEditPopupsForNoPrintCode(srcCards, group, this);
                 }
             }
-            outer.markDirtyAndRefreshForGroup(group);
+            CardGroupRegistry.markDirtyAndRefreshForGroup(group);
 
             // OuicheList MOVE notifications: fired AFTER markDirtyAndRefreshForGroup so
             // the D&C rebuild is already queued before the OuicheList rebuild is queued.

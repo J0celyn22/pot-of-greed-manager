@@ -104,9 +104,18 @@ public final class CardGroupRegistry {
      * {@code null} means no filtering (all cards shown).
      */
     /**
-     * Active filter predicate applied to every GridView. Public so CardTreeCell can read it.
+     * Active filter predicate applied to every GridView. Public so View classes can read it.
      */
     public static Predicate<Card> activeMiddleFilter = null;
+
+    /**
+     * Optional element-level filter ANDed into every {@link FilteredList} predicate.
+     * Unlike {@link #activeMiddleFilter} (which operates on {@link Card}), this predicate
+     * receives the individual {@link CardElement} so per-copy fields such as
+     * {@code customTags} can be tested precisely. {@code null} means inactive (pass all
+     * elements).
+     */
+    public static Predicate<CardElement> activeMiddleElementFilter = null;
 
     // ── Drop-event double-fire guard ──────────────────────────────────────────
 
@@ -354,8 +363,22 @@ public final class CardGroupRegistry {
     }
 
     /**
-     * Pushes the current {@link #activeMiddleFilter} to every live {@link FilteredList}
-     * and recalculates each GridView's preferred height accordingly.
+     * Registers (or clears) a {@link CardElement}-level filter for the middle pane.
+     *
+     * <p>This predicate is ANDed with the card-level {@link #activeMiddleFilter} inside
+     * {@link #buildCombinedPredicate}, allowing per-copy fields (e.g. {@code customTags})
+     * to be tested on individual elements rather than on the shared {@link Card} object.
+     *
+     * @param predicate a predicate on {@link CardElement}, or {@code null} to remove the filter
+     */
+    public static void setMiddleElementFilter(Predicate<CardElement> predicate) {
+        activeMiddleElementFilter = predicate;
+        Platform.runLater(CardGroupRegistry::applyFilterToAllGroups);
+    }
+
+    /**
+     * Pushes the current {@link #activeMiddleFilter} to every live {@link FilteredList} and
+     * recalculates each GridView's preferred height accordingly.
      */
     public static void applyFilterToAllGroups() {
         // Snapshot to avoid ConcurrentModificationException on WeakHashMap iteration.
@@ -370,21 +393,69 @@ public final class CardGroupRegistry {
                 continue;
             }
 
-            if (activeMiddleFilter == null) {
-                filteredList.setPredicate(null);
-            } else {
-                final Predicate<Card> capturedFilter = activeMiddleFilter;
-                filteredList.setPredicate(cardElement ->
-                        cardElement != null
-                                && cardElement.getCard() != null
-                                && capturedFilter.test(cardElement.getCard()));
-            }
+            filteredList.setPredicate(buildCombinedPredicate(activeMiddleFilter));
 
             // Recompute height using the post-filter count.
             WeakReference<GridView<CardElement>> gridRef = GROUP_GRID_VIEWS.get(group);
             GridView<CardElement> grid = gridRef != null ? gridRef.get() : null;
             adjustGridViewHeightStatic(grid, filteredList.size());
         }
+    }
+
+    /**
+     * Builds a combined {@link Predicate} for the middle-pane {@link FilteredList} of a
+     * cards group.
+     *
+     * <p>The predicate ANDs two independent concerns:
+     * <ol>
+     *   <li>The active middle-pane card filter (may be {@code null} = pass all).</li>
+     *   <li>When "Hide owned cards" is active in the OuicheList, {@link CardElement}s
+     *       whose {@link CardElement#getOwnershipStatus()} is {@code OWNED} are excluded so
+     *       they occupy zero space in the {@link GridView} — not just rendered invisible.</li>
+     * </ol>
+     *
+     * @param middleFilter the currently active card filter, or {@code null} for none
+     * @return a predicate to pass to {@link FilteredList#setPredicate}, or {@code null}
+     * when neither filter is active (show everything)
+     */
+    public static Predicate<CardElement> buildCombinedPredicate(Predicate<Card> middleFilter) {
+        boolean hideOwned = OuicheListController.isHideOwnedCardsEnabled();
+
+        if (!hideOwned && middleFilter == null && activeMiddleElementFilter == null) {
+            return null; // fastest path — no filtering at all
+        }
+
+        final Predicate<Card> capturedFilter = middleFilter;
+        final Predicate<CardElement> capturedElementFilter = activeMiddleElementFilter;
+
+        return cardElement -> {
+            if (cardElement == null) {
+                return false;
+            }
+            if (hideOwned && OwnershipStatus.OWNED.equals(cardElement.getOwnershipStatus())) {
+                return false;
+            }
+            if (capturedFilter != null) {
+                if (cardElement.getCard() == null || !capturedFilter.test(cardElement.getCard())) {
+                    return false;
+                }
+            }
+            if (capturedElementFilter != null) {
+                return capturedElementFilter.test(cardElement);
+            }
+            return true;
+        };
+    }
+
+    /**
+     * Re-applies the combined predicate (hide-owned + active middle filter) to every live
+     * {@link FilteredList} and recalculates each GridView's preferred height.
+     *
+     * <p>Called by {@link OuicheListController} after toggling the "Hide owned cards" flag
+     * so that owned-card slots are removed or restored without rebuilding the whole tree.
+     */
+    public static void applyHideOwnedToAllGroups() {
+        Platform.runLater(CardGroupRegistry::applyFilterToAllGroups);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -869,40 +940,6 @@ public final class CardGroupRegistry {
     @Deprecated
     public static void adjustGridViewHeightStatic(GridView<CardElement> grid, int numItems) {
         View.GridViewSizer.adjustGridViewHeight(grid, numItems);
-    }
-
-    /**
-     * Computes the correct preferred height for a GridView given its current width and
-     * the number of items to display.
-     *
-     * @deprecated use {@link View.GridViewSizer#computeGridPrefHeight} directly.
-     * Kept as a forwarding stub for existing callers.
-     */
-    @Deprecated
-    public static double computeGridPrefHeight(GridView<CardElement> grid, int numItems) {
-        return View.GridViewSizer.computeGridPrefHeight(grid, numItems);
-    }
-
-    /**
-     * Computes the number of columns that fit inside the current width of {@code grid}.
-     *
-     * @deprecated use {@link View.GridViewSizer#computeGridColumns} directly.
-     * Kept as a forwarding stub for existing callers.
-     */
-    @Deprecated
-    public static int computeGridColumns(GridView<CardElement> grid) {
-        return View.GridViewSizer.computeGridColumns(grid);
-    }
-
-    /**
-     * Applies the given height as the preferred, minimum, and maximum height of the grid.
-     *
-     * @deprecated use {@link View.GridViewSizer#applyGridPrefHeight} directly.
-     * Kept as a forwarding stub for existing callers.
-     */
-    @Deprecated
-    public static void applyGridPrefHeight(GridView<CardElement> grid, double height) {
-        View.GridViewSizer.applyGridPrefHeight(grid, height);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

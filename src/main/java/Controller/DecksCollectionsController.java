@@ -789,7 +789,7 @@ public class DecksCollectionsController {
                     }
 
                     javafx.collections.ObservableList<CardElement> observableList =
-                            CardTreeCell.observableListFor(sectionGroup);
+                            CardGroupRegistry.observableListFor(sectionGroup);
                     observableList.addListener(
                             (javafx.collections.ListChangeListener<CardElement>) change ->
                                     Platform.runLater(() -> {
@@ -837,7 +837,7 @@ public class DecksCollectionsController {
             }
             CardsGroup cardsGroup = CardGroupRegistry.getOrCreateCollectionCardsGroup(
                     collection, cardsList);
-            CardTreeCell.setMissingArtworkSetForGroup(cardsGroup, missingArtworkSet);
+            CardGroupRegistry.setMissingArtworkSetForGroup(cardsGroup, missingArtworkSet);
 
             DataTreeItem<Object> cardsGroupItem = new DataTreeItem<>("Cards", cardsGroup);
             cardsGroupItem.setExpanded(true);
@@ -847,7 +847,7 @@ public class DecksCollectionsController {
             }
 
             javafx.collections.ObservableList<CardElement> cardsObservable =
-                    CardTreeCell.observableListFor(cardsGroup);
+                    CardGroupRegistry.observableListFor(cardsGroup);
             cardsObservable.addListener(
                     (javafx.collections.ListChangeListener<CardElement>) change ->
                             Platform.runLater(() -> {
@@ -919,7 +919,7 @@ public class DecksCollectionsController {
                 }
                 CardsGroup exceptionsGroup = CardGroupRegistry.getOrCreateCollectionExceptionsGroup(
                         collection, exceptions);
-                CardTreeCell.setMissingArtworkSetForGroup(exceptionsGroup, missingArtworkSet);
+                CardGroupRegistry.setMissingArtworkSetForGroup(exceptionsGroup, missingArtworkSet);
 
                 DataTreeItem<Object> exceptionsNode =
                         new DataTreeItem<>("Cards not to add", exceptionsGroup);
@@ -930,7 +930,7 @@ public class DecksCollectionsController {
                 }
 
                 javafx.collections.ObservableList<CardElement> exceptionsObservable =
-                        CardTreeCell.observableListFor(exceptionsGroup);
+                        CardGroupRegistry.observableListFor(exceptionsGroup);
                 exceptionsObservable.addListener(
                         (javafx.collections.ListChangeListener<CardElement>) change ->
                                 Platform.runLater(() -> {

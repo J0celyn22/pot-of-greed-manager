@@ -1,7 +1,6 @@
 package Controller;
 
 import Model.CardsLists.*;
-import View.CardTreeCell;
 import javafx.application.Platform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,13 +83,13 @@ final class CardMoveHandler {
         if (src != null && src.group != null && src.index >= 0) {
             try {
                 javafx.collections.ObservableList<CardElement> srcObs =
-                        CardTreeCell.observableListFor(src.group);
+                        CardGroupRegistry.observableListFor(src.group);
                 if (src.index < srcObs.size() && srcObs.get(src.index) == src.element) {
                     srcObs.remove(src.index);
                 } else {
                     srcObs.remove(src.element);
                 }
-                CardTreeCell.triggerHeightAdjustment(src.group);
+                CardGroupRegistry.triggerHeightAdjustment(src.group);
             } catch (Throwable exception) {
                 logger.debug("Failed to remove element from source; continuing", exception);
             }
@@ -108,8 +107,8 @@ final class CardMoveHandler {
 
         // 6) add to destination via ObservableList (updates model + GridView automatically)
         try {
-            CardTreeCell.observableListFor(dest.group).add(toAdd);
-            CardTreeCell.triggerHeightAdjustment(dest.group);
+            CardGroupRegistry.observableListFor(dest.group).add(toAdd);
+            CardGroupRegistry.triggerHeightAdjustment(dest.group);
         } catch (Throwable exception) {
             logger.debug("Failed to add element to destination", exception);
         }
