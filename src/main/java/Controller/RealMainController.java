@@ -204,7 +204,7 @@ public class RealMainController {
         ouicheListController = new OuicheListController(
                 this, cardWidthProperty, cardHeightProperty, ouicheListTab, decksController);
         archetypesController = new ArchetypesController(
-                this, cardWidthProperty, cardHeightProperty, archetypesTab, decksController);
+                this, cardWidthProperty, cardHeightProperty, archetypesTab);
 
         // ── 3b. Keyboard shortcuts / numpad-add handler ────────────────────────
         keyboardShortcutHandler = new KeyboardShortcutHandler(

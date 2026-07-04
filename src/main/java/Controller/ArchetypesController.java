@@ -44,7 +44,6 @@ public class ArchetypesController {
     private final DoubleProperty cardHeightProperty;
     private final SharedCollectionTab archetypesTab;
     private final RealMainController coordinator;
-    private final DecksCollectionsController decksController;
 
     // ── Live tree view ────────────────────────────────────────────────────────
 
@@ -59,18 +58,15 @@ public class ArchetypesController {
      * @param cardWidthProperty  shared card-width property
      * @param cardHeightProperty shared card-height property
      * @param archetypesTab      the tab UI container for Archetypes
-     * @param decksController    used to delegate {@code buildElementsFromGlobalArchetype}
      */
     public ArchetypesController(RealMainController coordinator,
                                 DoubleProperty cardWidthProperty,
                                 DoubleProperty cardHeightProperty,
-                                SharedCollectionTab archetypesTab,
-                                DecksCollectionsController decksController) {
+                                SharedCollectionTab archetypesTab) {
         this.coordinator = coordinator;
         this.cardWidthProperty = cardWidthProperty;
         this.cardHeightProperty = cardHeightProperty;
         this.archetypesTab = archetypesTab;
-        this.decksController = decksController;
     }
 
     // ── Display ───────────────────────────────────────────────────────────────
@@ -219,13 +215,13 @@ public class ArchetypesController {
 
     /**
      * Builds a list of {@link CardElement}s for the named archetype from the global
-     * SubListCreator data, delegating to {@link DecksCollectionsController}.
+     * SubListCreator data, delegating to {@link DeckCollectionQualityChecks}.
      *
      * @param archetypeName the archetype name to look up (case-insensitive)
      * @return the list of elements; empty if the archetype is not found
      */
     public List<CardElement> buildElementsFromGlobalArchetype(String archetypeName) {
-        return decksController.buildElementsFromGlobalArchetype(archetypeName);
+        return DeckCollectionQualityChecks.buildElementsFromGlobalArchetype(archetypeName);
     }
 
     // ── Accessor ──────────────────────────────────────────────────────────────
