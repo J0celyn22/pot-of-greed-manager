@@ -68,73 +68,51 @@ public class UserInterfaceFunctions {
 
     private static final ViewRefresherRegistry explicitStructureRefreshers =
             new ViewRefresherRegistry("refreshOwnedCollectionStructure");
-    private static Object pendingRenameTarget = null;
-
-    private static Object pendingDecksRenameTarget = null;
-
-    /**
-     * Set to true when a rename confirm requires a full middle-pane tree rebuild
-     * but must NOT trigger another inline-rename attempt.
-     */
-    private static volatile boolean pendingDecksFullRebuild = false;
-    private static Object pendingDecksExpandTarget = null;
+    // ── Pending UI-action state ─────────────────────────────────────────────────
+    // Delegates to PendingUiActionState; kept here so existing call sites are unaffected.
 
     public static void setPendingDecksFullRebuild() {
-        pendingDecksFullRebuild = true;
+        PendingUiActionState.setPendingDecksFullRebuild();
     }
 
     public static void setPendingDecksExpandTarget(Object target) {
-        pendingDecksExpandTarget = target;
+        PendingUiActionState.setPendingDecksExpandTarget(target);
     }
 
     public static Object getAndClearPendingDecksExpandTarget() {
-        Object expandTarget = pendingDecksExpandTarget;
-        pendingDecksExpandTarget = null;
-        return expandTarget;
+        return PendingUiActionState.getAndClearPendingDecksExpandTarget();
     }
 
     public static boolean getAndClearPendingDecksFullRebuild() {
-        boolean wasPendingFullRebuild = pendingDecksFullRebuild;
-        pendingDecksFullRebuild = false;
-        return wasPendingFullRebuild;
+        return PendingUiActionState.getAndClearPendingDecksFullRebuild();
     }
 
-    private static Object pendingDecksScrollTarget = null;
-    // Stores {ThemeCollection, Deck} for the "Create Collection from Deck" flow
-    private static Object[] pendingDecksCreateCollectionData = null;
-
     public static void setPendingDecksScrollTarget(Object target) {
-        pendingDecksScrollTarget = target;
+        PendingUiActionState.setPendingDecksScrollTarget(target);
     }
 
     public static Object getAndClearPendingDecksScrollTarget() {
-        Object scrollTarget = pendingDecksScrollTarget;
-        pendingDecksScrollTarget = null;
-        return scrollTarget;
+        return PendingUiActionState.getAndClearPendingDecksScrollTarget();
     }
 
     public static void setPendingDecksRenameTarget(Object target) {
-        pendingDecksRenameTarget = target;
+        PendingUiActionState.setPendingDecksRenameTarget(target);
     }
 
     public static void setPendingRenameTarget(Object target) {
-        pendingRenameTarget = target;
+        PendingUiActionState.setPendingRenameTarget(target);
     }
 
     public static Object getAndClearPendingDecksRenameTarget() {
-        Object renameTarget = pendingDecksRenameTarget;
-        pendingDecksRenameTarget = null;
-        return renameTarget;
+        return PendingUiActionState.getAndClearPendingDecksRenameTarget();
     }
 
     public static void setPendingDecksCreateCollectionData(Object[] data) {
-        pendingDecksCreateCollectionData = data;
+        PendingUiActionState.setPendingDecksCreateCollectionData(data);
     }
 
     public static Object[] getAndClearPendingDecksCreateCollectionData() {
-        Object[] createCollectionData = pendingDecksCreateCollectionData;
-        pendingDecksCreateCollectionData = null;
-        return createCollectionData;
+        return PendingUiActionState.getAndClearPendingDecksCreateCollectionData();
     }
 
     // ── Dirty tracking ────────────────────────────────────────────────────────────
@@ -1168,9 +1146,7 @@ public class UserInterfaceFunctions {
     }
 
     public static Object getAndClearPendingRenameTarget() {
-        Object renameTarget = pendingRenameTarget;
-        pendingRenameTarget = null;
-        return renameTarget;
+        return PendingUiActionState.getAndClearPendingRenameTarget();
     }
 
     public static void registerOwnedCollectionStructureRefresher(Runnable refresher) {
