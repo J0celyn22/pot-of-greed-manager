@@ -1,5 +1,6 @@
 package View;
 
+import Controller.CollectionFileIO;
 import Controller.UserInterfaceFunctions;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
@@ -324,8 +325,8 @@ public class SharedCollectionTab extends HBox {
         TextField collectionFileField = new TextField();
         collectionFileField.setPromptText("Enter collection file path");
         collectionFileField.setPrefColumnCount(30);
-        collectionFileField.setText(UserInterfaceFunctions.filePath != null
-                ? UserInterfaceFunctions.filePath.getAbsolutePath()
+        collectionFileField.setText(CollectionFileIO.filePath != null
+                ? CollectionFileIO.filePath.getAbsolutePath()
                 : "");
         collectionFileField.setVisible(false);
         collectionFileField.setManaged(false);
@@ -751,7 +752,7 @@ public class SharedCollectionTab extends HBox {
     private void runUltraJeuxScrape(TextField maxPriceField) {
         try {
             if (!UserInterfaceFunctions.getOuicheListIsLoaded()) {
-                if (UserInterfaceFunctions.ouicheListPath == null) {
+                if (CollectionFileIO.ouicheListPath == null) {
                     logger.warn("UltraJeux scrape requested but no OuicheList path is set.");
                 } else {
                     UserInterfaceFunctions.loadOuicheList();
