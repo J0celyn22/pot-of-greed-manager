@@ -1627,17 +1627,6 @@ public class CardTreeCell extends TreeCell<String> {
         return candidate.box + "/" + candidate.group + "@" + candidate.index;
     }
 
-    // Placeholder handlers: only log for now. Implement move/swap logic later.
-    private void onProposeMoveToLocation(CardElement clickedElement, String target) {
-        logger.info("Proposed move: {} -> {}", clickedElement == null ? "null" : clickedElement.toString(), target);
-        // TODO: implement actual move logic later
-    }
-
-    private void onProposeSwapWith(CardElement clickedElement, String otherLocation) {
-        logger.info("Proposed swap: {} <-> {}", clickedElement == null ? "null" : clickedElement.toString(), otherLocation);
-        // TODO: implement actual swap logic later
-    }
-
     // Small helper holder used by findElementLocation
     private static class FoundCandidate {
         final String box;
