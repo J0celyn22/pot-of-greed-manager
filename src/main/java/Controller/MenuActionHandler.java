@@ -1,7 +1,6 @@
 package Controller; // adapt to your package
 
 import Model.CardsLists.*;
-import View.CardTreeCell;
 import javafx.application.Platform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -644,7 +643,7 @@ public final class MenuActionHandler {
     /**
      * Returns the {@link Deck} that owns {@code group} as one of its registered
      * section groups (main / extra / side), or {@code null}.
-     * Delegates to {@link CardTreeCell#findDeckOwnerForGroup}.
+     * Delegates to {@link CardGroupRegistry#findDeckOwnerForGroup}.
      *
      * @param group the group to look up
      * @return the owning deck, or {@code null}
