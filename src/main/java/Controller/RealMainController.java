@@ -17,7 +17,6 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
-import javafx.stage.WindowEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,7 +24,6 @@ import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -37,7 +35,7 @@ import java.util.stream.Collectors;
  *   <li>Shared state: card-size properties, the shared right panel (filter + card display),
  *       sort toggle buttons, view-mode flags ({@code isMosaicMode}, {@code isPrintedMode}).</li>
  *   <li>Tab-switch listener that delegates to the four sub-controllers.</li>
- *   <li>The window close handler (unsaved-changes prompt on exit).</li>
+ *   <li>View toggle buttons (incomplete-mark, hide-archetypes, condition/rarity overlay).</li>
  *   <li>Coordinator-level helpers used by all sub-controllers:
  *       {@link #buildMiddlePaneEmptySpaceFilter()},
  *       {@link #doCardPasteOnNavItem}, {@link #updateTabDirtyIndicators()}, etc.</li>
@@ -54,6 +52,9 @@ import java.util.stream.Collectors;
  * <p>{@link KeyboardShortcutHandler} owns global keyboard shortcuts (save, tab-switch,
  * copy/cut/paste/duplicate, delete) and the numpad/Enter "quick add from the right pane"
  * workflow.
+ *
+ * <p>{@link SaveStateCoordinator} owns the three save buttons, the tab-header dirty
+ * indicators, and the unsaved-changes prompt shown on window close.
  *
  * <p>{@link NavigationHelper} provides shared static nav utilities used by all sub-controllers.
  *
@@ -105,6 +106,7 @@ public class RealMainController {
     private OuicheListController ouicheListController;
     private ArchetypesController archetypesController;
     private KeyboardShortcutHandler keyboardShortcutHandler;
+    private SaveStateCoordinator saveStateCoordinator;
 
     // ── View-mode flags ───────────────────────────────────────────────────────
 
@@ -375,7 +377,12 @@ public class RealMainController {
         }
 
         // ── 7. Wire save buttons ──────────────────────────────────────────────
-        wireSaveButtons();
+        saveStateCoordinator = new SaveStateCoordinator(
+                myCollectionTab, decksTab, ouicheListTab,
+                myCollectionTabHandle, decksTabHandle, ouicheListTabHandle,
+                myCollectionController, decksController);
+        saveStateCoordinator.wireSaveButtons();
+        wireViewToggleButtons();
 
         // ── 8. Display My Collection (the always-visible default tab) ─────────
         try {
@@ -441,7 +448,7 @@ public class RealMainController {
                     && mainTabPane.getScene() != null
                     && mainTabPane.getScene().getWindow() instanceof Stage) {
                 ((Stage) mainTabPane.getScene().getWindow())
-                        .setOnCloseRequest(this::handleWindowCloseRequest);
+                        .setOnCloseRequest(saveStateCoordinator::handleWindowCloseRequest);
             }
         });
     }
@@ -1043,21 +1050,7 @@ public class RealMainController {
      * {@link UserInterfaceFunctions}.
      */
     public void updateTabDirtyIndicators() {
-        if (myCollectionTabHandle != null) {
-            boolean dirty = UserInterfaceFunctions.isMyCollectionDirty();
-            String base = "My Collection";
-            myCollectionTabHandle.setText(dirty ? "* " + base : base);
-        }
-        if (decksTabHandle != null) {
-            boolean dirty = UserInterfaceFunctions.isAnyDeckOrCollectionDirty();
-            String base = "Decks and Collections";
-            decksTabHandle.setText(dirty ? "* " + base : base);
-        }
-        if (ouicheListTabHandle != null) {
-            boolean dirty = UserInterfaceFunctions.isOuicheListDirty();
-            String base = "OuicheList";
-            ouicheListTabHandle.setText(dirty ? "* " + base : base);
-        }
+        saveStateCoordinator.updateTabDirtyIndicators();
     }
 
     /**
@@ -1082,22 +1075,10 @@ public class RealMainController {
     }
 
     // =========================================================================
-    // Save buttons
+    // View toggle buttons (incomplete-mark, hide-archetypes, condition/rarity)
     // =========================================================================
 
-    private void wireSaveButtons() {
-        if (myCollectionTab.getSaveButton() != null) {
-            myCollectionTab.getSaveButton().setOnAction(event -> {
-                try {
-                    UserInterfaceFunctions.saveMyCollection();
-                    updateTabDirtyIndicators();
-                    myCollectionController.populateMyCollectionMenu();
-                } catch (Exception exception) {
-                    logger.error("Error saving My Collection", exception);
-                }
-            });
-        }
-
+    private void wireViewToggleButtons() {
         if (myCollectionTab.getIncompleteMarkButton() != null) {
             Button incompleteMarkButton = myCollectionTab.getIncompleteMarkButton();
             final String incompleteMarkButtonOnStyle =
@@ -1136,18 +1117,6 @@ public class RealMainController {
                 if (myCollectionTreeView != null) {
                     myCollectionTreeView.refresh();
                     CardTreeCell.refreshAllGridViews();
-                }
-            });
-        }
-
-        if (decksTab.getSaveButton() != null) {
-            decksTab.getSaveButton().setOnAction(event -> {
-                try {
-                    UserInterfaceFunctions.saveAllDecksAndCollections();
-                    updateTabDirtyIndicators();
-                    decksController.populateDecksAndCollectionsMenu();
-                } catch (Exception exception) {
-                    logger.error("Error saving Decks and Collections", exception);
                 }
             });
         }
@@ -1261,114 +1230,6 @@ public class RealMainController {
             ouicheListTab.getShowConditionRarityButton()
                     .setOnAction(conditionRarityToggleHandler);
         }
-
-        if (ouicheListTab.getSaveButton() != null) {
-            ouicheListTab.getSaveButton().setOnAction(event -> {
-                try {
-                    UserInterfaceFunctions.saveOuicheList();
-                    updateTabDirtyIndicators();
-                } catch (Exception exception) {
-                    logger.error("Error saving OuicheList", exception);
-                }
-            });
-        }
-    }
-
-    // =========================================================================
-    // Global keyboard shortcuts
-    // =========================================================================
-
-
-    // =========================================================================
-    // Window close request
-    // =========================================================================
-
-    private void handleWindowCloseRequest(WindowEvent event) {
-        List<String> dirtyTabs = new ArrayList<>();
-        if (myCollectionTabHandle != null
-                && myCollectionTabHandle.getText().startsWith("*")) {
-            dirtyTabs.add("My Collection");
-        }
-        if (decksTabHandle != null && decksTabHandle.getText().startsWith("*")) {
-            dirtyTabs.add("Decks & Collections");
-        }
-        if (ouicheListTabHandle != null && ouicheListTabHandle.getText().startsWith("*")) {
-            dirtyTabs.add("OuicheList");
-        }
-
-        if (dirtyTabs.isEmpty()) {
-            return;
-        }
-
-        event.consume();
-
-        Alert alert = new Alert(Alert.AlertType.NONE);
-        alert.setTitle("Unsaved Changes");
-        alert.setHeaderText("The following tabs have unsaved changes:");
-        alert.setContentText(String.join("\n", dirtyTabs));
-
-        ButtonType saveButton = new ButtonType("Save", ButtonBar.ButtonData.YES);
-        ButtonType noSaveButton = new ButtonType("Don't Save", ButtonBar.ButtonData.NO);
-        ButtonType cancelButton = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
-        alert.getButtonTypes().setAll(saveButton, noSaveButton, cancelButton);
-
-        DialogPane dialogPane = alert.getDialogPane();
-        dialogPane.setStyle(
-                "-fx-background-color: #100317; "
-                        + "-fx-border-color: #5a2a7a; "
-                        + "-fx-border-width: 1;");
-        dialogPane.applyCss();
-        dialogPane.layout();
-        dialogPane.lookupAll(".header-panel")
-                .forEach(node -> node.setStyle("-fx-background-color: #100317;"));
-        dialogPane.lookupAll(".label")
-                .forEach(node -> node.setStyle("-fx-text-fill: white;"));
-        dialogPane.lookupAll(".button")
-                .forEach(node -> node.setStyle(
-                        "-fx-background-color: #2a0a3e; "
-                                + "-fx-text-fill: white; "
-                                + "-fx-border-color: #7a3aaa; "
-                                + "-fx-border-width: 1; "
-                                + "-fx-border-radius: 3; "
-                                + "-fx-background-radius: 3; "
-                                + "-fx-cursor: hand;"));
-
-        Optional<ButtonType> result = alert.showAndWait();
-
-        if (result.isEmpty() || result.get() == cancelButton) {
-            return;
-        }
-
-        if (result.get() == saveButton) {
-            try {
-                if (myCollectionTabHandle != null
-                        && myCollectionTabHandle.getText().startsWith("*")) {
-                    UserInterfaceFunctions.saveMyCollection();
-                }
-                if (decksTabHandle != null && decksTabHandle.getText().startsWith("*")) {
-                    UserInterfaceFunctions.saveAllDecksAndCollections();
-                }
-                if (ouicheListTabHandle != null && ouicheListTabHandle.getText().startsWith("*")) {
-                    UserInterfaceFunctions.saveOuicheList();
-                }
-                updateTabDirtyIndicators();
-            } catch (Exception exception) {
-                logger.error("Save-on-close failed", exception);
-                Alert errorAlert = new Alert(Alert.AlertType.ERROR);
-                errorAlert.setTitle("Save Error");
-                errorAlert.setHeaderText("Could not save all changes.");
-                errorAlert.setContentText(exception.getMessage());
-                errorAlert.getDialogPane().setStyle("-fx-background-color: #100317;");
-                errorAlert.getDialogPane().applyCss();
-                errorAlert.getDialogPane().layout();
-                errorAlert.getDialogPane().lookupAll(".label")
-                        .forEach(node -> node.setStyle("-fx-text-fill: white;"));
-                errorAlert.showAndWait();
-                return;
-            }
-        }
-
-        Platform.exit();
     }
 
     // =========================================================================
