@@ -1,7 +1,9 @@
 package Controller;
 
 import Model.CardsLists.*;
-import Model.FormatList.*;
+import Model.FormatList.ArchetypesListsToHtml;
+import Model.FormatList.DeckToHtml;
+import Model.FormatList.OwnedCardsCollectionToHtml;
 import javafx.application.Platform;
 import javafx.collections.ObservableList;
 import javafx.scene.Node;
@@ -54,11 +56,8 @@ public class UserInterfaceFunctions {
     private static Boolean ouicheListIsLoaded = false;
     private static Boolean detailedOuicheListIsLoaded = false;
 
-    // Added static variable to hold the decks list.
-    private static DecksAndCollectionsList decksList = null;
-
     public static DecksAndCollectionsList getDecksList() {
-        return decksList;
+        return CollectionStateTracker.getDecksList();
     }
 
     private static final Logger logger = LoggerFactory.getLogger(UserInterfaceFunctions.class);
@@ -116,149 +115,80 @@ public class UserInterfaceFunctions {
     }
 
     // ── Dirty tracking ────────────────────────────────────────────────────────────
-    private static final java.util.Set<Object> dirtyDecksAndCollections =
-            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
-    private static volatile boolean myCollectionDirty = false;
-    private static volatile boolean ouicheListDirty = false;
+    // Delegates to CollectionStateTracker; kept here so existing call sites are unaffected.
 
-    /**
-     * Set to {@code true} once {@link CardToHtml#generateAllCardPages(String)} has
-     * been run during the current application session. Prevents the (slow) full-database
-     * pass from being repeated on every individual export action.
-     * Reset by {@link #resetCardPagesGenerated()} when the output directory changes.
-     */
-    private static volatile boolean cardPagesGenerated = false;
     // ── Tab dirty-indicator callback ──────────────────────────────────────────────
     private static Runnable tabDirtyIndicatorUpdater = null;
 
+    // Setter and getter for decksList.
+    public static void setDecksList(DecksAndCollectionsList list) {
+        CollectionStateTracker.setDecksList(list);
+    }
+
     public static void markDirty(Object deckOrCollection) {
-        if (deckOrCollection != null) {
-            dirtyDecksAndCollections.add(deckOrCollection);
-        }
+        CollectionStateTracker.markDirty(deckOrCollection);
     }
 
     public static void markMyCollectionDirty() {
-        myCollectionDirty = true;
+        CollectionStateTracker.markMyCollectionDirty();
     }
 
     public static boolean isDirty(Object deckOrCollection) {
-        return deckOrCollection != null && dirtyDecksAndCollections.contains(deckOrCollection);
+        return CollectionStateTracker.isDirty(deckOrCollection);
     }
 
     public static boolean isMyCollectionDirty() {
-        return myCollectionDirty;
+        return CollectionStateTracker.isMyCollectionDirty();
     }
 
     public static boolean isAnyDeckOrCollectionDirty() {
-        return !dirtyDecksAndCollections.isEmpty();
+        return CollectionStateTracker.isAnyDeckOrCollectionDirty();
     }
 
     public static void clearDirty(Object obj) {
-        dirtyDecksAndCollections.remove(obj);
+        CollectionStateTracker.clearDirty(obj);
     }
 
     public static void clearAllDirtyDecksAndCollections() {
-        dirtyDecksAndCollections.clear();
+        CollectionStateTracker.clearAllDirtyDecksAndCollections();
     }
 
     public static void clearMyCollectionDirty() {
-        myCollectionDirty = false;
+        CollectionStateTracker.clearMyCollectionDirty();
     }
 
     public static void markOuicheListDirty() {
-        ouicheListDirty = true;
+        CollectionStateTracker.markOuicheListDirty();
     }
 
     public static boolean isOuicheListDirty() {
-        return ouicheListDirty;
-    }
-
-    public static void clearOuicheListDirty() {
-        ouicheListDirty = false;
+        return CollectionStateTracker.isOuicheListDirty();
     }
 
     // ── Save methods ──────────────────────────────────────────────────────────────
 
-    /**
-     * Generates HTML detail pages for every card in the database, if this has
-     * not already been done in the current session.
-     *
-     * <p>The generation is guarded by {@link #cardPagesGenerated}: the full-database
-     * pass runs at most once per session regardless of how many export actions the
-     * user triggers. Call {@link #resetCardPagesGenerated()} when the output directory
-     * changes so that the next export re-generates against the new location.</p>
-     */
+    public static void clearOuicheListDirty() {
+        CollectionStateTracker.clearOuicheListDirty();
+    }
+
     private static void ensureCardPagesGenerated() {
-        if (cardPagesGenerated) {
-            return;
-        }
-        HtmlGenerator.resetExportSession();
-        CardToHtml.generateAllCardPages(outputPath);
-        cardPagesGenerated = true;
+        CollectionStateTracker.ensureCardPagesGenerated();
     }
 
     /**
      * Clears the card-pages-generated flag so that the next export action
-     * triggers a fresh {@link CardToHtml#generateAllCardPages(String)} pass.
+     * triggers a fresh full-database HTML export pass.
      * Call this whenever {@link Model.FilePaths#outputPath} changes.
      */
     public static void resetCardPagesGenerated() {
-        cardPagesGenerated = false;
+        CollectionStateTracker.resetCardPagesGenerated();
     }
 
     /**
      * Marks every deck and collection in the currently loaded Decks and Collections List as dirty.
      */
     public static void markAllDecksAndCollectionsDirty() {
-        DecksAndCollectionsList decksAndCollectionsList = getDecksList();
-        if (decksAndCollectionsList == null) {
-            return;
-        }
-        if (decksAndCollectionsList.getDecks() != null) {
-            decksAndCollectionsList.getDecks().forEach(deck -> {
-                if (deck != null) {
-                    markDirty(deck);
-                }
-            });
-        }
-        if (decksAndCollectionsList.getCollections() != null) {
-            decksAndCollectionsList.getCollections().forEach(themeCollection -> {
-                if (themeCollection == null) {
-                    return;
-                }
-                markDirty(themeCollection);
-                if (themeCollection.getLinkedDecks() != null) {
-                    themeCollection.getLinkedDecks().forEach(linkedDeckUnit -> {
-                        if (linkedDeckUnit != null) {
-                            linkedDeckUnit.forEach(deck -> {
-                                if (deck != null) {
-                                    markDirty(deck);
-                                }
-                            });
-                        }
-                    });
-                }
-            });
-        }
-    }
-
-    public static void saveMyCollection() throws Exception {
-        if (!myCollectionDirty) {
-            logger.debug("saveMyCollection: collection is not dirty, skipping save");
-            return;
-        }
-        if (filePath == null) {
-            logger.warn("saveMyCollection: no file path configured");
-            return;
-        }
-        Model.CardsLists.OwnedCardsCollection owned =
-                Model.CardsLists.OuicheList.getMyCardsCollection();
-        if (owned == null) {
-            return;
-        }
-        owned.SaveCollection(filePath.getAbsolutePath());
-        clearMyCollectionDirty();
-        logger.info("My Collection saved to {}", filePath.getAbsolutePath());
+        CollectionStateTracker.markAllDecksAndCollectionsDirty();
     }
 
     public static void saveAllDecksAndCollections() throws Exception {
@@ -362,9 +292,23 @@ public class UserInterfaceFunctions {
     private static final ViewRefresherRegistry decksTreeRefreshers =
             new ViewRefresherRegistry("doRefreshArchetypesView (decksTree)");
 
-    // Setter and getter for decksList.
-    public static void setDecksList(DecksAndCollectionsList list) {
-        decksList = list;
+    public static void saveMyCollection() throws Exception {
+        if (!isMyCollectionDirty()) {
+            logger.debug("saveMyCollection: collection is not dirty, skipping save");
+            return;
+        }
+        if (filePath == null) {
+            logger.warn("saveMyCollection: no file path configured");
+            return;
+        }
+        Model.CardsLists.OwnedCardsCollection owned =
+                Model.CardsLists.OuicheList.getMyCardsCollection();
+        if (owned == null) {
+            return;
+        }
+        owned.SaveCollection(filePath.getAbsolutePath());
+        clearMyCollectionDirty();
+        logger.info("My Collection saved to {}", filePath.getAbsolutePath());
     }
 
     /**
