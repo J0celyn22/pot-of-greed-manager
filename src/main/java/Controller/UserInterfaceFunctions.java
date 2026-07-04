@@ -1,10 +1,6 @@
 package Controller;
 
 import Model.CardsLists.DecksAndCollectionsList;
-import Model.CardsLists.OuicheListIO;
-import Model.CardsLists.OwnedCardsCollection;
-import Model.CardsLists.SubListCreator;
-import Model.FormatList.ArchetypesListsToHtml;
 import javafx.scene.control.TextField;
 import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
@@ -16,18 +12,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.List;
-
-import static Controller.CollectionFileIO.*;
-import static Model.CardsLists.OuicheList.*;
-import static Model.CardsLists.SubListCreator.*;
-import static Model.FilePaths.outputPath;
-import static Model.FilePaths.outputPathLists;
-import static Model.FormatList.CardListToHtml.*;
-import static Model.FormatList.OuicheListToHtml.generateOuicheListAsListHtml;
-import static Model.FormatList.OuicheListToHtml.generateOuicheListAsMosaicHtml;
 
 /**
  * Class containing all functions called by the user interface.
@@ -158,109 +142,15 @@ public class UserInterfaceFunctions {
         CollectionStateTracker.markAllDecksAndCollectionsDirty();
     }
 
+    // ── Persistence (My Collection / Decks / Collections) ───────────────────────
+    // Delegates to CollectionPersistenceService; kept here so existing call sites are unaffected.
+
     public static void saveMyCollection() throws Exception {
-        if (!isMyCollectionDirty()) {
-            logger.debug("saveMyCollection: collection is not dirty, skipping save");
-            return;
-        }
-        if (filePath == null) {
-            logger.warn("saveMyCollection: no file path configured");
-            return;
-        }
-        Model.CardsLists.OwnedCardsCollection owned =
-                Model.CardsLists.OuicheList.getMyCardsCollection();
-        if (owned == null) {
-            return;
-        }
-        owned.SaveCollection(filePath.getAbsolutePath());
-        clearMyCollectionDirty();
-        logger.info("My Collection saved to {}", filePath.getAbsolutePath());
+        CollectionPersistenceService.saveMyCollection();
     }
 
     public static void saveAllDecksAndCollections() throws Exception {
-        if (folderPath == null) {
-            logger.warn("saveAllDecksAndCollections: no folder path configured");
-            return;
-        }
-        DecksAndCollectionsList decksAndCollectionsList = getDecksList();
-        if (decksAndCollectionsList == null) {
-            return;
-        }
-        String dir = folderPath.getAbsolutePath();
-
-        if (decksAndCollectionsList.getCollections() != null) {
-            for (Model.CardsLists.ThemeCollection themeCollection : decksAndCollectionsList.getCollections()) {
-                if (themeCollection == null) {
-                    continue;
-                }
-
-                // Determine whether the collection itself or any of its linked
-                // decks are dirty — if so the .ytc file must be saved.
-                boolean collectionIsDirty = isDirty(themeCollection);
-
-                boolean anyLinkedDeckIsDirty = false;
-                if (themeCollection.getLinkedDecks() != null) {
-                    for (List<Model.CardsLists.Deck> unit : themeCollection.getLinkedDecks()) {
-                        if (unit == null) {
-                            continue;
-                        }
-                        for (Model.CardsLists.Deck deck : unit) {
-                            if (deck != null && isDirty(deck)) {
-                                anyLinkedDeckIsDirty = true;
-                                break;
-                            }
-                        }
-                        if (anyLinkedDeckIsDirty) {
-                            break;
-                        }
-                    }
-                }
-
-                // Save .ytc only when needed
-                if (collectionIsDirty || anyLinkedDeckIsDirty) {
-                    themeCollection.saveToFile(dir);
-                    clearDirty(themeCollection);
-                    logger.info("Saved collection '{}'", themeCollection.getName());
-                }
-
-                // Save each linked .ydk only when that deck is dirty
-                if (themeCollection.getLinkedDecks() != null) {
-                    for (List<Model.CardsLists.Deck> unit : themeCollection.getLinkedDecks()) {
-                        if (unit == null) {
-                            continue;
-                        }
-                        for (Model.CardsLists.Deck deck : unit) {
-                            if (deck == null) {
-                                continue;
-                            }
-                            if (isDirty(deck)) {
-                                deck.saveDeck(dir);
-                                clearDirty(deck);
-                                logger.info("Saved linked deck '{}'", deck.getName());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (decksAndCollectionsList.getDecks() != null) {
-            for (Model.CardsLists.Deck deck : decksAndCollectionsList.getDecks()) {
-                if (deck == null) {
-                    continue;
-                }
-                if (isDirty(deck)) {
-                    deck.saveDeck(dir);
-                    clearDirty(deck);
-                    logger.info("Saved standalone deck '{}'", deck.getName());
-                }
-            }
-        }
-
-        // All dirty flags have been individually cleared above;
-        // clear the set to catch any stragglers.
-        clearAllDirtyDecksAndCollections();
-        logger.info("Save complete — only modified elements were written.");
+        CollectionPersistenceService.saveAllDecksAndCollections();
     }
 
     public static void registerTabDirtyIndicatorUpdater(Runnable updater) {
@@ -314,37 +204,7 @@ public class UserInterfaceFunctions {
      * If there is an error writing to the file, it is logged and otherwise ignored.
      */
     public static void generateOuicheListFunction() {
-        try {
-            if (!CollectionFileIO.isMyCollectionLoaded()) {
-                loadCollectionFile();
-            }
-
-            if (!CollectionFileIO.isDecksAndCollectionLoaded()) {
-                loadDecksAndCollectionsDirectory();
-            }
-
-            ensureCardPagesGenerated();
-
-            setDetailedOuicheList(Model.CardsLists.OuicheList.createDetailedOuicheList(getMyCardsCollection(), getDecksList()));
-
-            //String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-            Files.createDirectories(Paths.get(outputPathLists));
-
-            generateOuicheListAsListHtml(getDetailedOuicheList(), outputPathLists, "Detailed OuicheList");
-            generateOuicheListAsMosaicHtml(getDetailedOuicheList(), outputPathLists, "Detailed OuicheList");
-
-            generateHtmlWithOwned(getUnusedCards(), outputPathLists, "Available Cards - Complete", true);
-            generateHtmlWithOwned(getUnusedCards(), outputPathLists, "Available Cards", false);
-
-            CollectionFileIO.setDetailedOuicheListLoaded(true);
-
-            markOuicheListDirty();
-            triggerTabDirtyIndicatorUpdate();
-        } catch (IOException exception) {
-            logger.error("generateOuicheListFunction: failed to write OuicheList HTML output", exception);
-        } catch (Exception exception) {
-            throw new RuntimeException(exception);
-        }
+        OuicheListGenerationService.generateOuicheListFunction();
     }
 
     /**
@@ -361,18 +221,7 @@ public class UserInterfaceFunctions {
      * @throws Exception
      */
     public static void generateArchetypesListsFunction() throws Exception {
-        logger.info("Generating archetype lists from the full card database");
-        CreateArchetypeLists(Model.Database.Database.getAllCardsList());
-
-        logger.info("Generating archetype HTML pages");
-        String outputPathArchetypes = outputPath + "Archetypes\\";
-        Files.createDirectories(Paths.get(outputPathArchetypes));
-
-        // Create the Archetypes menu and then the individual archetype pages
-        ArchetypesListsToHtml.generateArchetypesMenu(outputPathArchetypes, getArchetypesList());
-        ArchetypesListsToHtml.GenerateAllArchetypesLists(outputPathArchetypes, getArchetypesList(), getArchetypesCardsLists());
-
-        logger.info("Archetype list generation complete");
+        OuicheListGenerationService.generateArchetypesListsFunction();
     }
 
     // ── File browse/load/export ──────────────────────────────────────────────────
@@ -426,26 +275,7 @@ public class UserInterfaceFunctions {
      * @throws Exception If an error occurs during loading the third-party or OuicheList files.
      */
     public static void generateThirdPartyList() throws Exception {
-        if (!CollectionFileIO.isThirdPartyCollectionLoaded()) {
-            if (thirdPartyListPath == null) {
-                //TODO fenêtre erreur :
-                logger.warn("Third Party List must be selected");
-            }
-            loadThirdPartyAvailableCards();
-        }
-
-        if (!CollectionFileIO.isOuicheListLoaded()) {
-            if (ouicheListPath == null) {
-                //TODO fenêtre erreur :
-                logger.warn("OuicheList must be selected");
-            } else {
-                loadOuicheList();
-            }
-        }
-
-        if (CollectionFileIO.isOuicheListLoaded()) {
-            OuicheListIO.generateThirdPartyCardsINeedList();
-        }
+        OuicheListGenerationService.generateThirdPartyList();
     }
 
     /**
@@ -455,7 +285,7 @@ public class UserInterfaceFunctions {
      * @throws IOException If the file could not be created.
      */
     public static void saveThirdPartyList() throws IOException {
-        OuicheListIO.thirdPartyCardsINeedListSave(outputPath, "3rdPartyList.txt");
+        OuicheListGenerationService.saveThirdPartyList();
     }
 
     /**
@@ -465,15 +295,7 @@ public class UserInterfaceFunctions {
      * @throws RuntimeException If an exception occurs during generation.
      */
     public static void generateOuicheList() {
-        try {
-            Thread savePathsThread = new Thread(() -> savePathsToFile(filePath, folderPath, null));
-            savePathsThread.start();
-
-            generateOuicheListFunction();
-            playLaughSound();
-        } catch (Exception exception) {
-            throw new RuntimeException(exception);
-        }
+        OuicheListGenerationService.generateOuicheList();
     }
 
     /**
@@ -483,15 +305,7 @@ public class UserInterfaceFunctions {
      * @throws IOException If the file could not be created.
      */
     public static void saveOuicheList() throws IOException {
-        if (!CollectionFileIO.isDetailedOuicheListLoaded()) {
-            //TODO : fenêtre erreur ?
-            logger.warn("OuicheList must be generated or loaded");
-        } else {
-            Files.createDirectories(Paths.get(outputPath));
-            OuicheListIO.ouicheListSave(outputPath + "OuicheList.txt");
-            clearOuicheListDirty();
-            logger.info("OuicheList saved.");
-        }
+        OuicheListGenerationService.saveOuicheList();
     }
 
     /**
@@ -501,115 +315,18 @@ public class UserInterfaceFunctions {
      * @throws RuntimeException If an exception occurs during generation.
      */
     public static void generateOuicheListType() {
-        try {
-            Thread savePathsThread = new Thread(() -> savePathsToFile(filePath, folderPath, null));
-            savePathsThread.start();
-
-            generateOuicheListTypeFunction();
-            playLaughSound();
-        } catch (Exception exception) {
-            throw new RuntimeException(exception);
-        }
+        OuicheListGenerationService.generateOuicheListType();
     }
 
     /**
-     * Generates the OuicheList by calling {@link Model.CardsLists.OuicheList#createOuicheList(OwnedCardsCollection, DecksAndCollectionsList)}
+     * Generates the OuicheList by calling
+     * {@link Model.CardsLists.OuicheList#createOuicheList(Model.CardsLists.OwnedCardsCollection, Model.CardsLists.DecksAndCollectionsList)}
      * and generates several sublists of the OuicheList based on the different types of cards.
      *
      * @throws RuntimeException if an exception occurs during generation.
      */
     public static void generateOuicheListTypeFunction() {
-        try {
-            if (!CollectionFileIO.isMyCollectionLoaded()) {
-                loadCollectionFile();
-            }
-            if (!CollectionFileIO.isDecksAndCollectionLoaded()) {
-                loadDecksAndCollectionsDirectory();
-            }
-
-            // createOuicheList is now void and builds the internal LinkedHashMap directly.
-            // All callers that need a List<CardElement> use getMaOuicheListAsFlatList().
-            Model.CardsLists.OuicheList.createOuicheList(getMyCardsCollection(), getDecksList());
-
-            ensureCardPagesGenerated();
-
-            // Create the output directory.
-            //String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-            Files.createDirectories(Paths.get(outputPathLists));
-
-            generateHtml(getUnusedCards(), outputPathLists, "Available Cards");
-            generateHtml(getMaOuicheListAsFlatList(), outputPathLists, "OuicheList");
-            generateOuicheListMosaicHtml(getMaOuicheListAsFlatList(), outputPathLists);
-
-            SubListCreator.CreateSubLists(getMaOuicheListAsFlatList());
-            SubListCreator.CreateSubMonsterLists(SubListCreator.getMonsterList());
-            SubListCreator.CreateSubSpellLists(SubListCreator.getSpellList());
-            SubListCreator.CreateSubTrapLists(SubListCreator.getTrapList());
-
-            generateHtml(SubListCreator.getMonsterList(), outputPathLists, "MonsterList");
-            generateHtml(SubListCreator.getSpellList(), outputPathLists, "SpellList");
-            generateHtml(SubListCreator.getTrapList(), outputPathLists, "TrapList");
-            generateHtml(SubListCreator.getPyroTypeMonster(), outputPathLists, "PyroTypeMonster");
-            generateHtml(SubListCreator.getAquaTypeMonster(), outputPathLists, "AquaTypeMonster");
-            generateHtml(SubListCreator.getMachineTypeMonster(), outputPathLists, "MachineTypeMonster");
-            generateHtml(SubListCreator.getDragonTypeMonster(), outputPathLists, "DragonTypeMonster");
-            generateHtml(SubListCreator.getBeastWarriorTypeMonster(), outputPathLists, "BeastWarriorTypeMonster");
-            generateHtml(SubListCreator.getReptileTypeMonster(), outputPathLists, "ReptileTypeMonster");
-            generateHtml(SubListCreator.getPlantTypeMonster(), outputPathLists, "PlantTypeMonster");
-            generateHtml(SubListCreator.getFiendTypeMonster(), outputPathLists, "FiendTypeMonster");
-            generateHtml(SubListCreator.getWyrmTypeMonster(), outputPathLists, "WyrmTypeMonster");
-            generateHtml(SubListCreator.getDinosaurTypeMonster(), outputPathLists, "DinosaurTypeMonster");
-            generateHtml(SubListCreator.getSpellcasterTypeMonster(), outputPathLists, "SpellcasterTypeMonster");
-            generateHtml(SubListCreator.getFishTypeMonster(), outputPathLists, "FishTypeMonster");
-            generateHtml(SubListCreator.getDivineBeastTypeMonster(), outputPathLists, "DivineBeastTypeMonster");
-            generateHtml(SubListCreator.getCyberseTypeMonster(), outputPathLists, "CyberseTypeMonster");
-            generateHtml(SubListCreator.getInsectTypeMonster(), outputPathLists, "InsectTypeMonster");
-            generateHtml(SubListCreator.getWingedBeastTypeMonster(), outputPathLists, "WingedBeastTypeMonster");
-            generateHtml(SubListCreator.getWarriorTypeMonster(), outputPathLists, "WarriorTypeMonster");
-            generateHtml(SubListCreator.getRockTypeMonster(), outputPathLists, "RockTypeMonster");
-            generateHtml(SubListCreator.getThunderTypeMonster(), outputPathLists, "ThunderTypeMonster");
-            generateHtml(SubListCreator.getZombieTypeMonster(), outputPathLists, "ZombieTypeMonster");
-            generateHtml(SubListCreator.getSeaSerpentTypeMonster(), outputPathLists, "SeaSerpentTypeMonster");
-            generateHtml(SubListCreator.getBeastTypeMonster(), outputPathLists, "BeastTypeMonster");
-            generateHtml(SubListCreator.getPsychicTypeMonster(), outputPathLists, "PsychicTypeMonster");
-            generateHtml(SubListCreator.getFairyTypeMonster(), outputPathLists, "FairyTypeMonster");
-            generateHtml(SubListCreator.getIllusionTypeMonster(), outputPathLists, "IllusionTypeMonster");
-
-            generateHtml(SubListCreator.getNormalMonsterCard(), outputPathLists, "NormalMonsterCard");
-            generateHtml(SubListCreator.getToonMonsterCard(), outputPathLists, "ToonMonsterCard");
-            generateHtml(SubListCreator.getTunerMonsterCard(), outputPathLists, "TunerMonsterCard");
-            generateHtml(SubListCreator.getUnionMonsterCard(), outputPathLists, "UnionMonsterCard");
-            generateHtml(SubListCreator.getSynchroMonsterCard(), outputPathLists, "SynchroMonsterCard");
-            generateHtml(SubListCreator.getPendulumMonsterCard(), outputPathLists, "PendulumMonsterCard");
-            generateHtml(SubListCreator.getRitualMonsterCard(), outputPathLists, "RitualMonsterCard");
-            generateHtml(SubListCreator.getFlipMonsterCard(), outputPathLists, "FlipMonsterCard");
-            generateHtml(SubListCreator.getSpiritMonsterCard(), outputPathLists, "SpiritMonsterCard");
-            generateHtml(SubListCreator.getXyzMonsterCard(), outputPathLists, "XyzMonsterCard");
-            generateHtml(SubListCreator.getEffectMonsterCard(), outputPathLists, "EffectMonsterCard");
-            generateHtml(SubListCreator.getFusionMonsterCard(), outputPathLists, "FusionMonsterCard");
-            generateHtml(SubListCreator.getLinkMonsterCard(), outputPathLists, "LinkMonsterCard");
-            generateHtml(SubListCreator.getGeminiMonsterCard(), outputPathLists, "GeminiMonsterCard");
-
-            generateHtml(SubListCreator.getNormalSpellCard(), outputPathLists, "NormalSpellCard");
-            generateHtml(SubListCreator.getContinuousSpellCard(), outputPathLists, "ContinuousSpellCard");
-            generateHtml(SubListCreator.getQuickPlaySpellCard(), outputPathLists, "QuickPlaySpellCard");
-            generateHtml(SubListCreator.getEquipSpellCard(), outputPathLists, "EquipSpellCard");
-            generateHtml(SubListCreator.getFieldSpellCard(), outputPathLists, "FieldSpellCard");
-            generateHtml(SubListCreator.getRitualSpellCard(), outputPathLists, "RitualSpellCard");
-
-            generateHtml(SubListCreator.getNormalTrapCard(), outputPathLists, "NormalTrapCard");
-            generateHtml(SubListCreator.getContinuousTrapCard(), outputPathLists, "ContinuousTrapCard");
-            generateHtml(SubListCreator.getCounterTrapCard(), outputPathLists, "CounterTrapCard");
-
-            CollectionFileIO.setOuicheListLoaded(true);
-
-            markOuicheListDirty();
-            triggerTabDirtyIndicatorUpdate();
-        } catch (IOException exception) {
-            logger.error("generateOuicheListTypeFunction: failed to write generated HTML output", exception);
-        } catch (Exception exception) {
-            throw new RuntimeException(exception);
-        }
+        OuicheListGenerationService.generateOuicheListTypeFunction();
     }
     // ── View-refresh coordination ────────────────────────────────────────────────
     // Delegates to ViewRefreshCoordinator; kept here so existing call sites are unaffected.
@@ -717,44 +434,6 @@ public class UserInterfaceFunctions {
      * @throws Exception if the underlying file-write fails
      */
     public static void saveSingleDeckOrCollection(Object obj) throws Exception {
-        if (folderPath == null) {
-            logger.warn("saveSingleDeckOrCollection: no folder path configured");
-            return;
-        }
-        String dir = folderPath.getAbsolutePath();
-
-        if (obj instanceof Model.CardsLists.Deck) {
-            Model.CardsLists.Deck deck = (Model.CardsLists.Deck) obj;
-            deck.saveDeck(dir);
-            clearDirty(deck);
-            triggerTabDirtyIndicatorUpdate();
-            // Rebuild the nav menu so the "* name" asterisk is cleared there too.
-            refreshDecksAndCollectionsView();
-            logger.info("Saved deck '{}'", deck.getName());
-
-        } else if (obj instanceof Model.CardsLists.ThemeCollection themeCollection) {
-            themeCollection.saveToFile(dir);
-            clearDirty(themeCollection);
-            // Also flush any dirty linked decks so the whole collection is consistent on disk.
-            if (themeCollection.getLinkedDecks() != null) {
-                for (java.util.List<Model.CardsLists.Deck> unit : themeCollection.getLinkedDecks()) {
-                    if (unit == null) {
-                        continue;
-                    }
-                    for (Model.CardsLists.Deck deck : unit) {
-                        if (isDirty(deck)) {
-                            deck.saveDeck(dir);
-                            clearDirty(deck);
-                            logger.info("Saved linked deck '{}' while saving collection '{}'",
-                                    deck.getName(), themeCollection.getName());
-                        }
-                    }
-                }
-            }
-            triggerTabDirtyIndicatorUpdate();
-            // Rebuild the nav menu so the "* name" asterisk is cleared there too.
-            refreshDecksAndCollectionsView();
-            logger.info("Saved collection '{}'", themeCollection.getName());
-        }
+        CollectionPersistenceService.saveSingleDeckOrCollection(obj);
     }
 }
