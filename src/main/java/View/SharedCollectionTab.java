@@ -67,7 +67,38 @@ public class SharedCollectionTab extends HBox {
         this.tabType = tabType;
         this.setSpacing(0);
 
-        // Left pane: Navigation menu (fixed width)
+        Separator leftSeparator = buildLeftNavigationPane();
+        HBox headerRow = buildHeaderRow(tabType);
+        HBox contentRow = buildContentRow();
+
+        // ── Assemble displayVBox ───────────────────────────────────────────────
+        Separator horizontalSeparator = new Separator();
+        horizontalSeparator.setStyle("-fx-background-color: white;");
+        horizontalSeparator.setPrefHeight(2);
+
+        displayVBox = new VBox();
+        displayVBox.setSpacing(0);
+        displayVBox.getStyleClass().add("display-vbox");
+        displayVBox.getChildren().addAll(headerRow, horizontalSeparator, contentRow);
+        HBox.setHgrow(displayVBox, Priority.ALWAYS);
+
+        VBox leftColumnVBox = buildLeftColumn();
+
+        // ── Final assembly: [detail+nav column] | middle+right block ──────────
+        this.getChildren().addAll(leftColumnVBox, leftSeparator, displayVBox);
+
+        // Programmatic styling for the navigation menu scrollbars remains
+        styleScrollBarsIn(menuScrollPane);
+    }
+
+    /**
+     * Builds the left navigation menu (fixed width, scrollable) and the vertical
+     * separator between it and the middle/right content. The menu's contents are
+     * populated later by the controller; this only builds the scaffolding.
+     *
+     * @return the separator to place between the left column and displayVBox
+     */
+    private Separator buildLeftNavigationPane() {
         menuVBox = new VBox();
         menuVBox.getStyleClass().add("navigation-menu");
         menuVBox.setSpacing(5);
@@ -90,11 +121,18 @@ public class SharedCollectionTab extends HBox {
         menuScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
 
         // Vertical separator between left and middle.
-        Separator sepLeft = new Separator();
-        sepLeft.setOrientation(Orientation.VERTICAL);
-        sepLeft.setStyle("-fx-background-color: white;");
-        sepLeft.setPrefWidth(2);
+        Separator leftSeparator = new Separator();
+        leftSeparator.setOrientation(Orientation.VERTICAL);
+        leftSeparator.setStyle("-fx-background-color: white;");
+        leftSeparator.setPrefWidth(2);
+        return leftSeparator;
+    }
 
+    /**
+     * Builds the header row: the tab-specific header (~1/3 width) plus the
+     * FilterPane header (~2/3 width), separated by a vertical divider.
+     */
+    private HBox buildHeaderRow(TabType tabType) {
         // ── Tab-specific header (~1/3 width) ──────────────────────────────────
         headerPane = new AnchorPane();
         headerPane.getStyleClass().add("header-pane");
@@ -125,18 +163,18 @@ public class SharedCollectionTab extends HBox {
         headerPane.prefWidthProperty().bind(headerRow.widthProperty().divide(3).subtract(1));
         headerPane.maxWidthProperty().bind(headerPane.prefWidthProperty());
         headerPane.minWidthProperty().bind(headerPane.prefWidthProperty());
+        return headerRow;
+    }
 
-        // ── Horizontal separator between header row and content row ───────────
-        Separator sepHoriz = new Separator();
-        sepHoriz.setStyle("-fx-background-color: white;");
-        sepHoriz.setPrefHeight(2);
-
-        // ── Middle content pane (tree view, grows to fill) ────────────────────
+    /**
+     * Builds the content row: the middle tree-view pane (grows to fill) and the
+     * right-pane placeholder (cards display injected later by the controller).
+     */
+    private HBox buildContentRow() {
         contentPane = new AnchorPane();
         contentPane.getStyleClass().add("content-pane");
         HBox.setHgrow(contentPane, Priority.ALWAYS);
 
-        // ── Right content placeholder – cards display injected by controller ──
         rightContentPane = new AnchorPane();
         rightContentPane.getStyleClass().add("right-content-pane");
         rightContentPane.setStyle("-fx-background-color: #100317;");
@@ -149,15 +187,14 @@ public class SharedCollectionTab extends HBox {
 
         HBox contentRow = new HBox(0, contentPane, contentVertSep, rightContentPane);
         VBox.setVgrow(contentRow, Priority.ALWAYS);
+        return contentRow;
+    }
 
-        // ── Assemble displayVBox ───────────────────────────────────────────────
-        displayVBox = new VBox();
-        displayVBox.setSpacing(0);
-        displayVBox.getStyleClass().add("display-vbox");
-        displayVBox.getChildren().addAll(headerRow, sepHoriz, contentRow);
-        HBox.setHgrow(displayVBox, Priority.ALWAYS);
-
-        // ── Card-detail pane (collapsible, sits above the nav menu) ───────────
+    /**
+     * Builds the left column: the collapsible card-detail pane stacked above the
+     * navigation menu (which grows to fill whatever height the detail pane leaves).
+     */
+    private VBox buildLeftColumn() {
         cardDetailPane = new CardDetailPane();
 
         Separator detailNavSep = new Separator();
@@ -171,12 +208,7 @@ public class SharedCollectionTab extends HBox {
         VBox leftColumnVBox = new VBox(0, cardDetailPane, detailNavSep, menuScrollPane);
         leftColumnVBox.setPrefWidth(375);
         leftColumnVBox.setStyle("-fx-background-color: #100317;");
-
-        // ── Final assembly: [detail+nav column] | middle+right block ──────────
-        this.getChildren().addAll(leftColumnVBox, sepLeft, displayVBox);
-
-        // Programmatic styling for the navigation menu scrollbars remains
-        styleScrollBarsIn(menuScrollPane);
+        return leftColumnVBox;
     }
 
     private Runnable onDecksLoad;
@@ -801,11 +833,13 @@ public class SharedCollectionTab extends HBox {
         }
     }
 
-    private void styleScrollBarsIn(ScrollPane sp) {
-        if (sp == null) return;
-        sp.skinProperty().addListener((obs, oldSkin, newSkin) ->
-                Platform.runLater(() -> applyStylesToScrollBars(sp)));
-        Platform.runLater(() -> applyStylesToScrollBars(sp));
+    private void styleScrollBarsIn(ScrollPane scrollPane) {
+        if (scrollPane == null) {
+            return;
+        }
+        scrollPane.skinProperty().addListener((obs, oldSkin, newSkin) ->
+                Platform.runLater(() -> applyStylesToScrollBars(scrollPane)));
+        Platform.runLater(() -> applyStylesToScrollBars(scrollPane));
     }
 
     public VBox getMenuVBox() {
@@ -843,10 +877,10 @@ public class SharedCollectionTab extends HBox {
 
     // ── Programmatic scrollbar styling ───────────────────────────────────────────
 
-    private void applyStylesToScrollBars(ScrollPane sp) {
+    private void applyStylesToScrollBars(ScrollPane scrollPane) {
         try {
-            Set<Node> bars = sp.lookupAll(".scroll-bar");
-            bars.addAll(sp.lookupAll(".overlay-scroll-bar"));
+            Set<Node> bars = scrollPane.lookupAll(".scroll-bar");
+            bars.addAll(scrollPane.lookupAll(".overlay-scroll-bar"));
 
             for (Node bar : bars) {
                 bar.setStyle(
