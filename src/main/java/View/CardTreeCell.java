@@ -1547,19 +1547,19 @@ public class CardTreeCell extends TreeCell<String> {
         // Helper to compare CardElement metadata for a stronger match when identity differs
         java.util.function.BiPredicate<CardElement, CardElement> elementMetadataEquals = (a, b) -> {
             if (a == null || b == null) return false;
-            boolean sa = a.getSpecificArtwork() == null ? false : a.getSpecificArtwork();
-            boolean sb = b.getSpecificArtwork() == null ? false : b.getSpecificArtwork();
-            if (sa != sb) return false;
+            boolean specificArtworkA = a.getSpecificArtwork() == null ? false : a.getSpecificArtwork();
+            boolean specificArtworkB = b.getSpecificArtwork() == null ? false : b.getSpecificArtwork();
+            if (specificArtworkA != specificArtworkB) return false;
             if (a.getArtwork() != b.getArtwork()) return false;
-            boolean oa = a.getOwnershipStatus() == null ? false : a.getOwned();
-            boolean ob = b.getOwnershipStatus() == null ? false : b.getOwned();
-            if (oa != ob) return false;
-            boolean ida = a.getIsInDeck() == null ? false : a.getIsInDeck();
-            boolean idb = b.getIsInDeck() == null ? false : b.getIsInDeck();
-            if (ida != idb) return false;
-            boolean da = a.getDontRemove() == null ? false : a.getDontRemove();
-            boolean db = b.getDontRemove() == null ? false : b.getDontRemove();
-            if (da != db) return false;
+            boolean ownedA = a.getOwnershipStatus() == null ? false : a.getOwned();
+            boolean ownedB = b.getOwnershipStatus() == null ? false : b.getOwned();
+            if (ownedA != ownedB) return false;
+            boolean isInDeckA = a.getIsInDeck() == null ? false : a.getIsInDeck();
+            boolean isInDeckB = b.getIsInDeck() == null ? false : b.getIsInDeck();
+            if (isInDeckA != isInDeckB) return false;
+            boolean dontRemoveA = a.getDontRemove() == null ? false : a.getDontRemove();
+            boolean dontRemoveB = b.getDontRemove() == null ? false : b.getDontRemove();
+            if (dontRemoveA != dontRemoveB) return false;
             return true;
         };
 
@@ -1567,14 +1567,14 @@ public class CardTreeCell extends TreeCell<String> {
         for (Box box : owned.getOwnedCollection()) {
             if (box == null || box.getContent() == null) continue;
             String boxLabel = CardNameUtils.sanitize(box.getName());
-            for (CardsGroup g : box.getContent()) {
-                if (g == null) continue;
-                List<CardElement> list = g.getCardList();
+            for (CardsGroup cardsGroup : box.getContent()) {
+                if (cardsGroup == null) continue;
+                List<CardElement> list = cardsGroup.getCardList();
                 if (list == null) continue;
                 for (int i = 0; i < list.size(); i++) {
-                    CardElement ce = list.get(i);
-                    if (ce == target) {
-                        String groupLabel = CardNameUtils.sanitize(g.getName());
+                    CardElement cardElement = list.get(i);
+                    if (cardElement == target) {
+                        String groupLabel = CardNameUtils.sanitize(cardsGroup.getName());
                         return boxLabel + "/" + groupLabel + "@" + i;
                     }
                 }
@@ -1590,16 +1590,16 @@ public class CardTreeCell extends TreeCell<String> {
         for (Box box : owned.getOwnedCollection()) {
             if (box == null || box.getContent() == null) continue;
             String boxLabel = CardNameUtils.sanitize(box.getName());
-            for (CardsGroup g : box.getContent()) {
-                if (g == null) continue;
-                List<CardElement> list = g.getCardList();
+            for (CardsGroup cardsGroup : box.getContent()) {
+                if (cardsGroup == null) continue;
+                List<CardElement> list = cardsGroup.getCardList();
                 if (list == null) continue;
                 for (int i = 0; i < list.size(); i++) {
-                    CardElement ce = list.get(i);
-                    if (ce == null || ce.getCard() == null) continue;
-                    if (sameCard.test(ce.getCard(), targetCard)) {
-                        String groupLabel = CardNameUtils.sanitize(g.getName());
-                        candidates.add(new FoundCandidate(boxLabel, groupLabel, i, ce));
+                    CardElement cardElement = list.get(i);
+                    if (cardElement == null || cardElement.getCard() == null) continue;
+                    if (sameCard.test(cardElement.getCard(), targetCard)) {
+                        String groupLabel = CardNameUtils.sanitize(cardsGroup.getName());
+                        candidates.add(new FoundCandidate(boxLabel, groupLabel, i, cardElement));
                     }
                 }
             }
@@ -1608,23 +1608,23 @@ public class CardTreeCell extends TreeCell<String> {
         if (candidates.isEmpty()) return null;
 
         // 3) Prefer candidates that match metadata exactly
-        for (FoundCandidate fc : candidates) {
-            if (elementMetadataEquals.test(fc.element, target)) {
-                return fc.box + "/" + fc.group + "@" + fc.index;
+        for (FoundCandidate candidate : candidates) {
+            if (elementMetadataEquals.test(candidate.element, target)) {
+                return candidate.box + "/" + candidate.group + "@" + candidate.index;
             }
         }
 
         // 4) If none matched metadata exactly, return the first candidate that is not the same instance
         // (we already checked identity earlier, but keep defensive check)
-        for (FoundCandidate fc : candidates) {
-            if (fc.element != target) {
-                return fc.box + "/" + fc.group + "@" + fc.index;
+        for (FoundCandidate candidate : candidates) {
+            if (candidate.element != target) {
+                return candidate.box + "/" + candidate.group + "@" + candidate.index;
             }
         }
 
         // 5) As a last resort, return the first candidate's location
-        FoundCandidate fc = candidates.get(0);
-        return fc.box + "/" + fc.group + "@" + fc.index;
+        FoundCandidate candidate = candidates.get(0);
+        return candidate.box + "/" + candidate.group + "@" + candidate.index;
     }
 
     // Placeholder handlers: only log for now. Implement move/swap logic later.
