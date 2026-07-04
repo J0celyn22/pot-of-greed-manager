@@ -846,7 +846,7 @@ class CardGridCell extends GridCell<CardElement> {
                     try {
                         boolean genuinelyNeeded = false;
                         try {
-                            genuinelyNeeded = Controller.CardQualityService
+                            genuinelyNeeded = Controller.CardSortingRules
                                     .computeCardNeedsSorting(card, elementNameFromUserData);
                         } catch (Throwable ignored) {
                         }
@@ -854,7 +854,7 @@ class CardGridCell extends GridCell<CardElement> {
                         boolean upgradeNeeded = false;
                         if (!genuinelyNeeded) {
                             try {
-                                upgradeNeeded = Controller.CardQualityService
+                                upgradeNeeded = Controller.CardSortingRules
                                         .computeCardNeedsSortingWithUpgrade(
                                                 cardElement, elementNameFromUserData);
                             } catch (Throwable ignored) {

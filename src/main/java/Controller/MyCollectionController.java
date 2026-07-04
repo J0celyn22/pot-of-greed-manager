@@ -933,11 +933,11 @@ public class MyCollectionController {
                 continue;
             }
             try {
-                if (CardQualityService.computeCardNeedsSorting(
+                if (CardSortingRules.computeCardNeedsSorting(
                         cardElement.getCard(), groupDisplayName)) {
                     return true;
                 }
-                if (CardQualityService.computeCardNeedsSortingWithUpgrade(
+                if (CardSortingRules.computeCardNeedsSortingWithUpgrade(
                         cardElement, groupDisplayName)) {
                     return true;
                 }
@@ -1198,7 +1198,7 @@ public class MyCollectionController {
             return false;
         }
         if (container == null || index < 0) {
-            return CardQualityService.computeCardNeedsSorting(card, elementName);
+            return CardSortingRules.computeCardNeedsSorting(card, elementName);
         }
 
         List<Boolean> cacheList = positionSortCache.computeIfAbsent(container,
@@ -1214,7 +1214,7 @@ public class MyCollectionController {
             }
         }
 
-        boolean result = CardQualityService.computeCardNeedsSorting(card, elementName);
+        boolean result = CardSortingRules.computeCardNeedsSorting(card, elementName);
 
         synchronized (cacheList) {
             cacheList.set(index, result);

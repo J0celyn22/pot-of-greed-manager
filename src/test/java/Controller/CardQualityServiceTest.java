@@ -463,8 +463,8 @@ public class CardQualityServiceTest {
 
     @Test
     void computeCardNeedsSorting_nullCardOrElementName_returnsFalse() {
-        assertFalse(CardQualityService.computeCardNeedsSorting(null, "Anything"));
-        assertFalse(CardQualityService.computeCardNeedsSorting(card("K1", "P1"), null));
+        assertFalse(CardSortingRules.computeCardNeedsSorting(null, "Anything"));
+        assertFalse(CardSortingRules.computeCardNeedsSorting(card("K1", "P1"), null));
     }
 
     @Test
@@ -479,7 +479,7 @@ public class CardQualityServiceTest {
         decksList.setCollections(List.of(collection));
         UserInterfaceFunctions.setDecksList(decksList);
 
-        assertFalse(CardQualityService.computeCardNeedsSorting(card, "Fusion Monsters"));
+        assertFalse(CardSortingRules.computeCardNeedsSorting(card, "Fusion Monsters"));
     }
 
     @Test
@@ -494,7 +494,7 @@ public class CardQualityServiceTest {
         decksList.setCollections(List.of(collection));
         UserInterfaceFunctions.setDecksList(decksList);
 
-        assertFalse(CardQualityService.computeCardNeedsSorting(card, "Fusion Monsters"));
+        assertFalse(CardSortingRules.computeCardNeedsSorting(card, "Fusion Monsters"));
     }
 
     @Test
@@ -509,7 +509,7 @@ public class CardQualityServiceTest {
         decksList.setDecks(List.of(deck));
         UserInterfaceFunctions.setDecksList(decksList);
 
-        assertFalse(CardQualityService.computeCardNeedsSorting(card, "Test Deck"));
+        assertFalse(CardSortingRules.computeCardNeedsSorting(card, "Test Deck"));
     }
 
     @Test
@@ -524,7 +524,7 @@ public class CardQualityServiceTest {
         decksList.setDecks(List.of(deck));
         UserInterfaceFunctions.setDecksList(decksList);
 
-        assertTrue(CardQualityService.computeCardNeedsSorting(card, "Test Deck"));
+        assertTrue(CardSortingRules.computeCardNeedsSorting(card, "Test Deck"));
     }
 
     @Test
@@ -535,7 +535,7 @@ public class CardQualityServiceTest {
         UserInterfaceFunctions.setDecksList(new DecksAndCollectionsList());
 
         // "Dragon" is a known monster-subtype category; a Spell card never matches it.
-        assertTrue(CardQualityService.computeCardNeedsSorting(spellCard, "Dragon"));
+        assertTrue(CardSortingRules.computeCardNeedsSorting(spellCard, "Dragon"));
     }
 
     @Test
@@ -543,15 +543,15 @@ public class CardQualityServiceTest {
         Card card = card("K1", "P1");
         UserInterfaceFunctions.setDecksList(new DecksAndCollectionsList());
 
-        assertFalse(CardQualityService.computeCardNeedsSorting(card, "Some Random Group Name"));
+        assertFalse(CardSortingRules.computeCardNeedsSorting(card, "Some Random Group Name"));
     }
 
     // ── computeCardNeedsSortingWithUpgrade ───────────────────────────────────
 
     @Test
     void computeCardNeedsSortingWithUpgrade_nullOwnedElementOrCard_returnsFalse() {
-        assertFalse(CardQualityService.computeCardNeedsSortingWithUpgrade(null, "Anything"));
-        assertFalse(CardQualityService.computeCardNeedsSortingWithUpgrade(
+        assertFalse(CardSortingRules.computeCardNeedsSortingWithUpgrade(null, "Anything"));
+        assertFalse(CardSortingRules.computeCardNeedsSortingWithUpgrade(
                 new CardElement((Card) null), "Anything"));
     }
 
@@ -567,7 +567,7 @@ public class CardQualityServiceTest {
         decksList.setDecks(List.of(deck));
         UserInterfaceFunctions.setDecksList(decksList);
 
-        assertTrue(CardQualityService.computeCardNeedsSortingWithUpgrade(new CardElement(card), "Test Deck"));
+        assertTrue(CardSortingRules.computeCardNeedsSortingWithUpgrade(new CardElement(card), "Test Deck"));
     }
 
     @Test
@@ -582,7 +582,7 @@ public class CardQualityServiceTest {
 
         // The owned element sits inside the "Fusion Monsters" category itself, which is
         // a recognised D&C name -> reason-4 territory, not reason-3, so this is false.
-        assertFalse(CardQualityService.computeCardNeedsSortingWithUpgrade(
+        assertFalse(CardSortingRules.computeCardNeedsSortingWithUpgrade(
                 new CardElement(card), "Fusion Monsters"));
     }
 

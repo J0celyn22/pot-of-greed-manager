@@ -1262,12 +1262,12 @@ public class CardTreeCell extends TreeCell<String> {
 
                 if (elementName != null && !elementName.trim().isEmpty() && isMyCollectionTabSelected()) {
                     try {
-                        boolean genuinelyNeeded = Controller.CardQualityService
+                        boolean genuinelyNeeded = Controller.CardSortingRules
                                 .computeCardNeedsSorting(cardElement.getCard(), elementName);
                         if (genuinelyNeeded) {
                             needsSorting = true;
                         } else {
-                            needsSorting = Controller.CardQualityService
+                            needsSorting = Controller.CardSortingRules
                                     .computeCardNeedsSortingWithUpgrade(cardElement, elementName);
                         }
                     } catch (Throwable t) {
