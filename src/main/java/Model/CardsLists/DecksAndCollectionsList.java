@@ -234,6 +234,80 @@ public class DecksAndCollectionsList {
         return result;
     }
 
+    private static Deck findDeckByNameInCollection(ThemeCollection collection, String deckName) {
+        if (collection == null || collection.getLinkedDecks() == null) {
+            return null;
+        }
+        for (List<Deck> deckGroup : collection.getLinkedDecks()) {
+            if (deckGroup == null) {
+                continue;
+            }
+            for (Deck deck : deckGroup) {
+                if (deck != null && deckName.equals(deck.getName())) {
+                    return deck;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Finds a {@link Deck} by name within this list.
+     * <p>
+     * If {@code collectionName} is non-{@code null}, only that collection's linked decks
+     * are searched. Otherwise, standalone decks are searched first, then every collection's
+     * linked decks.
+     * </p>
+     *
+     * @return the matching deck, or {@code null} if none is found
+     */
+    public Deck findDeckByName(String deckName, String collectionName) {
+        if (deckName == null) {
+            return null;
+        }
+
+        if (collectionName != null) {
+            ThemeCollection collection = findCollectionByName(collectionName);
+            return collection == null ? null : findDeckByNameInCollection(collection, deckName);
+        }
+
+        if (this.decks != null) {
+            for (Deck deck : this.decks) {
+                if (deck != null && deckName.equals(deck.getName())) {
+                    return deck;
+                }
+            }
+        }
+
+        if (this.collections != null) {
+            for (ThemeCollection collection : this.collections) {
+                Deck found = findDeckByNameInCollection(collection, deckName);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Finds a {@link ThemeCollection} by name within this list.
+     *
+     * @return the matching collection, or {@code null} if none is found
+     */
+    public ThemeCollection findCollectionByName(String collectionName) {
+        if (collectionName == null || this.collections == null) {
+            return null;
+        }
+        for (ThemeCollection collection : this.collections) {
+            if (collection != null && collectionName.equals(collection.getName())) {
+                return collection;
+            }
+        }
+        return null;
+    }
+
     /**
      * Adds a standalone deck to this list.
      */

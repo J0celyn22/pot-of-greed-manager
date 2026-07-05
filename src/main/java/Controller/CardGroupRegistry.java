@@ -910,11 +910,20 @@ public final class CardGroupRegistry {
      * group belongs to My Collection or cannot be found.
      */
     public static Object findOwnerForGroup(CardsGroup group) {
-        if (group == null) {
-            return null;
-        }
-        DecksAndCollectionsList dacList = UserInterfaceFunctions.getDecksList();
-        if (dacList == null) {
+        return findOwnerForGroup(group, UserInterfaceFunctions.getDecksList());
+    }
+
+    /**
+     * Same as {@link #findOwnerForGroup(CardsGroup)}, but searches a caller-supplied
+     * {@link DecksAndCollectionsList} instead of always using the live Decks &amp; Collections
+     * model. Used to resolve ownership within the OuicheList tab's own detailed (ephemeral)
+     * copy of the deck/collection structure — see {@link #resolveRealGroupForOuicheListGroup}.
+     *
+     * @param group   the group whose owner to find
+     * @param dacList the deck/collection list to search
+     */
+    public static Object findOwnerForGroup(CardsGroup group, DecksAndCollectionsList dacList) {
+        if (group == null || dacList == null) {
             return null;
         }
 
@@ -1007,6 +1016,119 @@ public final class CardGroupRegistry {
         }
 
         return null;
+    }
+
+    /**
+     * Resolves the corresponding <b>real</b> Decks &amp; Collections {@link CardsGroup} for a
+     * {@link CardsGroup} that belongs to the OuicheList tab's ephemeral detailed-list copy
+     * ({@link OuicheList#getDetailedOuicheList()}).
+     *
+     * <p>The OuicheList tab renders its own deep-copied {@link Deck}/{@link ThemeCollection}
+     * structure so that per-slot ownership status can be annotated without touching the real
+     * model. Drag-and-drop performed on that tab must instead mutate the real Decks &amp;
+     * Collections model; this resolves the ephemeral group to its real, by-name counterpart so
+     * the existing drop/notify pipeline can operate on it unchanged, which in turn re-syncs the
+     * OuicheList's own display automatically.</p>
+     *
+     * @param group a {@link CardsGroup} as encountered anywhere in the UI
+     * @return the matching real {@link CardsGroup}, or {@code null} if {@code group} is not
+     * part of the OuicheList's ephemeral copy, or no real Deck/ThemeCollection with a matching
+     * name can be found
+     */
+    public static CardsGroup resolveRealGroupForOuicheListGroup(CardsGroup group) {
+        if (group == null) {
+            return null;
+        }
+        DecksAndCollectionsList ephemeralList = OuicheList.getDetailedOuicheList();
+        if (ephemeralList == null) {
+            return null;
+        }
+        Object ephemeralOwner = findOwnerForGroup(group, ephemeralList);
+        if (ephemeralOwner == null) {
+            return null;
+        }
+        DecksAndCollectionsList realList = UserInterfaceFunctions.getDecksList();
+        if (realList == null) {
+            return null;
+        }
+
+        if (ephemeralOwner instanceof Deck ephemeralDeck) {
+            String sectionKey = deckSectionKeyForBackingList(ephemeralDeck, group.getCardList());
+            if (sectionKey == null) {
+                return null;
+            }
+            String collectionName = findCollectionNameOwningDeck(ephemeralDeck);
+            Deck realDeck = realList.findDeckByName(ephemeralDeck.getName(), collectionName);
+            if (realDeck == null) {
+                return null;
+            }
+            List<CardElement> realSectionList;
+            String sectionLabel;
+            if ("main".equals(sectionKey)) {
+                realSectionList = realDeck.getMainDeck();
+                sectionLabel = "Main Deck";
+            } else if ("extra".equals(sectionKey)) {
+                realSectionList = realDeck.getExtraDeck();
+                sectionLabel = "Extra Deck";
+            } else {
+                realSectionList = realDeck.getSideDeck();
+                sectionLabel = "Side Deck";
+            }
+            if (realSectionList == null) {
+                return null;
+            }
+            return getOrCreateDeckSectionGroup(realDeck, sectionKey, sectionLabel, realSectionList);
+        }
+
+        if (ephemeralOwner instanceof ThemeCollection ephemeralCollection
+                && group.getCardList() == ephemeralCollection.getCardsList()) {
+            ThemeCollection realCollection = realList.findCollectionByName(ephemeralCollection.getName());
+            if (realCollection == null) {
+                return null;
+            }
+            return getOrCreateCollectionCardsGroup(realCollection, realCollection.getCardsList());
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolves the real {@link CardElement} that corresponds to {@code ephemeralElement}, an
+     * element belonging to the OuicheList tab's ephemeral detailed-list copy.
+     *
+     * <p>The OuicheList's per-section card lists are index-parallel to the real Decks &amp;
+     * Collections lists: {@code OuicheListComputer} only annotates ownership status in place
+     * and never removes or reorders elements when computing the detailed list, and every
+     * subsequent incremental update keeps both sides' ordering in sync. The element at the
+     * same index in the resolved real group's backing list is therefore the real
+     * counterpart.</p>
+     *
+     * @param ephemeralElement an element as dragged from the OuicheList tab
+     * @return the real {@link CardElement}, or {@code null} if {@code ephemeralElement} is not
+     * part of the OuicheList's ephemeral copy, or no matching real group/index can be found
+     */
+    public static CardElement resolveRealElementForOuicheListElement(CardElement ephemeralElement) {
+        if (ephemeralElement == null) {
+            return null;
+        }
+        CardsGroup ephemeralGroup = findGroupForCardElement(ephemeralElement);
+        if (ephemeralGroup == null) {
+            return null;
+        }
+        CardsGroup realGroup = resolveRealGroupForOuicheListGroup(ephemeralGroup);
+        if (realGroup == null) {
+            return null;
+        }
+        List<CardElement> ephemeralBackingList = ephemeralGroup.getCardList();
+        List<CardElement> realBackingList = realGroup.getCardList();
+        if (ephemeralBackingList == null || realBackingList == null) {
+            return null;
+        }
+        int index = ephemeralBackingList.indexOf(ephemeralElement);
+        if (index < 0 || index >= realBackingList.size()) {
+            return null;
+        }
+        return realBackingList.get(index);
     }
 
     /**

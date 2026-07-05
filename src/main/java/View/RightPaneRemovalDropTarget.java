@@ -1,5 +1,6 @@
 package View;
 
+import Controller.CardGroupRegistry;
 import Controller.DragDropManager;
 import Controller.MenuActionHandler;
 import Model.CardsLists.CardElement;
@@ -44,8 +45,29 @@ public final class RightPaneRemovalDropTarget {
             List<CardElement> draggedElements =
                     new ArrayList<>(DragDropManager.getDraggedElements());
             if (!draggedElements.isEmpty()) {
-                MenuActionHandler.handleBulkRemoveElementsFromDecksAndCollections(draggedElements);
-                MenuActionHandler.handleBulkRemoveFromOwnedCollection(draggedElements);
+                // OuicheList tab elements are an ephemeral copy of the real Decks &
+                // Collections model (see CardGroupRegistry.resolveRealGroupForOuicheListGroup).
+                // Translate each to its real counterpart before removing, and route those
+                // exclusively to the Decks & Collections removal — the OuicheList mirrors
+                // Decks & Collections only, so it must never affect the Owned Cards
+                // Collection. Elements that aren't OuicheList copies (a normal drag from the
+                // My Collection or Decks & Collections tabs) keep their original behavior of
+                // being tried against both removal paths.
+                List<CardElement> decksAndCollectionsElements = new ArrayList<>();
+                List<CardElement> ownedCollectionElements = new ArrayList<>();
+                for (CardElement element : draggedElements) {
+                    CardElement realElement = CardGroupRegistry.resolveRealElementForOuicheListElement(element);
+                    if (realElement != null) {
+                        decksAndCollectionsElements.add(realElement);
+                    } else {
+                        decksAndCollectionsElements.add(element);
+                        ownedCollectionElements.add(element);
+                    }
+                }
+                MenuActionHandler.handleBulkRemoveElementsFromDecksAndCollections(decksAndCollectionsElements);
+                if (!ownedCollectionElements.isEmpty()) {
+                    MenuActionHandler.handleBulkRemoveFromOwnedCollection(ownedCollectionElements);
+                }
             }
             event.setDropCompleted(true);
             event.consume();

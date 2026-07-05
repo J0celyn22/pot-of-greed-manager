@@ -1753,6 +1753,14 @@ public class CardTreeCell extends TreeCell<String> {
 
             boolean isMiddle = "MIDDLE".equals(srcPane);
 
+            // OuicheList tab groups are an ephemeral, deep-copied mirror of the real Decks &
+            // Collections model (see CardGroupRegistry.resolveRealGroupForOuicheListGroup).
+            // Redirect the drop to the real counterpart group so the mutation lands on the
+            // real model; the existing notify pipeline below then re-syncs the OuicheList's
+            // own display automatically.
+            CardsGroup realGroup = CardGroupRegistry.resolveRealGroupForOuicheListGroup(group);
+            CardsGroup effectiveGroup = realGroup != null ? realGroup : group;
+
             // Capture move context so OuicheList notifications can be fired after
             // D&C rebuilds are queued (ensuring correct runLater ordering), mirroring
             // CardGridCell's wrapper.setOnDragDropped handling of the same gesture.
@@ -1762,8 +1770,24 @@ public class CardTreeCell extends TreeCell<String> {
             if (isMiddle) {
                 java.util.List<CardElement> srcElements =
                         new java.util.ArrayList<>(Controller.DragDropManager.getDraggedElements());
+                if (realGroup != null) {
+                    java.util.List<CardElement> realSrcElements = new java.util.ArrayList<>();
+                    for (CardElement ephemeralElement : srcElements) {
+                        CardElement realElement =
+                                CardGroupRegistry.resolveRealElementForOuicheListElement(ephemeralElement);
+                        if (realElement != null) {
+                            realSrcElements.add(realElement);
+                        }
+                    }
+                    if (realSrcElements.isEmpty()) {
+                        event.setDropCompleted(false);
+                        event.consume();
+                        return;
+                    }
+                    srcElements = realSrcElements;
+                }
                 java.util.Set<CardsGroup> srcGroups =
-                        CardGroupRegistry.dropInsertIntoGroup(group, insertionIndex, srcElements, null);
+                        CardGroupRegistry.dropInsertIntoGroup(effectiveGroup, insertionIndex, srcElements, null);
                 moveSourceGroups = srcGroups;
                 movedElements = srcElements;
                 for (CardsGroup sourceGroup : srcGroups) {
@@ -1774,13 +1798,13 @@ public class CardTreeCell extends TreeCell<String> {
                         new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
                 java.util.List<CardElement> newlyAddedElements = new java.util.ArrayList<>();
                 CardGroupRegistry.dropInsertIntoGroup(
-                        group, insertionIndex, null, srcCards, newlyAddedElements);
+                        effectiveGroup, insertionIndex, null, srcCards, newlyAddedElements);
                 // My Collection only: open edit popup for cards dropped without a printCode.
                 if (isMyCollectionTabSelected()) {
                     openEditPopupsForNoPrintCode(newlyAddedElements, this);
                 }
             }
-            CardGroupRegistry.markDirtyAndRefreshForGroup(group);
+            CardGroupRegistry.markDirtyAndRefreshForGroup(effectiveGroup);
 
             // OuicheList MOVE notifications: fired AFTER markDirtyAndRefreshForGroup so
             // the D&C rebuild is already queued before the OuicheList rebuild is queued.
@@ -1789,16 +1813,18 @@ public class CardTreeCell extends TreeCell<String> {
             // target group) repositions the matching slot instead.
             if (moveSourceGroups != null && movedElements != null) {
                 final java.util.List<CardElement> capturedMoved = movedElements;
-                boolean anyCrossGroup = moveSourceGroups.stream().anyMatch(sourceGroup -> sourceGroup != group);
+                final CardsGroup capturedEffectiveGroup = effectiveGroup;
+                boolean anyCrossGroup = moveSourceGroups.stream()
+                        .anyMatch(sourceGroup -> sourceGroup != capturedEffectiveGroup);
                 if (anyCrossGroup) {
                     for (CardsGroup sourceGroup : moveSourceGroups) {
-                        if (sourceGroup != group) {
+                        if (sourceGroup != capturedEffectiveGroup) {
                             CardGroupRegistry.notifyOuicheListOfGroupRemovals(sourceGroup, capturedMoved);
                         }
                     }
-                    CardGroupRegistry.notifyOuicheListOfGroupAdditions(group, capturedMoved);
-                } else if (moveSourceGroups.size() == 1 && moveSourceGroups.contains(group)) {
-                    CardGroupRegistry.notifyOuicheListOfGroupReorder(group, capturedMoved);
+                    CardGroupRegistry.notifyOuicheListOfGroupAdditions(capturedEffectiveGroup, capturedMoved);
+                } else if (moveSourceGroups.size() == 1 && moveSourceGroups.contains(capturedEffectiveGroup)) {
+                    CardGroupRegistry.notifyOuicheListOfGroupReorder(capturedEffectiveGroup, capturedMoved);
                 }
             }
             event.setDropCompleted(true);
