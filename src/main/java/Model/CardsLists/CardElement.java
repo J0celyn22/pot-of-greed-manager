@@ -62,7 +62,43 @@ public class CardElement {
     }
 
     public CardElement(Card card) {
-        this(card, false, false, false, false);
+        this(card, hasNonDefaultArtwork(card), false, false, false);
+        if (Boolean.TRUE.equals(this.specificArtwork)) {
+            this.artwork = parseArtNumber(card);
+        }
+    }
+
+    /**
+     * Returns {@code true} when {@code card} carries an artwork number other than the
+     * default/primary artwork ({@code "1"}), so a plain {@link #CardElement(Card)} built
+     * directly from it correctly requests that specific artwork rather than "any artwork
+     * of this KonamiId".
+     *
+     * <p>Without this, a card picked from an alternate-artwork listing and dropped/added
+     * as a new wanted slot would silently accept an owned copy of a <em>different</em>
+     * artwork as satisfying it — the artwork-matching logic elsewhere (e.g.
+     * {@code toString()}'s {@code "*"} marker, consumed by
+     * {@code OuicheListUpdater#findUnusedMatch}) only enforces artwork exactness when
+     * {@link #specificArtwork} is already {@code true}.
+     */
+    private static boolean hasNonDefaultArtwork(Card card) {
+        return parseArtNumber(card) > 1;
+    }
+
+    /**
+     * Parses {@link Card#getArtNumber()} to an {@code int}, returning {@code 0} (the
+     * "unset/unknown" convention used throughout this class) if {@code card} is
+     * {@code null}, its artNumber is {@code null}, or it isn't a plain integer.
+     */
+    private static int parseArtNumber(Card card) {
+        if (card == null || card.getArtNumber() == null) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(card.getArtNumber().trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     public CardElement(Card card, String string) {

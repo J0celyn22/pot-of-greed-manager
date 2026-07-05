@@ -731,6 +731,11 @@ final class OuicheListUpdater {
                     return candidate;
                 }
             }
+            // Specific-artwork slot: no owned copy carries that artwork (or the slot's own
+            // artwork is unexpectedly unset). Never fall back to a KonamiId-only match — a
+            // different-artwork copy must not satisfy this slot, mirroring the artwork
+            // exactness rule already enforced by #sameCard.
+            return null;
         }
 
         String wantedKonamiId = wantedSlot.getCard().getKonamiId();
