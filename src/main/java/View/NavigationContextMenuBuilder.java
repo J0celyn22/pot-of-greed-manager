@@ -270,6 +270,15 @@ public final class NavigationContextMenuBuilder {
                 "Do you really want to remove this " + elementType + "?");
     }
 
+    /**
+     * Confirmation prompt for a "Clear" action, worded for emptying a list/deck
+     * in place rather than removing the element itself.
+     */
+    static boolean confirmClear(String elementType) {
+        return confirmWithCustomMessage(
+                "Do you really want to clear all cards from this " + elementType + "?");
+    }
+
     private static void stylePopupButtons(
             javafx.scene.control.DialogPane dialogPane,
             ButtonType yes,

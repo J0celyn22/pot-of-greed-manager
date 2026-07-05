@@ -259,6 +259,27 @@ public class CardTreeCell extends TreeCell<String> {
     }
 
     /**
+     * Same shape as {@link #makeInlineActionButton}, styled red for destructive
+     * actions (e.g. "Clear") — matches the red trash-can styling used by
+     * {@link NavigationContextMenuBuilder#makeRemoveItem()} in contextual menus.
+     */
+    private static Button makeInlineDestructiveActionButton(String text) {
+        Button btn = new Button(text);
+        btn.setStyle(
+                "-fx-background-color: transparent;" +
+                        "-fx-text-fill: #ff4d4d;" +
+                        "-fx-border-color: #ff4d4d;" +
+                        "-fx-border-width: 1;" +
+                        "-fx-border-radius: 4;" +
+                        "-fx-background-radius: 4;" +
+                        "-fx-font-size: 11px;" +
+                        "-fx-padding: 2 6 2 6;" +
+                        "-fx-cursor: hand;"
+        );
+        return btn;
+    }
+
+    /**
      * Helper: determine whether the currently selected Tab is the first tab in the TabPane ancestor.
      * Uses the TreeView ancestor to find a TabPane and checks the selected index.
      * Returns true only when the selected tab index is 0.
@@ -969,7 +990,8 @@ public class CardTreeCell extends TreeCell<String> {
             Button sortBtn = makeInlineActionButton("⇅ Sort");
             Button renameBtn = makeInlineActionButton("✎ Rename");
             Button saveBtn = makeInlineActionButton("💾 Save");
-            titleRow.getChildren().addAll(spring, sortBtn, renameBtn, saveBtn);
+            Button clearBtn = makeInlineDestructiveActionButton("\uD83D\uDDD1 Clear");
+            titleRow.getChildren().addAll(spring, sortBtn, renameBtn, saveBtn, clearBtn);
 
             // Sort: sorts Main Deck, Extra Deck and Side Deck using the
             // standard middle-pane ordering (CardElementSorter).
@@ -1008,6 +1030,37 @@ public class CardTreeCell extends TreeCell<String> {
                     UserInterfaceFunctions.saveSingleDeckOrCollection(deck);
                 } catch (Exception ex) {
                     logger.error("Failed to save deck '{}'", deck.getName(), ex);
+                }
+            });
+
+            // Clear: empties Main Deck, Extra Deck and Side Deck (the same three
+            // sections the Sort button above operates on), after confirmation
+            // when the deck isn't already empty.
+            clearBtn.setOnAction(e -> {
+                if (!NavigationContextMenuBuilder.isDeckEmpty(deck)
+                        && !NavigationContextMenuBuilder.confirmClear("deck")) {
+                    return;
+                }
+                boolean changed = false;
+                for (String section : new String[]{"main", "extra", "side"}) {
+                    CardsGroup sectionGroup = CardGroupRegistry.getDeckSectionGroup(deck, section);
+                    if (sectionGroup == null) {
+                        continue;
+                    }
+                    javafx.collections.ObservableList<CardElement> obs =
+                            CardGroupRegistry.observableListFor(sectionGroup);
+                    if (obs.isEmpty()) {
+                        continue;
+                    }
+                    java.util.List<CardElement> removedElements = new java.util.ArrayList<>(obs);
+                    obs.clear();
+                    CardGroupRegistry.notifyOuicheListOfGroupRemovals(sectionGroup, removedElements);
+                    changed = true;
+                }
+                if (changed) {
+                    UserInterfaceFunctions.markDirty(deck);
+                    UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                    UserInterfaceFunctions.refreshDecksAndCollectionsView();
                 }
             });
             setGraphic(titleRow);
@@ -1466,6 +1519,7 @@ public class CardTreeCell extends TreeCell<String> {
             HBox sortSpring = new HBox();
             HBox.setHgrow(sortSpring, Priority.ALWAYS);
             Button sortBtn = makeInlineActionButton("⇅ Sort");
+            Button clearBtn = makeInlineDestructiveActionButton("\uD83D\uDDD1 Clear");
             final CardsGroup capturedGroup = group;
             sortBtn.setOnAction(e -> {
                 javafx.collections.ObservableList<CardElement> obs =
@@ -1476,7 +1530,26 @@ public class CardTreeCell extends TreeCell<String> {
                 obs.setAll(sorted);
                 CardGroupRegistry.markDirtyAndRefreshForGroup(capturedGroup);
             });
-            hbox.getChildren().addAll(sortSpring, sortBtn);
+
+            // Clear: empties this group's card list (Cards / Cards not to add),
+            // after confirmation when it isn't already empty.
+            clearBtn.setOnAction(e -> {
+                if (!NavigationContextMenuBuilder.isCategoryEmpty(capturedGroup)
+                        && !NavigationContextMenuBuilder.confirmClear("list")) {
+                    return;
+                }
+                javafx.collections.ObservableList<CardElement> obs =
+                        CardGroupRegistry.observableListFor(capturedGroup);
+                if (obs.isEmpty()) {
+                    return;
+                }
+                java.util.List<CardElement> removedElements = new java.util.ArrayList<>(obs);
+                obs.clear();
+                CardGroupRegistry.notifyOuicheListOfGroupRemovals(capturedGroup, removedElements);
+                CardGroupRegistry.markDirtyAndRefreshForGroup(capturedGroup);
+            });
+
+            hbox.getChildren().addAll(sortSpring, sortBtn, clearBtn);
         }
 
         return hbox;
