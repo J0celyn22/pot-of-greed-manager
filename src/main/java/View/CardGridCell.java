@@ -829,7 +829,8 @@ class CardGridCell extends GridCell<CardElement> {
                 }
 
                 // 1b — missing artwork set (check both konamiId and passCode)
-                if (missingArtworkSet != null && !missingArtworkSet.isEmpty()) {
+                // Only apply on Decks and Collections tab, not OuicheList
+                if (!ouicheTab && missingArtworkSet != null && !missingArtworkSet.isEmpty()) {
                     boolean artMissing = (konamiId != null && missingArtworkSet.contains(konamiId))
                             || (passCode != null && missingArtworkSet.contains(passCode));
                     if (artMissing) {
