@@ -266,11 +266,12 @@ public final class CardGridCellDropHandler {
         } else {
             // RIGHT-pane drag: ADD semantics.
             List<Card> sourceCards = new ArrayList<>(DragDropManager.getDraggedCards());
+            List<CardElement> newlyAddedElements = new ArrayList<>();
             CardGroupRegistry.dropInsertIntoGroup(
-                    targetGroup, insertionIndex, null, sourceCards);
+                    targetGroup, insertionIndex, null, sourceCards, newlyAddedElements);
             // My Collection only: open edit popup for cards dropped without a printCode.
             if (cell.outer.isMyCollectionTabSelected()) {
-                cell.outer.openEditPopupsForNoPrintCode(sourceCards, targetGroup, cell);
+                cell.outer.openEditPopupsForNoPrintCode(newlyAddedElements, cell);
             }
         }
 

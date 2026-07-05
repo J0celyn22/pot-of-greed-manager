@@ -203,6 +203,7 @@ public class CardEditPopup extends Stage {
         setX(overlayX);
         setY(overlayY);
         show();
+        toFront();
         Platform.runLater(this::applyArrowStyles);
     }
 
@@ -266,6 +267,7 @@ public class CardEditPopup extends Stage {
         setX(overlayX);
         setY(overlayY);
         show();
+        toFront();
         Platform.runLater(this::applyArrowStyles);
     }
 

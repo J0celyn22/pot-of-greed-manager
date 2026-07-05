@@ -681,6 +681,48 @@ public final class MenuActionHandler {
      *                may be {@code null} (popup will centre on screen)
      */
     public static void handleEditCard(CardElement element, javafx.scene.Node anchor) {
+        showEditCardPopup(element, popup -> popup.showCenteredOn(anchor));
+    }
+
+    /**
+     * Opens the {@link View.CardEditPopup} for {@code element} owned by
+     * {@code ownerWindow}, then refreshes all relevant views after the user
+     * confirms with OK.
+     * <p>
+     * Prefer this over {@link #handleEditCard(CardElement, javafx.scene.Node)}
+     * whenever the resolved owner window is known but the originating anchor
+     * node may not survive until the popup is shown (e.g. a grid cell that is
+     * about to be recycled by a refresh triggered by the same action). Setting
+     * the owner window is what keeps the popup stacked above the main window;
+     * without it, the popup is an ownerless top-level window with no
+     * guaranteed z-order relative to the main stage.
+     * </p>
+     * <p>
+     * Safe to call from any thread; the popup is always shown on the JavaFX
+     * Application Thread.
+     * </p>
+     *
+     * @param element     the {@link CardElement} to edit (must not be {@code null})
+     * @param ownerWindow the window to own and centre the popup on; may be
+     *                    {@code null} (popup will centre on screen)
+     */
+    public static void handleEditCardOwnedBy(CardElement element, javafx.stage.Window ownerWindow) {
+        showEditCardPopup(element, popup -> popup.showCenteredOn(ownerWindow));
+    }
+
+    /**
+     * Shared construction/wiring for {@code handleEditCard} and
+     * {@code handleEditCardOwnedBy}: builds a {@link View.CardEditPopup} for
+     * {@code element}, wires the post-OK view refreshes, then hands the popup
+     * to {@code shower} to actually display it. Runs on the JavaFX Application
+     * Thread regardless of the calling thread.
+     *
+     * @param element the {@link CardElement} to edit; if {@code null}, no popup is shown
+     * @param shower  callback that displays the constructed popup (e.g. via one
+     *                of {@code CardEditPopup.showCenteredOn}'s overloads)
+     */
+    private static void showEditCardPopup(CardElement element,
+                                          java.util.function.Consumer<View.CardEditPopup> shower) {
         if (element == null) {
             return;
         }
@@ -697,7 +739,7 @@ public final class MenuActionHandler {
                     } catch (Throwable ignored) {
                     }
                 });
-                popup.showCenteredOn(anchor);
+                shower.accept(popup);
             } catch (Throwable throwable) {
                 logger.error("handleEditCard failed", throwable);
             }

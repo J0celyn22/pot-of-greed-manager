@@ -377,10 +377,12 @@ class CardGridCell extends GridCell<CardElement> {
             } else {
                 java.util.List<Model.CardsLists.Card> srcCards =
                         new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
-                CardGroupRegistry.dropInsertIntoGroup(group, insertionIndex, null, srcCards);
+                java.util.List<CardElement> newlyAddedElements = new java.util.ArrayList<>();
+                CardGroupRegistry.dropInsertIntoGroup(
+                        group, insertionIndex, null, srcCards, newlyAddedElements);
                 // My Collection only: open edit popup for cards dropped without a printCode.
                 if (outer.isMyCollectionTabSelected()) {
-                    outer.openEditPopupsForNoPrintCode(srcCards, group, this);
+                    outer.openEditPopupsForNoPrintCode(newlyAddedElements, this);
                 }
             }
             CardGroupRegistry.markDirtyAndRefreshForGroup(group);

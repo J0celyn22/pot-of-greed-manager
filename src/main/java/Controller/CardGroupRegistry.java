@@ -501,6 +501,29 @@ public final class CardGroupRegistry {
             int insertionIndex,
             List<CardElement> sourceElements,
             List<Card> sourceCards) {
+        return dropInsertIntoGroup(targetGroup, insertionIndex, sourceElements, sourceCards, null);
+    }
+
+    /**
+     * Same as {@link #dropInsertIntoGroup(CardsGroup, int, List, List)}, but also exposes
+     * the freshly-created {@link CardElement} wrappers from the ADD-semantics branch (in the
+     * same order as {@code sourceCards}, skipping any {@code null} entries) to callers that
+     * need to act on exactly those elements afterward — e.g. opening an edit popup for
+     * whichever of them still lack a printCode. Insertion position within the target list
+     * depends on where the drop landed (a specific card, an empty group, etc.), so the newly
+     * added elements are not reliably at the tail of the list; passing them back directly
+     * avoids callers having to guess.
+     *
+     * @param outNewlyAddedElements if non-{@code null}, the newly-created elements from the
+     *                              ADD branch are appended to this list; unused for MOVE
+     * @return the set of source groups that were modified by a MOVE operation
+     */
+    public static Set<CardsGroup> dropInsertIntoGroup(
+            CardsGroup targetGroup,
+            int insertionIndex,
+            List<CardElement> sourceElements,
+            List<Card> sourceCards,
+            List<CardElement> outNewlyAddedElements) {
 
         Set<CardsGroup> modifiedSourceGroups = new LinkedHashSet<>();
 
@@ -552,6 +575,9 @@ public final class CardGroupRegistry {
                 newlyAddedElements.add(newElement);
             }
             notifyOuicheListOfGroupAdditions(targetGroup, newlyAddedElements);
+            if (outNewlyAddedElements != null) {
+                outNewlyAddedElements.addAll(newlyAddedElements);
+            }
         }
 
         triggerHeightAdjustment(targetGroup);

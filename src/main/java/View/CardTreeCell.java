@@ -1347,21 +1347,23 @@ public class CardTreeCell extends TreeCell<String> {
 
     /**
      * After a RIGHT-pane drag-drop into a My Collection group, opens a
-     * {@link View.CardEditPopup} for every dropped card that has no printCode.
+     * {@link View.CardEditPopup} for every newly-added element that has no printCode.
      *
-     * <p>Popups are opened in reverse card order so the <em>first</em> card's popup
+     * <p>Popups are opened in reverse order so the <em>first</em> element's popup
      * ends up on top (the last {@code show()} call wins z-order).</p>
      *
-     * @param droppedCards the cards just inserted
-     * @param targetGroup  the group they were inserted into (used to find the
-     *                     matching new CardElement at the tail of the list)
-     * @param sceneNode    any node currently in the scene, used to resolve the owner window
+     * @param newlyAddedElements the {@link CardElement}s just inserted, as returned by
+     *                           {@link CardGroupRegistry#dropInsertIntoGroup(CardsGroup, int, java.util.List, java.util.List, java.util.List)}'s
+     *                           output parameter — passed directly rather than re-derived,
+     *                           since the drop's insertion position (a specific card, an
+     *                           empty group, etc.) means the new elements are not reliably
+     *                           at the tail of the group's list
+     * @param sceneNode          any node currently in the scene, used to resolve the owner window
      */
     void openEditPopupsForNoPrintCode(
-            java.util.List<Model.CardsLists.Card> droppedCards,
-            CardsGroup targetGroup,
+            java.util.List<CardElement> newlyAddedElements,
             javafx.scene.Node sceneNode) {
-        if (droppedCards == null || droppedCards.isEmpty() || targetGroup == null) return;
+        if (newlyAddedElements == null || newlyAddedElements.isEmpty()) return;
 
         // Resolve the window before any potential refresh.
         javafx.stage.Window ownerWindow = null;
@@ -1379,38 +1381,22 @@ public class CardTreeCell extends TreeCell<String> {
         }
         final javafx.stage.Window finalOwner = ownerWindow;
 
-        // Collect the cards that need a popup (no printCode).
-        java.util.List<Model.CardsLists.Card> noPrint = new java.util.ArrayList<>();
-        for (Model.CardsLists.Card c : droppedCards) {
+        // Collect the elements that need a popup (no printCode), preserving order.
+        java.util.List<CardElement> noPrintElements = new java.util.ArrayList<>();
+        for (CardElement el : newlyAddedElements) {
+            Model.CardsLists.Card c = (el != null) ? el.getCard() : null;
             if (c != null && (c.getPrintCode() == null || c.getPrintCode().isBlank())) {
-                noPrint.add(c);
+                noPrintElements.add(el);
             }
         }
-        if (noPrint.isEmpty()) return;
+        if (noPrintElements.isEmpty()) return;
 
-        // Find the freshly-inserted CardElements at the tail of the group's list.
-        // dropInsertIntoGroup appended them in order, so the last N elements correspond
-        // to the N dropped cards (where N = noPrint.size() within droppedCards).
-        javafx.collections.ObservableList<CardElement> obsList = CardGroupRegistry.observableListFor(targetGroup);
-        int listSize = obsList.size();
-
-        // Build a map: card → the last CardElement in the group that wraps it.
-        java.util.Map<Model.CardsLists.Card, CardElement> cardToElement = new java.util.LinkedHashMap<>();
-        for (int i = listSize - droppedCards.size(); i < listSize; i++) {
-            if (i < 0) continue;
-            CardElement el = obsList.get(i);
-            if (el != null && el.getCard() != null) {
-                cardToElement.put(el.getCard(), el);
-            }
-        }
-
-        // Open in reverse order so the first card's popup is on top.
-        for (int i = noPrint.size() - 1; i >= 0; i--) {
-            Model.CardsLists.Card c = noPrint.get(i);
-            CardElement el = cardToElement.get(c);
-            if (el != null) {
-                Controller.MenuActionHandler.handleEditCard(el, null);
-            }
+        // Open in reverse order so the first element's popup is on top.
+        for (int i = noPrintElements.size() - 1; i >= 0; i--) {
+            CardElement el = noPrintElements.get(i);
+            // finalOwner (not the recycled sceneNode) anchors the popup so it is
+            // reliably owned by, and stacked above, the main window.
+            Controller.MenuActionHandler.handleEditCardOwnedBy(el, finalOwner);
         }
     }
 
@@ -1786,10 +1772,12 @@ public class CardTreeCell extends TreeCell<String> {
             } else {
                 java.util.List<Model.CardsLists.Card> srcCards =
                         new java.util.ArrayList<>(Controller.DragDropManager.getDraggedCards());
-                CardGroupRegistry.dropInsertIntoGroup(group, insertionIndex, null, srcCards);
+                java.util.List<CardElement> newlyAddedElements = new java.util.ArrayList<>();
+                CardGroupRegistry.dropInsertIntoGroup(
+                        group, insertionIndex, null, srcCards, newlyAddedElements);
                 // My Collection only: open edit popup for cards dropped without a printCode.
                 if (isMyCollectionTabSelected()) {
-                    openEditPopupsForNoPrintCode(srcCards, group, this);
+                    openEditPopupsForNoPrintCode(newlyAddedElements, this);
                 }
             }
             CardGroupRegistry.markDirtyAndRefreshForGroup(group);
