@@ -572,7 +572,10 @@ public final class CardGroupRegistry {
      * <p>Shared by every drop/paste/add path that inserts new {@link CardElement}s into a
      * {@link CardsGroup} via this registry, so the OuicheList always reflects manual
      * additions regardless of which UI gesture (gap-drop, cell-drop, context menu, paste)
-     * performed the insertion.
+     * performed the insertion. Each element's actual index within {@code targetGroup}'s
+     * backing list at call time is used as its insertion position in the detailed
+     * OuicheList's matching section, so ordering mirrors the live Decks and Collections
+     * list rather than always appending.
      *
      * @param targetGroup   the group new elements were added to
      * @param addedElements the newly-created {@link CardElement}s (not pre-existing moves)
@@ -599,8 +602,12 @@ public final class CardGroupRegistry {
                 String collectionName = findCollectionNameOwningDeck(deck);
                 for (CardElement addedElement : addedElements) {
                     try {
+                        int insertionIndex = backingList.indexOf(addedElement);
+                        if (insertionIndex < 0) {
+                            insertionIndex = Integer.MAX_VALUE;
+                        }
                         OuicheList.onDeckCardAdded(
-                                addedElement, deck.getName(), sectionKey, collectionName);
+                                addedElement, deck.getName(), sectionKey, collectionName, insertionIndex);
                     } catch (Throwable throwable) {
                         logger.error("OuicheList update failed after adding to deck '{}' section '{}'",
                                 deck.getName(), sectionKey, throwable);
@@ -613,7 +620,11 @@ public final class CardGroupRegistry {
                 && backingList != null && backingList == collection.getCardsList()) {
             for (CardElement addedElement : addedElements) {
                 try {
-                    OuicheList.onDeckCardAdded(addedElement, null, null, collection.getName());
+                    int insertionIndex = backingList.indexOf(addedElement);
+                    if (insertionIndex < 0) {
+                        insertionIndex = Integer.MAX_VALUE;
+                    }
+                    OuicheList.onDeckCardAdded(addedElement, null, null, collection.getName(), insertionIndex);
                 } catch (Throwable throwable) {
                     logger.error("OuicheList update failed after adding to collection '{}'",
                             collection.getName(), throwable);

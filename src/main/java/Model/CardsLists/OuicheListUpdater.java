@@ -617,9 +617,15 @@ final class OuicheListUpdater {
      * marks it {@link OwnershipStatus#OWNED_SUBSTANDARD}. If neither round finds a
      * match, the slot is left {@link OwnershipStatus#MISSING}. The compact maps are
      * updated accordingly.
+     *
+     * @param insertionIndex the position within the target section to insert
+     *                        {@code addedCard} at, mirroring where it landed in the live
+     *                        Decks and Collections list; values at or beyond the
+     *                        section's current size (including {@link Integer#MAX_VALUE})
+     *                        clamp to an append at the end
      */
     static void onDeckCardAdded(CardElement addedCard, String deckName, String section,
-                                String collectionName) {
+                                String collectionName, int insertionIndex) {
 
         List<CardElement> targetSection = resolveTargetSection(deckName, section, collectionName);
         if (targetSection == null) {
@@ -627,7 +633,8 @@ final class OuicheListUpdater {
         }
 
         if (!targetSection.contains(addedCard)) {
-            targetSection.add(addedCard);
+            int clampedIndex = Math.max(0, Math.min(insertionIndex, targetSection.size()));
+            targetSection.add(clampedIndex, addedCard);
         }
 
         if (addedCard.getCard() == null || addedCard.getCard().getKonamiId() == null) {

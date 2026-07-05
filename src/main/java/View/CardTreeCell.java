@@ -1693,11 +1693,20 @@ public class CardTreeCell extends TreeCell<String> {
             }
 
             boolean isMiddle = "MIDDLE".equals(srcPane);
+
+            // Capture move context so OuicheList notifications can be fired after
+            // D&C rebuilds are queued (ensuring correct runLater ordering), mirroring
+            // CardGridCell's wrapper.setOnDragDropped handling of the same gesture.
+            java.util.Set<CardsGroup> moveSourceGroups = null;
+            java.util.List<CardElement> movedElements = null;
+
             if (isMiddle) {
                 java.util.List<CardElement> srcElements =
                         new java.util.ArrayList<>(Controller.DragDropManager.getDraggedElements());
                 java.util.Set<CardsGroup> srcGroups =
                         CardGroupRegistry.dropInsertIntoGroup(group, insertionIndex, srcElements, null);
+                moveSourceGroups = srcGroups;
+                movedElements = srcElements;
                 for (CardsGroup sourceGroup : srcGroups) {
                     CardGroupRegistry.markDirtyAndRefreshForGroup(sourceGroup);
                 }
@@ -1711,6 +1720,22 @@ public class CardTreeCell extends TreeCell<String> {
                 }
             }
             CardGroupRegistry.markDirtyAndRefreshForGroup(group);
+
+            // OuicheList MOVE notifications: fired AFTER markDirtyAndRefreshForGroup so
+            // the D&C rebuild is already queued before the OuicheList rebuild is queued.
+            // A move across groups = removal from source + addition to target.
+            // Same-group reorders are pure position changes — OuicheList is unaffected.
+            if (moveSourceGroups != null && movedElements != null) {
+                final java.util.List<CardElement> capturedMoved = movedElements;
+                for (CardsGroup sourceGroup : moveSourceGroups) {
+                    if (sourceGroup != group) {
+                        CardGroupRegistry.notifyOuicheListOfGroupRemovals(sourceGroup, capturedMoved);
+                    }
+                }
+                if (moveSourceGroups.stream().anyMatch(sourceGroup -> sourceGroup != group)) {
+                    CardGroupRegistry.notifyOuicheListOfGroupAdditions(group, capturedMoved);
+                }
+            }
             event.setDropCompleted(true);
             event.consume();
         });

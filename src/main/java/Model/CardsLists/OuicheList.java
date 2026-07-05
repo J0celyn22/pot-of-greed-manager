@@ -427,10 +427,38 @@ public class OuicheList {
      */
     public static void onDeckCardAdded(CardElement addedCard, String deckName, String section,
                                        String collectionName) {
+        onDeckCardAdded(addedCard, deckName, section, collectionName, Integer.MAX_VALUE);
+    }
+
+    /**
+     * Call after a card is added to a {@link Deck} or {@link ThemeCollection#getCardsList()}
+     * (Decks and Collections tab) at a specific position.
+     *
+     * <p>Identical to {@link #onDeckCardAdded(CardElement, String, String, String)} except
+     * that the new slot is inserted at {@code insertionIndex} within the target section
+     * instead of being appended, so the detailed OuicheList's ordering mirrors where the
+     * card actually landed in the live Decks and Collections list.
+     *
+     * @param addedCard      the new wanted-card slot (a fresh, {@link OwnershipStatus#MISSING}
+     *                       {@link CardElement}, not yet inserted into the detailed OuicheList)
+     * @param deckName       the name of the deck the card was added to, or {@code null} if added
+     *                       directly to a {@link ThemeCollection#getCardsList()}
+     * @param section        {@code "main"}, {@code "extra"}, or {@code "side"} when
+     *                       {@code deckName} is non-{@code null}; ignored otherwise
+     * @param collectionName the name of the {@link ThemeCollection} that owns the deck named
+     *                       {@code deckName} (or that the card was added to directly when
+     *                       {@code deckName} is {@code null}), or {@code null} for a standalone
+     *                       deck
+     * @param insertionIndex the position within the target section to insert at; values at or
+     *                       beyond the section's current size (including
+     *                       {@link Integer#MAX_VALUE}) clamp to an append at the end
+     */
+    public static void onDeckCardAdded(CardElement addedCard, String deckName, String section,
+                                       String collectionName, int insertionIndex) {
         if (detailedOuicheList == null || addedCard == null) {
             return;
         }
-        OuicheListUpdater.onDeckCardAdded(addedCard, deckName, section, collectionName);
+        OuicheListUpdater.onDeckCardAdded(addedCard, deckName, section, collectionName, insertionIndex);
     }
 
     /**
