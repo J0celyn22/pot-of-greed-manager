@@ -1724,16 +1724,20 @@ public class CardTreeCell extends TreeCell<String> {
             // OuicheList MOVE notifications: fired AFTER markDirtyAndRefreshForGroup so
             // the D&C rebuild is already queued before the OuicheList rebuild is queued.
             // A move across groups = removal from source + addition to target.
-            // Same-group reorders are pure position changes — OuicheList is unaffected.
+            // A pure intra-group reorder (every element's source group is this same
+            // target group) repositions the matching slot instead.
             if (moveSourceGroups != null && movedElements != null) {
                 final java.util.List<CardElement> capturedMoved = movedElements;
-                for (CardsGroup sourceGroup : moveSourceGroups) {
-                    if (sourceGroup != group) {
-                        CardGroupRegistry.notifyOuicheListOfGroupRemovals(sourceGroup, capturedMoved);
+                boolean anyCrossGroup = moveSourceGroups.stream().anyMatch(sourceGroup -> sourceGroup != group);
+                if (anyCrossGroup) {
+                    for (CardsGroup sourceGroup : moveSourceGroups) {
+                        if (sourceGroup != group) {
+                            CardGroupRegistry.notifyOuicheListOfGroupRemovals(sourceGroup, capturedMoved);
+                        }
                     }
-                }
-                if (moveSourceGroups.stream().anyMatch(sourceGroup -> sourceGroup != group)) {
                     CardGroupRegistry.notifyOuicheListOfGroupAdditions(group, capturedMoved);
+                } else if (moveSourceGroups.size() == 1 && moveSourceGroups.contains(group)) {
+                    CardGroupRegistry.notifyOuicheListOfGroupReorder(group, capturedMoved);
                 }
             }
             event.setDropCompleted(true);

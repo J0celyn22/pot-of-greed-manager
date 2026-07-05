@@ -358,7 +358,7 @@ public class OuicheList {
     // =========================================================================
     // Incremental updates
     //
-    // The four methods below keep an already-generated OuicheList close to what
+    // The methods below keep an already-generated OuicheList close to what
     // a full {@link #CreateOuicheList} regeneration would produce, without
     // recomputing everything from scratch. Each is a no-op when
     // {@link #detailedOuicheList} is {@code null} (OuicheList not yet generated).
@@ -487,6 +487,37 @@ public class OuicheList {
             return;
         }
         OuicheListUpdater.onDeckCardRemoved(removedCard, deckName, section, collectionName);
+    }
+
+    /**
+     * Call after a card is repositioned within the same {@link Deck} section or
+     * {@link ThemeCollection#getCardsList()} (an intra-group reorder in the Decks and
+     * Collections tab — no card left or entered the section, only its position changed).
+     *
+     * <p>Locates the matching slot inside the detailed OuicheList by name/section and moves
+     * it to {@code newIndex}, leaving its ownership status untouched — a reorder never
+     * changes what is or isn't owned. See {@link OuicheListUpdater#onDeckCardMoved} for the
+     * matching rules used to locate the slot.
+     *
+     * @param movedCard      the live {@link CardElement} that was repositioned
+     * @param deckName       the name of the deck the card was reordered within, or
+     *                       {@code null} if reordered within a
+     *                       {@link ThemeCollection#getCardsList()}
+     * @param section        {@code "main"}, {@code "extra"}, or {@code "side"} when
+     *                       {@code deckName} is non-{@code null}; ignored otherwise
+     * @param collectionName the name of the {@link ThemeCollection} that owns the deck named
+     *                       {@code deckName} (or that the card was reordered within directly
+     *                       when {@code deckName} is {@code null}), or {@code null} for a
+     *                       standalone deck
+     * @param newIndex       the card's new position within the target section; values at or
+     *                       beyond the section's current size clamp to the end
+     */
+    public static void onDeckCardMoved(CardElement movedCard, String deckName, String section,
+                                       String collectionName, int newIndex) {
+        if (detailedOuicheList == null || movedCard == null) {
+            return;
+        }
+        OuicheListUpdater.onDeckCardMoved(movedCard, deckName, section, collectionName, newIndex);
     }
 
 

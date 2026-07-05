@@ -390,16 +390,20 @@ class CardGridCell extends GridCell<CardElement> {
             // This guarantees the OuicheList refresh runs in a later pulse and never
             // interferes with the in-progress D&C scene graph update.
             // A move across groups = removal from source + addition to target.
-            // Same-group reorders are pure position changes — OuicheList is unaffected.
+            // A pure intra-group reorder (every element's source group is this same
+            // target group) repositions the matching slot instead.
             if (moveSourceGroups != null && movedElements != null) {
                 final java.util.List<CardElement> capturedMoved = movedElements;
-                for (CardsGroup sourceGroup : moveSourceGroups) {
-                    if (sourceGroup != group) {
-                        CardGroupRegistry.notifyOuicheListOfGroupRemovals(sourceGroup, capturedMoved);
+                boolean anyCrossGroup = moveSourceGroups.stream().anyMatch(sourceGroup -> sourceGroup != group);
+                if (anyCrossGroup) {
+                    for (CardsGroup sourceGroup : moveSourceGroups) {
+                        if (sourceGroup != group) {
+                            CardGroupRegistry.notifyOuicheListOfGroupRemovals(sourceGroup, capturedMoved);
+                        }
                     }
-                }
-                if (moveSourceGroups.stream().anyMatch(sourceGroup -> sourceGroup != group)) {
                     CardGroupRegistry.notifyOuicheListOfGroupAdditions(group, capturedMoved);
+                } else if (moveSourceGroups.size() == 1 && moveSourceGroups.contains(group)) {
+                    CardGroupRegistry.notifyOuicheListOfGroupReorder(group, capturedMoved);
                 }
             }
             // Signal to grid.setOnDragDropped that this drop is already handled.

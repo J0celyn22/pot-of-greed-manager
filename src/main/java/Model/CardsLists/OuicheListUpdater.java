@@ -492,6 +492,40 @@ final class OuicheListUpdater {
     }
 
     /**
+     * Handles a wanted-card slot being repositioned within the same {@link Deck} section or
+     * {@link ThemeCollection#getCardsList()} (an intra-group reorder in the Decks and
+     * Collections tab — no card left or entered the section, only its position changed).
+     *
+     * <p>Locates the matching slot in {@code detailedOuicheList} using the same matching
+     * as {@link #onDeckCardRemoved} (same-card identity check), then reinserts that exact
+     * slot object at {@code newIndex}. Because the same slot object is relocated rather than
+     * removed and recreated, its {@link OwnershipStatus} (and compact-map bookkeeping) is
+     * left completely untouched — a reorder never changes what is or isn't owned.
+     *
+     * @param newIndex the card's new position within the target section; values at or beyond
+     *                 the section's current size clamp to the end
+     */
+    static void onDeckCardMoved(CardElement movedCard, String deckName, String section,
+                                String collectionName, int newIndex) {
+
+        List<CardElement> targetSection = resolveTargetSection(deckName, section, collectionName);
+        if (targetSection == null) {
+            return;
+        }
+
+        CardElement existingSlot = removeFromSection(targetSection, movedCard);
+        if (existingSlot == null) {
+            // No matching detailed slot for this card in this section (e.g. the detailed
+            // OuicheList hasn't been generated, or this card has no slot here) — nothing
+            // to reposition.
+            return;
+        }
+
+        int clampedIndex = Math.max(0, Math.min(newIndex, targetSection.size()));
+        targetSection.add(clampedIndex, existingSlot);
+    }
+
+    /**
      * Handles a wanted-card slot being removed from a {@link Deck} section or from a
      * {@link ThemeCollection#getCardsList()}.
      *

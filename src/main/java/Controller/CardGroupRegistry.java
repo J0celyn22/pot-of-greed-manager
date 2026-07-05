@@ -654,8 +654,9 @@ public final class CardGroupRegistry {
      * {@link OuicheList#onDeckCardRemoved} with {@code deckName=null}, and unrecognised
      * groups (My Collection) dispatch to {@link OuicheList#onOwnedCardRemoved}.
      *
-     * <p>Only call this for cross-group moves ({@code sourceGroup != targetGroup}).
-     * Intra-group reorders change display order only and have no effect on the OuicheList.</p>
+     * <p>Only call this for cross-group moves ({@code sourceGroup != targetGroup}). For
+     * intra-group reorders (pure position changes within a single group), use
+     * {@link #notifyOuicheListOfGroupReorder} instead.</p>
      *
      * @param sourceGroup     the group the elements were moved out of
      * @param removedElements the {@link CardElement}s that were removed
@@ -709,6 +710,76 @@ public final class CardGroupRegistry {
             }
         }
         Controller.UserInterfaceFunctions.refreshOuicheListView();
+    }
+
+    /**
+     * Notifies the OuicheList of cards repositioned within {@code group} (an intra-group
+     * reorder — no card left or entered the group, only display order changed).
+     *
+     * <p>Routing mirrors {@link #notifyOuicheListOfGroupAdditions}: deck-section groups and
+     * collection-cardsList groups dispatch to {@link OuicheList#onDeckCardMoved}, which
+     * relocates the matching slot within the detailed OuicheList's corresponding section to
+     * the element's new index, preserving that slot's ownership status untouched. Unrecognised
+     * groups (My Collection) are a no-op — the OuicheList has no position-sensitive
+     * representation of the owned-card pool.
+     *
+     * <p>Only call this for pure intra-group reorders ({@code sourceGroup == targetGroup} for
+     * every moved element). Cross-group moves must go through
+     * {@link #notifyOuicheListOfGroupRemovals} + {@link #notifyOuicheListOfGroupAdditions}
+     * instead.
+     *
+     * @param group         the group elements were repositioned within
+     * @param movedElements the {@link CardElement}s that were repositioned
+     */
+    public static void notifyOuicheListOfGroupReorder(
+            CardsGroup group, List<CardElement> movedElements) {
+        if (group == null || movedElements == null || movedElements.isEmpty()) {
+            return;
+        }
+
+        List<CardElement> backingList = group.getCardList();
+        Object owner = findOwnerForGroup(group);
+
+        if (owner instanceof Deck deck) {
+            String sectionKey = deckSectionKeyForBackingList(deck, backingList);
+            if (sectionKey != null) {
+                String collectionName = findCollectionNameOwningDeck(deck);
+                for (CardElement movedElement : movedElements) {
+                    try {
+                        int newIndex = backingList.indexOf(movedElement);
+                        if (newIndex < 0) {
+                            continue;
+                        }
+                        OuicheList.onDeckCardMoved(
+                                movedElement, deck.getName(), sectionKey, collectionName, newIndex);
+                    } catch (Throwable throwable) {
+                        logger.error("OuicheList update failed after reordering deck '{}' section '{}'",
+                                deck.getName(), sectionKey, throwable);
+                    }
+                }
+                Controller.UserInterfaceFunctions.refreshOuicheListView();
+            }
+            return;
+        } else if (owner instanceof ThemeCollection collection
+                && backingList != null && backingList == collection.getCardsList()) {
+            for (CardElement movedElement : movedElements) {
+                try {
+                    int newIndex = backingList.indexOf(movedElement);
+                    if (newIndex < 0) {
+                        continue;
+                    }
+                    OuicheList.onDeckCardMoved(movedElement, null, null, collection.getName(), newIndex);
+                } catch (Throwable throwable) {
+                    logger.error("OuicheList update failed after reordering collection '{}'",
+                            collection.getName(), throwable);
+                }
+            }
+            Controller.UserInterfaceFunctions.refreshOuicheListView();
+            return;
+        }
+
+        // Otherwise (a My Collection group): the OuicheList has no position-sensitive
+        // representation of the owned-card pool, so there is nothing to update.
     }
 
     /**
