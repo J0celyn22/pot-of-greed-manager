@@ -1,13 +1,11 @@
 package View;
 
-import Controller.CardClipboard;
 import Controller.DragDropManager;
 import Controller.SelectionManager;
 import Model.CardsLists.Card;
 import Model.Database.DataBaseUpdate;
 import Utils.LruImageCache;
 import javafx.geometry.Insets;
-import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
@@ -73,34 +71,6 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
         };
     }
 
-    /**
-     * Builds the "Add to Decks & Collections" context menu for a single card cell.
-     * Items are populated lazily when the menu opens so the current selection state
-     * is always reflected.
-     */
-    private static ContextMenu buildDecksContextMenu(Card card) {
-        ContextMenu contextMenu = ContextMenuItemFactory.styledContextMenu();
-
-        Menu addToMenu = ContextMenuItemFactory.makeMenuHeader("Add to...");
-        addToMenu.getItems().add(ContextMenuItemFactory.loadingPlaceholder());
-        addToMenu.setOnShowing(event -> {
-            addToMenu.getItems().clear();
-            Collection<Card> cardsToAdd = ContextMenuItemFactory.resolveEffectiveRightPaneCards(card);
-            List<MenuItem> destinationItems =
-                    ContextMenuItemFactory.buildAllDecksDestinationItemsForCards(cardsToAdd);
-            if (destinationItems.isEmpty()) {
-                MenuItem noDestinations = new MenuItem("No destinations available");
-                noDestinations.setDisable(true);
-                addToMenu.getItems().add(noDestinations);
-            } else {
-                addToMenu.getItems().addAll(destinationItems);
-            }
-        });
-        contextMenu.getItems().add(addToMenu);
-        contextMenu.getItems().add(buildCopyMenuItemFor(card));
-        return contextMenu;
-    }
-
     // ── Drop target ────────────────────────────────────────────────────────────
 
     /**
@@ -126,30 +96,6 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
         });
         contextMenu.getItems().add(addToMenu);
         return contextMenu;
-    }
-
-    // ── Context menu builders ──────────────────────────────────────────────────
-
-    /**
-     * Shared "Copy" menu item for any card cell.
-     */
-    private static MenuItem buildCopyMenuItemFor(Card card) {
-        MenuItem copyMenuItem = new MenuItem();
-        Label copyLabel = new Label("Copy");
-        copyLabel.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 13;");
-        HBox copyGraphic = new HBox(copyLabel);
-        copyGraphic.setAlignment(Pos.CENTER_LEFT);
-        copyGraphic.setPadding(new Insets(2, 6, 2, 6));
-        copyMenuItem.setGraphic(copyGraphic);
-        copyMenuItem.setText("");
-        copyMenuItem.setOnAction(event -> {
-            if (card == null) {
-                return;
-            }
-            CardClipboard.copyCards(new ArrayList<>(
-                    ContextMenuItemFactory.resolveEffectiveRightPaneCards(card)));
-        });
-        return copyMenuItem;
     }
 
     @Override
@@ -208,7 +154,7 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
                     "-fx-border-radius: 6;"
                     : "-fx-background-color: transparent;");
 
-            ContextMenu decksCardContextMenu = buildDecksContextMenu(card);
+            ContextMenu decksCardContextMenu = ContextMenuItemFactory.buildDecksContextMenu(() -> card);
             ContextMenu myCollCardContextMenu = buildMyCollectionContextMenu(card);
 
             cardWrapper.setOnMouseClicked(event -> {

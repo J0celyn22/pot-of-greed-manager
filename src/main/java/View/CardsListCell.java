@@ -1,13 +1,11 @@
 package View;
 
-import Controller.CardClipboard;
 import Controller.DragDropManager;
 import Controller.SelectionManager;
 import Model.CardsLists.Card;
 import Model.Database.DataBaseUpdate;
 import Utils.LruImageCache;
 import javafx.geometry.Insets;
-import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
@@ -225,56 +223,12 @@ public class CardsListCell extends ListCell<Card> {
             }
         });
         contextMenu.getItems().add(addToMenu);
-        contextMenu.getItems().add(buildCopyMenuItem());
+        contextMenu.getItems().add(ContextMenuItemFactory.buildCopyMenuItem(this::getItem));
         return contextMenu;
     }
 
     private ContextMenu buildContextMenuForDecks() {
-        ContextMenu contextMenu = ContextMenuItemFactory.styledContextMenu();
-
-        Menu addToMenu = ContextMenuItemFactory.makeMenuHeader("Add to...");
-        addToMenu.getItems().add(ContextMenuItemFactory.loadingPlaceholder());
-        addToMenu.setOnShowing(event -> {
-            addToMenu.getItems().clear();
-            Card clickedCard = getItem();
-            Collection<Card> cardsToAdd =
-                    ContextMenuItemFactory.resolveEffectiveRightPaneCards(clickedCard);
-            List<MenuItem> destinationItems =
-                    ContextMenuItemFactory.buildAllDecksDestinationItemsForCards(cardsToAdd);
-            if (destinationItems.isEmpty()) {
-                MenuItem noDestinations = new MenuItem("No destinations available");
-                noDestinations.setDisable(true);
-                addToMenu.getItems().add(noDestinations);
-            } else {
-                addToMenu.getItems().addAll(destinationItems);
-            }
-        });
-        contextMenu.getItems().add(addToMenu);
-        contextMenu.getItems().add(buildCopyMenuItem());
-        return contextMenu;
-    }
-
-    /**
-     * Creates the shared "Copy" menu item used in both context menus.
-     */
-    private MenuItem buildCopyMenuItem() {
-        MenuItem copyMenuItem = new MenuItem();
-        Label copyLabel = new Label("Copy");
-        copyLabel.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 13;");
-        HBox copyGraphic = new HBox(copyLabel);
-        copyGraphic.setAlignment(Pos.CENTER_LEFT);
-        copyGraphic.setPadding(new Insets(2, 6, 2, 6));
-        copyMenuItem.setGraphic(copyGraphic);
-        copyMenuItem.setText("");
-        copyMenuItem.setOnAction(event -> {
-            Card clickedCard = getItem();
-            if (clickedCard == null) {
-                return;
-            }
-            CardClipboard.copyCards(new ArrayList<>(
-                    ContextMenuItemFactory.resolveEffectiveRightPaneCards(clickedCard)));
-        });
-        return copyMenuItem;
+        return ContextMenuItemFactory.buildDecksContextMenu(this::getItem);
     }
 
     // ── Selection ──────────────────────────────────────────────────────────────

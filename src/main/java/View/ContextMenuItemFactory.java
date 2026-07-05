@@ -1,5 +1,6 @@
 package View;
 
+import Controller.CardClipboard;
 import Controller.MenuActionHandler;
 import Controller.SelectionManager;
 import Controller.UserInterfaceFunctions;
@@ -20,11 +21,19 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Factory for creating themed {@link ContextMenu} and {@link MenuItem} instances
  * shared across the right-pane card-view cells ({@link CardsListCell},
  * {@link CardsMosaicRowCell}).
+ *
+ * <p>{@link #buildDecksContextMenu} and {@link #buildCopyMenuItem} are the full,
+ * ready-to-use menu/item builders for the Decks &amp; Collections tab and are
+ * shared verbatim between both cell types via a {@code Supplier<Card>} so each
+ * caller can resolve "the currently relevant card" its own way (live cell state
+ * for a recyclable {@link javafx.scene.control.ListCell}, a captured value for a
+ * per-row wrapper rebuilt on every {@code updateItem}).
  *
  * <p>All public methods are stateless and thread-safe. Methods that read the
  * live model ({@link #buildAllDecksDestinationItemsForCards},
@@ -117,6 +126,70 @@ public final class ContextMenuItemFactory {
         return isMultiSelect
                 ? SelectionManager.getSelectedCards()
                 : Collections.singletonList(clickedCard);
+    }
+
+    // ── Right-pane context menus (shared by CardsListCell & CardsMosaicRowCell) ─
+
+    /**
+     * Builds the full "Decks &amp; Collections" tab context menu used by both
+     * right-pane card renderers: an "Add to..." submenu (lazily populated with
+     * deck/collection destinations) followed by a Copy item.
+     *
+     * @param cardSupplier resolves the card the menu should act on at the moment
+     *                     it is shown or a copy is requested; callers pass
+     *                     {@code this::getItem} for a recyclable {@link
+     *                     javafx.scene.control.ListCell} or a captured card for a
+     *                     per-row wrapper
+     * @return a fully wired {@link ContextMenu}
+     */
+    public static ContextMenu buildDecksContextMenu(Supplier<Card> cardSupplier) {
+        ContextMenu contextMenu = styledContextMenu();
+
+        Menu addToMenu = makeMenuHeader("Add to...");
+        addToMenu.getItems().add(loadingPlaceholder());
+        addToMenu.setOnShowing(event -> {
+            addToMenu.getItems().clear();
+            Card clickedCard = cardSupplier.get();
+            Collection<Card> cardsToAdd = resolveEffectiveRightPaneCards(clickedCard);
+            List<MenuItem> destinationItems = buildAllDecksDestinationItemsForCards(cardsToAdd);
+            if (destinationItems.isEmpty()) {
+                addToMenu.getItems().add(disabledItem("No destinations available"));
+            } else {
+                addToMenu.getItems().addAll(destinationItems);
+            }
+        });
+
+        contextMenu.getItems().add(addToMenu);
+        contextMenu.getItems().add(buildCopyMenuItem(cardSupplier));
+        return contextMenu;
+    }
+
+    /**
+     * Creates the "Copy" menu item shared by both right-pane card renderers.
+     * Copies the effective selection (see {@link #resolveEffectiveRightPaneCards})
+     * for the card resolved from {@code cardSupplier} at click time.
+     *
+     * @param cardSupplier resolves the card to copy; see {@link
+     *                     #buildDecksContextMenu} for the recyclable-cell vs.
+     *                     captured-value distinction
+     */
+    public static MenuItem buildCopyMenuItem(Supplier<Card> cardSupplier) {
+        MenuItem copyMenuItem = new MenuItem();
+        Label copyLabel = new Label("Copy");
+        copyLabel.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 13;");
+        HBox copyGraphic = new HBox(copyLabel);
+        copyGraphic.setAlignment(Pos.CENTER_LEFT);
+        copyGraphic.setPadding(new Insets(2, 6, 2, 6));
+        copyMenuItem.setGraphic(copyGraphic);
+        copyMenuItem.setText("");
+        copyMenuItem.setOnAction(event -> {
+            Card clickedCard = cardSupplier.get();
+            if (clickedCard == null) {
+                return;
+            }
+            CardClipboard.copyCards(new ArrayList<>(resolveEffectiveRightPaneCards(clickedCard)));
+        });
+        return copyMenuItem;
     }
 
     // ── Deck & Collection destination lists ────────────────────────────────────
