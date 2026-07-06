@@ -146,27 +146,24 @@ public class OuicheListEdgeCasesTest {
     }
 
     /**
-     * Confirmed bug, found while writing this suite (not the linked-deck-group gap):
-     * {@code onDeckCardRemoved}, when no other MISSING slot exists to propagate to, puts
-     * the exact same live {@link CardElement} instance it was called with back into
-     * {@link OuicheList#getUnusedCards()} (see the comment on that call site — it's
-     * intentional, meant to let the following {@code onDeckCardAdded} half of a move find
-     * it). But {@code onDeckCardAdded} then searches {@code unusedCards} for a match using
-     * that <em>same instance</em> as both the wanted slot and a candidate in the pool.
-     * {@link OuicheListComputer#ownedCopySatisfiesQuality} compares a slot's requested
-     * condition/rarity against a candidate's — when they're literally the same object,
-     * every comparison trivially passes, so the element satisfies its own round-1
-     * (quality-required) check regardless of what condition it actually required.
-     *
-     * <p>Net effect: cross-group moving an OWNED_SUBSTANDARD card (same live-element
-     * remove-then-add pair, exactly how {@code CardGridCell}/{@code CardTreeCell} do it)
-     * silently upgrades it to OWNED — no new copy was found, the card just matched itself.
-     * The OWNED case in the test above isn't affected in a way that's visible (OWNED
-     * staying OWNED looks correct either way), which is why this only shows up for
-     * OWNED_SUBSTANDARD.
+     * Regression guard for a bug found while writing this suite (fixed in
+     * {@code OuicheListUpdater}, distinct from the linked-deck-group gap):
+     * {@code onDeckCardRemoved}, when no other MISSING slot exists to propagate to,
+     * puts the exact same live {@link CardElement} instance it was called with back
+     * into {@link OuicheList#getUnusedCards()} (see the comment on that call site —
+     * it's intentional, meant to let the following {@code onDeckCardAdded} half of a
+     * move find it). {@code onDeckCardAdded} used to then search {@code unusedCards}
+     * for a match using that <em>same instance</em> as both the wanted slot and a
+     * candidate in the pool — {@link OuicheListComputer#ownedCopySatisfiesQuality}
+     * compares a slot's requested condition/rarity against a candidate's, and when
+     * they're literally the same object every comparison trivially passes, so the
+     * element satisfied its own round-1 (quality-required) check regardless of what
+     * condition it actually required. The fix: {@code onDeckCardAdded} now preserves
+     * a slot's pre-existing OWNED/OWNED_SUBSTANDARD status outright when it arrives
+     * already marked as such, instead of re-deriving it via matching.
      */
     @Test
-    void crossGroupMove_substandardCard_selfMatchesAndIsIncorrectlyUpgradedToOwned_confirmedBug() {
+    void crossGroupMove_substandardCard_preservesStatus_regressionGuard() {
         Deck otherDeck = new Deck();
         otherDeck.setName("OtherDeck");
         OuicheList.getDetailedOuicheList().addDeck(otherDeck);
@@ -180,8 +177,8 @@ public class OuicheListEdgeCasesTest {
         OuicheList.onDeckCardAdded(liveElement, "OtherDeck", "main", null, Integer.MAX_VALUE);
 
         assertEquals(OwnershipStatus.OWNED_SUBSTANDARD, liveElement.getOwnershipStatus(),
-                "Moving a SUBSTANDARD card should not silently upgrade it to OWNED just "
-                        + "because it transiently self-matched in the unused pool -- currently fails");
+                "Moving a SUBSTANDARD card must not silently upgrade it to OWNED just "
+                        + "because it transiently self-matched in the unused pool");
     }
 
     // =========================================================================

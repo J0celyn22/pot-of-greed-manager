@@ -1077,7 +1077,17 @@ public final class CardGroupRegistry {
             if (realSectionList == null) {
                 return null;
             }
-            return getOrCreateDeckSectionGroup(realDeck, sectionKey, sectionLabel, realSectionList);
+            CardsGroup realDeckSectionGroup =
+                    getOrCreateDeckSectionGroup(realDeck, sectionKey, sectionLabel, realSectionList);
+            // dropInsertIntoGroup's MOVE branch locates an element's current group by
+            // scanning GROUP_OBSERVABLE_LISTS only — a group that has never been the target
+            // of a drop, nor built by the Decks & Collections tab, has no entry there yet.
+            // Force registration now so a group resolved solely through this OuicheList
+            // redirect (source or target) is just as discoverable as one built the normal
+            // way; otherwise a MOVE whose *source* is such a group silently fails to remove
+            // the element (duplicating it at the target instead of relocating it).
+            observableListFor(realDeckSectionGroup);
+            return realDeckSectionGroup;
         }
 
         if (ephemeralOwner instanceof ThemeCollection ephemeralCollection
@@ -1086,7 +1096,10 @@ public final class CardGroupRegistry {
             if (realCollection == null) {
                 return null;
             }
-            return getOrCreateCollectionCardsGroup(realCollection, realCollection.getCardsList());
+            CardsGroup realCollectionCardsGroup =
+                    getOrCreateCollectionCardsGroup(realCollection, realCollection.getCardsList());
+            observableListFor(realCollectionCardsGroup);
+            return realCollectionCardsGroup;
         }
 
         return null;

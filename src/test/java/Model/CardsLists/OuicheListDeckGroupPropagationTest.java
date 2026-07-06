@@ -10,25 +10,23 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Targeted coverage for {@link ThemeCollection#getLinkedDecks()} ("deck groups") — a
- * mechanism where several decks inside a non-loose collection are grouped so that a
- * resolved card in one deck frees up a matching slot in every sibling deck of the same
- * group <em>without consuming an extra owned copy</em>
- * ({@link OuicheListComputer#applySectionPass} calls this "free within-group
- * propagation", implemented there by {@code propagateGroupValidation}).
+ * Coverage for {@link ThemeCollection#getLinkedDecks()} ("deck groups") — a mechanism
+ * where several decks inside a non-loose collection are grouped so that a resolved
+ * card in one deck frees up a matching slot in every sibling deck of the same group
+ * <em>without consuming an extra owned copy</em> ({@link OuicheListComputer#applySectionPass}
+ * calls this "free within-group propagation", implemented there by
+ * {@code propagateGroupValidation}).
  *
- * <p><b>Finding:</b> {@link OuicheListUpdater} — the incremental-update engine behind
- * {@link OuicheList#onDeckCardAdded}, {@link OuicheList#onDeckCardRemoved}, and
- * {@link OuicheList#onDeckCardMoved} — never references {@code getLinkedDecks()},
- * {@code getConnectToWholeCollection()}, or anything equivalent to
- * {@code propagateGroupValidation}. Each of those three methods resolves and mutates
- * exactly one named deck; sibling decks in the same group are never consulted.
+ * <p><b>History:</b> the incremental-update engine ({@link OuicheListUpdater}) originally
+ * had no equivalent of {@code propagateGroupValidation} at all — {@link OuicheList#onDeckCardAdded}
+ * resolved and mutated exactly one named deck, and sibling decks in the same group were
+ * never consulted. Fixed by {@code OuicheListUpdater#propagateWithinDeckGroup}, called from
+ * {@code onDeckCardAdded} whenever a slot resolves to OWNED or OWNED_SUBSTANDARD.
  *
- * <p>The tests below marked "currentGap" assert the behavior a linked deck group is
- * supposed to have (matching full regeneration) and currently <b>fail</b> — that is
- * intentional and is the point of this file: it documents a confirmed, real gap rather
- * than encoding the bug as expected behavior. The other tests establish the surrounding,
- * already-correct behavior so the gap isn't confused with something else nearby.
+ * <p>Known, accepted asymmetry (not fixed): there is no inverse operation on removal —
+ * see the javadoc on {@code propagateWithinDeckGroup} for why. A sibling slot that
+ * received free ownership this way can remain marked OWNED after the source card is
+ * later removed, until the next full regeneration reconciles it.
  */
 public class OuicheListDeckGroupPropagationTest {
 
@@ -103,7 +101,7 @@ public class OuicheListDeckGroupPropagationTest {
     // =========================================================================
 
     @Test
-    void linkedDeckGroup_singleCardAdd_doesNotPropagateToSiblingDeck_currentGap() {
+    void linkedDeckGroup_singleCardAdd_propagatesToSiblingDeck() {
         deckB.getMainDeck().add(missingSlot(cardA)); // DeckB already wants cardA
         collection.setLinkedDecks(List.of(List.of(deckA, deckB))); // same group
 
@@ -114,15 +112,14 @@ public class OuicheListDeckGroupPropagationTest {
         assertEquals(OwnershipStatus.OWNED, newSlotInDeckA.getOwnershipStatus(),
                 "DeckA's own new slot should still resolve normally from the unused pool");
 
-        // Expected (per full-regen propagateGroupValidation): DeckB's matching slot in the
-        // same linked group should become OWNED for free, no extra owned copy required.
-        // Currently fails — the incremental updater has no such propagation.
+        // Per full-regen propagateGroupValidation: DeckB's matching slot in the same linked
+        // group should become OWNED for free, no extra owned copy required.
         assertEquals(OwnershipStatus.OWNED, deckB.getMainDeck().get(0).getOwnershipStatus(),
                 "Sibling deck in the same linked group did not receive free ownership propagation");
     }
 
     @Test
-    void linkedDeckGroup_multiCardAdd_doesNotPropagateToSiblingSlots_currentGap() {
+    void linkedDeckGroup_multiCardAdd_propagatesToSiblingSlots() {
         deckB.getMainDeck().add(missingSlot(cardA));
         deckB.getMainDeck().add(missingSlot(cardA));
         collection.setLinkedDecks(List.of(List.of(deckA, deckB)));
@@ -139,13 +136,14 @@ public class OuicheListDeckGroupPropagationTest {
                 .count();
 
         // Answers the "is the multiple validation functional?" question directly:
-        // currently 0 of 2 — the gap applies identically to single- and multi-card adds.
+        // yes, both slots propagate — the fix applies identically to single- and
+        // multi-card adds since each add triggers propagation independently.
         assertEquals(2, deckBOwnedCount,
                 "Both of DeckB's matching MISSING slots should propagate to OWNED for free");
     }
 
     @Test
-    void linkedDeckGroup_addToDeckB_doesNotPropagateBackToDeckA_currentGap() {
+    void linkedDeckGroup_addToDeckB_propagatesBackToDeckA() {
         // Same gap, opposite direction — confirms it isn't specific to which deck in the
         // pair happens to receive the direct add.
         deckA.getMainDeck().add(missingSlot(cardA));

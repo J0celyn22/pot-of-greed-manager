@@ -281,7 +281,7 @@ public class OuicheListUpdaterTest {
     }
 
     @Test
-    void deckCardRemoved_ownedSlot_noNextMissing_noOp() {
+    void deckCardRemoved_ownedSlot_noNextMissing_returnsToUnusedCards() {
         detailedCollection.setCardsList(new ArrayList<>());
         // Clear extra and side so there's no other MISSING slot.
         detailedDeck.getExtraDeck().clear();
@@ -293,8 +293,13 @@ public class OuicheListUpdaterTest {
         OuicheList.onDeckCardRemoved(ownedSlot, "TestDeck", "main", null);
 
         assertTrue(detailedDeck.getMainDeck().isEmpty());
-        assertTrue(OuicheList.getUnusedCards().isEmpty(),
-                "Nothing should be added to unusedCards");
+        // With nowhere to propagate the freed ownership to, the card returns to the
+        // unused pool -- intentional (see the comment on the addToUnusedCards call in
+        // onDeckCardRemoved): this is also what lets the "add" half of a cross-group
+        // move find it again. This test previously asserted the opposite (empty pool),
+        // which was stale relative to that documented behavior.
+        assertEquals(1, OuicheList.getUnusedCards().size(),
+                "The freed card should return to unusedCards, not vanish");
     }
 
     @Test

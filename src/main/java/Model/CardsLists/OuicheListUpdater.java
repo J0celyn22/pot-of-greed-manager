@@ -642,8 +642,11 @@ final class OuicheListUpdater {
      *
      * <p>{@code addedCard} is inserted directly into the corresponding live list
      * (it is the caller's responsibility to have created it as a fresh, MISSING
-     * {@link CardElement}; this method does not duplicate the insertion if it is
-     * already present in the target list).
+     * {@link CardElement}). If it is already present in the target list — a
+     * duplicate or re-entrant call on the same slot object — this method is a
+     * complete no-op: no re-insertion, and no re-attempt at satisfying it from the
+     * unused pool, since that would silently consume a second real copy for a slot
+     * that was already resolved.
      *
      * <p>After insertion, an attempt is made to satisfy the new slot from
      * {@link OuicheList#getUnusedCards()}: round 1 (quality-respecting, by artwork
@@ -651,6 +654,11 @@ final class OuicheListUpdater {
      * marks it {@link OwnershipStatus#OWNED_SUBSTANDARD}. If neither round finds a
      * match, the slot is left {@link OwnershipStatus#MISSING}. The compact maps are
      * updated accordingly.
+     *
+     * <p>Exception: if {@code addedCard} arrives already marked {@code OWNED} or
+     * {@code OWNED_SUBSTANDARD} — the "add" half of a move, where the same live
+     * object was just removed elsewhere — its existing status is preserved as-is
+     * instead of being re-derived; see the inline comment at that check for why.
      *
      * @param insertionIndex the position within the target section to insert
      *                        {@code addedCard} at, mirroring where it landed in the live
@@ -666,10 +674,16 @@ final class OuicheListUpdater {
             return;
         }
 
-        if (!targetSection.contains(addedCard)) {
-            int clampedIndex = Math.max(0, Math.min(insertionIndex, targetSection.size()));
-            targetSection.add(clampedIndex, addedCard);
+        if (targetSection.contains(addedCard)) {
+            // Already inserted and resolved by an earlier call on this same slot object
+            // (a duplicate/re-entrant invocation) -- nothing left to do. Running the
+            // matching logic again here would silently consume a second real unused copy
+            // for a slot that has already been satisfied once.
+            return;
         }
+
+        int clampedIndex = Math.max(0, Math.min(insertionIndex, targetSection.size()));
+        targetSection.add(clampedIndex, addedCard);
 
         if (addedCard.getCard() == null || addedCard.getCard().getKonamiId() == null) {
             addNewMissingSlotToCompactMap(addedCard);
@@ -682,11 +696,29 @@ final class OuicheListUpdater {
             OuicheList.setUnusedCards(unusedCards);
         }
 
+        // A slot arriving already marked OWNED or OWNED_SUBSTANDARD (rather than the
+        // fresh MISSING slot this method's contract calls for) is the "add" half of a
+        // move: onDeckCardRemoved may have just placed this exact live object back into
+        // unusedCards specifically so this call could find it again. Preserve whatever
+        // status it already had instead of re-deriving it via findUnusedMatch: comparing
+        // the object's own fields to itself in #ownedCopySatisfiesQuality always trivially
+        // satisfies the strict (round 1) check, which would silently upgrade a substandard
+        // match to a full one on every move. The physical card's actual quality hasn't
+        // changed just because it was relocated.
+        OwnershipStatus statusAtEntry = addedCard.getOwnershipStatus();
+        if (statusAtEntry == OwnershipStatus.OWNED || statusAtEntry == OwnershipStatus.OWNED_SUBSTANDARD) {
+            unusedCards.remove(addedCard); // no-op if onDeckCardRemoved didn't park it here
+            addNewOwnedSlotToCompactMap(addedCard, statusAtEntry);
+            propagateWithinDeckGroup(addedCard, deckName, collectionName);
+            return;
+        }
+
         CardElement ownedMatch = findUnusedMatch(unusedCards, addedCard, true);
         if (ownedMatch != null) {
             unusedCards.remove(ownedMatch);
             addedCard.setOwnershipStatus(OwnershipStatus.OWNED);
             addNewOwnedSlotToCompactMap(addedCard, OwnershipStatus.OWNED);
+            propagateWithinDeckGroup(addedCard, deckName, collectionName);
             return;
         }
 
@@ -695,6 +727,7 @@ final class OuicheListUpdater {
             unusedCards.remove(substandardMatch);
             addedCard.setOwnershipStatus(OwnershipStatus.OWNED_SUBSTANDARD);
             addNewOwnedSlotToCompactMap(addedCard, OwnershipStatus.OWNED_SUBSTANDARD);
+            propagateWithinDeckGroup(addedCard, deckName, collectionName);
             return;
         }
 
@@ -703,8 +736,113 @@ final class OuicheListUpdater {
     }
 
     /**
+     * Deck-group free propagation for the incremental path — the single-card
+     * counterpart to {@link OuicheListComputer#applySectionPass}'s call to its
+     * {@code propagateGroupValidation} (documented there as "Bug 2 fix").
+     *
+     * <p>{@code resolvedCard} has just become {@link OwnershipStatus#OWNED} or
+     * {@link OwnershipStatus#OWNED_SUBSTANDARD} inside the deck named
+     * {@code deckName}. If that deck belongs to a non-loose collection's linked-deck
+     * group (see {@link ThemeCollection#getLinkedDecks()}), this propagates that
+     * resolution for free to the first matching {@link OwnershipStatus#MISSING},
+     * non-{@code dontRemove} slot (same KonamiId, main then extra then side) in
+     * <em>each other</em> deck of the same group — no additional owned copy is
+     * consumed, and the propagated slot always becomes fully {@code OWNED} regardless
+     * of whether {@code resolvedCard} itself was only {@code OWNED_SUBSTANDARD},
+     * exactly matching the full-regeneration behavior.
+     *
+     * <p>Loose collections ({@code connectToWholeCollection == true}) use an entirely
+     * different, shared-pool mechanism ({@code applyLoosePasses}) and are skipped here.
+     * A standalone deck, or a slot belonging to a collection's cards list rather than
+     * one of its decks, has no group to propagate within.
+     *
+     * <p>Known asymmetry, not addressed here: there is no inverse operation run on
+     * removal. Full regeneration recomputes group propagation from scratch every time,
+     * so a card leaving a deck simply isn't counted as a source on the next pass; the
+     * incremental path has no equivalent snapshot to recompute from, so a sibling slot
+     * that received free ownership this way can remain marked OWNED even after the
+     * card that justified it is later removed from the source deck, until the next
+     * full regeneration reconciles it.
+     */
+    private static void propagateWithinDeckGroup(CardElement resolvedCard, String deckName, String collectionName) {
+        if (deckName == null || collectionName == null) {
+            return;
+        }
+        if (Boolean.TRUE.equals(resolvedCard.getDontRemove())) {
+            return; // dontRemove cards never act as propagation sources
+        }
+        if (resolvedCard.getCard() == null || resolvedCard.getCard().getKonamiId() == null) {
+            return;
+        }
+        String konamiId = resolvedCard.getCard().getKonamiId();
+
+        ThemeCollection collection = findCollectionByName(OuicheList.getDetailedOuicheList(), collectionName);
+        if (collection == null || Boolean.TRUE.equals(collection.getConnectToWholeCollection())
+                || collection.getLinkedDecks() == null) {
+            return;
+        }
+
+        for (List<Deck> group : collection.getLinkedDecks()) {
+            if (group == null || group.size() <= 1
+                    || group.stream().noneMatch(d -> d != null && deckName.equals(d.getName()))) {
+                continue;
+            }
+            for (Deck sibling : group) {
+                if (sibling == null || deckName.equals(sibling.getName())) {
+                    continue;
+                }
+                propagateOneMatchingSlot(sibling, konamiId);
+            }
+            return; // a deck belongs to at most one group
+        }
+    }
+
+    /**
+     * Finds the first {@link OwnershipStatus#MISSING}, non-{@code dontRemove} slot
+     * matching {@code konamiId} across {@code sibling}'s main, extra, then side
+     * sections (in that order) and marks it {@link OwnershipStatus#OWNED} — the
+     * single-KonamiId counterpart to {@code OuicheListComputer#propagateToSections}.
+     */
+    private static void propagateOneMatchingSlot(Deck sibling, String konamiId) {
+        if (propagateOneMatchingSlotInSection(sibling.getMainDeck(), konamiId)) {
+            return;
+        }
+        if (propagateOneMatchingSlotInSection(sibling.getExtraDeck(), konamiId)) {
+            return;
+        }
+        propagateOneMatchingSlotInSection(sibling.getSideDeck(), konamiId);
+    }
+
+    private static boolean propagateOneMatchingSlotInSection(List<CardElement> section, String konamiId) {
+        if (section == null) {
+            return false;
+        }
+        for (CardElement candidate : section) {
+            if (candidate.getOwnershipStatus() != OwnershipStatus.MISSING) {
+                continue;
+            }
+            if (Boolean.TRUE.equals(candidate.getDontRemove())) {
+                continue;
+            }
+            if (candidate.getCard() == null || !konamiId.equals(candidate.getCard().getKonamiId())) {
+                continue;
+            }
+            candidate.setOwnershipStatus(OwnershipStatus.OWNED);
+            addNewOwnedSlotToCompactMap(candidate, OwnershipStatus.OWNED);
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Searches {@code unusedCards} for a card that can fill {@code wantedSlot},
      * trying artwork match first (for specific-artwork slots), then KonamiId.
+     * {@code wantedSlot} itself is never considered a candidate, even if it happens
+     * to be present in {@code unusedCards} — this matters because
+     * {@link #onDeckCardRemoved} can place the exact same live object it was called
+     * with back into the pool, and that same object is then often passed straight
+     * back into {@link #onDeckCardAdded} as the other half of a move; without this
+     * exclusion a slot would trivially "satisfy" itself.
      *
      * @param qualityRequired {@code true} to require {@link OuicheList#ownedCopySatisfiesQuality}
      * @return the matching pool card, or {@code null} if none found
@@ -720,7 +858,8 @@ final class OuicheListUpdater {
             String wantedImagePath = wantedSlot.getCard().getImagePath();
             if (wantedImagePath != null) {
                 for (CardElement candidate : unusedCards) {
-                    if (candidate.getCard() == null
+                    if (candidate == wantedSlot
+                            || candidate.getCard() == null
                             || candidate.getCard().getKonamiId() == null
                             || !wantedImagePath.equals(candidate.getCard().getImagePath())) {
                         continue;
@@ -740,7 +879,8 @@ final class OuicheListUpdater {
 
         String wantedKonamiId = wantedSlot.getCard().getKonamiId();
         for (CardElement candidate : unusedCards) {
-            if (candidate.getCard() == null
+            if (candidate == wantedSlot
+                    || candidate.getCard() == null
                     || candidate.getCard().getKonamiId() == null
                     || !wantedKonamiId.equals(candidate.getCard().getKonamiId())) {
                 continue;
