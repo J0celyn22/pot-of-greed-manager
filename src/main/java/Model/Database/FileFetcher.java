@@ -218,10 +218,20 @@ public class FileFetcher {
                 semaphore.release();
             }
         } catch (java.io.FileNotFoundException e) {
-            // 4xx from the server — re-throw so callers (e.g.
-            // completeKonamiIdToPassCode) can record this in NotFoundCache.
-            // Do NOT keep the old file as valid; it simply doesn't exist.
-            throw new RuntimeException(e);
+            if (Files.exists(localFilePath)) {
+                // A local copy already exists, so this is a periodic refresh
+                // attempt, not the first-ever fetch. A 4xx here (e.g. the
+                // remote host blocking or rate-limiting the request) does not
+                // mean the resource is gone — keep the existing file and
+                // leave the path in invalidatedPaths so the next call retries.
+                logger.warn("Server returned an error while refreshing {}, keeping existing local file: {}", element, e.getMessage());
+            } else {
+                // No local copy exists yet — this is a genuinely missing
+                // resource upstream. Re-throw so callers (e.g.
+                // completeKonamiIdToPassCode) can record this in
+                // NotFoundCache.
+                throw new RuntimeException(e);
+            }
         } catch (Exception e) {
             // Network or I/O error — keep the old file as-is and leave the path
             // in invalidatedPaths so the next call retries.

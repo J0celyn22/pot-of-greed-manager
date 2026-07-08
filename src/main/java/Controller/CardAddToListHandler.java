@@ -113,12 +113,23 @@ final class CardAddToListHandler {
             return;
         }
 
+        String requestedSectionName;
+        if (isMain) {
+            requestedSectionName = "Main Deck";
+        } else if (isExtra) {
+            requestedSectionName = "Extra Deck";
+        } else {
+            requestedSectionName = "Side Deck";
+        }
+        String redirectSectionName = Utils.DeckCompatibility.redirectSection(card, requestedSectionName);
+        String effectiveSectionName = redirectSectionName != null ? redirectSectionName : requestedSectionName;
+
         CardElement newElement = new CardElement(card);
         String sectionName;
-        if (isMain) {
+        if (Utils.DeckCompatibility.isMainDeckSection(effectiveSectionName)) {
             targetDeck.getMainDeck().add(newElement);
             sectionName = "main";
-        } else if (isExtra) {
+        } else if (Utils.DeckCompatibility.isExtraDeckSection(effectiveSectionName)) {
             targetDeck.getExtraDeck().add(newElement);
             sectionName = "extra";
         } else {

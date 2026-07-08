@@ -2,7 +2,7 @@ package View;
 
 import Model.CardsLists.Card;
 import Model.Database.DataBaseUpdate;
-import Model.UltraJeux.ShopResultEntry;
+import Model.Shops.ShopResultEntry;
 import Utils.LruImageCache;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;

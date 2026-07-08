@@ -404,4 +404,99 @@ public class CardGroupRegistryOuicheListSyncTest {
                         + "the element instead of duplicating it at the target");
         assertTrue(CardGroupRegistry.GROUP_OBSERVABLE_LISTS.containsKey(realTarget));
     }
+
+    // =========================================================================
+    // Chained interactions on a group/element that was itself just touched by a
+    // previous OuicheList-tab interaction, in the same sequence of resolutions a
+    // real chain of drag gestures would produce. Mirrors OuicheListChainedOperationsTest's
+    // coverage of the forward-sync direction, but for this redirect direction.
+    // =========================================================================
+
+    @Test
+    void twoConsecutiveHops_mainToExtraToSide_resolvesCorrectlyAtEachHop() {
+        CardElement ephemeralElement = ephemeralStandaloneDeck.getMainDeck().get(0);
+
+        // Hop 1: Main -> Extra.
+        CardElement realElement = CardGroupRegistry.resolveRealElementForOuicheListElement(ephemeralElement);
+        assertNotNull(realElement);
+        ephemeralStandaloneDeck.getMainDeck().remove(ephemeralElement);
+        ephemeralStandaloneDeck.getExtraDeck().add(0, ephemeralElement);
+        realStandaloneDeck.getMainDeck().remove(realElement);
+        realStandaloneDeck.getExtraDeck().add(0, realElement);
+
+        // Hop 2: the very same ephemeral element, now displayed in Extra Deck, is
+        // dragged again to Side Deck. Extra Deck — the source of *this* hop — was
+        // only ever resolved as a target a moment ago; before the registration fix,
+        // a group touched only as a target was invisible to a later removal scan.
+        CardElement realElementSecondHop = CardGroupRegistry.resolveRealElementForOuicheListElement(ephemeralElement);
+        assertSame(realElement, realElementSecondHop,
+                "The same physical card must resolve consistently across consecutive hops");
+        ephemeralStandaloneDeck.getExtraDeck().remove(ephemeralElement);
+        ephemeralStandaloneDeck.getSideDeck().add(0, ephemeralElement);
+        realStandaloneDeck.getExtraDeck().remove(realElement);
+        realStandaloneDeck.getSideDeck().add(0, realElement);
+
+        CardElement realElementThirdCheck = CardGroupRegistry.resolveRealElementForOuicheListElement(ephemeralElement);
+        assertSame(realElement, realElementThirdCheck);
+        assertTrue(realStandaloneDeck.getSideDeck().contains(realElement));
+        assertFalse(realStandaloneDeck.getMainDeck().contains(realElement));
+        assertFalse(realStandaloneDeck.getExtraDeck().contains(realElement));
+    }
+
+    @Test
+    void groupTouchedAsTargetInFirstHop_resolvesAgainAsSourceInSecondHop() {
+        // First interaction: Extra Deck is only ever seen as a drop *target*.
+        CardsGroup realExtraAsTarget = CardGroupRegistry
+                .resolveRealGroupForOuicheListGroup(groupFor(ephemeralStandaloneDeck.getExtraDeck()));
+        assertTrue(CardGroupRegistry.GROUP_OBSERVABLE_LISTS.containsKey(realExtraAsTarget));
+
+        // Second interaction, moments later: Extra Deck is now the *source* of a new
+        // move. This is exactly the scenario that used to fail — a group registered
+        // only as a target was never picked up by dropInsertIntoGroup's
+        // source-removal scan when it later needed to act as a source.
+        CardsGroup realExtraAsSource = CardGroupRegistry
+                .resolveRealGroupForOuicheListGroup(groupFor(ephemeralStandaloneDeck.getExtraDeck()));
+
+        assertSame(realExtraAsTarget, realExtraAsSource,
+                "Resolving the same group again, now as a source, must return the same "
+                        + "already-registered wrapper rather than an unregistered fresh one");
+        assertTrue(CardGroupRegistry.GROUP_OBSERVABLE_LISTS.containsKey(realExtraAsSource));
+    }
+
+    @Test
+    void cardMovedThenImmediatelyRemoved_resolvesToItsNewLocationForTheRemoval() {
+        CardElement ephemeralElement = ephemeralStandaloneDeck.getMainDeck().get(0);
+
+        // Move: Main -> Extra.
+        CardElement realElement = CardGroupRegistry.resolveRealElementForOuicheListElement(ephemeralElement);
+        ephemeralStandaloneDeck.getMainDeck().remove(ephemeralElement);
+        ephemeralStandaloneDeck.getExtraDeck().add(ephemeralElement);
+        realStandaloneDeck.getMainDeck().remove(realElement);
+        realStandaloneDeck.getExtraDeck().add(realElement);
+
+        // Immediately afterward, the same card — now shown in Extra Deck — is
+        // dragged out to be removed. Resolution for the removal must find it at
+        // its *new* location, not its stale Main Deck position.
+        CardElement resolvedForRemoval = CardGroupRegistry.resolveRealElementForOuicheListElement(ephemeralElement);
+
+        assertSame(realElement, resolvedForRemoval);
+    }
+
+    @Test
+    void freshlyAddedCard_sharedIdentityWithRealModel_resolvesToItself() {
+        // OuicheListUpdater#onDeckCardAdded inserts the exact same real CardElement
+        // instance directly into the ephemeral section (see its class-level doc) — so
+        // a freshly-added card is, briefly, one and the same object on both sides.
+        // Immediately dragging it again within the OuicheList tab must still resolve
+        // cleanly rather than mishandle this shared-identity case.
+        CardElement freshlyAddedRealCard = new CardElement(cardB);
+        freshlyAddedRealCard.setOwnershipStatus(OwnershipStatus.MISSING);
+        realStandaloneDeck.getMainDeck().add(freshlyAddedRealCard);
+        ephemeralStandaloneDeck.getMainDeck().add(freshlyAddedRealCard);
+
+        CardElement resolved = CardGroupRegistry.resolveRealElementForOuicheListElement(freshlyAddedRealCard);
+
+        assertSame(freshlyAddedRealCard, resolved,
+                "A freshly-added card is already the real instance; resolving it must return itself");
+    }
 }

@@ -105,16 +105,52 @@ final class CardMoveHandler {
             return;
         }
 
-        // 6) add to destination via ObservableList (updates model + GridView automatically)
+        // 6) redirect to the sibling deck section if the card doesn't belong in the
+        // resolved destination (a no-op for any destination that isn't a Main/Extra
+        // Deck section, since redirectSection only ever fires for those two).
+        CardsGroup destinationGroup = dest.group;
+        if (toAdd.getCard() != null) {
+            String redirectSectionName =
+                    Utils.DeckCompatibility.redirectSection(toAdd.getCard(), destinationGroup.getName());
+            if (redirectSectionName != null) {
+                CardsGroup siblingGroup = findSiblingSectionGroup(dest.box, redirectSectionName);
+                if (siblingGroup != null) {
+                    destinationGroup = siblingGroup;
+                }
+            }
+        }
+
+        // 7) add to destination via ObservableList (updates model + GridView automatically)
         try {
-            CardGroupRegistry.observableListFor(dest.group).add(toAdd);
-            CardGroupRegistry.triggerHeightAdjustment(dest.group);
+            CardGroupRegistry.observableListFor(destinationGroup).add(toAdd);
+            CardGroupRegistry.triggerHeightAdjustment(destinationGroup);
         } catch (Throwable exception) {
             logger.debug("Failed to add element to destination", exception);
         }
 
         UserInterfaceFunctions.markMyCollectionDirty();
         UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+    }
+
+    /**
+     * Finds the sibling deck-section {@link CardsGroup} (e.g. "Extra Deck") within
+     * {@code box}, the same owned-collection Box that {@code findDestinationGroup}
+     * resolved the original destination from.
+     *
+     * @param box                the Box the mismatched destination group belongs to
+     * @param sectionDisplayName the redirect target, e.g. {@code "Extra Deck"}
+     * @return the matching sibling group, or {@code null} if not found
+     */
+    private static CardsGroup findSiblingSectionGroup(Box box, String sectionDisplayName) {
+        if (box == null || box.getContent() == null || sectionDisplayName == null) {
+            return null;
+        }
+        for (CardsGroup cardsGroup : box.getContent()) {
+            if (cardsGroup != null && sectionDisplayName.equalsIgnoreCase(cardsGroup.getName())) {
+                return cardsGroup;
+            }
+        }
+        return null;
     }
 
     private static CardElement constructCardElementFallback(CardElement clickedElement) {

@@ -1,6 +1,7 @@
 package View;
 
 import Controller.CollectionFileIO;
+import Controller.CollectionStateTracker;
 import Controller.UserInterfaceFunctions;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
@@ -722,8 +723,10 @@ public class SharedCollectionTab extends HBox {
     }
 
     /**
-     * Builds the Shops tab header: a max-price field and the UltraJeux scrape button.
-     * Scrape results are displayed in {@link #contentPane}.
+     * Builds the Shops tab header: a max-price field, the UltraJeux scrape button, and the
+     * CardMarket scrape button with its seller dropdown (populated from
+     * {@link Model.CardMarket.CardMarketSellers#ALL_SELLERS}). Scrape results are displayed
+     * in {@link #contentPane}.
      */
     private VBox buildShopsHeader() {
         VBox group = new VBox(10);
@@ -741,8 +744,65 @@ public class SharedCollectionTab extends HBox {
         ultraJeuxButton.getStyleClass().add("small-button");
         ultraJeuxButton.setOnAction(e -> runUltraJeuxScrape(maxPriceField));
 
-        group.getChildren().addAll(maxPriceRow, ultraJeuxButton);
+        Button cardMarketButton = new Button("CardMarket");
+        cardMarketButton.getStyleClass().add("small-button");
+
+        ComboBox<Model.CardMarket.CardMarketSeller> cardMarketSellerCombo = new ComboBox<>();
+        cardMarketSellerCombo.getItems().addAll(Model.CardMarket.CardMarketSellers.ALL_SELLERS);
+        cardMarketSellerCombo.getStyleClass().add("accent-combo");
+        cardMarketSellerCombo.setPrefHeight(24);
+        cardMarketSellerCombo.setMaxHeight(24);
+        if (!cardMarketSellerCombo.getItems().isEmpty()) {
+            cardMarketSellerCombo.setValue(cardMarketSellerCombo.getItems().get(0));
+        }
+        cardMarketButton.setOnAction(e -> runCardMarketScrape(maxPriceField, cardMarketSellerCombo));
+
+        HBox cardMarketRow = new HBox(8, cardMarketButton, cardMarketSellerCombo);
+        cardMarketRow.setAlignment(Pos.CENTER_LEFT);
+
+        group.getChildren().addAll(maxPriceRow, ultraJeuxButton, cardMarketRow);
         return group;
+    }
+
+    /**
+     * Ensures the flat OuicheList (what every shop scraper reads via
+     * {@link Model.CardsLists.OuicheList#getMaOuicheListAsFlatList()}) is populated,
+     * building it in-memory via {@link Model.CardsLists.OuicheList#createOuicheList}
+     * if needed.
+     * <p>
+     * Note this is distinct from the Detailed OuicheList built just by opening the
+     * OuicheList tab ({@code createDetailedOuicheList}) — that one doesn't populate
+     * the flat list the scrapers need, so it's not enough on its own.
+     *
+     * @return the flat OuicheList, or {@code null} if it's genuinely empty (an error
+     * label has already been shown in {@link #contentPane} in that case)
+     */
+    private List<Model.CardsLists.CardElement> ensureOuicheListLoaded() throws Exception {
+        if (!CollectionFileIO.isMyCollectionLoaded()) {
+            CollectionFileIO.loadCollectionFile();
+        }
+        if (!CollectionFileIO.isDecksAndCollectionLoaded()) {
+            CollectionFileIO.loadDecksAndCollectionsDirectory();
+        }
+
+        List<Model.CardsLists.CardElement> ouicheList = Model.CardsLists.OuicheList.getMaOuicheListAsFlatList();
+        if (ouicheList == null || ouicheList.isEmpty()) {
+            Model.CardsLists.OuicheList.createOuicheList(
+                    Model.CardsLists.OuicheList.getMyCardsCollection(),
+                    CollectionStateTracker.getDecksList());
+            ouicheList = Model.CardsLists.OuicheList.getMaOuicheListAsFlatList();
+        }
+
+        if (ouicheList == null || ouicheList.isEmpty()) {
+            Label errorLabel = new Label("The OuicheList is empty \u2014 nothing to scrape against.");
+            errorLabel.setStyle("-fx-text-fill: #ff6666; -fx-font-size: 12;");
+            AnchorPane.setTopAnchor(errorLabel, 10.0);
+            AnchorPane.setLeftAnchor(errorLabel, 10.0);
+            contentPane.getChildren().setAll(errorLabel);
+            return null;
+        }
+
+        return ouicheList;
     }
 
     /**
@@ -751,19 +811,10 @@ public class SharedCollectionTab extends HBox {
      */
     private void runUltraJeuxScrape(TextField maxPriceField) {
         try {
-            if (!UserInterfaceFunctions.getOuicheListIsLoaded()) {
-                if (CollectionFileIO.ouicheListPath == null) {
-                    logger.warn("UltraJeux scrape requested but no OuicheList path is set.");
-                } else {
-                    UserInterfaceFunctions.loadOuicheList();
-                }
-            }
-            if (!UserInterfaceFunctions.getOuicheListIsLoaded()) {
+            List<Model.CardsLists.CardElement> ouicheList = ensureOuicheListLoaded();
+            if (ouicheList == null) {
                 return;
             }
-
-            List<Model.CardsLists.CardElement> ouicheList =
-                    Model.CardsLists.OuicheList.getMaOuicheListAsFlatList();
 
             double maxPrice;
             try {
@@ -789,10 +840,10 @@ public class SharedCollectionTab extends HBox {
             AnchorPane.setLeftAnchor(scrapingLabel, 10.0);
             contentPane.getChildren().setAll(scrapingLabel);
 
-            List<Model.UltraJeux.ShopResultEntry> shopResults =
+            List<Model.Shops.ShopResultEntry> shopResults =
                     Model.UltraJeux.CardScraper.getCardNamesFromWebsite(ouicheList, maxPrice);
 
-            ListView<Model.UltraJeux.ShopResultEntry> resultsListView = new ListView<>();
+            ListView<Model.Shops.ShopResultEntry> resultsListView = new ListView<>();
             resultsListView.getItems().addAll(shopResults);
             resultsListView.setCellFactory(lv -> new ShopResultListCell());
             resultsListView.setStyle(
@@ -823,6 +874,99 @@ public class SharedCollectionTab extends HBox {
 
         } catch (Exception ex) {
             logger.error("Error during UltraJeux scraping", ex);
+            Label errorLabel = new Label("Error during scraping: " + ex.getMessage());
+            errorLabel.setStyle(
+                    "-fx-text-fill: #ff6666; -fx-font-size: 12; -fx-wrap-text: true;");
+            errorLabel.setWrapText(true);
+            AnchorPane.setTopAnchor(errorLabel, 10.0);
+            AnchorPane.setLeftAnchor(errorLabel, 10.0);
+            AnchorPane.setRightAnchor(errorLabel, 10.0);
+            contentPane.getChildren().setAll(errorLabel);
+        }
+    }
+
+    /**
+     * Runs the CardMarket scrape for the selected seller using the price entered in
+     * {@code maxPriceField} and displays the results (or an error label) in {@link #contentPane}.
+     */
+    private void runCardMarketScrape(TextField maxPriceField,
+                                     ComboBox<Model.CardMarket.CardMarketSeller> sellerCombo) {
+        try {
+            List<Model.CardsLists.CardElement> ouicheList = ensureOuicheListLoaded();
+            if (ouicheList == null) {
+                return;
+            }
+
+            Model.CardMarket.CardMarketSeller selectedSeller = sellerCombo.getValue();
+            if (selectedSeller == null) {
+                Label errorLabel = new Label("Please select a CardMarket seller.");
+                errorLabel.setStyle("-fx-text-fill: #ff6666; -fx-font-size: 12;");
+                AnchorPane.setTopAnchor(errorLabel, 10.0);
+                AnchorPane.setLeftAnchor(errorLabel, 10.0);
+                contentPane.getChildren().setAll(errorLabel);
+                return;
+            }
+
+            double maxPrice;
+            try {
+                maxPrice = Double.parseDouble(
+                        maxPriceField.getText().trim().replace(',', '.'));
+                if (maxPrice <= 0) {
+                    throw new NumberFormatException("Price must be positive");
+                }
+            } catch (NumberFormatException nfe) {
+                maxPriceField.setStyle(maxPriceField.getStyle() + " -fx-border-color: #ff6666;");
+                Label errorLabel = new Label("Invalid max price \u2014 please enter a positive number.");
+                errorLabel.setStyle("-fx-text-fill: #ff6666; -fx-font-size: 12;");
+                AnchorPane.setTopAnchor(errorLabel, 10.0);
+                AnchorPane.setLeftAnchor(errorLabel, 10.0);
+                contentPane.getChildren().setAll(errorLabel);
+                return;
+            }
+            maxPriceField.setStyle("");
+
+            Label scrapingLabel = new Label(
+                    "Scraping CardMarket (" + selectedSeller.getDisplayName() + ")\u2026");
+            scrapingLabel.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 14;");
+            AnchorPane.setTopAnchor(scrapingLabel, 10.0);
+            AnchorPane.setLeftAnchor(scrapingLabel, 10.0);
+            contentPane.getChildren().setAll(scrapingLabel);
+
+            List<Model.Shops.ShopResultEntry> shopResults =
+                    Model.CardMarket.CardScraper.getCardNamesFromWebsite(
+                            ouicheList, maxPrice, selectedSeller);
+
+            ListView<Model.Shops.ShopResultEntry> resultsListView = new ListView<>();
+            resultsListView.getItems().addAll(shopResults);
+            resultsListView.setCellFactory(lv -> new ShopResultListCell());
+            resultsListView.setStyle(
+                    "-fx-background-color: #100317;"
+                            + "-fx-background-insets: 0;"
+                            + "-fx-border-color: transparent;");
+            AnchorPane.setTopAnchor(resultsListView, 0.0);
+            AnchorPane.setBottomAnchor(resultsListView, 0.0);
+            AnchorPane.setLeftAnchor(resultsListView, 0.0);
+            AnchorPane.setRightAnchor(resultsListView, 0.0);
+
+            String resultCount = shopResults.size() + " result"
+                    + (shopResults.size() != 1 ? "s" : "")
+                    + " \u2014 same-card copies are grouped together";
+            Label summaryLabel = new Label(resultCount);
+            summaryLabel.setStyle(
+                    "-fx-text-fill: #aaaaaa; -fx-font-size: 11; -fx-padding: 4 8 4 8;");
+
+            VBox resultsWrapper = new VBox(0, summaryLabel, resultsListView);
+            VBox.setVgrow(resultsListView, Priority.ALWAYS);
+            resultsWrapper.setStyle("-fx-background-color: #100317;");
+            AnchorPane.setTopAnchor(resultsWrapper, 0.0);
+            AnchorPane.setBottomAnchor(resultsWrapper, 0.0);
+            AnchorPane.setLeftAnchor(resultsWrapper, 0.0);
+            AnchorPane.setRightAnchor(resultsWrapper, 0.0);
+
+            contentPane.getChildren().setAll(resultsWrapper);
+
+        } catch (Exception ex) {
+            logger.error("Error during CardMarket scraping", ex);
             Label errorLabel = new Label("Error during scraping: " + ex.getMessage());
             errorLabel.setStyle(
                     "-fx-text-fill: #ff6666; -fx-font-size: 12; -fx-wrap-text: true;");

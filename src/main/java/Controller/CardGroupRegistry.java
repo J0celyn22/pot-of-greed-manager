@@ -526,25 +526,93 @@ public final class CardGroupRegistry {
             List<CardElement> outNewlyAddedElements) {
 
         Set<CardsGroup> modifiedSourceGroups = new LinkedHashSet<>();
-
-        // ── Deck-compatibility redirect ───────────────────────────────────────
-        // If the target is a main/extra deck section and the payload is incompatible,
-        // redirect to the sibling section of the same Deck.
-        // CRITICAL: when redirected, the original insertionIndex belongs to the wrong list
-        // — reset to MAX_VALUE so it clamps to end-of-list on the redirect target.
-        CardsGroup originalTargetGroup = targetGroup;
-        targetGroup = resolveCompatibleTargetGroup(targetGroup, sourceElements, sourceCards);
-        if (targetGroup != originalTargetGroup) {
-            insertionIndex = Integer.MAX_VALUE;
+        if (targetGroup == null) {
+            return modifiedSourceGroups;
         }
-        // ──────────────────────────────────────────────────────────────────────
 
-        ObservableList<CardElement> targetList = observableListFor(targetGroup);
+        // ── Deck-compatibility split ───────────────────────────────────────────
+        // If the target is a main/extra deck section, split the payload per card/element:
+        // compatible ones are inserted at the requested position in targetGroup, incompatible
+        // ones are redirected to the sibling section of the same Deck. Unlike a whole-batch
+        // redirect decision, this keeps every card correct regardless of what else is in the
+        // same drag/drop payload.
+        String targetGroupName = targetGroup.getName();
+        boolean targetIsMainOrExtra = Utils.DeckCompatibility.isMainDeckSection(targetGroupName)
+                || Utils.DeckCompatibility.isExtraDeckSection(targetGroupName);
+
+        List<CardElement> compatibleElements = sourceElements;
+        List<CardElement> incompatibleElements = new ArrayList<>();
+        List<Card> compatibleCards = sourceCards;
+        List<Card> incompatibleCards = new ArrayList<>();
+
+        if (targetIsMainOrExtra && sourceElements != null) {
+            compatibleElements = new ArrayList<>();
+            for (CardElement cardElement : sourceElements) {
+                if (cardElement != null && cardElement.getCard() != null
+                        && !Utils.DeckCompatibility.isCompatibleWith(cardElement.getCard(), targetGroupName)) {
+                    incompatibleElements.add(cardElement);
+                } else {
+                    compatibleElements.add(cardElement);
+                }
+            }
+        } else if (targetIsMainOrExtra && sourceCards != null) {
+            compatibleCards = new ArrayList<>();
+            for (Card card : sourceCards) {
+                if (card != null
+                        && !Utils.DeckCompatibility.isCompatibleWith(card, targetGroupName)) {
+                    incompatibleCards.add(card);
+                } else {
+                    compatibleCards.add(card);
+                }
+            }
+        }
+        // ────────────────────────────────────────────────────────────────────────
+
+        insertIntoGroupTrackingSources(targetGroup, insertionIndex, compatibleElements, compatibleCards,
+                outNewlyAddedElements, modifiedSourceGroups);
+
+        if (!incompatibleElements.isEmpty() || !incompatibleCards.isEmpty()) {
+            Card sampleIncompatibleCard = !incompatibleElements.isEmpty()
+                    ? incompatibleElements.get(0).getCard()
+                    : incompatibleCards.get(0);
+            String redirectSectionName =
+                    Utils.DeckCompatibility.redirectSection(sampleIncompatibleCard, targetGroupName);
+            Deck ownerDeck = findDeckOwnerForGroup(targetGroup);
+            CardsGroup redirectGroup = null;
+            if (redirectSectionName != null && ownerDeck != null) {
+                String redirectKey = redirectSectionName.toLowerCase(java.util.Locale.ROOT)
+                        .replace(" deck", "").trim();
+                redirectGroup = getDeckSectionGroup(ownerDeck, redirectKey);
+            }
+            if (redirectGroup != null) {
+                insertIntoGroupTrackingSources(redirectGroup, Integer.MAX_VALUE, incompatibleElements,
+                        incompatibleCards, outNewlyAddedElements, modifiedSourceGroups);
+            }
+        }
+
+        return modifiedSourceGroups;
+    }
+
+    /**
+     * Inserts {@code elementsToInsert} (MOVE semantics) or {@code cardsToInsert} (ADD semantics,
+     * mutually exclusive with {@code elementsToInsert}) into {@code group} at {@code
+     * insertionIndex}, removing MOVE elements from their current groups first. Shared by both the
+     * primary insertion and the sibling-section redirect in {@link #dropInsertIntoGroup}.
+     */
+    private static void insertIntoGroupTrackingSources(
+            CardsGroup group,
+            int insertionIndex,
+            List<CardElement> elementsToInsert,
+            List<Card> cardsToInsert,
+            List<CardElement> outNewlyAddedElements,
+            Set<CardsGroup> modifiedSourceGroups) {
+
+        ObservableList<CardElement> targetList = observableListFor(group);
         int clampedIndex = Math.max(0, Math.min(insertionIndex, targetList.size()));
 
-        if (sourceElements != null && !sourceElements.isEmpty()) {
+        if (elementsToInsert != null && !elementsToInsert.isEmpty()) {
             // MOVE: remove elements from their current groups first.
-            for (CardElement cardElement : sourceElements) {
+            for (CardElement cardElement : elementsToInsert) {
                 for (Map.Entry<CardsGroup, ObservableList<CardElement>> registryEntry
                         : GROUP_OBSERVABLE_LISTS.entrySet()) {
                     if (registryEntry.getValue().remove(cardElement)) {
@@ -557,15 +625,15 @@ public final class CardGroupRegistry {
             }
             // Re-clamp in case removals shifted the index.
             clampedIndex = Math.min(clampedIndex, targetList.size());
-            for (int elementIndex = 0; elementIndex < sourceElements.size(); elementIndex++) {
+            for (int elementIndex = 0; elementIndex < elementsToInsert.size(); elementIndex++) {
                 int insertPosition = Math.min(clampedIndex + elementIndex, targetList.size());
-                targetList.add(insertPosition, sourceElements.get(elementIndex));
+                targetList.add(insertPosition, elementsToInsert.get(elementIndex));
             }
-        } else if (sourceCards != null && !sourceCards.isEmpty()) {
+        } else if (cardsToInsert != null && !cardsToInsert.isEmpty()) {
             // ADD: create new CardElement wrappers.
             List<CardElement> newlyAddedElements = new ArrayList<>();
-            for (int cardIndex = 0; cardIndex < sourceCards.size(); cardIndex++) {
-                Card card = sourceCards.get(cardIndex);
+            for (int cardIndex = 0; cardIndex < cardsToInsert.size(); cardIndex++) {
+                Card card = cardsToInsert.get(cardIndex);
                 if (card == null) {
                     continue;
                 }
@@ -574,14 +642,13 @@ public final class CardGroupRegistry {
                 targetList.add(insertPosition, newElement);
                 newlyAddedElements.add(newElement);
             }
-            notifyOuicheListOfGroupAdditions(targetGroup, newlyAddedElements);
+            notifyOuicheListOfGroupAdditions(group, newlyAddedElements);
             if (outNewlyAddedElements != null) {
                 outNewlyAddedElements.addAll(newlyAddedElements);
             }
         }
 
-        triggerHeightAdjustment(targetGroup);
-        return modifiedSourceGroups;
+        triggerHeightAdjustment(group);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1188,70 +1255,4 @@ public final class CardGroupRegistry {
     // ─────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * If {@code targetGroup} is a Deck's main or extra deck section and the payload is
-     * incompatible (e.g. an extra-deck card dropped onto the Main Deck), returns the
-     * sibling section's group for the same Deck.  Falls back to {@code targetGroup}
-     * unchanged when redirection is not needed or not possible.
-     */
-    private static CardsGroup resolveCompatibleTargetGroup(
-            CardsGroup targetGroup,
-            List<CardElement> sourceElements,
-            List<Card> sourceCards) {
-
-        if (targetGroup == null) {
-            return null;
-        }
-        String groupName = targetGroup.getName();
-        if (groupName == null) {
-            return targetGroup;
-        }
-
-        boolean isMainSection = Utils.DeckCompatibility.isMainDeckSection(groupName);
-        boolean isExtraSection = Utils.DeckCompatibility.isExtraDeckSection(groupName);
-        if (!isMainSection && !isExtraSection) {
-            // Side deck or other section — no deck-type restriction applies.
-            return targetGroup;
-        }
-
-        // Determine the representative card from the payload.
-        Card sampleCard = null;
-        if (sourceElements != null) {
-            for (CardElement cardElement : sourceElements) {
-                if (cardElement != null && cardElement.getCard() != null) {
-                    sampleCard = cardElement.getCard();
-                    break;
-                }
-            }
-        }
-        if (sampleCard == null && sourceCards != null) {
-            for (Card card : sourceCards) {
-                if (card != null) {
-                    sampleCard = card;
-                    break;
-                }
-            }
-        }
-        if (sampleCard == null) {
-            return targetGroup;
-        }
-
-        String redirectSectionName = Utils.DeckCompatibility.redirectSection(sampleCard, groupName);
-        if (redirectSectionName == null) {
-            // Card is already compatible with the current section.
-            return targetGroup;
-        }
-
-        Deck ownerDeck = findDeckOwnerForGroup(targetGroup);
-        if (ownerDeck == null) {
-            return targetGroup;
-        }
-
-        // Map the redirect section display-name to the registry key ("main" or "extra").
-        String redirectKey = redirectSectionName.toLowerCase(java.util.Locale.ROOT)
-                .replace(" deck", "").trim();
-        CardsGroup redirectGroup = getDeckSectionGroup(ownerDeck, redirectKey);
-        return redirectGroup != null ? redirectGroup : targetGroup;
-    }
 }

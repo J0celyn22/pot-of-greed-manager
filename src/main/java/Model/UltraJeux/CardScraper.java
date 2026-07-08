@@ -2,6 +2,8 @@ package Model.UltraJeux;
 
 import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
+import Model.Shops.ShopCardMatcher;
+import Model.Shops.ShopResultEntry;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -14,7 +16,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
-import java.text.Normalizer;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -112,7 +113,7 @@ public class CardScraper {
     public static List<ShopResultEntry> getCardNamesFromWebsite(
             List<CardElement> maOuicheList, double maxPrice) throws Exception {
 
-        Map<String, Integer> ouicheCountMap = buildOuicheCountMap(maOuicheList);
+        Map<String, Integer> ouicheCountMap = ShopCardMatcher.buildOuicheCountMap(maOuicheList);
 
         Pattern printCodePattern = Pattern.compile("\\b([A-Z0-9]{2,}(?:-?[A-Z0-9]+)?)\\b");
 
@@ -208,13 +209,13 @@ public class CardScraper {
                                         konamiId = getPrintCodeToKonamiId().get(entry.extraNote);
                                     Card card = null;
                                     if (konamiId != null)
-                                        card = findCardById(maOuicheList, konamiId);
+                                        card = ShopCardMatcher.findCardById(maOuicheList, konamiId);
                                     else {
-                                        String normalized = normalizeForCompare(name);
+                                        String normalized = ShopCardMatcher.normalizeForCompare(name);
                                         if (!normalized.isEmpty())
-                                            card = findCardByNormalizedName(maOuicheList, normalized, name);
+                                            card = ShopCardMatcher.findCardByNormalizedName(maOuicheList, normalized, name);
                                         else
-                                            card = findCardByName(maOuicheList, name);
+                                            card = ShopCardMatcher.findCardByName(maOuicheList, name);
                                     }
                                     if (card != null) {
                                         entry.matched = true;
@@ -310,13 +311,13 @@ public class CardScraper {
                                     konamiId = getPrintCodeToKonamiId().get(printCode);
                                 Card card = null;
                                 if (konamiId != null) {
-                                    card = findCardById(maOuicheList, konamiId);
+                                    card = ShopCardMatcher.findCardById(maOuicheList, konamiId);
                                 } else {
-                                    String normalized = normalizeForCompare(name);
+                                    String normalized = ShopCardMatcher.normalizeForCompare(name);
                                     if (!normalized.isEmpty())
-                                        card = findCardByNormalizedName(maOuicheList, normalized, name);
+                                        card = ShopCardMatcher.findCardByNormalizedName(maOuicheList, normalized, name);
                                     else
-                                        card = findCardByName(maOuicheList, name);
+                                        card = ShopCardMatcher.findCardByName(maOuicheList, name);
                                 }
                                 if (card != null) {
                                     entry.matched = true;
@@ -406,67 +407,9 @@ public class CardScraper {
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────────
-
-    private static Map<String, Integer> buildOuicheCountMap(List<CardElement> maOuicheList) {
-        Map<String, Integer> map = new HashMap<>();
-        if (maOuicheList == null) return map;
-        for (CardElement ce : maOuicheList) {
-            if (ce == null || ce.getCard() == null) continue;
-            String img = ce.getCard().getImagePath();
-            if (img == null) continue;
-            map.put(img, map.getOrDefault(img, 0) + 1);
-        }
-        return map;
-    }
-
-    // Normalizes a String: lowercase, strip diacritics, remove punctuation and extra spaces
-    private static String normalizeForCompare(String s) {
-        if (s == null) return "";
-        String t = s.toLowerCase().trim();
-        t = Normalizer.normalize(t, Normalizer.Form.NFD)
-                .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
-        t = t.replaceAll("[^\\p{Alnum}\\s]", "");
-        t = t.replaceAll("\\s+", " ").trim();
-        return t;
-    }
-
-    private static Card findCardByNormalizedName(List<CardElement> maOuicheList,
-                                                 String normalizedName, String originalName) {
-        for (CardElement element : maOuicheList) {
-            Card c = element.getCard();
-            if (c.getName_EN() != null) {
-                String nEN = normalizeForCompare(c.getName_EN());
-                if (!nEN.isEmpty() && nEN.equals(normalizedName)) return c;
-                if (nEN.isEmpty() && c.getName_EN().equalsIgnoreCase(originalName)) return c;
-            }
-            if (c.getName_FR() != null) {
-                String nFR = normalizeForCompare(c.getName_FR());
-                if (!nFR.isEmpty() && nFR.equals(normalizedName)) return c;
-                if (nFR.isEmpty() && c.getName_FR().equalsIgnoreCase(originalName)) return c;
-            }
-        }
-        return null;
-    }
-
-    private static Card findCardByName(List<CardElement> maOuicheList, String name) {
-        for (CardElement element : maOuicheList) {
-            Card card = element.getCard();
-            if (card.getName_EN() != null && card.getName_EN().equals(name)) return card;
-            if (card.getName_FR() != null && card.getName_FR().equals(name)) return card;
-        }
-        return null;
-    }
-
-    private static Card findCardById(List<CardElement> maOuicheList, String konamiId) {
-        for (CardElement element : maOuicheList) {
-            if (element.getCard().getKonamiId() != null) {
-                if (element.getCard().getKonamiId().equals(konamiId)) {
-                    return element.getCard();
-                }
-            }
-        }
-        return null;
-    }
+    // Card-matching logic (buildOuicheCountMap, normalizeForCompare, findCardByNormalizedName,
+    // findCardByName, findCardById) lives in Model.Shops.ShopCardMatcher, shared with every
+    // other shop scraper.
 
     private static class Entry {
         String name;

@@ -15,6 +15,8 @@ module PotOfGreedManager {
     exports Model.Database to javafx.graphics, javafx.fxml;
     exports Model.Database.CardInfo to javafx.graphics, javafx.fxml;
     exports Model.UltraJeux to javafx.graphics, javafx.fxml;
+    exports Model.Shops to javafx.graphics, javafx.fxml;
+    exports Model.CardMarket to javafx.graphics, javafx.fxml;
     exports View to javafx.graphics, javafx.fxml;
     exports Controller to javafx.graphics, javafx.fxml;
     opens Main to javafx.graphics, javafx.fxml;
