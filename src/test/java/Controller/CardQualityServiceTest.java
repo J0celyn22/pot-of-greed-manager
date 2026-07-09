@@ -18,10 +18,9 @@ import static org.junit.jupiter.api.Assertions.*;
  * the shared decks/collections list or owned collection through
  * {@link UserInterfaceFunctions#getDecksList()} / {@link OuicheList#getMyCardsCollection()};
  * for those, the test injects a fixture via the matching setter. {@link #setUp()} and
- * {@link #tearDown()} clear both statics before and after every test, since other test
- * classes in this suite (e.g. {@code OuicheListUpdaterTest}) set
- * {@code OuicheList.myCardsCollection} without cleaning it up, so a clean slate can't be
- * assumed just because this class's own tests clean up after themselves.</p>
+ * {@link #tearDown()} reset all shared static state before and after every test, since
+ * other test classes in this suite touch the same statics and JUnit does not guarantee
+ * any particular ordering between test classes.</p>
  *
  * <p>Coverage:
  * <ul>
@@ -74,20 +73,20 @@ public class CardQualityServiceTest {
         return owned;
     }
 
-    // Reset before AND after every test: UserInterfaceFunctions/OuicheList hold
-    // shared static state, and other test classes (e.g. OuicheListUpdaterTest) set
-    // OuicheList.myCardsCollection via @BeforeEach without cleaning it up afterward,
-    // so this class can't assume a clean slate just because its own tests clean up.
+    // Reset before AND after every test: UserInterfaceFunctions/OuicheList/CardGroupRegistry
+    // hold shared static state and JUnit does not guarantee class ordering, so a clean
+    // slate can't be assumed just because this class's own tests clean up after
+    // themselves — see CardGroupRegistryTestSupport's and OuicheListTestSupport's Javadoc.
     @BeforeEach
     void setUp() {
-        UserInterfaceFunctions.setDecksList(null);
-        OuicheList.setMyCardsCollection(null);
+        CardGroupRegistryTestSupport.resetAll();
+        OuicheListTestSupport.resetAll();
     }
 
     @AfterEach
     void tearDown() {
-        UserInterfaceFunctions.setDecksList(null);
-        OuicheList.setMyCardsCollection(null);
+        CardGroupRegistryTestSupport.resetAll();
+        OuicheListTestSupport.resetAll();
     }
 
     // ── isBetterCondition ────────────────────────────────────────────────────

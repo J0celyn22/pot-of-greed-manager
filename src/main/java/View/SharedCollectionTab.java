@@ -775,7 +775,7 @@ public class SharedCollectionTab extends HBox {
      * the flat list the scrapers need, so it's not enough on its own.
      *
      * @return the flat OuicheList, or {@code null} if it's genuinely empty (an error
-     * label has already been shown in {@link #contentPane} in that case)
+     *         label has already been shown in {@link #contentPane} in that case)
      */
     private List<Model.CardsLists.CardElement> ensureOuicheListLoaded() throws Exception {
         if (!CollectionFileIO.isMyCollectionLoaded()) {

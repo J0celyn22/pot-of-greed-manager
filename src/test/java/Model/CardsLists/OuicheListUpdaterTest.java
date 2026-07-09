@@ -1,5 +1,6 @@
 package Model.CardsLists;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -7,7 +8,6 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -70,6 +70,12 @@ public class OuicheListUpdaterTest {
 
     @BeforeEach
     void setUp() {
+        // OuicheList's static state is shared across the whole JVM test run and JUnit
+        // does not guarantee class ordering — reset everything first so this test can
+        // never inherit stale state from an unrelated test class that happened to run
+        // before it (see OuicheListTestSupport's Javadoc).
+        OuicheListTestSupport.resetAll();
+
         cardA = card("KID-001", "00000001", "img/a.jpg");
         cardB = card("KID-002", "00000002", "img/b.jpg");
 
@@ -90,12 +96,13 @@ public class OuicheListUpdaterTest {
         ouicheList.addCollection(detailedCollection);
 
         OuicheList.setDetailedOuicheList(ouicheList);
-        OuicheList.setUnusedCards(new ArrayList<>());
-        OuicheList.setMaOuicheList(new LinkedHashMap<>());
-        OuicheList.setMaOuicheListCounts(new LinkedHashMap<>());
-        OuicheList.setMaOuicheListSubstandard(new LinkedHashMap<>());
-        OuicheList.setMaOuicheListSubstandardCounts(new LinkedHashMap<>());
         OuicheList.setMyCardsCollection(new OwnedCardsCollection());
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Leave a clean slate so this test can never leak state into whatever runs next.
+        OuicheListTestSupport.resetAll();
     }
 
     private List<CardElement> sectionFor(Deck deck, String section) {

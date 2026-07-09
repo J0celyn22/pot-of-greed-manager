@@ -41,8 +41,8 @@ public class DecksAndCollectionsListTest {
         assertEquals(collections, list.getCollections());
     }
 
-    /*@Test
-    public void testToList() throws Exception {
+    @Test
+    public void testToList_WithStandaloneDeck() throws Exception {
         DecksAndCollectionsList list = new DecksAndCollectionsList();
         List<Deck> decks = new ArrayList<>();
         Deck deck = new Deck();
@@ -52,8 +52,37 @@ public class DecksAndCollectionsListTest {
         List<CardElement> cards = list.toList();
         assertEquals(1, cards.size());
         assertEquals("TestCard", cards.get(0).getCard().getPassCode());
-    }*/
+    }
 
+    /**
+     * Covers the path in {@link DecksAndCollectionsList#toList()} that handles a
+     * non-loose {@link ThemeCollection} (connectToWholeCollection = false, the
+     * default): that path should simply delegate to the collection's own
+     * {@code toList()} and include its cards in the merged result. The more
+     * detailed merge scenarios (artwork preference, dontRemove, per-unit
+     * duplicate counts) already have thorough, currently-passing coverage in
+     * ThemeCollectionTest directly against ThemeCollection#toList(); this test
+     * only confirms the delegation itself happens at the
+     * DecksAndCollectionsList entry point.
+     */
+    @Test
+    public void testToList_DelegatesToNonLooseCollection() throws Exception {
+        DecksAndCollectionsList list = new DecksAndCollectionsList();
+        ThemeCollection collection = new ThemeCollection();
+
+        Card card = new Card();
+        card.setPassCode("COLLCARD1");
+        collection.getCardsList().add(new CardElement(card));
+
+        List<ThemeCollection> collections = new ArrayList<>();
+        collections.add(collection);
+        list.setCollections(collections);
+
+        List<CardElement> cards = list.toList();
+
+        assertEquals(1, cards.size());
+        assertEquals("COLLCARD1", cards.get(0).getCard().getPassCode());
+    }
 
     @Test
     public void testToListCollectionsAndLinkedDecks() throws Exception {

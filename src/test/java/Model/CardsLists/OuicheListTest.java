@@ -1,5 +1,6 @@
 package Model.CardsLists;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -148,15 +149,18 @@ public class OuicheListTest {
 
     @BeforeEach
     void resetOuicheList() {
-        OuicheList.setDetailedOuicheList(null);
-        OuicheList.setUnusedCards(null);
-        OuicheList.setMaOuicheList(null);
-        OuicheList.setMaOuicheListCounts(null);
-        OuicheList.setMaOuicheListSubstandard(null);
-        OuicheList.setMaOuicheListSubstandardCounts(null);
-        OuicheList.setListsIntersection(null);
-        OuicheList.setThirdPartyList(null);
-        OuicheList.setThirdPartyCardsINeedList(null);
+        // Was previously missing OuicheList.setMyCardsCollection(null) and
+        // OuicheList.setDecksList(null) — an incomplete reset here was part of why
+        // this class's leftover state could interfere with other OuicheList-touching
+        // test classes depending on run order. Delegate to the shared helper so this
+        // can never drift out of sync again (see OuicheListTestSupport's Javadoc).
+        OuicheListTestSupport.resetAll();
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Leave a clean slate so this test can never leak state into whatever runs next.
+        OuicheListTestSupport.resetAll();
     }
 
     @Test

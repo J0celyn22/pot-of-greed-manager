@@ -1,6 +1,7 @@
 package Controller;
 
 import Model.CardsLists.*;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -116,13 +117,13 @@ public class CardGroupRegistryOuicheListSyncTest {
         cardA = card("KID-001", "00000001", "img/a.jpg");
         cardB = card("KID-002", "00000002", "img/b.jpg");
 
-        // Registries are static/global — start every test from a clean slate.
-        CardGroupRegistry.GROUP_OBSERVABLE_LISTS.clear();
-        CardGroupRegistry.DECK_SECTION_GROUPS.clear();
-        CardGroupRegistry.COLLECTION_CARDS_GROUPS.clear();
-        CardGroupRegistry.COLLECTION_EXCEPTIONS_GROUPS.clear();
-        CardGroupRegistry.GROUP_GRID_VIEWS.clear();
-        CardGroupRegistry.GROUP_FILTERED_LISTS.clear();
+        // Both CardGroupRegistry's registries and OuicheList's static state are
+        // shared across the whole JVM test run and JUnit does not guarantee class
+        // ordering — reset everything first so this test can never inherit stale
+        // state from an unrelated test class that happened to run before it (see
+        // CardGroupRegistryTestSupport's and OuicheListTestSupport's Javadoc).
+        CardGroupRegistryTestSupport.resetAll();
+        OuicheListTestSupport.resetAll();
 
         // ── Ephemeral side (OuicheList's own deep copy) ──
         ephemeralStandaloneDeck = deck("StandaloneDeck");
@@ -167,6 +168,13 @@ public class CardGroupRegistryOuicheListSyncTest {
         registerEphemeralGroup(ephemeralStandaloneDeck.getSideDeck());
         registerEphemeralGroup(ephemeralLinkedDeck.getMainDeck());
         registerEphemeralGroup(ephemeralCollection.getCardsList());
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Leave a clean slate so this test can never leak state into whatever runs next.
+        CardGroupRegistryTestSupport.resetAll();
+        OuicheListTestSupport.resetAll();
     }
 
     // =========================================================================

@@ -10,6 +10,12 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebDriverException;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.support.ui.WebDriverWait;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,6 +24,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.*;
 
 import static Model.FilePaths.outputPath;
@@ -37,6 +44,13 @@ import static Model.FilePaths.outputPath;
  * <p>
  * Either way, "is there a next page" is answered the simplest possible way: fetch the next
  * page and check whether CardMarket's own empty-state text is present.
+ * <p>
+ * Pages are fetched with a real, Selenium-driven Chrome browser rather than a plain HTTP
+ * client — CardMarket's seller-offers pages return HTTP 403 to a bare Jsoup request (even
+ * with a full browser-like header set), which points to bot detection that checks things a
+ * plain HTTP client can't fake, like TLS fingerprint and JS execution. This requires Chrome
+ * to be installed on the machine running the app; Selenium's built-in driver manager fetches
+ * a matching ChromeDriver automatically, no manual setup needed beyond having Chrome itself.
  */
 public class CardScraper {
 
@@ -44,6 +58,13 @@ public class CardScraper {
 
     private static final String TOO_MANY_RESULTS_MARKER = "300+ results";
     private static final String NO_OFFERS_MARKER = "There are no offers for your selected category";
+
+    /**
+     * Headless Chrome is more likely to be fingerprinted as a bot than a normal, visible
+     * Chrome window. If pages still come back blocked with this on, try flipping it off
+     * first before assuming Selenium itself won't work here.
+     */
+    private static final boolean HEADLESS = true;
 
     /**
      * Retrieves cards from the given CardMarket seller's offers that are present in the
@@ -69,6 +90,15 @@ public class CardScraper {
         String baseUrl = "https://www.cardmarket.com/en/YuGiOh/Users/" + seller.getUsername()
                 + "/Offers/Singles?" + buildBaseQueryString(maxPrice);
 
+        WebDriver driver;
+        try {
+            driver = createDriver();
+        } catch (Exception exception) {
+            logger.error("Could not start a Chrome browser for CardMarket scraping. "
+                    + "Make sure Google Chrome is installed on this machine.", exception);
+            return result;
+        }
+
         try (BufferedWriter writer = new BufferedWriter(
                 new OutputStreamWriter(
                         new FileOutputStream(outputPath + "\\ListeCardMarket_" + seller.getUsername() + ".txt"),
@@ -77,15 +107,15 @@ public class CardScraper {
             List<Entry> collected = new ArrayList<>();
 
             politeDelay();
-            Document firstPageDocument = fetchPage(baseUrl);
+            Document firstPageDocument = fetchPage(driver, baseUrl);
 
             if (firstPageDocument.text().contains(TOO_MANY_RESULTS_MARKER)) {
                 logger.debug("{} has more than 300 unfiltered results; scraping expansion by expansion.",
                         seller.getDisplayName());
-                collected.addAll(scrapeByExpansion(baseUrl, firstPageDocument, maOuicheList, maxPrice, ouicheCountMap,
-                        seller, writer));
+                collected.addAll(scrapeByExpansion(driver, baseUrl, firstPageDocument, maOuicheList, maxPrice,
+                        ouicheCountMap, seller, writer));
             } else {
-                collected.addAll(scrapeSimplePagination(baseUrl, firstPageDocument, maOuicheList, maxPrice,
+                collected.addAll(scrapeSimplePagination(driver, baseUrl, firstPageDocument, maOuicheList, maxPrice,
                         ouicheCountMap, seller, writer));
             }
 
@@ -133,6 +163,8 @@ public class CardScraper {
 
         } catch (IOException ioException) {
             logger.error("Error writing CardMarket results file for {}.", seller.getDisplayName(), ioException);
+        } finally {
+            driver.quit();
         }
 
         return result;
@@ -145,8 +177,8 @@ public class CardScraper {
      * through it with {@code &site=N} until a page comes back empty.
      */
     private static List<Entry> scrapeSimplePagination(
-            String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList, double maxPrice,
-            Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer) {
+            WebDriver driver, String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList,
+            double maxPrice, Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer) {
 
         List<Entry> collected = new ArrayList<>();
         Document pageDocument = firstPageDocument;
@@ -166,9 +198,9 @@ public class CardScraper {
             String pageUrl = baseUrl + "&site=" + pageNumber;
             politeDelay();
             try {
-                pageDocument = fetchPage(pageUrl);
-            } catch (IOException ioException) {
-                logIoFailure(writer, seller, "page " + pageNumber, ioException);
+                pageDocument = fetchPage(driver, pageUrl);
+            } catch (WebDriverException webDriverException) {
+                logFetchFailure(writer, seller, "page " + pageNumber, webDriverException);
                 break;
             }
         }
@@ -182,8 +214,8 @@ public class CardScraper {
      * expansion individually, paginating each with {@code &site=N} until it comes back empty.
      */
     private static List<Entry> scrapeByExpansion(
-            String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList, double maxPrice,
-            Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer) {
+            WebDriver driver, String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList,
+            double maxPrice, Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer) {
 
         List<Entry> collected = new ArrayList<>();
         Map<String, String> expansionMap = extractExpansionMap(firstPageDocument);
@@ -202,9 +234,10 @@ public class CardScraper {
                 politeDelay();
                 Document pageDocument;
                 try {
-                    pageDocument = fetchPage(pageUrl);
-                } catch (IOException ioException) {
-                    logIoFailure(writer, seller, "expansion " + expansionLabel + " page " + pageNumber, ioException);
+                    pageDocument = fetchPage(driver, pageUrl);
+                } catch (WebDriverException webDriverException) {
+                    logFetchFailure(writer, seller, "expansion " + expansionLabel + " page " + pageNumber,
+                            webDriverException);
                     break;
                 }
 
@@ -225,24 +258,56 @@ public class CardScraper {
 
     // ── Page fetching & parsing ─────────────────────────────────────────────────────────
 
-    private static Document fetchPage(String url) throws IOException {
-        return Jsoup.connect(url)
-                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                        + "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                .header("Accept",
-                        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-                .header("Accept-Language", "en-US,en;q=0.9")
-                .header("Upgrade-Insecure-Requests", "1")
-                .header("Sec-Fetch-Dest", "document")
-                .header("Sec-Fetch-Mode", "navigate")
-                .header("Sec-Fetch-Site", "none")
-                .header("Sec-Fetch-User", "?1")
-                .header("sec-ch-ua", "\"Chromium\";v=\"124\", \"Google Chrome\";v=\"124\", \"Not-A.Brand\";v=\"99\"")
-                .header("sec-ch-ua-mobile", "?0")
-                .header("sec-ch-ua-platform", "\"Windows\"")
-                .referrer("https://www.google.com")
-                .timeout(30_000)
-                .get();
+    /**
+     * Starts a Chrome session with a handful of standard tweaks to look less obviously
+     * automated (a real, non-headless-looking user agent, the "automation" infobar/flag
+     * disabled). None of this guarantees passing bot detection — it's the same category of
+     * thing any browser-based scraper does, not a way around anything CardMarket couldn't
+     * otherwise see.
+     */
+    private static WebDriver createDriver() {
+        ChromeOptions options = new ChromeOptions();
+        if (HEADLESS) {
+            options.addArguments("--headless=new");
+        }
+        options.addArguments("--window-size=1920,1080");
+        options.addArguments("--disable-blink-features=AutomationControlled");
+        options.addArguments("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                + "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+        options.setExperimentalOption("excludeSwitches", List.of("enable-automation"));
+        options.setExperimentalOption("useAutomationExtension", false);
+
+        WebDriver driver = new ChromeDriver(options);
+        try {
+            ((JavascriptExecutor) driver).executeScript(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});");
+        } catch (Exception exception) {
+            logger.debug("Could not patch navigator.webdriver (non-fatal): {}", exception.getMessage());
+        }
+        return driver;
+    }
+
+    private static Document fetchPage(WebDriver driver, String url) {
+        driver.get(url);
+        waitForPageToSettle(driver);
+        return Jsoup.parse(driver.getPageSource(), url);
+    }
+
+    /**
+     * Waits for the page to finish loading, then gives it a little extra time — CardMarket's
+     * automatic bot-check, when it appears, typically resolves and redirects to the real page
+     * within a few seconds on its own.
+     */
+    private static void waitForPageToSettle(WebDriver driver) {
+        try {
+            new WebDriverWait(driver, Duration.ofSeconds(20)).until(webDriver ->
+                    "complete".equals(((JavascriptExecutor) webDriver).executeScript("return document.readyState")));
+            Thread.sleep(3000);
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+        } catch (Exception exception) {
+            logger.warn("Timed out waiting for the page to settle: {}", exception.getMessage());
+        }
     }
 
     private static void politeDelay() {
@@ -258,7 +323,8 @@ public class CardScraper {
         return doc.text().contains(NO_OFFERS_MARKER);
     }
 
-    private static void logIoFailure(BufferedWriter writer, CardMarketSeller seller, String what, IOException cause) {
+    private static void logFetchFailure(
+            BufferedWriter writer, CardMarketSeller seller, String what, WebDriverException cause) {
         logger.warn("Failed to fetch {} for {}: {}", what, seller.getDisplayName(), cause.getMessage());
         try {
             writer.write("Failed to fetch " + what + " for " + seller.getDisplayName()

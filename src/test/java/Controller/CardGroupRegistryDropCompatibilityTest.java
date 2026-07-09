@@ -90,11 +90,17 @@ class CardGroupRegistryDropCompatibilityTest {
     @BeforeEach
     void saveDecksList() {
         originalDecksList = UserInterfaceFunctions.getDecksList();
+        // CardGroupRegistry's registries are static/global; findGroupForCardElement scans
+        // ALL of them regardless of the current decksList, so a leftover group from an
+        // earlier test class must be cleared, not just this test's own decksList reset —
+        // see CardGroupRegistryTestSupport's Javadoc.
+        CardGroupRegistryTestSupport.resetRegistries();
     }
 
     @AfterEach
     void restoreDecksList() {
         UserInterfaceFunctions.setDecksList(originalDecksList);
+        CardGroupRegistryTestSupport.resetRegistries();
     }
 
     // ── ADD (sourceCards): single card — already correctly redirected today ─────
