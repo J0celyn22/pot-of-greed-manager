@@ -86,6 +86,8 @@ public class CardScraper {
 
         Map<String, Integer> ouicheCountMap = ShopCardMatcher.buildOuicheCountMap(maOuicheList);
         List<ShopResultEntry> result = new ArrayList<>();
+        logger.debug("Starting CardMarket scrape for {} with {} OuicheList entries to match against.",
+                seller.getDisplayName(), maOuicheList.size());
 
         String baseUrl = "https://www.cardmarket.com/en/YuGiOh/Users/" + seller.getUsername()
                 + "/Offers/Singles?" + buildBaseQueryString(maxPrice);
@@ -319,7 +321,7 @@ public class CardScraper {
         }
     }
 
-    private static boolean isEmptyResultsPage(Document doc) {
+    static boolean isEmptyResultsPage(Document doc) { // package-private for tests
         return doc.text().contains(NO_OFFERS_MARKER);
     }
 
@@ -341,7 +343,7 @@ public class CardScraper {
      * {@code data-props} → {@code options.expansionOptions}). This is present on every
      * offers page for the seller, filtered or not, so no extra request is needed.
      */
-    private static Map<String, String> extractExpansionMap(Document doc) {
+    static Map<String, String> extractExpansionMap(Document doc) { // package-private for tests
         Map<String, String> expansionMap = new LinkedHashMap<>();
 
         Element filterComponent = doc.selectFirst("div[data-component-name=CategoryOffersFilterComponent]");
@@ -378,11 +380,11 @@ public class CardScraper {
      * Strips the trailing offer count from an expansion label, e.g.
      * "2-Player Starter Deck Yuya &amp; Declan (32)" → "2-Player Starter Deck Yuya &amp; Declan".
      */
-    private static String stripTrailingCount(String label) {
+    static String stripTrailingCount(String label) { // package-private for tests
         return label.replaceAll("\\s*\\(\\d+\\)$", "");
     }
 
-    private static String buildBaseQueryString(double maxPrice) {
+    static String buildBaseQueryString(double maxPrice) { // package-private for tests
         String maxPriceFormatted = String.format(Locale.US, "%.2f", maxPrice);
         return "maxPrice=" + maxPriceFormatted + "&minAmt=1&sortBy=name_asc";
     }
@@ -394,12 +396,14 @@ public class CardScraper {
      * expose a per-card print code on this page (only the set's own code, e.g. "YS15"), so
      * matching here is always name-based.
      */
-    private static List<Entry> parseOfferRows(
+    static List<Entry> parseOfferRows( // package-private for tests
             Document doc, List<CardElement> maOuicheList, double maxPrice,
             Map<String, Integer> ouicheCountMap) {
 
         List<Entry> rowEntries = new ArrayList<>();
         Elements rows = doc.select("#UserOffersTable div.article-row");
+        int pricedRows = 0;
+        List<String> sampleUnmatchedNames = new ArrayList<>();
 
         for (Element row : rows) {
             Element productLink = row.selectFirst("a[href*=/Products/Singles/]");
@@ -424,6 +428,7 @@ public class CardScraper {
             } catch (NumberFormatException numberFormatException) {
                 continue;
             }
+            pricedRows++;
             if (price > maxPrice) {
                 continue;
             }
@@ -433,6 +438,9 @@ public class CardScraper {
                     ? ShopCardMatcher.findCardByNormalizedName(maOuicheList, normalizedName, name)
                     : ShopCardMatcher.findCardByName(maOuicheList, name);
             if (card == null) {
+                if (sampleUnmatchedNames.size() < 5) {
+                    sampleUnmatchedNames.add(name);
+                }
                 continue;
             }
 
@@ -444,12 +452,21 @@ public class CardScraper {
             rowEntries.add(entry);
         }
 
+        logger.debug("Page: {} row(s) found, {} had a parseable price, {} matched the OuicheList.{}",
+                rows.size(), pricedRows, rowEntries.size(),
+                (rowEntries.isEmpty() && !sampleUnmatchedNames.isEmpty())
+                        ? " Sample unmatched names: " + sampleUnmatchedNames
+                        : "");
+
         return rowEntries;
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────────
 
-    private static class Entry {
+    /**
+     * Package-private (not private) so CardScraperTest can build/inspect it directly.
+     */
+    static class Entry {
         final String name;
         final double price;
         final String productUrl;
