@@ -95,6 +95,20 @@ public class Deck {
     }
 
     /**
+     * Returns this deck's name.
+     * <p>
+     * {@link DecksAndCollectionsList#toString()} joins every deck's {@code toString()} with a
+     * newline to produce a plain-text listing of deck names, so this must stay just the name.
+     * </p>
+     *
+     * @return the name of this deck
+     */
+    @Override
+    public String toString() {
+        return name;
+    }
+
+    /**
      * Retrieves the main deck list.
      * <p>
      * The main deck is the list of cards that are in the main deck of the deck.

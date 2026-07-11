@@ -696,19 +696,33 @@ final class OuicheListUpdater {
             OuicheList.setUnusedCards(unusedCards);
         }
 
-        // A slot arriving already marked OWNED or OWNED_SUBSTANDARD (rather than the
-        // fresh MISSING slot this method's contract calls for) is the "add" half of a
-        // move: onDeckCardRemoved may have just placed this exact live object back into
-        // unusedCards specifically so this call could find it again. Preserve whatever
-        // status it already had instead of re-deriving it via findUnusedMatch: comparing
-        // the object's own fields to itself in #ownedCopySatisfiesQuality always trivially
-        // satisfies the strict (round 1) check, which would silently upgrade a substandard
-        // match to a full one on every move. The physical card's actual quality hasn't
-        // changed just because it was relocated.
-        OwnershipStatus statusAtEntry = addedCard.getOwnershipStatus();
-        if (statusAtEntry == OwnershipStatus.OWNED || statusAtEntry == OwnershipStatus.OWNED_SUBSTANDARD) {
-            unusedCards.remove(addedCard); // no-op if onDeckCardRemoved didn't park it here
-            addNewOwnedSlotToCompactMap(addedCard, statusAtEntry);
+        // If this exact live object is sitting in unusedCards, onDeckCardRemoved parked
+        // it there moments ago as the "remove" half of a MOVE whose freed copy had
+        // nowhere else to go -- addedCard is the "add" half of that same move. Preserve
+        // whatever ownership status it already had instead of re-deriving it via
+        // findUnusedMatch: comparing the object's own fields to itself in
+        // #ownedCopySatisfiesQuality always trivially satisfies the strict (round 1)
+        // check, which would silently upgrade a substandard match to a full one on every
+        // move. The physical card's actual quality hasn't changed just because it was
+        // relocated.
+        //
+        // Presence in unusedCards (checked by reference, since CardElement uses identity
+        // equality) is the correct signal here -- not addedCard's own status field. That
+        // field can be stale: when onDeckCardRemoved instead finds another MISSING slot
+        // elsewhere to absorb the freed copy (see its "nextMissing" path), it promotes
+        // that other slot and never touches removedCard's own status at all. Trusting the
+        // field alone would wrongly treat a brand-new slot as still backed by a free copy
+        // that has, in fact, already been spent on a different slot.
+        if (unusedCards.remove(addedCard)) {
+            OwnershipStatus preservedStatus = addedCard.getOwnershipStatus();
+            if (preservedStatus != OwnershipStatus.OWNED && preservedStatus != OwnershipStatus.OWNED_SUBSTANDARD) {
+                // Defensive: an object parked in unusedCards represents a free physical
+                // copy, so treat it as fully OWNED even if its status field was never
+                // explicitly set to reflect that.
+                preservedStatus = OwnershipStatus.OWNED;
+                addedCard.setOwnershipStatus(preservedStatus);
+            }
+            addNewOwnedSlotToCompactMap(addedCard, preservedStatus);
             propagateWithinDeckGroup(addedCard, deckName, collectionName);
             return;
         }
@@ -1178,18 +1192,21 @@ final class OuicheListUpdater {
      * Decrements (or removes) the entry for {@code slot} in the compact map
      * corresponding to {@code status}.
      *
-     * <p>Map correspondence:
+     * <p>Map correspondence, mirroring {@link #addOneToCompactMap}'s symmetric
+     * treatment of {@code OWNED} as untracked:
      * <ul>
-     *   <li>{@code null} or {@link OwnershipStatus#OWNED}: {@link OuicheList#getMaOuicheList()}
-     *       (the "cards to acquire" map — {@code OWNED} means the slot is no longer
-     *       needed, so it is removed from this map).</li>
+     *   <li>{@link OwnershipStatus#OWNED}: no-op. A fully-owned slot was never added to
+     *       either compact map in the first place (see {@link #addOneToCompactMap}), so
+     *       it has no entry of its own to remove here. Treating it as equivalent to
+     *       {@code MISSING} would decrement whatever <em>other</em>, unrelated slot
+     *       happens to share the same card key in the "cards to acquire" map.</li>
      *   <li>{@link OwnershipStatus#OWNED_SUBSTANDARD}: {@link OuicheList#getMaOuicheListSubstandard()}.</li>
-     *   <li>{@link OwnershipStatus#MISSING}: same as {@code null}/{@code OWNED} — the
-     *       "cards to acquire" map.</li>
+     *   <li>{@code null} or {@link OwnershipStatus#MISSING}: {@link OuicheList#getMaOuicheList()}
+     *       (the "cards to acquire" map).</li>
      * </ul>
      */
     private static void removeOneFromCompactMap(CardElement slot, OwnershipStatus status) {
-        if (status == null || slot.getCard() == null) {
+        if (status == null || status == OwnershipStatus.OWNED || slot.getCard() == null) {
             return;
         }
         String key = OuicheList.cardKey(slot);
@@ -1199,7 +1216,7 @@ final class OuicheListUpdater {
         if (status == OwnershipStatus.OWNED_SUBSTANDARD) {
             decrementOrRemove(OuicheList.getMaOuicheListSubstandard(), OuicheList.getMaOuicheListSubstandardCounts(), key);
         } else {
-            // MISSING (and OWNED, defensively — OWNED slots should not be present here).
+            // MISSING — the "cards to acquire" map.
             decrementOrRemove(OuicheList.getMaOuicheList(), OuicheList.getMaOuicheListCounts(), key);
         }
     }

@@ -15,7 +15,6 @@ import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebDriverException;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
-import org.openqa.selenium.support.ui.WebDriverWait;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,7 +23,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.*;
 
 import static Model.FilePaths.outputPath;
@@ -61,10 +59,11 @@ public class CardScraper {
 
     /**
      * Headless Chrome is more likely to be fingerprinted as a bot than a normal, visible
-     * Chrome window. If pages still come back blocked with this on, try flipping it off
-     * first before assuming Selenium itself won't work here.
+     * Chrome window. Off by default now — DateACard's real run got a hard Cloudflare
+     * "Access Denied" block (not a timing/JS-challenge issue) on essentially every request
+     * past the first, so it's worth ruling out headless-mode fingerprinting as a contributor.
      */
-    private static final boolean HEADLESS = true;
+    private static final boolean HEADLESS = false;
 
     /**
      * Retrieves cards from the given CardMarket seller's offers that are present in the
@@ -190,10 +189,11 @@ public class CardScraper {
             if (isEmptyResultsPage(pageDocument)) {
                 break;
             }
-            List<Entry> pageEntries = parseOfferRows(pageDocument, maOuicheList, maxPrice, ouicheCountMap);
-            if (pageEntries.isEmpty()) {
+            if (!pageHasOfferRows(pageDocument)) {
+                dumpUnexpectedPage(writer, seller, "page " + pageNumber, pageDocument);
                 break;
             }
+            List<Entry> pageEntries = parseOfferRows(pageDocument, maOuicheList, maxPrice, ouicheCountMap);
             collected.addAll(pageEntries);
 
             pageNumber++;
@@ -246,10 +246,12 @@ public class CardScraper {
                 if (isEmptyResultsPage(pageDocument)) {
                     break;
                 }
-                List<Entry> pageEntries = parseOfferRows(pageDocument, maOuicheList, maxPrice, ouicheCountMap);
-                if (pageEntries.isEmpty()) {
+                if (!pageHasOfferRows(pageDocument)) {
+                    dumpUnexpectedPage(writer, seller, "expansion " + expansionLabel + " page " + pageNumber,
+                            pageDocument);
                     break;
                 }
+                List<Entry> pageEntries = parseOfferRows(pageDocument, maOuicheList, maxPrice, ouicheCountMap);
                 collected.addAll(pageEntries);
                 pageNumber++;
             }
@@ -296,26 +298,42 @@ public class CardScraper {
     }
 
     /**
-     * Waits for the page to finish loading, then gives it a little extra time — CardMarket's
-     * automatic bot-check, when it appears, typically resolves and redirects to the real page
-     * within a few seconds on its own.
+     * Waits until the page actually shows something we recognize — the real offers table,
+     * CardMarket's own "no offers" text, or the "300+ results" banner — rather than guessing
+     * a fixed delay. A bot-check interstitial's readyState hits "complete" almost instantly
+     * too, well before the real content loads, so waiting on readyState alone isn't enough.
      */
     private static void waitForPageToSettle(WebDriver driver) {
-        try {
-            new WebDriverWait(driver, Duration.ofSeconds(20)).until(webDriver ->
-                    "complete".equals(((JavascriptExecutor) webDriver).executeScript("return document.readyState")));
-            Thread.sleep(3000);
-        } catch (InterruptedException interruptedException) {
-            Thread.currentThread().interrupt();
-        } catch (Exception exception) {
-            logger.warn("Timed out waiting for the page to settle: {}", exception.getMessage());
+        long deadline = System.currentTimeMillis() + 25_000;
+        while (System.currentTimeMillis() < deadline) {
+            String html = driver.getPageSource();
+            if (html != null && (html.contains("UserOffersTable")
+                    || html.contains(NO_OFFERS_MARKER)
+                    || html.contains(TOO_MANY_RESULTS_MARKER))) {
+                return;
+            }
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
+        logger.warn("Gave up waiting for recognizable page content after 25s; proceeding with whatever loaded.");
     }
 
+    /**
+     * Much longer than before (was ~1-3s) — the block DateACard triggered came right after
+     * the first few rapid, sequential idExpansion requests, which is exactly the kind of
+     * pattern a WAF rule would key on. This is a genuine tradeoff: at ~8-15s per request,
+     * a full 300+-expansion scrape realistically takes a couple of hours. If it still gets
+     * blocked even at this pace, that's a real signal the pattern itself (not the speed) is
+     * what's triggering it, and pushing the delay even higher probably won't change that.
+     */
     private static void politeDelay() {
         try {
-            Thread.sleep(1000);
-            Thread.sleep((long) (Math.random() * 2000));
+            Thread.sleep(8000);
+            Thread.sleep((long) (Math.random() * 7000));
         } catch (InterruptedException interruptedException) {
             Thread.currentThread().interrupt();
         }
@@ -323,6 +341,43 @@ public class CardScraper {
 
     static boolean isEmptyResultsPage(Document doc) { // package-private for tests
         return doc.text().contains(NO_OFFERS_MARKER);
+    }
+
+    /**
+     * Whether the page has real offer rows at all, independent of whether any of them match
+     * the OuicheList. Used to decide whether to keep paginating — {@link #parseOfferRows}
+     * only returns *matched* rows, so checking that being empty would wrongly stop
+     * pagination on any page that simply had no overlap with the OuicheList.
+     */
+    static boolean pageHasOfferRows(Document doc) { // package-private for tests
+        return !doc.select("#UserOffersTable div.article-row").isEmpty();
+    }
+
+    /**
+     * A page came back with no offer rows, but it also wasn't recognized as CardMarket's own
+     * "no offers" state — something unexpected got captured (a bot-check interstitial, a
+     * login wall, a changed page layout, etc). Dumps the actual HTML so it can be inspected,
+     * instead of silently treating it the same as a real empty page.
+     */
+    private static void dumpUnexpectedPage(
+            BufferedWriter writer, CardMarketSeller seller, String context, Document doc) {
+        String debugFileName = outputPath + "\\CardMarketDebug_" + seller.getUsername()
+                + "_" + System.currentTimeMillis() + ".html";
+        try (BufferedWriter debugWriter = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(debugFileName), StandardCharsets.UTF_8))) {
+            debugWriter.write(doc.outerHtml());
+        } catch (IOException ioException) {
+            logger.warn("Could not write debug dump for {}: {}", context, ioException.getMessage());
+        }
+        String message = context + ": no offer rows found, and CardMarket's own \"no offers\" text "
+                + "wasn't present either \u2014 Selenium likely didn't get the real page. Dumped what "
+                + "it actually saw to " + debugFileName;
+        logger.warn("{}", message);
+        try {
+            writer.write(message + "\n");
+        } catch (IOException ignored) {
+            // Best-effort logging only.
+        }
     }
 
     private static void logFetchFailure(

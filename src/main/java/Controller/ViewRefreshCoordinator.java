@@ -64,6 +64,48 @@ public class ViewRefreshCoordinator {
     private ViewRefreshCoordinator() {
     }
 
+    /**
+     * Runs {@code action} immediately if already on the JavaFX Application Thread, or defers
+     * it via {@link Platform#runLater} otherwise.
+     *
+     * <p>Every {@code refresh*}/{@code trigger*} method in this class is documented as "safe
+     * to call from any thread." Honoring that requires this helper: if the JavaFX toolkit has
+     * never been started — notably, in this project's own unit tests, which drive Controller
+     * classes directly with no {@code Application} thread running — {@link Platform#runLater}
+     * throws {@link IllegalStateException} synchronously at the call site rather than simply
+     * deferring. None of this class's callers are prepared to handle that, and letting it
+     * propagate would abort whatever model-mutation logic is still running in the caller
+     * (e.g. {@code CardGroupRegistry.dropInsertIntoGroup}'s sibling-section redirect for a
+     * deck-incompatible card, which runs after the primary insertion's own view refresh). The
+     * failure is logged rather than surfaced.
+     */
+    private static void runOnFxThreadOrDefer(Runnable action) {
+        if (Platform.isFxApplicationThread()) {
+            action.run();
+            return;
+        }
+        try {
+            Platform.runLater(action);
+        } catch (IllegalStateException toolkitNotInitialized) {
+            logger.debug("Skipped deferred UI refresh — JavaFX toolkit not running", toolkitNotInitialized);
+        }
+    }
+
+    /**
+     * Always defers {@code action} via {@link Platform#runLater}, even when already on the
+     * JavaFX Application Thread — for the handful of refreshers (full Decks &amp; Collections
+     * tree rebuilds) that are unsafe to run synchronously from inside an in-flight event
+     * handler on that same tree. See {@link #refreshDecksAndCollectionsView()}. Guarded the
+     * same way as {@link #runOnFxThreadOrDefer} against an unstarted toolkit.
+     */
+    private static void deferToFxThread(Runnable action) {
+        try {
+            Platform.runLater(action);
+        } catch (IllegalStateException toolkitNotInitialized) {
+            logger.debug("Skipped deferred UI refresh — JavaFX toolkit not running", toolkitNotInitialized);
+        }
+    }
+
     public static void registerTabDirtyIndicatorUpdater(Runnable updater) {
         tabDirtyIndicatorUpdater = updater;
     }
@@ -102,11 +144,7 @@ public class ViewRefreshCoordinator {
      * Safe to call from any thread.
      */
     public static void refreshOuicheListView() {
-        if (Platform.isFxApplicationThread()) {
-            doRefreshOuicheListView();
-        } else {
-            Platform.runLater(ViewRefreshCoordinator::doRefreshOuicheListView);
-        }
+        runOnFxThreadOrDefer(ViewRefreshCoordinator::doRefreshOuicheListView);
     }
 
     private static void doRefreshOuicheListView() {
@@ -115,11 +153,7 @@ public class ViewRefreshCoordinator {
 
     public static void triggerTabDirtyIndicatorUpdate() {
         if (tabDirtyIndicatorUpdater != null) {
-            if (Platform.isFxApplicationThread()) {
-                tabDirtyIndicatorUpdater.run();
-            } else {
-                Platform.runLater(tabDirtyIndicatorUpdater);
-            }
+            runOnFxThreadOrDefer(tabDirtyIndicatorUpdater);
         }
         // Every model modification calls this method, making it the single correct
         // place to keep the archetype markings (glow states) in sync.
@@ -127,10 +161,19 @@ public class ViewRefreshCoordinator {
         // (e.g. paste N cards) coalesce into one refresh at the end of the frame.
         if (!archetypeRefreshScheduled) {
             archetypeRefreshScheduled = true;
-            Platform.runLater(() -> {
+            try {
+                Platform.runLater(() -> {
+                    archetypeRefreshScheduled = false;
+                    doRefreshArchetypesView();
+                });
+            } catch (IllegalStateException toolkitNotInitialized) {
+                // The runnable above never ran, so its own reset never fired either --
+                // clear the guard here instead, or every later call in this JVM would
+                // see archetypeRefreshScheduled stuck true and skip scheduling forever.
                 archetypeRefreshScheduled = false;
-                doRefreshArchetypesView();
-            });
+                logger.debug("Skipped deferred archetype refresh — JavaFX toolkit not running",
+                        toolkitNotInitialized);
+            }
         }
     }
 
@@ -156,11 +199,7 @@ public class ViewRefreshCoordinator {
      * collection changes, so that archetype glow states stay in sync.
      */
     public static void refreshArchetypesView() {
-        if (Platform.isFxApplicationThread()) {
-            doRefreshArchetypesView();
-        } else {
-            Platform.runLater(ViewRefreshCoordinator::doRefreshArchetypesView);
-        }
+        runOnFxThreadOrDefer(ViewRefreshCoordinator::doRefreshArchetypesView);
     }
 
     private static void doRefreshArchetypesView() {
@@ -187,7 +226,7 @@ public class ViewRefreshCoordinator {
         // pattern that caused intermittent state corruption (drops silently stopped reaching the
         // OuicheList after 1-2 successful drops). Deferring to a later pulse lets the originating
         // event finish dispatching on the still-valid scene graph before any rebuild begins.
-        Platform.runLater(ViewRefreshCoordinator::doRefreshDecksAndCollectionsView);
+        deferToFxThread(ViewRefreshCoordinator::doRefreshDecksAndCollectionsView);
     }
 
     private static void doRefreshDecksAndCollectionsView() {
@@ -210,11 +249,7 @@ public class ViewRefreshCoordinator {
      * This method does not save the model; it only forces visible UI controls to refresh.
      */
     public static void refreshOwnedCollectionView() {
-        if (Platform.isFxApplicationThread()) {
-            doRefreshOwnedCollectionView();
-        } else {
-            Platform.runLater(ViewRefreshCoordinator::doRefreshOwnedCollectionView);
-        }
+        runOnFxThreadOrDefer(ViewRefreshCoordinator::doRefreshOwnedCollectionView);
     }
 
     // Core implementation: tries explicit refreshers first, then falls back to scanning all windows.
@@ -302,11 +337,7 @@ public class ViewRefreshCoordinator {
      * Also triggers the normal view refresh so the nav menu stays in sync.
      */
     public static void refreshOwnedCollectionStructure() {
-        if (Platform.isFxApplicationThread()) {
-            doRefreshOwnedCollectionStructure();
-        } else {
-            Platform.runLater(ViewRefreshCoordinator::doRefreshOwnedCollectionStructure);
-        }
+        runOnFxThreadOrDefer(ViewRefreshCoordinator::doRefreshOwnedCollectionStructure);
         // Always update the nav menu too
         refreshOwnedCollectionView();
     }
@@ -325,6 +356,6 @@ public class ViewRefreshCoordinator {
         PendingUiActionState.setPendingDecksFullRebuild();
         // Always deferred — see the comment in refreshDecksAndCollectionsView() for why this
         // must never run synchronously inside an originating event handler.
-        Platform.runLater(ViewRefreshCoordinator::doRefreshDecksAndCollectionsView);
+        deferToFxThread(ViewRefreshCoordinator::doRefreshDecksAndCollectionsView);
     }
 }

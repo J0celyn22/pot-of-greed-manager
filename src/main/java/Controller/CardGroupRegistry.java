@@ -160,24 +160,37 @@ public final class CardGroupRegistry {
     /**
      * Recomputes the preferred height of the {@link GridView} currently rendering
      * {@code group}.  No-ops silently if the group's grid has been GC'd or is not visible.
+     *
+     * <p>This is a pure UI side effect: every call site across the codebase invokes it as a
+     * fire-and-forget statement, often with data-mutation logic still to run afterward in the
+     * same method (e.g. {@link #dropInsertIntoGroup}'s sibling-section redirect). Dispatching
+     * to {@link Platform#runLater} can throw if the JavaFX toolkit was never started — notably
+     * in this project's own unit tests, which drive this class directly without an
+     * {@code Application} thread. Such a failure must never propagate: doing so would abort
+     * whichever caller invoked this method partway through, silently skipping any of its own
+     * remaining logic. The failure is logged rather than surfaced.
      */
     public static void triggerHeightAdjustment(CardsGroup group) {
         if (group == null) {
             return;
         }
-        Platform.runLater(() -> {
-            WeakReference<GridView<CardElement>> gridRef = GROUP_GRID_VIEWS.get(group);
-            if (gridRef == null) {
-                return;
-            }
-            GridView<CardElement> grid = gridRef.get();
-            if (grid == null) {
-                GROUP_GRID_VIEWS.remove(group);
-                return;
-            }
-            int numItems = group.getCardList() == null ? 0 : group.getCardList().size();
-            adjustGridViewHeightStatic(grid, numItems);
-        });
+        try {
+            Platform.runLater(() -> {
+                WeakReference<GridView<CardElement>> gridRef = GROUP_GRID_VIEWS.get(group);
+                if (gridRef == null) {
+                    return;
+                }
+                GridView<CardElement> grid = gridRef.get();
+                if (grid == null) {
+                    GROUP_GRID_VIEWS.remove(group);
+                    return;
+                }
+                int numItems = group.getCardList() == null ? 0 : group.getCardList().size();
+                adjustGridViewHeightStatic(grid, numItems);
+            });
+        } catch (IllegalStateException toolkitNotInitialized) {
+            logger.debug("Skipped grid height adjustment — JavaFX toolkit not running", toolkitNotInitialized);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -610,8 +623,39 @@ public final class CardGroupRegistry {
         ObservableList<CardElement> targetList = observableListFor(group);
         int clampedIndex = Math.max(0, Math.min(insertionIndex, targetList.size()));
 
+        // Tracks whether either branch below actually touched targetList, so the trailing
+        // triggerHeightAdjustment(group) call can be skipped for a no-op invocation (e.g. a
+        // deck-compatibility split in dropInsertIntoGroup where every element/card in this
+        // particular call turned out to belong to the sibling redirect group instead — see
+        // its "Deck-compatibility split" section). Beyond avoiding a wasted Platform.runLater
+        // dispatch, this matters functionally: dropInsertIntoGroup relies on the target-list
+        // mutation completing before this call, and calling it unconditionally here — even
+        // when there is nothing to adjust for — meant that call could throw (e.g. in a
+        // headless/no-FX-toolkit context) before dropInsertIntoGroup ever reached its
+        // sibling-section redirect for the incompatible elements/cards, silently dropping them
+        // instead of relocating them.
+        boolean targetListMutated = false;
+
         if (elementsToInsert != null && !elementsToInsert.isEmpty()) {
+            // Defensive: collapse the payload to distinct live objects (by reference --
+            // CardElement uses identity equality) before processing the MOVE. The removal
+            // loop below only removes each object from its source group once it actually
+            // finds it there, so if the same live element ever appeared twice in this list
+            // (e.g. an upstream selection/drag-payload bug), it would be removed from its
+            // source exactly once but then inserted at the target twice -- the same object
+            // occupying two slots, which look like a "cloned" card that shares selection
+            // state because it really is the same instance.
+            List<CardElement> distinctElementsToInsert = new ArrayList<>();
+            Set<CardElement> seenElements = Collections.newSetFromMap(new IdentityHashMap<>());
+            for (CardElement candidateElement : elementsToInsert) {
+                if (seenElements.add(candidateElement)) {
+                    distinctElementsToInsert.add(candidateElement);
+                }
+            }
+            elementsToInsert = distinctElementsToInsert;
+
             // MOVE: remove elements from their current groups first.
+            targetListMutated = true;
             for (CardElement cardElement : elementsToInsert) {
                 for (Map.Entry<CardsGroup, ObservableList<CardElement>> registryEntry
                         : GROUP_OBSERVABLE_LISTS.entrySet()) {
@@ -631,6 +675,7 @@ public final class CardGroupRegistry {
             }
         } else if (cardsToInsert != null && !cardsToInsert.isEmpty()) {
             // ADD: create new CardElement wrappers.
+            targetListMutated = true;
             List<CardElement> newlyAddedElements = new ArrayList<>();
             for (int cardIndex = 0; cardIndex < cardsToInsert.size(); cardIndex++) {
                 Card card = cardsToInsert.get(cardIndex);
@@ -648,7 +693,9 @@ public final class CardGroupRegistry {
             }
         }
 
-        triggerHeightAdjustment(group);
+        if (targetListMutated) {
+            triggerHeightAdjustment(group);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

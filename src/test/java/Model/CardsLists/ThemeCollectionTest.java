@@ -675,14 +675,16 @@ public class ThemeCollectionTest {
     }
 
     @Test
-    public void testCounts_unitDupInside_collapsed() {
-        System.out.println("TEST: UNIT_DUP duplicates inside same unit collapsed to one.");
+    public void testCounts_unitDupInside_remainSeparate() {
+        System.out.println("TEST: UNIT_DUP -- two identical physical cards within the same deck "
+                + "must remain two separate entries, not collapse to one.");
         List<CardElement> result = collection.toList();
         String dump = dumpListDebug(result);
         System.out.println("Result summary: " + dump);
 
         long count = countMatches(result, "UNIT_DUP");
-        assertEquals(1, count, "UNIT_DUP expected 1 occurrence per unit, got " + count + ". Summary: " + dump);
+        assertEquals(2, count, "UNIT_DUP expected 2 occurrences (2 distinct physical copies "
+                + "in the same deck), got " + count + ". Summary: " + dump);
     }
 
     @Test
@@ -752,7 +754,8 @@ public class ThemeCollectionTest {
 
     @Test
     public void testDeckDupDifferentPrints_within_unit_collapsed_to_one() {
-        System.out.println("TEST: SAMEPASS appears in unit1, unit5 and collection; expected 3 occurrences total.");
+        System.out.println("TEST: SAMEPASS appears in unit1, unit5 (x2 distinct prints) and collection; "
+                + "expected 4 occurrences total.");
         List<CardElement> result = collection.toList();
         String dump = dumpListDebug(result);
         System.out.println("Result summary: " + dump);
@@ -761,7 +764,13 @@ public class ThemeCollectionTest {
         if (countSamePass == 0) { // fallback to print/name matches
             countSamePass = countMatches(result, "P-SP-1") + countMatches(result, "P-SP-3") + countMatches(result, "P-CSP-1");
         }
-        assertEquals(3, countSamePass, "SAMEPASS expected 3 occurrences (unit1 + unit5 + collection), got " + countSamePass + ". Summary: " + dump);
+        // unit1 (P-SP-1) + unit5's two distinct-print sub-decks (P-SP-1, P-SP-3) + the
+        // collection's own distinct print (P-CSP-1) are four genuinely different physical
+        // copies -- none of them share a printCode with each other, so none should be
+        // treated as "the same card" and dropped.
+        assertEquals(4, countSamePass,
+                "SAMEPASS expected 4 occurrences (unit1 + unit5's 2 distinct prints + collection), got "
+                        + countSamePass + ". Summary: " + dump);
     }
 
     @Test
@@ -803,18 +812,20 @@ public class ThemeCollectionTest {
         cards.add(new CardElement(card));
         tc.setCardsList(cards);
 
-        // SaveToFile concatenates the provided path string + name + ".ytc"
-        Path marker = tempDir.resolve("test");
-        tc.saveToFile(marker.toString());
+        // saveToFile treats its argument as an existing directory (it resolves
+        // name + ".ytc" inside it) -- pass the real @TempDir, which JUnit has already
+        // created, rather than a "test" subdirectory that was never actually made.
+        tc.saveToFile(tempDir.toString());
 
-        Path expectedFile = tempDir.resolve("test" + "TestCollection.ytc");
+        Path expectedFile = tempDir.resolve("TestCollection.ytc");
         boolean exists = Files.exists(expectedFile);
         String msg = "Expected file " + expectedFile + " to exist after SaveToFile. Exists=" + exists;
         assertTrue(exists, msg);
 
         List<String> lines = Files.readAllLines(expectedFile);
         assertFalse(lines.isEmpty(), "Expected file not empty. Content: " + lines);
-        // SaveToFile writes Card.toString(); assert on the card name which we set
-        assertTrue(lines.get(0).contains("Test Card"), "First line should contain 'Test Card'. Content: " + lines);
+        // The .ytc format persists CardElement#toThemeCollectionString(), which writes the
+        // card's passCode (a stable id meant to be re-parsed later) -- not its display name.
+        assertTrue(lines.get(0).contains("TestCard"), "First line should contain the card's passCode 'TestCard'. Content: " + lines);
     }
 }

@@ -91,9 +91,7 @@ public class CardScraperTest {
             "<small>These results haven't been sorted (300+ results). Please use the filters "
                     + "to narrow your results to use the sort feature.</small>";
 
-    /**
-     * Exact empty-state text CardMarket shows for a filter combination with zero offers.
-     */
+    /** Exact empty-state text CardMarket shows for a filter combination with zero offers. */
     private static final String NO_OFFERS_HTML =
             "<div>There are no offers for your selected category and/or filters.</div>";
 
@@ -246,6 +244,18 @@ public class CardScraperTest {
 
         assertTrue(CardScraper.isEmptyResultsPage(emptyDoc));
         assertFalse(CardScraper.isEmptyResultsPage(nonEmptyDoc));
+    }
+
+    @Test
+    public void pageHasOfferRows_isTrueOnRealRowsEvenIfNoneMatchTheOuicheList() {
+        // Regression test: pagination used to stop based on *matched* entries being empty,
+        // which wrongly treated "real page, zero overlap with OuicheList" the same as "no
+        // more pages" — silently missing any later page that did have a match.
+        Document withRows = Jsoup.parse(ROWS_HTML, "https://www.cardmarket.com/");
+        Document empty = Jsoup.parse(NO_OFFERS_HTML, "https://www.cardmarket.com/");
+
+        assertTrue(CardScraper.pageHasOfferRows(withRows));
+        assertFalse(CardScraper.pageHasOfferRows(empty));
     }
 
     @Test

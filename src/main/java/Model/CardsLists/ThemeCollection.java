@@ -544,7 +544,12 @@ public class ThemeCollection {
 
             // Map key uses printCode if present, otherwise passCode. Prefix to avoid collisions.
             Map<String, Integer> maxCountByKey = new HashMap<>();
-            Map<String, CardElement> representativeDeckByKey = new HashMap<>();
+            // The actual distinct CardElement instances backing maxCountByKey's count, taken
+            // from whichever deck set that max -- NOT a single "representative" object to be
+            // repeated. Two identical physical cards within one deck are two separate slots
+            // (and must stay two separate CardElement instances here, mirroring the real
+            // Decks & Collections model), not the same instance duplicated in the list.
+            Map<String, List<CardElement>> deckElementsByKey = new HashMap<>();
 
             // For each deck in the unit, compute counts of each card in that deck.
             for (Deck deck : unit) {
@@ -557,6 +562,7 @@ public class ThemeCollection {
                 }
 
                 Map<String, Integer> countThisDeck = new HashMap<>();
+                Map<String, List<CardElement>> elementsThisDeck = new HashMap<>();
                 for (CardElement deckCardElement : deckCards) {
                     if (deckCardElement == null || deckCardElement.getCard() == null) {
                         continue;
@@ -571,7 +577,7 @@ public class ThemeCollection {
                     }
 
                     countThisDeck.put(key, countThisDeck.getOrDefault(key, 0) + 1);
-                    representativeDeckByKey.putIfAbsent(key, deckCardElement);
+                    elementsThisDeck.computeIfAbsent(key, newKey -> new ArrayList<>()).add(deckCardElement);
                 }
 
                 for (Map.Entry<String, Integer> entry : countThisDeck.entrySet()) {
@@ -580,6 +586,7 @@ public class ThemeCollection {
                     int previous = maxCountByKey.getOrDefault(key, 0);
                     if (count > previous) {
                         maxCountByKey.put(key, count);
+                        deckElementsByKey.put(key, elementsThisDeck.get(key));
                     }
                 }
             }
@@ -596,21 +603,22 @@ public class ThemeCollection {
                     collectionElement = collectionByPass.get(key.substring(2));
                 }
 
-                CardElement deckRepresentative = representativeDeckByKey.get(key);
+                List<CardElement> deckElements = deckElementsByKey.getOrDefault(key, List.of());
 
                 if (collectionElement != null) {
                     // First copy: prefer the collection element (may have specific artwork).
                     result.add(collectionElement);
-                    // Remaining copies: use the deck representative.
+                    // Remaining copies: use the deck's own distinct instances, one each --
+                    // not the same collection element repeated.
                     for (int i = 1; i < copies; i++) {
-                        result.add(deckRepresentative != null ? deckRepresentative : collectionElement);
+                        int deckElementIndex = i - 1;
+                        result.add(deckElementIndex < deckElements.size()
+                                ? deckElements.get(deckElementIndex) : collectionElement);
                     }
                 } else {
-                    // No collection element: add deck representative for each copy.
-                    for (int i = 0; i < copies; i++) {
-                        if (deckRepresentative != null) {
-                            result.add(deckRepresentative);
-                        }
+                    // No collection element: add each of the deck's own distinct instances.
+                    for (int i = 0; i < copies && i < deckElements.size(); i++) {
+                        result.add(deckElements.get(i));
                     }
                 }
             }
@@ -639,8 +647,27 @@ public class ThemeCollection {
             String printCode = collectionElement.getCard().getPrintCode();
             String passCode = collectionElement.getCard().getPassCode();
 
-            boolean alreadyPresent = (printCode != null && presentPrintCodes.contains(printCode))
-                    || (passCode != null && presentPassCodes.contains(passCode));
+            boolean alreadyPresent;
+            if (collectionElement.getDontRemove()) {
+                // dontRemove means "always show this exact collection card instead of
+                // whatever deck placeholder occupies this card's slot" -- including when
+                // that placeholder is a different print of the same card name. Match
+                // loosely (print OR passCode) so the replace branch below can find and
+                // override it.
+                alreadyPresent = (printCode != null && presentPrintCodes.contains(printCode))
+                        || (passCode != null && presentPassCodes.contains(passCode));
+            } else {
+                // Otherwise, only an exact printCode match (or, absent a printCode, an
+                // exact passCode match) means "this specific physical card is already
+                // accounted for." Two entries that merely share a passCode but carry
+                // different printCodes are distinct prints/copies of the same card name
+                // and must both appear -- falling back to passCode alone here was
+                // silently dropping the second such collection-only entry as a spurious
+                // duplicate.
+                alreadyPresent = printCode != null
+                        ? presentPrintCodes.contains(printCode)
+                        : (passCode != null && presentPassCodes.contains(passCode));
+            }
 
             if (!alreadyPresent) {
                 result.add(collectionElement);

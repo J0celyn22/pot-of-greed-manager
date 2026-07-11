@@ -1,5 +1,7 @@
 package Model.Database;
 
+import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -210,6 +212,19 @@ public class FileFetcher {
                     Files.createDirectories(localFilePath.getParent());
                 }
                 byte[] fileBytes = fetchRemoteFile(remotePath);
+                if (!isPlausibleContent(element, fileBytes)) {
+                    // The server responded (no 4xx/network exception), but the body
+                    // doesn't actually look like the file we asked for -- e.g. a rate
+                    // limit page, a maintenance/redirect page, or a truncated response.
+                    // Writing this over a previously-good local cache file would corrupt
+                    // it silently, and since Database.openJson() parses every cached
+                    // .json file at application startup, that corruption would crash the
+                    // whole app on every future launch until someone noticed and fixed
+                    // the file by hand. Keep the existing file (if any) and leave this
+                    // path in invalidatedPaths so the next call retries.
+                    logger.warn("Fetched content for {} doesn't look valid, keeping existing local file", element);
+                    return;
+                }
                 Files.write(localFilePath, fileBytes);
                 logger.debug("File fetched and saved locally: {}", localPath);
                 // Remove from stale set only after a confirmed successful write.
@@ -267,6 +282,10 @@ public class FileFetcher {
                     Files.createDirectories(localFilePath.getParent());
                 }
                 byte[] fileBytes = fetchRemoteFile(remotePath);
+                if (!isPlausibleContent(element, fileBytes)) {
+                    logger.warn("Fetched content for {} doesn't look valid, keeping existing local file", element);
+                    return;
+                }
                 Files.write(localFilePath, fileBytes);
                 logger.debug("File fetched and saved locally: {}", localPath);
                 removeInvalidatedPath(localPath);
@@ -315,6 +334,48 @@ public class FileFetcher {
             }
             return outputStream.toByteArray();
         }
+    }
+
+    /**
+     * Light validation of freshly-fetched bytes before they are allowed to overwrite the
+     * local cache file for {@code element}.
+     *
+     * <p>{@link #fetchRemoteFile} only throws when the connection itself fails or the
+     * server returns a 4xx — a "successful" (2xx/3xx) response can still carry a body
+     * that isn't actually the requested file (a rate-limit or maintenance page, a
+     * redirect target's HTML, or a connection cut short mid-transfer). Since a write here
+     * replaces whatever local copy already exists, and {@link Database#openJson} parses
+     * every cached {@code .json} file at application startup, letting an implausible
+     * response through would silently corrupt a previously-good file and crash the whole
+     * application on every future launch.
+     *
+     * @param element   the filename being fetched (its extension decides which check applies)
+     * @param fileBytes the bytes returned by {@link #fetchRemoteFile}
+     * @return {@code false} if the content is empty or, for {@code .json} elements,
+     * fails to parse as JSON — {@code true} otherwise
+     */
+    private static boolean isPlausibleContent(String element, byte[] fileBytes) {
+        if (fileBytes == null || fileBytes.length == 0) {
+            return false;
+        }
+        if (element != null && element.endsWith(".json")) {
+            String text = new String(fileBytes, StandardCharsets.UTF_8).trim();
+            if (text.isEmpty()) {
+                return false;
+            }
+            try {
+                if (text.startsWith("[")) {
+                    new JSONArray(text);
+                } else {
+                    new JSONObject(text);
+                }
+            } catch (JSONException e) {
+                return false;
+            }
+        }
+        // Non-JSON files (images, .txt set lists, etc.): a non-empty response is the
+        // best validation available without hardcoding per-format magic bytes.
+        return true;
     }
 
     /**

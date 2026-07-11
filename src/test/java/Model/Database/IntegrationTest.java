@@ -34,6 +34,15 @@ public class IntegrationTest {
             "archetypes.json, ygoprodeck\\archetypes.json, https://db.ygoprodeck.com/api/v7/archetypes.php"
     })
     public void testFetchFile(String input, String expectedPath, String expectedAddress) throws IOException, URISyntaxException {
+        // Space out requests: this test fires once per CSV row (9 rows) against real
+        // external servers (ygoprodeck.com, ygoresources.com, code.moenext.com), and
+        // JUnit runs parameterized invocations back-to-back with no delay by default.
+        try {
+            Thread.sleep(750);
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+        }
+
         // Get the directory where the JAR file is located
         expectedPath = databaseDir + "\\" + expectedPath;
 

@@ -1766,6 +1766,7 @@ public class CardTreeCell extends TreeCell<String> {
             // CardGridCell's wrapper.setOnDragDropped handling of the same gesture.
             java.util.Set<CardsGroup> moveSourceGroups = null;
             java.util.List<CardElement> movedElements = null;
+            java.util.Map<CardElement, CardsGroup> originalGroupByElement = null;
 
             if (isMiddle) {
                 java.util.List<CardElement> srcElements =
@@ -1785,6 +1786,18 @@ public class CardTreeCell extends TreeCell<String> {
                         return;
                     }
                     srcElements = realSrcElements;
+                }
+                // Capture each element's ORIGINAL group before dropInsertIntoGroup relocates
+                // it -- the OuicheList removal notifications below are fired once per source
+                // group, and each such call must only be given the subset of elements that
+                // actually came from that particular group (see the filtering a few lines
+                // down), not the whole multi-select batch regardless of origin.
+                originalGroupByElement = new java.util.HashMap<>();
+                for (CardElement srcElement : srcElements) {
+                    CardsGroup originGroup = CardGroupRegistry.findGroupForCardElement(srcElement);
+                    if (originGroup != null) {
+                        originalGroupByElement.put(srcElement, originGroup);
+                    }
                 }
                 java.util.Set<CardsGroup> srcGroups =
                         CardGroupRegistry.dropInsertIntoGroup(effectiveGroup, insertionIndex, srcElements, null);
@@ -1813,13 +1826,28 @@ public class CardTreeCell extends TreeCell<String> {
             // target group) repositions the matching slot instead.
             if (moveSourceGroups != null && movedElements != null) {
                 final java.util.List<CardElement> capturedMoved = movedElements;
+                final java.util.Map<CardElement, CardsGroup> capturedOriginalGroups =
+                        originalGroupByElement != null ? originalGroupByElement : java.util.Map.of();
                 final CardsGroup capturedEffectiveGroup = effectiveGroup;
                 boolean anyCrossGroup = moveSourceGroups.stream()
                         .anyMatch(sourceGroup -> sourceGroup != capturedEffectiveGroup);
                 if (anyCrossGroup) {
                     for (CardsGroup sourceGroup : moveSourceGroups) {
                         if (sourceGroup != capturedEffectiveGroup) {
-                            CardGroupRegistry.notifyOuicheListOfGroupRemovals(sourceGroup, capturedMoved);
+                            // Only notify with the elements that actually originated from
+                            // THIS source group -- a multi-select drag can span several
+                            // source groups at once, and passing the whole batch to each
+                            // one would make onDeckCardRemoved hunt for value-matching
+                            // slots that were never really in that group.
+                            java.util.List<CardElement> elementsFromThisSource = new java.util.ArrayList<>();
+                            for (CardElement movedElement : capturedMoved) {
+                                if (sourceGroup.equals(capturedOriginalGroups.get(movedElement))) {
+                                    elementsFromThisSource.add(movedElement);
+                                }
+                            }
+                            if (!elementsFromThisSource.isEmpty()) {
+                                CardGroupRegistry.notifyOuicheListOfGroupRemovals(sourceGroup, elementsFromThisSource);
+                            }
                         }
                     }
                     CardGroupRegistry.notifyOuicheListOfGroupAdditions(capturedEffectiveGroup, capturedMoved);

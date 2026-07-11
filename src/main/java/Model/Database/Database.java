@@ -62,6 +62,21 @@ public class Database {
             } catch (IOException e) {
                 System.out.println("Error reading file " + localPath + ": " + e.getMessage());
                 return null;
+            } catch (org.json.JSONException e) {
+                // The local cache file exists but its content isn't valid JSON -- almost
+                // always a corrupted download (a partial/garbage response written over a
+                // previously-good file by a fetch that wasn't validated before saving).
+                // This must never be allowed to propagate: Database's static initializer
+                // calls openJson for every entry in addresses.json, so an uncaught
+                // exception here crashes the entire application at startup, every single
+                // time, until someone manually deletes or fixes the file by hand. Mark it
+                // stale so the next fetchFile() call retries instead of reusing the
+                // broken content, and degrade to "not available" for this element, same
+                // as the IOException case above.
+                System.out.println("Corrupted local file for '" + element + "' (" + localPath
+                        + "): " + e.getMessage() + " -- marking stale for re-fetch.");
+                FileFetcher.addInvalidatedPath(localPath);
+                return null;
             }
         }
         return null;
