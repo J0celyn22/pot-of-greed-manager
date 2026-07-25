@@ -80,13 +80,13 @@ public class OuicheListEdgeCasesTest {
     void deckCardMoved_nullDetailedOuicheList_noException() {
         OuicheList.setDetailedOuicheList(null);
         assertDoesNotThrow(() ->
-                OuicheList.onDeckCardMoved(new CardElement(cardA), "TestDeck", "main", null, 0));
+                OuicheList.onDeckCardMoved(new CardElement(cardA), "TestDeck", "main", null, 0, -1));
     }
 
     @Test
     void deckCardMoved_nullCard_noException() {
         assertDoesNotThrow(() ->
-                OuicheList.onDeckCardMoved(null, "TestDeck", "main", null, 0));
+                OuicheList.onDeckCardMoved(null, "TestDeck", "main", null, 0, -1));
     }
 
     // =========================================================================
@@ -108,7 +108,7 @@ public class OuicheListEdgeCasesTest {
         liveElement.setOwnershipStatus(OwnershipStatus.OWNED);
         detailedDeck.getMainDeck().add(liveElement);
 
-        OuicheList.onDeckCardRemoved(liveElement, "TestDeck", "main", null);
+        OuicheList.onDeckCardRemoved(liveElement, "TestDeck", "main", null, -1);
         OuicheList.onDeckCardAdded(liveElement, "OtherDeck", "main", null, Integer.MAX_VALUE);
 
         assertEquals(OwnershipStatus.OWNED, liveElement.getOwnershipStatus());
@@ -125,7 +125,7 @@ public class OuicheListEdgeCasesTest {
         CardElement liveElement = missingSlot(cardA);
         detailedDeck.getMainDeck().add(liveElement);
 
-        OuicheList.onDeckCardRemoved(liveElement, "TestDeck", "main", null);
+        OuicheList.onDeckCardRemoved(liveElement, "TestDeck", "main", null, -1);
         OuicheList.onDeckCardAdded(liveElement, "OtherDeck", "main", null, Integer.MAX_VALUE);
 
         assertEquals(OwnershipStatus.MISSING, liveElement.getOwnershipStatus());
@@ -138,7 +138,7 @@ public class OuicheListEdgeCasesTest {
         liveElement.setOwnershipStatus(OwnershipStatus.OWNED);
         detailedDeck.getMainDeck().add(liveElement);
 
-        OuicheList.onDeckCardRemoved(liveElement, "TestDeck", "main", null);
+        OuicheList.onDeckCardRemoved(liveElement, "TestDeck", "main", null, -1);
         OuicheList.onDeckCardAdded(liveElement, null, null, "TestCollection", Integer.MAX_VALUE);
 
         assertEquals(OwnershipStatus.OWNED, liveElement.getOwnershipStatus());
@@ -173,7 +173,7 @@ public class OuicheListEdgeCasesTest {
         liveElement.setOwnershipStatus(OwnershipStatus.OWNED_SUBSTANDARD);
         detailedDeck.getMainDeck().add(liveElement);
 
-        OuicheList.onDeckCardRemoved(liveElement, "TestDeck", "main", null);
+        OuicheList.onDeckCardRemoved(liveElement, "TestDeck", "main", null, -1);
         OuicheList.onDeckCardAdded(liveElement, "OtherDeck", "main", null, Integer.MAX_VALUE);
 
         assertEquals(OwnershipStatus.OWNED_SUBSTANDARD, liveElement.getOwnershipStatus(),
@@ -226,7 +226,7 @@ public class OuicheListEdgeCasesTest {
         detailedDeck.getMainDeck().add(dup1);
         detailedDeck.getMainDeck().add(dup2);
 
-        OuicheList.onDeckCardRemoved(new CardElement(cardA), "TestDeck", "main", null);
+        OuicheList.onDeckCardRemoved(new CardElement(cardA), "TestDeck", "main", null, -1);
 
         assertEquals(1, detailedDeck.getMainDeck().size(),
                 "Exactly one of the two duplicate slots should be removed, not both");
@@ -241,8 +241,8 @@ public class OuicheListEdgeCasesTest {
         detailedDeck.getMainDeck().add(dup1);
         detailedDeck.getMainDeck().add(dup2);
 
-        OuicheList.onDeckCardRemoved(new CardElement(cardA), "TestDeck", "main", null);
-        OuicheList.onDeckCardRemoved(new CardElement(cardA), "TestDeck", "main", null);
+        OuicheList.onDeckCardRemoved(new CardElement(cardA), "TestDeck", "main", null, -1);
+        OuicheList.onDeckCardRemoved(new CardElement(cardA), "TestDeck", "main", null, -1);
 
         assertTrue(detailedDeck.getMainDeck().isEmpty(),
                 "Two sequential removals should account for both duplicates, with no crash");
@@ -260,7 +260,7 @@ public class OuicheListEdgeCasesTest {
         detailedDeck.getMainDeck().add(onlySlot);
 
         assertDoesNotThrow(() ->
-                OuicheList.onDeckCardRemoved(new CardElement(cardA), "TestDeck", "main", null));
+                OuicheList.onDeckCardRemoved(new CardElement(cardA), "TestDeck", "main", null, -1));
 
         assertTrue(detailedDeck.getMainDeck().isEmpty());
         assertEquals(1, OuicheList.getUnusedCards().size(),

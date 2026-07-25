@@ -102,7 +102,7 @@ public class OuicheListChainedOperationsTest {
 
         CardElement slot = new CardElement(cardA);
         OuicheList.onDeckCardAdded(slot, "A", "main", null, Integer.MAX_VALUE);
-        OuicheList.onDeckCardRemoved(slot, "A", "main", null);
+        OuicheList.onDeckCardRemoved(slot, "A", "main", null, -1);
 
         assertTrue(deckA.getMainDeck().isEmpty());
         assertEquals(1, OuicheList.getUnusedCards().size(),
@@ -119,7 +119,7 @@ public class OuicheListChainedOperationsTest {
 
         CardElement slot = new CardElement(cardA);
         OuicheList.onDeckCardAdded(slot, "A", "main", null, Integer.MAX_VALUE);
-        OuicheList.onDeckCardRemoved(slot, "A", "main", null);
+        OuicheList.onDeckCardRemoved(slot, "A", "main", null, -1);
         OuicheList.onDeckCardAdded(slot, "B", "main", null, Integer.MAX_VALUE);
 
         assertEquals(OwnershipStatus.OWNED, slot.getOwnershipStatus());
@@ -143,12 +143,12 @@ public class OuicheListChainedOperationsTest {
         slot.setOwnershipStatus(OwnershipStatus.OWNED_SUBSTANDARD);
         deckA.getMainDeck().add(slot);
 
-        OuicheList.onDeckCardRemoved(slot, "A", "main", null);
+        OuicheList.onDeckCardRemoved(slot, "A", "main", null, -1);
         OuicheList.onDeckCardAdded(slot, "B", "main", null, Integer.MAX_VALUE);
         assertEquals(OwnershipStatus.OWNED_SUBSTANDARD, slot.getOwnershipStatus(),
                 "Fixed: the move must not upgrade it to OWNED");
 
-        assertDoesNotThrow(() -> OuicheList.onDeckCardRemoved(slot, "B", "main", null));
+        assertDoesNotThrow(() -> OuicheList.onDeckCardRemoved(slot, "B", "main", null, -1));
 
         assertTrue(deckB.getMainDeck().isEmpty());
         assertEquals(1, OuicheList.getUnusedCards().size(),
@@ -168,11 +168,11 @@ public class OuicheListChainedOperationsTest {
         slot.setOwnershipStatus(OwnershipStatus.OWNED_SUBSTANDARD);
         deckA.getMainDeck().add(slot);
 
-        OuicheList.onDeckCardRemoved(slot, "A", "main", null);
+        OuicheList.onDeckCardRemoved(slot, "A", "main", null, -1);
         OuicheList.onDeckCardAdded(slot, "B", "main", null, Integer.MAX_VALUE);
         assertEquals(OwnershipStatus.OWNED_SUBSTANDARD, slot.getOwnershipStatus());
 
-        OuicheList.onDeckCardRemoved(slot, "B", "main", null);
+        OuicheList.onDeckCardRemoved(slot, "B", "main", null, -1);
         OuicheList.onDeckCardAdded(slot, "C", "main", null, Integer.MAX_VALUE);
 
         assertEquals(OwnershipStatus.OWNED_SUBSTANDARD, slot.getOwnershipStatus(),
@@ -196,7 +196,7 @@ public class OuicheListChainedOperationsTest {
         OuicheList.onDeckCardAdded(slot, "A", "main", null, 0);
         assertEquals(OwnershipStatus.OWNED, slot.getOwnershipStatus());
 
-        OuicheList.onDeckCardMoved(new CardElement(cardA), "A", "main", null, 1);
+        OuicheList.onDeckCardMoved(new CardElement(cardA), "A", "main", null, 1, -1);
 
         assertEquals(2, deckA.getMainDeck().size());
         assertEquals("KID-701", deckA.getMainDeck().get(1).getCard().getKonamiId());

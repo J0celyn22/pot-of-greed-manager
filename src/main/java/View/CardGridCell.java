@@ -366,6 +366,7 @@ class CardGridCell extends GridCell<CardElement> {
             // D&C rebuilds are queued (ensuring correct runLater ordering).
             java.util.Set<CardsGroup> moveSourceGroups = null;
             java.util.List<CardElement> movedElements = null;
+            java.util.Map<CardElement, Integer> originalIndices = java.util.Map.of();
 
             if (isMiddle) {
                 java.util.List<CardElement> srcElements =
@@ -392,6 +393,7 @@ class CardGridCell extends GridCell<CardElement> {
                     }
                     srcElements = realSrcElements;
                 }
+                originalIndices = CardGroupRegistry.captureOriginalIndices(srcElements);
                 moveSourceGroups =
                         CardGroupRegistry.dropInsertIntoGroup(effectiveGroup, insertionIndex, srcElements, null);
                 movedElements = srcElements;
@@ -421,17 +423,20 @@ class CardGridCell extends GridCell<CardElement> {
             if (moveSourceGroups != null && movedElements != null) {
                 final java.util.List<CardElement> capturedMoved = movedElements;
                 final CardsGroup capturedEffectiveGroup = effectiveGroup;
+                final java.util.Map<CardElement, Integer> capturedOriginalIndices = originalIndices;
                 boolean anyCrossGroup = moveSourceGroups.stream()
                         .anyMatch(sourceGroup -> sourceGroup != capturedEffectiveGroup);
                 if (anyCrossGroup) {
                     for (CardsGroup sourceGroup : moveSourceGroups) {
                         if (sourceGroup != capturedEffectiveGroup) {
-                            CardGroupRegistry.notifyOuicheListOfGroupRemovals(sourceGroup, capturedMoved);
+                            CardGroupRegistry.notifyOuicheListOfGroupRemovals(
+                                    sourceGroup, capturedMoved, capturedOriginalIndices);
                         }
                     }
                     CardGroupRegistry.notifyOuicheListOfGroupAdditions(capturedEffectiveGroup, capturedMoved);
                 } else if (moveSourceGroups.size() == 1 && moveSourceGroups.contains(capturedEffectiveGroup)) {
-                    CardGroupRegistry.notifyOuicheListOfGroupReorder(capturedEffectiveGroup, capturedMoved);
+                    CardGroupRegistry.notifyOuicheListOfGroupReorder(
+                            capturedEffectiveGroup, capturedMoved, capturedOriginalIndices);
                 }
             }
             // Signal to grid.setOnDragDropped that this drop is already handled.

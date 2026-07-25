@@ -10,14 +10,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 /**
- * Documents a confirmed, unfixed modeling gap: {@code removeFromSection} (shared by
- * {@link OuicheList#onDeckCardMoved} and {@link OuicheList#onDeckCardRemoved}) identifies
- * "the slot to touch" purely by value ({@code cardKey} — artwork/printCode/condition/rarity,
- * never ownership status). When two or more slots in the same section share that key, it
- * always grabs whichever is first in list order, never the one the person actually
- * dragged/targeted — because the live Decks and Collections element being moved carries no
- * reference back to a specific detailed-list slot; the two structures are only linked by
- * value.
+ * Covers slot disambiguation when a section holds two or more slots that are
+ * indistinguishable by value alone ({@code cardKey} — artwork/printCode/condition/rarity,
+ * never ownership status): genuine duplicates. {@code removeFromSection} (shared by
+ * {@link OuicheList#onDeckCardMoved} and {@link OuicheList#onDeckCardRemoved}) can't tell
+ * such slots apart by value, so these callers pass a {@code sourceIndex} — the slot's index
+ * within its section immediately before the move/removal — which {@code removeFromSection}
+ * prefers over its value-only fallback scan whenever it's available and still matches.
  *
  * <p><b>A note on test design:</b> for a 2-element OWNED/MISSING pair, "move the MISSING one
  * to the front" and "do nothing" produce the exact same value pattern at each index
@@ -26,11 +25,14 @@ import static org.junit.jupiter.api.Assertions.assertSame;
  * by reference ({@link #assertSame}) so they can actually tell a real fix apart from a
  * coincidental match.
  *
- * <p>Not fixed here: disambiguating "which of several identical slots" needs information
- * this layer doesn't have (e.g. the slot's pre-move index, or a stable per-element id
- * threaded down from the UI/Controller layer). These tests assert the behavior a person
- * would actually want (per their own description: moving the MISSING copy to where the
- * OWNED one was should swap which one is which) and currently fail where marked.
+ * <p>Reordering a duplicate slot ordinarily just relocates it, preserving its own ownership
+ * status — except when the dragged slot is MISSING and displaces a different, still-present
+ * duplicate that's OWNED/OWNED_SUBSTANDARD: since ownership has no meaningful attachment to
+ * one interchangeable duplicate over another, that case swaps the two slots' statuses instead
+ * (see {@link OuicheListUpdater#onDeckCardMoved} for the full rule). Without {@code
+ * sourceIndex}, none of this is possible at all: every one of these scenarios used to be
+ * indistinguishable from a no-op, because the slot to touch was always picked by value,
+ * always resolving to whichever duplicate happened to be first in list order.
  */
 public class OuicheListDuplicateSlotAmbiguityTest {
 
@@ -67,12 +69,12 @@ public class OuicheListDuplicateSlotAmbiguityTest {
     }
 
     // =========================================================================
-    // Reorder among duplicates — should swap which physical slot holds which
-    // status; instead, whichever slot is first in list order never moves.
+    // Reorder among duplicates — dragging a MISSING slot onto a same-card
+    // OWNED/OWNED_SUBSTANDARD slot swaps which physical slot holds which status.
     // =========================================================================
 
     @Test
-    void reorder_missingDuplicateMovedBeforeOwned_shouldSwapStatuses_confirmedGap() {
+    void reorder_missingDuplicateMovedBeforeOwned_shouldSwapStatuses() {
         CardElement owned = new CardElement(cardX);
         owned.setOwnershipStatus(OwnershipStatus.OWNED);
         CardElement missing = new CardElement(cardX);
@@ -82,7 +84,7 @@ public class OuicheListDuplicateSlotAmbiguityTest {
         install(deck);
 
         // The person drags the MISSING card (index 1) to before the OWNED one (index 0).
-        OuicheList.onDeckCardMoved(new CardElement(freshCard("KID-501")), "D1", "main", null, 0);
+        OuicheList.onDeckCardMoved(new CardElement(freshCard("KID-501")), "D1", "main", null, 0, 1);
 
         // Status-by-index alone can't tell a real swap apart from a no-op here (both
         // produce [OWNED, MISSING]) -- track the actual instances instead.
@@ -92,11 +94,11 @@ public class OuicheListDuplicateSlotAmbiguityTest {
                 "...and it should now be OWNED, having taken the front slot's status");
         assertSame(owned, deck.getMainDeck().get(1));
         assertEquals(OwnershipStatus.MISSING, deck.getMainDeck().get(1).getOwnershipStatus(),
-                "The displaced card should now be MISSING -- currently nothing moves at all");
+                "The displaced card should now be MISSING");
     }
 
     @Test
-    void reorder_ownedDuplicateMovedBeforeMissing_shouldSwapStatuses_confirmedGap() {
+    void reorder_ownedDuplicateMovedBeforeMissing_relocatesWithoutSwapping() {
         CardElement missing = new CardElement(cardX);
         missing.setOwnershipStatus(OwnershipStatus.MISSING);
         CardElement owned = new CardElement(cardX);
@@ -106,7 +108,9 @@ public class OuicheListDuplicateSlotAmbiguityTest {
         install(deck);
 
         // The person drags the OWNED card (index 1) to before the MISSING one (index 0).
-        OuicheList.onDeckCardMoved(new CardElement(freshCard("KID-501")), "D1", "main", null, 0);
+        // Unlike the MISSING-displaces-OWNED case above, moving an already-OWNED slot never
+        // reassigns ownership -- it just relocates, same as moving any other card.
+        OuicheList.onDeckCardMoved(new CardElement(freshCard("KID-501")), "D1", "main", null, 0, 1);
 
         assertSame(owned, deck.getMainDeck().get(0),
                 "The specific card the person dragged should be the one now at the front");
@@ -116,7 +120,7 @@ public class OuicheListDuplicateSlotAmbiguityTest {
     }
 
     @Test
-    void reorder_substandardDuplicateMovedBeforeMissing_shouldSwapStatuses_confirmedGap() {
+    void reorder_substandardDuplicateMovedBeforeMissing_relocatesWithoutSwapping() {
         CardElement missing = new CardElement(cardX);
         missing.setOwnershipStatus(OwnershipStatus.MISSING);
         CardElement substandard = new CardElement(cardX);
@@ -125,7 +129,7 @@ public class OuicheListDuplicateSlotAmbiguityTest {
         deck.getMainDeck().add(substandard); // index 1
         install(deck);
 
-        OuicheList.onDeckCardMoved(new CardElement(freshCard("KID-501")), "D1", "main", null, 0);
+        OuicheList.onDeckCardMoved(new CardElement(freshCard("KID-501")), "D1", "main", null, 0, 1);
 
         assertSame(substandard, deck.getMainDeck().get(0));
         assertEquals(OwnershipStatus.OWNED_SUBSTANDARD, deck.getMainDeck().get(0).getOwnershipStatus());
@@ -134,13 +138,12 @@ public class OuicheListDuplicateSlotAmbiguityTest {
     }
 
     // =========================================================================
-    // Repeated/oscillating reorder attempts — the "locked" symptom: whichever
-    // slot is first keeps getting toggled; the actually-targeted card never
-    // participates, no matter how many times it's tried.
+    // Repeated/oscillating reorder attempts — once correctly relocated, the
+    // targeted slot stays put; retrying with its now-current index is a no-op.
     // =========================================================================
 
     @Test
-    void reorder_repeatedAttempts_targetedDuplicateNeverActuallyMoves_confirmedGap() {
+    void reorder_repeatedAttempts_targetedDuplicateMovesOnceThenStaysPut() {
         CardElement owned = new CardElement(cardX);
         owned.setOwnershipStatus(OwnershipStatus.OWNED);
         CardElement missing = new CardElement(cardX);
@@ -149,16 +152,16 @@ public class OuicheListDuplicateSlotAmbiguityTest {
         deck.getMainDeck().add(missing);
         install(deck);
 
-        // Repeatedly try to drag "the missing one" to the front (index 0), as a person
-        // stuck on this would keep attempting.
+        // Repeatedly try to drag "the missing one" to the front (index 0), as a real caller
+        // would each time: looking up its current position immediately beforehand.
         for (int attempt = 0; attempt < 4; attempt++) {
-            OuicheList.onDeckCardMoved(new CardElement(freshCard("KID-501")), "D1", "main", null, 0);
+            int sourceIndex = deck.getMainDeck().indexOf(missing);
+            OuicheList.onDeckCardMoved(new CardElement(freshCard("KID-501")), "D1", "main", null, 0, sourceIndex);
         }
 
         assertSame(missing, deck.getMainDeck().get(0),
                 "After repeatedly targeting the MISSING slot for the front position, it "
-                        + "should end up there -- instead the OWNED slot (never the intended "
-                        + "target) is the only one that ever actually responds");
+                        + "should end up there and stay there");
         assertEquals(OwnershipStatus.OWNED, deck.getMainDeck().get(0).getOwnershipStatus());
     }
 
@@ -167,16 +170,12 @@ public class OuicheListDuplicateSlotAmbiguityTest {
     // =========================================================================
 
     /**
-     * Regression note, not a currently-failing assertion: when the only other
-     * duplicate is in the same section, {@code onDeckCardRemoved}'s own cross-list
-     * "propagate freed ownership to the next MISSING slot with this KonamiId" logic
-     * happens to re-promote the local sibling, which coincidentally produces the
-     * right-looking end state even though the wrong physical slot was removed first.
-     * This is accidental, not a real fix — see the next test for what happens when
-     * that masking isn't available.
+     * With {@code sourceIndex} correctly identifying the MISSING slot, removing it is a
+     * plain drop -- MISSING removals never propagate -- so the local OWNED sibling is simply
+     * left alone, for the straightforward reason rather than by accident.
      */
     @Test
-    void remove_missingDuplicate_localOwnedSiblingMasksTheWrongRemoval() {
+    void remove_missingDuplicate_localOwnedSiblingUnaffected() {
         CardElement owned = new CardElement(cardX);
         owned.setOwnershipStatus(OwnershipStatus.OWNED);
         CardElement missing = new CardElement(cardX);
@@ -185,22 +184,21 @@ public class OuicheListDuplicateSlotAmbiguityTest {
         deck.getMainDeck().add(missing);
         install(deck);
 
-        OuicheList.onDeckCardRemoved(new CardElement(freshCard("KID-501")), "D1", "main", null);
+        OuicheList.onDeckCardRemoved(new CardElement(freshCard("KID-501")), "D1", "main", null, 1);
 
         assertEquals(1, deck.getMainDeck().size());
         assertEquals(OwnershipStatus.OWNED, deck.getMainDeck().get(0).getOwnershipStatus(),
-                "Looks correct, but only because removal grabbed the OWNED slot and this "
-                        + "section's own MISSING sibling happened to catch the propagated ownership");
+                "The MISSING slot was removed directly, so the OWNED sibling is untouched");
     }
 
     /**
-     * Confirmed gap: the masking above is not a real fix. When a different eligible
-     * MISSING slot for the same KonamiId exists elsewhere, earlier in generation order,
-     * it — not the local duplicate — receives the propagated ownership, exposing the
-     * wrong-slot removal as a visible, remote side effect.
+     * With {@code sourceIndex} available, removal targets the exact intended slot even when
+     * a competing eligible MISSING slot for the same KonamiId exists elsewhere, earlier in
+     * generation order -- that other deck is left alone rather than absorbing a propagation
+     * that was never meant for it.
      */
     @Test
-    void remove_missingDuplicate_competingSlotElsewhere_removesWrongLocalSlotAndCorruptsUnrelatedDeck_confirmedGap() {
+    void remove_missingDuplicate_competingSlotElsewhere_removesOnlyTheTargetedLocalSlot() {
         Deck earlierDeck = new Deck(); // earlier in generation order than "D1"
         earlierDeck.setName("EarlierDeck");
         CardElement competingMissing = new CardElement(cardX);
@@ -215,25 +213,24 @@ public class OuicheListDuplicateSlotAmbiguityTest {
         deck.getMainDeck().add(missing);
         install(earlierDeck, deck);
 
-        // The person removes "the missing card" from D1, expecting D1 to end up with
-        // just the OWNED one, and EarlierDeck to be untouched.
-        OuicheList.onDeckCardRemoved(new CardElement(freshCard("KID-501")), "D1", "main", null);
+        // The person removes "the missing card" (index 1) from D1, expecting D1 to end up
+        // with just the OWNED one, and EarlierDeck to be untouched.
+        OuicheList.onDeckCardRemoved(new CardElement(freshCard("KID-501")), "D1", "main", null, 1);
 
         assertEquals(1, deck.getMainDeck().size());
         assertEquals(OwnershipStatus.OWNED, deck.getMainDeck().get(0).getOwnershipStatus(),
-                "D1 should retain its OWNED slot -- instead the OWNED slot was the one removed, "
-                        + "leaving a MISSING slot behind in the deck the person removed from");
+                "D1 should retain its OWNED slot");
         assertEquals(OwnershipStatus.MISSING, earlierDeck.getMainDeck().get(0).getOwnershipStatus(),
-                "EarlierDeck should be completely unrelated to this removal -- instead it silently "
-                        + "gets marked OWNED because it was mistaken for the propagation target");
+                "EarlierDeck should be completely unrelated to this removal");
     }
 
     // =========================================================================
-    // Three duplicates — confirms the same mechanism, not a worse one.
+    // Three duplicates — confirms the same mechanism scales, not just the
+    // two-slot case.
     // =========================================================================
 
     @Test
-    void reorder_threeDuplicates_onlyFirstEverParticipates_confirmedGap() {
+    void reorder_threeDuplicates_targetedSlotMovesRegardlessOfPosition() {
         CardElement owned = new CardElement(cardX);
         owned.setOwnershipStatus(OwnershipStatus.OWNED);
         CardElement missing1 = new CardElement(cardX);
@@ -245,13 +242,11 @@ public class OuicheListDuplicateSlotAmbiguityTest {
         deck.getMainDeck().add(missing2); // index 2
         install(deck);
 
-        // Try to move the LAST missing slot (index 2) to the front.
-        OuicheList.onDeckCardMoved(new CardElement(freshCard("KID-501")), "D1", "main", null, 0);
+        // Move the LAST missing slot (index 2) to the front.
+        OuicheList.onDeckCardMoved(new CardElement(freshCard("KID-501")), "D1", "main", null, 0, 2);
 
         assertSame(missing2, deck.getMainDeck().get(0),
-                "The specific slot dragged (index 2) should be the one now at the front -- "
-                        + "instead only the first (already-OWNED) slot ever actually responds "
-                        + "to a move request");
+                "The specific slot dragged (index 2) should be the one now at the front");
         assertEquals(OwnershipStatus.OWNED, deck.getMainDeck().get(0).getOwnershipStatus());
     }
 }

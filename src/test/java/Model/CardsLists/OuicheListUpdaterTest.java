@@ -237,7 +237,7 @@ public class OuicheListUpdaterTest {
         CardElement slot = missingSlot(cardA);
         targetSection.add(slot);
 
-        OuicheList.onDeckCardRemoved(slot, "TestDeck", section, null);
+        OuicheList.onDeckCardRemoved(slot, "TestDeck", section, null, -1);
 
         assertFalse(targetSection.contains(slot), "Slot should be removed");
         assertTrue(OuicheList.getUnusedCards().isEmpty(),
@@ -259,7 +259,7 @@ public class OuicheListUpdaterTest {
         CardElement nextMissing = missingSlot(cardA);
         targetSection.add(nextMissing);
 
-        OuicheList.onDeckCardRemoved(ownedSlot, "TestDeck", section, null);
+        OuicheList.onDeckCardRemoved(ownedSlot, "TestDeck", section, null, -1);
 
         assertFalse(targetSection.contains(ownedSlot), "Removed slot should be gone");
         assertEquals(OwnershipStatus.OWNED, nextMissing.getOwnershipStatus(),
@@ -280,7 +280,7 @@ public class OuicheListUpdaterTest {
         CardElement nextMissing = missingSlot(cardA);
         targetSection.add(nextMissing);
 
-        OuicheList.onDeckCardRemoved(substandardSlot, "TestDeck", section, null);
+        OuicheList.onDeckCardRemoved(substandardSlot, "TestDeck", section, null, -1);
 
         assertFalse(targetSection.contains(substandardSlot));
         assertEquals(OwnershipStatus.OWNED, nextMissing.getOwnershipStatus(),
@@ -297,7 +297,7 @@ public class OuicheListUpdaterTest {
         CardElement ownedSlot = detailedDeck.getMainDeck().get(0);
         ownedSlot.setOwnershipStatus(OwnershipStatus.OWNED);
 
-        OuicheList.onDeckCardRemoved(ownedSlot, "TestDeck", "main", null);
+        OuicheList.onDeckCardRemoved(ownedSlot, "TestDeck", "main", null, -1);
 
         assertTrue(detailedDeck.getMainDeck().isEmpty());
         // With nowhere to propagate the freed ownership to, the card returns to the
@@ -320,7 +320,7 @@ public class OuicheListUpdaterTest {
 
         CardElement extraMissing = detailedDeck.getExtraDeck().get(0);
 
-        OuicheList.onDeckCardRemoved(ownedMain, "TestDeck", "main", null);
+        OuicheList.onDeckCardRemoved(ownedMain, "TestDeck", "main", null, -1);
 
         assertEquals(OwnershipStatus.OWNED, extraMissing.getOwnershipStatus(),
                 "Propagation should cross section boundaries within the same deck");
@@ -478,7 +478,7 @@ public class OuicheListUpdaterTest {
         assertDoesNotThrow(() -> OuicheList.onOwnedCardAdded(new CardElement(cardA)));
         assertDoesNotThrow(() -> OuicheList.onOwnedCardRemoved(new CardElement(cardA)));
         assertDoesNotThrow(() -> OuicheList.onDeckCardAdded(new CardElement(cardA), "X", "main", null));
-        assertDoesNotThrow(() -> OuicheList.onDeckCardRemoved(new CardElement(cardA), "X", "main", null));
+        assertDoesNotThrow(() -> OuicheList.onDeckCardRemoved(new CardElement(cardA), "X", "main", null, -1));
     }
 
     @Test
@@ -486,7 +486,7 @@ public class OuicheListUpdaterTest {
         assertDoesNotThrow(() -> OuicheList.onOwnedCardAdded(null));
         assertDoesNotThrow(() -> OuicheList.onOwnedCardRemoved(null));
         assertDoesNotThrow(() -> OuicheList.onDeckCardAdded(null, "TestDeck", "main", null));
-        assertDoesNotThrow(() -> OuicheList.onDeckCardRemoved(null, "TestDeck", "main", null));
+        assertDoesNotThrow(() -> OuicheList.onDeckCardRemoved(null, "TestDeck", "main", null, -1));
     }
 
     @Test

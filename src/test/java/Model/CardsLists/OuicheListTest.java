@@ -197,7 +197,7 @@ public class OuicheListTest {
         initMissingMaps(ouicheSlot);
         OuicheList.setUnusedCards(new ArrayList<>());
 
-        OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null);
+        OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null, -1);
         OuicheList.onDeckCardAdded(liveElement, "DeckB", "main", null);
 
         assertTrue(deckAMain.isEmpty(), "Source section must be empty after the move");
@@ -236,7 +236,7 @@ public class OuicheListTest {
         List<CardElement> unusedCards = new ArrayList<>();
         initEmptyMaps(unusedCards);
 
-        OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null);
+        OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null, -1);
         OuicheList.onDeckCardAdded(liveElement, "DeckB", "main", null);
 
         assertTrue(deckAMain.isEmpty(), "Source section must be empty after the move");
@@ -281,7 +281,7 @@ public class OuicheListTest {
         List<CardElement> unusedCards = new ArrayList<>();
         OuicheList.setUnusedCards(unusedCards);
 
-        OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null);
+        OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null, -1);
         OuicheList.onDeckCardAdded(liveElement, "DeckB", "main", null);
 
         assertTrue(deckAMain.isEmpty(), "Source section DeckA must be empty");
@@ -318,7 +318,7 @@ public class OuicheListTest {
         List<CardElement> unusedCards = new ArrayList<>();
         initEmptyMaps(unusedCards);
 
-        OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null);
+        OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null, -1);
 
         assertEquals(1, unusedCards.size(),
                 "Physical card must be in unusedCards after removing an OWNED slot "
@@ -356,7 +356,7 @@ public class OuicheListTest {
         List<CardElement> unusedCards = new ArrayList<>();
         OuicheList.setUnusedCards(unusedCards);
 
-        OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null);
+        OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null, -1);
 
         assertEquals(1, unusedCards.size(),
                 "Physical card must be in unusedCards after removing an OWNED_SUBSTANDARD "
@@ -384,7 +384,7 @@ public class OuicheListTest {
         initMissingMaps(ouicheSlot);
         OuicheList.setUnusedCards(new ArrayList<>());
 
-        OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null);
+        OuicheList.onDeckCardRemoved(liveElement, "DeckA", "main", null, -1);
         OuicheList.onDeckCardAdded(liveElement, null, null, "ColB");
 
         assertTrue(deckAMain.isEmpty(), "Source deck section must be empty after the move");
@@ -418,7 +418,7 @@ public class OuicheListTest {
         initMissingMaps(ouicheSlot);
         OuicheList.setUnusedCards(new ArrayList<>());
 
-        OuicheList.onDeckCardRemoved(liveElement, null, null, "ColA");
+        OuicheList.onDeckCardRemoved(liveElement, null, null, "ColA", -1);
         OuicheList.onDeckCardAdded(liveElement, "DeckB", "main", null);
 
         assertTrue(colACards.isEmpty(), "Source collection must be empty after the move");
@@ -454,7 +454,7 @@ public class OuicheListTest {
         List<CardElement> unusedCards = new ArrayList<>();
         initEmptyMaps(unusedCards);
 
-        OuicheList.onDeckCardRemoved(liveElement, null, null, "ColA");
+        OuicheList.onDeckCardRemoved(liveElement, null, null, "ColA", -1);
         OuicheList.onDeckCardAdded(liveElement, "DeckB", "main", null);
 
         assertTrue(colACards.isEmpty(), "Source collection must be empty after the move");

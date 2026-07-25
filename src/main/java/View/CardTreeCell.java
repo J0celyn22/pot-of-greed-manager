@@ -1053,8 +1053,12 @@ public class CardTreeCell extends TreeCell<String> {
                         continue;
                     }
                     java.util.List<CardElement> removedElements = new java.util.ArrayList<>(obs);
+                    java.util.Map<CardElement, Integer> originalIndices = new java.util.IdentityHashMap<>();
+                    for (int index = 0; index < removedElements.size(); index++) {
+                        originalIndices.put(removedElements.get(index), index);
+                    }
                     obs.clear();
-                    CardGroupRegistry.notifyOuicheListOfGroupRemovals(sectionGroup, removedElements);
+                    CardGroupRegistry.notifyOuicheListOfGroupRemovals(sectionGroup, removedElements, originalIndices);
                     changed = true;
                 }
                 if (changed) {
@@ -1530,8 +1534,12 @@ public class CardTreeCell extends TreeCell<String> {
                     return;
                 }
                 java.util.List<CardElement> removedElements = new java.util.ArrayList<>(obs);
+                java.util.Map<CardElement, Integer> originalIndices = new java.util.IdentityHashMap<>();
+                for (int index = 0; index < removedElements.size(); index++) {
+                    originalIndices.put(removedElements.get(index), index);
+                }
                 obs.clear();
-                CardGroupRegistry.notifyOuicheListOfGroupRemovals(capturedGroup, removedElements);
+                CardGroupRegistry.notifyOuicheListOfGroupRemovals(capturedGroup, removedElements, originalIndices);
                 CardGroupRegistry.markDirtyAndRefreshForGroup(capturedGroup);
             });
 
@@ -1767,6 +1775,7 @@ public class CardTreeCell extends TreeCell<String> {
             java.util.Set<CardsGroup> moveSourceGroups = null;
             java.util.List<CardElement> movedElements = null;
             java.util.Map<CardElement, CardsGroup> originalGroupByElement = null;
+            java.util.Map<CardElement, Integer> originalIndices = java.util.Map.of();
 
             if (isMiddle) {
                 java.util.List<CardElement> srcElements =
@@ -1799,6 +1808,7 @@ public class CardTreeCell extends TreeCell<String> {
                         originalGroupByElement.put(srcElement, originGroup);
                     }
                 }
+                originalIndices = CardGroupRegistry.captureOriginalIndices(srcElements);
                 java.util.Set<CardsGroup> srcGroups =
                         CardGroupRegistry.dropInsertIntoGroup(effectiveGroup, insertionIndex, srcElements, null);
                 moveSourceGroups = srcGroups;
@@ -1828,6 +1838,7 @@ public class CardTreeCell extends TreeCell<String> {
                 final java.util.List<CardElement> capturedMoved = movedElements;
                 final java.util.Map<CardElement, CardsGroup> capturedOriginalGroups =
                         originalGroupByElement != null ? originalGroupByElement : java.util.Map.of();
+                final java.util.Map<CardElement, Integer> capturedOriginalIndices = originalIndices;
                 final CardsGroup capturedEffectiveGroup = effectiveGroup;
                 boolean anyCrossGroup = moveSourceGroups.stream()
                         .anyMatch(sourceGroup -> sourceGroup != capturedEffectiveGroup);
@@ -1846,13 +1857,15 @@ public class CardTreeCell extends TreeCell<String> {
                                 }
                             }
                             if (!elementsFromThisSource.isEmpty()) {
-                                CardGroupRegistry.notifyOuicheListOfGroupRemovals(sourceGroup, elementsFromThisSource);
+                                CardGroupRegistry.notifyOuicheListOfGroupRemovals(
+                                        sourceGroup, elementsFromThisSource, capturedOriginalIndices);
                             }
                         }
                     }
                     CardGroupRegistry.notifyOuicheListOfGroupAdditions(capturedEffectiveGroup, capturedMoved);
                 } else if (moveSourceGroups.size() == 1 && moveSourceGroups.contains(capturedEffectiveGroup)) {
-                    CardGroupRegistry.notifyOuicheListOfGroupReorder(capturedEffectiveGroup, capturedMoved);
+                    CardGroupRegistry.notifyOuicheListOfGroupReorder(
+                            capturedEffectiveGroup, capturedMoved, capturedOriginalIndices);
                 }
             }
             event.setDropCompleted(true);

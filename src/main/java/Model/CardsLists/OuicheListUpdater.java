@@ -496,24 +496,33 @@ final class OuicheListUpdater {
      * {@link ThemeCollection#getCardsList()} (an intra-group reorder in the Decks and
      * Collections tab — no card left or entered the section, only its position changed).
      *
-     * <p>Locates the matching slot in {@code detailedOuicheList} using the same matching
-     * as {@link #onDeckCardRemoved} (same-card identity check), then reinserts that exact
-     * slot object at {@code newIndex}. Because the same slot object is relocated rather than
-     * removed and recreated, its {@link OwnershipStatus} (and compact-map bookkeeping) is
-     * left completely untouched — a reorder never changes what is or isn't owned.
+     * <p>Locates the matching slot in {@code detailedOuicheList} — using {@code sourceIndex}
+     * to disambiguate when the section holds two or more slots that are indistinguishable by
+     * value alone (see {@link #removeFromSection}) — then reinserts that exact slot object at
+     * {@code newIndex}. The relocated slot's own {@link OwnershipStatus} is otherwise left
+     * untouched, with one exception: if the relocated slot is MISSING and is displacing a
+     * <em>different</em>, still-present slot for the same card that is OWNED or
+     * OWNED_SUBSTANDARD, the two slots swap statuses (see
+     * {@link #swapStatusIfDisplacingOwnership}). Without this, dragging one of several
+     * identical slots would be indistinguishable from a no-op, since ownership has no
+     * meaningful attachment to a specific duplicate slot versus another.
      *
-     * @param newIndex the card's new position within the target section; values at or beyond
-     *                 the section's current size clamp to the end
+     * @param newIndex    the card's new position within the target section; values at or
+     *                    beyond the section's current size clamp to the end
+     * @param sourceIndex the slot's index within the target section immediately before this
+     *                    move, or {@code -1} if unknown
      */
     static void onDeckCardMoved(CardElement movedCard, String deckName, String section,
-                                String collectionName, int newIndex) {
+                                String collectionName, int newIndex, int sourceIndex) {
 
         List<CardElement> targetSection = resolveTargetSection(deckName, section, collectionName);
         if (targetSection == null) {
             return;
         }
 
-        CardElement existingSlot = removeFromSection(targetSection, movedCard);
+        CardElement destinationOccupant = findDestinationOccupant(targetSection, newIndex);
+
+        CardElement existingSlot = removeFromSection(targetSection, movedCard, sourceIndex);
         if (existingSlot == null) {
             // No matching detailed slot for this card in this section (e.g. the detailed
             // OuicheList hasn't been generated, or this card has no slot here) — nothing
@@ -521,8 +530,63 @@ final class OuicheListUpdater {
             return;
         }
 
+        swapStatusIfDisplacingOwnership(existingSlot, destinationOccupant);
+
         int clampedIndex = Math.max(0, Math.min(newIndex, targetSection.size()));
         targetSection.add(clampedIndex, existingSlot);
+    }
+
+    /**
+     * Returns the slot currently occupying position {@code index} in {@code section}
+     * (clamped to the last valid index), or {@code null} if {@code section} is empty.
+     * Must be called before {@code section} is mutated by the move this index refers to.
+     */
+    private static CardElement findDestinationOccupant(List<CardElement> section, int index) {
+        if (section.isEmpty()) {
+            return null;
+        }
+        int clampedIndex = Math.max(0, Math.min(index, section.size() - 1));
+        return section.get(clampedIndex);
+    }
+
+    /**
+     * When a MISSING slot is dragged into the position of a <em>different</em> slot for the
+     * same card that currently holds real ownership (OWNED or OWNED_SUBSTANDARD), swaps their
+     * statuses: the dragged slot takes on the displaced slot's ownership, and the displaced
+     * slot becomes MISSING in its place.
+     *
+     * <p>This models ownership as belonging to the position the person dragged a slot
+     * <em>into</em>, not to a specific interchangeable duplicate slot — dragging a MISSING
+     * copy of a card to where an OWNED copy of the same card sits is how a person marks
+     * "this is actually the one I have". Moving an OWNED/OWNED_SUBSTANDARD slot never
+     * triggers this: real ownership isn't reassigned by dragging it around, only by
+     * dragging a MISSING slot onto it.
+     *
+     * <p>No-ops when {@code destinationOccupant} is {@code null}, is the same instance as
+     * {@code movedSlot}, doesn't represent the same card, or when either status doesn't fit
+     * the "MISSING displacing real ownership" shape.
+     */
+    private static void swapStatusIfDisplacingOwnership(CardElement movedSlot, CardElement destinationOccupant) {
+        if (destinationOccupant == null || destinationOccupant == movedSlot) {
+            return;
+        }
+        if (movedSlot.getOwnershipStatus() != OwnershipStatus.MISSING) {
+            return;
+        }
+        OwnershipStatus destinationStatus = destinationOccupant.getOwnershipStatus();
+        if (destinationStatus != OwnershipStatus.OWNED && destinationStatus != OwnershipStatus.OWNED_SUBSTANDARD) {
+            return;
+        }
+        if (!sameCard(movedSlot, destinationOccupant)) {
+            return;
+        }
+
+        removeOneFromCompactMap(movedSlot, OwnershipStatus.MISSING);
+        removeOneFromCompactMap(destinationOccupant, destinationStatus);
+        movedSlot.setOwnershipStatus(destinationStatus);
+        destinationOccupant.setOwnershipStatus(OwnershipStatus.MISSING);
+        addOneToCompactMap(movedSlot, destinationStatus);
+        addOneToCompactMap(destinationOccupant, OwnershipStatus.MISSING);
     }
 
     /**
@@ -544,16 +608,19 @@ final class OuicheListUpdater {
      *       next missing one as owned"). If a substandard slot existed for this card,
      *       its substandard marking moves to the next eligible MISSING slot, if any.</li>
      * </ul>
+     *
+     * @param sourceIndex the slot's index within the target section immediately before this
+     *                    removal, or {@code -1} if unknown. See {@link #removeFromSection}.
      */
     static void onDeckCardRemoved(CardElement removedCard, String deckName, String section,
-                                  String collectionName) {
+                                  String collectionName, int sourceIndex) {
 
         List<CardElement> targetSection = resolveTargetSection(deckName, section, collectionName);
         if (targetSection == null) {
             return;
         }
 
-        CardElement removedSlot = removeFromSection(targetSection, removedCard);
+        CardElement removedSlot = removeFromSection(targetSection, removedCard, sourceIndex);
         if (removedSlot == null) {
             return;
         }
@@ -930,17 +997,28 @@ final class OuicheListUpdater {
     }
 
     /**
-     * Removes the slot corresponding to {@code removedCard} from {@code section},
-     * matching by {@link #sameCardKey} first (exact artwork/printCode/condition/rarity
-     * match — the most specific possible identification of "this slot") and falling
-     * back to {@link #sameCard} (KonamiId / artwork only) for the first match. Note that
+     * Removes the slot corresponding to {@code removedCard} from {@code section}.
+     *
+     * <p>When {@code sourceIndex} is a valid index into {@code section} whose slot still
+     * matches {@code removedCard} by value, that exact slot is removed — this is the only
+     * way to tell apart two or more slots that are indistinguishable by value alone (same
+     * card, same condition/rarity/artwork: genuine duplicates). When {@code sourceIndex} is
+     * unknown ({@code -1}) or stale (no longer matching), this falls back to matching by
+     * {@link #sameCardKey} first (exact artwork/printCode/condition/rarity match) and then
+     * {@link #sameCard} (KonamiId / artwork only), taking the first match found. Note that
      * {@code section} comes from the detailed OuicheList, which holds independent copies
      * of the live deck/collection {@link CardElement}s, so reference equality is never
      * meaningful here.
      *
      * @return the removed {@link CardElement}, or {@code null} if no match was found
      */
-    private static CardElement removeFromSection(List<CardElement> section, CardElement removedCard) {
+    private static CardElement removeFromSection(List<CardElement> section, CardElement removedCard, int sourceIndex) {
+        if (sourceIndex >= 0 && sourceIndex < section.size()) {
+            CardElement hinted = section.get(sourceIndex);
+            if (sameCardKey(hinted, removedCard) || sameCard(hinted, removedCard)) {
+                return section.remove(sourceIndex);
+            }
+        }
         for (int index = 0; index < section.size(); index++) {
             if (sameCardKey(section.get(index), removedCard)) {
                 return section.remove(index);

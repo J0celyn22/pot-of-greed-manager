@@ -63,7 +63,34 @@ public class CardScraper {
      * "Access Denied" block (not a timing/JS-challenge issue) on essentially every request
      * past the first, so it's worth ruling out headless-mode fingerprinting as a contributor.
      */
-    private static final boolean HEADLESS = false;
+    /**
+     * Headless by default — every test so far (headless on, headless off, minimized window)
+     * has had the exact same outcome: first request succeeds, second gets blocked. No test
+     * has actually isolated headless mode as the variable that mattered, so there's no real
+     * evidence for keeping the window visible at the cost of it popping up on screen.
+     */
+    private static final boolean HEADLESS = true;
+
+    /**
+     * Point this at your own Chrome user-data directory to have Selenium drive your real
+     * profile (real cookies, history, and accumulated trust) instead of a brand-new, blank
+     * one. This looks like the actual fix, not the delay/headless tweaks — a fresh,
+     * zero-history profile immediately doing systematic per-expansion requests is a strong
+     * automation signal on its own, and your regular Chrome working fine on the same
+     * machine/network rules out an IP-level block.
+     * <p>
+     * Your regular Chrome must be fully closed while the scraper runs — Chrome refuses to
+     * let two processes share one profile directory.
+     * <p>
+     * Windows: usually {@code C:\Users\<you>\AppData\Local\Google\Chrome\User Data} — check
+     * chrome://version on the "Profile Path" line to get yours exactly (it'll show the full
+     * path including the profile folder name, e.g. "...\User Data\Default" — put everything
+     * up to "User Data" here, and the last folder name in CHROME_PROFILE_NAME below).
+     * <p>
+     * Leave CHROME_USER_DATA_DIR blank to fall back to a fresh profile (previous behavior).
+     */
+    private static final String CHROME_USER_DATA_DIR = "";
+    private static final String CHROME_PROFILE_NAME = "Default";
 
     /**
      * Retrieves cards from the given CardMarket seller's offers that are present in the
@@ -263,25 +290,32 @@ public class CardScraper {
     // ── Page fetching & parsing ─────────────────────────────────────────────────────────
 
     /**
-     * Starts a Chrome session with a handful of standard tweaks to look less obviously
-     * automated (a real, non-headless-looking user agent, the "automation" infobar/flag
-     * disabled). None of this guarantees passing bot detection — it's the same category of
-     * thing any browser-based scraper does, not a way around anything CardMarket couldn't
-     * otherwise see.
+     * Starts a Chrome session, using your real profile if {@link #CHROME_USER_DATA_DIR} is
+     * set (see its comment), plus a couple of standard tweaks to avoid the most obvious
+     * "controlled by automation" tells. None of this guarantees passing bot detection — it's
+     * the same category of thing any browser-based scraper does, not a way around anything
+     * CardMarket couldn't otherwise see.
      */
-    private static WebDriver createDriver() {
+    static WebDriver createDriver() { // package-private for the live diagnostic test
         ChromeOptions options = new ChromeOptions();
         if (HEADLESS) {
             options.addArguments("--headless=new");
         }
+        if (!CHROME_USER_DATA_DIR.isBlank()) {
+            options.addArguments("--user-data-dir=" + CHROME_USER_DATA_DIR);
+            options.addArguments("--profile-directory=" + CHROME_PROFILE_NAME);
+        }
         options.addArguments("--window-size=1920,1080");
         options.addArguments("--disable-blink-features=AutomationControlled");
-        options.addArguments("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                + "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
         options.setExperimentalOption("excludeSwitches", List.of("enable-automation"));
         options.setExperimentalOption("useAutomationExtension", false);
 
         WebDriver driver = new ChromeDriver(options);
+        try {
+            driver.manage().window().minimize();
+        } catch (Exception exception) {
+            logger.debug("Could not minimize the browser window (non-fatal): {}", exception.getMessage());
+        }
         try {
             ((JavascriptExecutor) driver).executeScript(
                     "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});");
@@ -291,7 +325,7 @@ public class CardScraper {
         return driver;
     }
 
-    private static Document fetchPage(WebDriver driver, String url) {
+    static Document fetchPage(WebDriver driver, String url) { // package-private for the live diagnostic test
         driver.get(url);
         waitForPageToSettle(driver);
         return Jsoup.parse(driver.getPageSource(), url);

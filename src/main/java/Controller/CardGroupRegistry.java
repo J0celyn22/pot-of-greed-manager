@@ -800,9 +800,15 @@ public final class CardGroupRegistry {
      *
      * @param sourceGroup     the group the elements were moved out of
      * @param removedElements the {@link CardElement}s that were removed
+     * @param originalIndices each removed element's index within {@code sourceGroup}
+     *                        immediately before the removal, or {@code null}/missing entries
+     *                        when unknown. Disambiguates which detailed-OuicheList slot to
+     *                        touch when duplicates are present; see
+     *                        {@link OuicheList#onDeckCardRemoved}.
      */
     public static void notifyOuicheListOfGroupRemovals(
-            CardsGroup sourceGroup, List<CardElement> removedElements) {
+            CardsGroup sourceGroup, List<CardElement> removedElements,
+            Map<CardElement, Integer> originalIndices) {
         if (sourceGroup == null || removedElements == null || removedElements.isEmpty()) {
             return;
         }
@@ -816,8 +822,9 @@ public final class CardGroupRegistry {
                 String collectionName = findCollectionNameOwningDeck(deck);
                 for (CardElement removedElement : removedElements) {
                     try {
+                        int sourceIndex = sourceIndexOf(originalIndices, removedElement);
                         OuicheList.onDeckCardRemoved(
-                                removedElement, deck.getName(), sectionKey, collectionName);
+                                removedElement, deck.getName(), sectionKey, collectionName, sourceIndex);
                     } catch (Throwable throwable) {
                         logger.error("OuicheList update failed after removing from deck '{}' section '{}'",
                                 deck.getName(), sectionKey, throwable);
@@ -830,7 +837,8 @@ public final class CardGroupRegistry {
                 && backingList != null && backingList == collection.getCardsList()) {
             for (CardElement removedElement : removedElements) {
                 try {
-                    OuicheList.onDeckCardRemoved(removedElement, null, null, collection.getName());
+                    int sourceIndex = sourceIndexOf(originalIndices, removedElement);
+                    OuicheList.onDeckCardRemoved(removedElement, null, null, collection.getName(), sourceIndex);
                 } catch (Throwable throwable) {
                     logger.error("OuicheList update failed after removing from collection '{}'",
                             collection.getName(), throwable);
@@ -868,11 +876,17 @@ public final class CardGroupRegistry {
      * {@link #notifyOuicheListOfGroupRemovals} + {@link #notifyOuicheListOfGroupAdditions}
      * instead.
      *
-     * @param group         the group elements were repositioned within
-     * @param movedElements the {@link CardElement}s that were repositioned
+     * @param group           the group elements were repositioned within
+     * @param movedElements   the {@link CardElement}s that were repositioned
+     * @param originalIndices each moved element's index within {@code group} immediately
+     *                        before the reorder, or {@code null}/missing entries when
+     *                        unknown. Disambiguates which detailed-OuicheList slot to touch
+     *                        (and, when it's a MISSING slot displacing a same-card duplicate
+     *                        that's OWNED/OWNED_SUBSTANDARD, swaps their statuses) when
+     *                        duplicates are present; see {@link OuicheList#onDeckCardMoved}.
      */
     public static void notifyOuicheListOfGroupReorder(
-            CardsGroup group, List<CardElement> movedElements) {
+            CardsGroup group, List<CardElement> movedElements, Map<CardElement, Integer> originalIndices) {
         if (group == null || movedElements == null || movedElements.isEmpty()) {
             return;
         }
@@ -890,8 +904,9 @@ public final class CardGroupRegistry {
                         if (newIndex < 0) {
                             continue;
                         }
+                        int sourceIndex = sourceIndexOf(originalIndices, movedElement);
                         OuicheList.onDeckCardMoved(
-                                movedElement, deck.getName(), sectionKey, collectionName, newIndex);
+                                movedElement, deck.getName(), sectionKey, collectionName, newIndex, sourceIndex);
                     } catch (Throwable throwable) {
                         logger.error("OuicheList update failed after reordering deck '{}' section '{}'",
                                 deck.getName(), sectionKey, throwable);
@@ -908,7 +923,9 @@ public final class CardGroupRegistry {
                     if (newIndex < 0) {
                         continue;
                     }
-                    OuicheList.onDeckCardMoved(movedElement, null, null, collection.getName(), newIndex);
+                    int sourceIndex = sourceIndexOf(originalIndices, movedElement);
+                    OuicheList.onDeckCardMoved(
+                            movedElement, null, null, collection.getName(), newIndex, sourceIndex);
                 } catch (Throwable throwable) {
                     logger.error("OuicheList update failed after reordering collection '{}'",
                             collection.getName(), throwable);
@@ -920,6 +937,48 @@ public final class CardGroupRegistry {
 
         // Otherwise (a My Collection group): the OuicheList has no position-sensitive
         // representation of the owned-card pool, so there is nothing to update.
+    }
+
+    /**
+     * Returns {@code originalIndices.get(element)}, or {@code -1} ("unknown") when
+     * {@code originalIndices} is {@code null} or has no entry for {@code element}.
+     */
+    private static int sourceIndexOf(Map<CardElement, Integer> originalIndices, CardElement element) {
+        if (originalIndices == null) {
+            return -1;
+        }
+        Integer sourceIndex = originalIndices.get(element);
+        return sourceIndex != null ? sourceIndex : -1;
+    }
+
+    /**
+     * Captures, for each element in {@code elements}, its current index within whichever
+     * registered {@link CardsGroup} it currently belongs to (via {@link #findGroupForCardElement}).
+     * Must be called before any of {@code elements} are moved/removed — the returned indices
+     * describe the pre-move layout, which is what {@link OuicheList#onDeckCardMoved} and
+     * {@link OuicheList#onDeckCardRemoved} need to disambiguate duplicate slots.
+     *
+     * @param elements the elements about to be moved or removed
+     * @return an identity-keyed map from element to its pre-move index in its origin group;
+     * elements whose origin group can't be found are simply absent from the map
+     */
+    public static Map<CardElement, Integer> captureOriginalIndices(List<CardElement> elements) {
+        Map<CardElement, Integer> originalIndices = new IdentityHashMap<>();
+        if (elements == null) {
+            return originalIndices;
+        }
+        for (CardElement element : elements) {
+            CardsGroup originGroup = findGroupForCardElement(element);
+            if (originGroup == null) {
+                continue;
+            }
+            List<CardElement> originList = observableListFor(originGroup);
+            int index = originList != null ? originList.indexOf(element) : -1;
+            if (index >= 0) {
+                originalIndices.put(element, index);
+            }
+        }
+        return originalIndices;
     }
 
     /**

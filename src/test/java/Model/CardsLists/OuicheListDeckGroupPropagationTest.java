@@ -181,7 +181,7 @@ public class OuicheListDeckGroupPropagationTest {
         // involved) — the general "propagate to next MISSING KonamiId match anywhere"
         // logic in onDeckCardRemoved finds DeckB's slot purely by KonamiId, with no idea
         // that DeckB happens to be in a linked group at all.
-        OuicheList.onDeckCardRemoved(new CardElement(cardA), null, null, "TestCollection");
+        OuicheList.onDeckCardRemoved(new CardElement(cardA), null, null, "TestCollection", -1);
 
         assertEquals(OwnershipStatus.OWNED, deckB.getMainDeck().get(0).getOwnershipStatus(),
                 "This passes via the general cross-list propagation on removal, "

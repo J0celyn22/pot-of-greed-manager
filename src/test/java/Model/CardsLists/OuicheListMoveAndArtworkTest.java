@@ -144,7 +144,7 @@ public class OuicheListMoveAndArtworkTest {
         detailedDeck.getMainDeck().add(slotX);
         detailedDeck.getMainDeck().add(slotY);
 
-        OuicheList.onDeckCardMoved(new CardElement(cardX), "TestDeck", "main", null, 1);
+        OuicheList.onDeckCardMoved(new CardElement(cardX), "TestDeck", "main", null, 1, -1);
 
         assertEquals(2, detailedDeck.getMainDeck().size());
         assertEquals("KID-901", detailedDeck.getMainDeck().get(1).getCard().getKonamiId(),
@@ -161,7 +161,7 @@ public class OuicheListMoveAndArtworkTest {
         detailedCollection.getCardsList().add(slotX);
         detailedCollection.getCardsList().add(slotY);
 
-        OuicheList.onDeckCardMoved(new CardElement(cardX), null, null, "TestCollection", 1);
+        OuicheList.onDeckCardMoved(new CardElement(cardX), null, null, "TestCollection", 1, -1);
 
         assertEquals("KID-901", detailedCollection.getCardsList().get(1).getCard().getKonamiId());
         assertEquals(OwnershipStatus.OWNED, detailedCollection.getCardsList().get(1).getOwnershipStatus());
@@ -172,7 +172,7 @@ public class OuicheListMoveAndArtworkTest {
         detailedDeck.getMainDeck().add(missingSlot(cardY)); // only cardY present, not cardX
 
         assertDoesNotThrow(() ->
-                OuicheList.onDeckCardMoved(new CardElement(cardX), "TestDeck", "main", null, 0));
+                OuicheList.onDeckCardMoved(new CardElement(cardX), "TestDeck", "main", null, 0, -1));
 
         assertEquals(1, detailedDeck.getMainDeck().size(), "Nothing should be inserted or removed");
     }
@@ -183,7 +183,7 @@ public class OuicheListMoveAndArtworkTest {
         detailedDeck.getMainDeck().add(slotX);
         detailedDeck.getMainDeck().add(missingSlot(cardY));
 
-        OuicheList.onDeckCardMoved(new CardElement(cardX), "TestDeck", "main", null, 999);
+        OuicheList.onDeckCardMoved(new CardElement(cardX), "TestDeck", "main", null, 999, -1);
 
         assertEquals("KID-901", detailedDeck.getMainDeck().get(1).getCard().getKonamiId(),
                 "Out-of-range index should clamp to the end");
@@ -193,7 +193,7 @@ public class OuicheListMoveAndArtworkTest {
     void deckCardMoved_unknownDeckName_noOp() {
         detailedDeck.getMainDeck().add(missingSlot(cardX));
         assertDoesNotThrow(() ->
-                OuicheList.onDeckCardMoved(new CardElement(cardX), "NoSuchDeck", "main", null, 0));
+                OuicheList.onDeckCardMoved(new CardElement(cardX), "NoSuchDeck", "main", null, 0, -1));
         assertEquals(1, detailedDeck.getMainDeck().size());
     }
 

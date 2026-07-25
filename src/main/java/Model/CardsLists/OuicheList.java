@@ -480,13 +480,18 @@ public class OuicheList {
      *                       {@code deckName} (or that the card was removed from directly when
      *                       {@code deckName} is {@code null}), or {@code null} for a standalone
      *                       deck
+     * @param sourceIndex    the removed slot's index within the target section immediately
+     *                       before this removal, or {@code -1} if unknown. Disambiguates which
+     *                       slot to touch when the section holds several slots that are
+     *                       indistinguishable by value alone (identical duplicates); falls back
+     *                       to first-match-by-value when unknown or stale.
      */
     public static void onDeckCardRemoved(CardElement removedCard, String deckName, String section,
-                                         String collectionName) {
+                                         String collectionName, int sourceIndex) {
         if (detailedOuicheList == null || removedCard == null) {
             return;
         }
-        OuicheListUpdater.onDeckCardRemoved(removedCard, deckName, section, collectionName);
+        OuicheListUpdater.onDeckCardRemoved(removedCard, deckName, section, collectionName, sourceIndex);
     }
 
     /**
@@ -495,9 +500,11 @@ public class OuicheList {
      * Collections tab — no card left or entered the section, only its position changed).
      *
      * <p>Locates the matching slot inside the detailed OuicheList by name/section and moves
-     * it to {@code newIndex}, leaving its ownership status untouched — a reorder never
-     * changes what is or isn't owned. See {@link OuicheListUpdater#onDeckCardMoved} for the
-     * matching rules used to locate the slot.
+     * it to {@code newIndex}. Ordinarily this leaves its ownership status untouched — a
+     * reorder never changes what is or isn't owned overall — except when it disambiguates
+     * between duplicate slots by displacing a different, still-present duplicate that holds
+     * real ownership; see {@link OuicheListUpdater#onDeckCardMoved} for the matching rules
+     * and that exception.
      *
      * @param movedCard      the live {@link CardElement} that was repositioned
      * @param deckName       the name of the deck the card was reordered within, or
@@ -511,13 +518,20 @@ public class OuicheList {
      *                       standalone deck
      * @param newIndex       the card's new position within the target section; values at or
      *                       beyond the section's current size clamp to the end
+     * @param sourceIndex    the slot's index within the target section immediately before this
+     *                       move, or {@code -1} if unknown. Disambiguates which slot to touch
+     *                       when the section holds several slots that are indistinguishable by
+     *                       value alone (identical duplicates); falls back to first-match-by-
+     *                       value when unknown or stale. See
+     *                       {@link OuicheListUpdater#onDeckCardMoved} for how this also affects
+     *                       ownership status when a MISSING slot displaces a duplicate.
      */
     public static void onDeckCardMoved(CardElement movedCard, String deckName, String section,
-                                       String collectionName, int newIndex) {
+                                       String collectionName, int newIndex, int sourceIndex) {
         if (detailedOuicheList == null || movedCard == null) {
             return;
         }
-        OuicheListUpdater.onDeckCardMoved(movedCard, deckName, section, collectionName, newIndex);
+        OuicheListUpdater.onDeckCardMoved(movedCard, deckName, section, collectionName, newIndex, sourceIndex);
     }
 
 
