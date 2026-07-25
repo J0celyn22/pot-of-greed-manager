@@ -1,5 +1,7 @@
 package Model.CardsLists;
 
+import Utils.PriceFormat;
+
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -180,9 +182,9 @@ public class OwnedCardsCollection implements CardsListFile {
     public String getPrice() {
         float total = 0;
         for (Box box : ownedCollection) {
-            total += Float.parseFloat(box.getPrice());
+            total += PriceFormat.parse(box.getPrice());
         }
-        return String.valueOf(total);
+        return PriceFormat.format2(total);
     }
 
     @Override

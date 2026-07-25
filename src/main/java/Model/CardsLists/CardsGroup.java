@@ -1,5 +1,7 @@
 package Model.CardsLists;
 
+import Utils.PriceFormat;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -71,10 +73,10 @@ public class CardsGroup {
         float price = 0;
         for (CardElement cardElement : this.cardList) {
             if (cardElement.getCard() != null && cardElement.getPrice() != null) {
-                price += Float.parseFloat(cardElement.getPrice());
+                price += PriceFormat.parse(cardElement.getPrice());
             }
         }
-        return String.valueOf(price);
+        return PriceFormat.format2(price);
     }
 
     /**

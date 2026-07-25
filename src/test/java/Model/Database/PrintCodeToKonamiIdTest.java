@@ -3,21 +3,19 @@ package Model.Database;
 import org.junit.jupiter.api.Test;
 
 import java.net.URISyntaxException;
+import java.util.HashMap;
 
 import static Model.Database.PrintCodeToKonamiId.getPrintCodeToKonamiId;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class PrintCodeToKonamiIdTest {
+
     @Test
     public void testGetPrintCodeKonamiIdPairs() throws URISyntaxException {
-        // Read the current revision from the file
-        //String content = new String(Files.readAllBytes(Paths.get("src/main/resources/revision.txt")), StandardCharsets.UTF_8);
-        //int expectedRevision = Integer.parseInt(content.trim());
+        HashMap<String, String> printCodeToKonamiId = getPrintCodeToKonamiId();
 
-        // Read the revision using the function
-        getPrintCodeToKonamiId();
-
-        // Check that the values are equal
-        //assertEquals(expectedRevision, actualRevision);
-        System.out.println(getPrintCodeToKonamiId());
+        assertNotNull(printCodeToKonamiId, "getPrintCodeToKonamiId() should never return null");
+        assertFalse(printCodeToKonamiId.isEmpty(), "The print code to Konami ID map should contain at least one entry");
     }
 }

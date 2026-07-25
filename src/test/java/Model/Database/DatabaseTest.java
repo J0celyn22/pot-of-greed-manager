@@ -5,22 +5,16 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
-class DatabaseTest {
-    /*@Test
-    void populateJsonContentMapTest() throws IOException {
-        populateJsonContentMap();
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-        int currentRevision = DataBaseUpdate.readLocalRevision();
-        assert true;
-    }*/
+class DatabaseTest {
 
     @Test
     void createAllCardsListTest() {
         Map<Integer, Card> cardsList = Database.getAllCardsList();
-        for(int i = 0; i < cardsList.size(); i++) {
-            System.out.println(cardsList.get(i));
-        }
 
-        assert true;
+        assertNotNull(cardsList, "getAllCardsList() should never return null");
+        assertFalse(cardsList.isEmpty(), "The card database should contain at least one card");
     }
 }

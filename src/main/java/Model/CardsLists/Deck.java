@@ -1,5 +1,7 @@
 package Model.CardsLists;
 
+import Utils.PriceFormat;
+
 import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -431,10 +433,10 @@ public class Deck {
      */
     public String getPrice() {
         float returnValue = 0;
-        returnValue += Float.parseFloat(this.getMainDeckPrice());
-        returnValue += Float.parseFloat(this.getExtraDeckPrice());
-        returnValue += Float.parseFloat(this.getSideDeckPrice());
-        return String.valueOf(returnValue);
+        returnValue += PriceFormat.parse(this.getMainDeckPrice());
+        returnValue += PriceFormat.parse(this.getExtraDeckPrice());
+        returnValue += PriceFormat.parse(this.getSideDeckPrice());
+        return PriceFormat.format2(returnValue);
     }
 
     /**
@@ -450,12 +452,12 @@ public class Deck {
         for (int i = 0; i < this.getMainDeck().size(); i++) {
             if (this.getMainDeck().get(i) != null) {
                 if (this.getMainDeck().get(i).getPrice() != null) {
-                    returnValue += Float.parseFloat(this.getMainDeck().get(i).getPrice());
+                    returnValue += PriceFormat.parse(this.getMainDeck().get(i).getPrice());
                 }
             }
         }
 
-        return String.valueOf(returnValue);
+        return PriceFormat.format2(returnValue);
     }
 
     /**
@@ -471,12 +473,12 @@ public class Deck {
         for (int i = 0; i < this.getExtraDeck().size(); i++) {
             if (this.getExtraDeck().get(i) != null) {
                 if (this.getExtraDeck().get(i).getPrice() != null) {
-                    returnValue += Float.parseFloat(this.getExtraDeck().get(i).getPrice());
+                    returnValue += PriceFormat.parse(this.getExtraDeck().get(i).getPrice());
                 }
             }
         }
 
-        return String.valueOf(returnValue);
+        return PriceFormat.format2(returnValue);
     }
 
     /**
@@ -492,12 +494,12 @@ public class Deck {
         for (int i = 0; i < this.getSideDeck().size(); i++) {
             if (this.getSideDeck().get(i) != null) {
                 if (this.getSideDeck().get(i).getPrice() != null) {
-                    returnValue += Float.parseFloat(this.getSideDeck().get(i).getPrice());
+                    returnValue += PriceFormat.parse(this.getSideDeck().get(i).getPrice());
                 }
             }
         }
 
-        return String.valueOf(returnValue);
+        return PriceFormat.format2(returnValue);
     }
 
     /**

@@ -5,6 +5,7 @@ import Controller.UserInterfaceFunctions;
 import Model.CardsLists.*;
 import Utils.CardMatcher;
 import Utils.CardNameUtils;
+import Utils.PriceFormat;
 import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
 import javafx.geometry.Bounds;
@@ -564,7 +565,7 @@ public class CardTreeCell extends TreeCell<String> {
             String rawPrice = cardElement.getCard().getPrice();
             if (rawPrice != null && !rawPrice.isEmpty()) {
                 try {
-                    cardPrice = Float.parseFloat(rawPrice);
+                    cardPrice = PriceFormat.parse(rawPrice);
                 } catch (NumberFormatException numberFormatException) {
                     logger.warn("Could not parse card price: {}", rawPrice);
                 }
@@ -580,9 +581,9 @@ public class CardTreeCell extends TreeCell<String> {
             return "";
         }
         int ownedCount = totalCount - missingCount;
-        String ownedPct = String.format("%.1f", (ownedCount * 100f) / totalCount);
-        String missingPriceFmt = String.format("%.2f", missingPriceSum);
-        String totalPriceFmt = String.format("%.2f", totalPriceSum);
+        String ownedPct = PriceFormat.format1((ownedCount * 100f) / totalCount);
+        String missingPriceFmt = PriceFormat.format2(missingPriceSum);
+        String totalPriceFmt = PriceFormat.format2(totalPriceSum);
         return "(" + missingCount + "/" + totalCount
                 + " - " + missingPriceFmt + "€/" + totalPriceFmt + "€"
                 + " - " + ownedPct + "%)";

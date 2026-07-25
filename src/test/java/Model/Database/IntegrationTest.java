@@ -1,6 +1,7 @@
 package Model.Database;
 
 import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -18,6 +19,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.doReturn;
 
+// Excluded from the default `mvn test` run (see the surefire excludedGroups
+// configuration in pom.xml): testFetchFile alone makes 9 real, uncached HTTP
+// requests to 4 external hosts every time it runs, which risks rate-limiting
+// or an IP block if run routinely. Run deliberately with -Dgroups=integration.
+@Tag("integration")
 @SuppressWarnings({"DuplicateExpressions", "InstantiationOfUtilityClass"})
 public class IntegrationTest {
 

@@ -159,7 +159,7 @@ public class TabSwitchCoordinator {
 
                     coordinator.updateTabDirtyIndicators();
                 } catch (Exception exception) {
-                    logger.debug("Decks refresher failed", exception);
+                    logger.warn("Decks refresher failed", exception);
                 }
             });
             decksController.displayDecksAndCollections();
@@ -176,7 +176,7 @@ public class TabSwitchCoordinator {
                 ouicheListController.populateOuicheListMenu();
                 coordinator.refreshOuicheListCompactViewIfVisible();
             } catch (Exception exception) {
-                logger.debug("OuicheList refresher failed", exception);
+                logger.warn("OuicheList refresher failed", exception);
             }
         });
     }

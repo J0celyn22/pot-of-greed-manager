@@ -2,6 +2,7 @@ package Model.CardsLists;
 
 import Model.Database.CardDatabaseManager;
 import Model.Database.Database;
+import Utils.PriceFormat;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -480,10 +481,10 @@ public class ThemeCollection {
         float price = 0;
         for (CardElement cardElement : this.cardsList) {
             if (cardElement.getCard() != null && cardElement.getPrice() != null) {
-                price += Float.parseFloat(cardElement.getPrice());
+                price += PriceFormat.parse(cardElement.getPrice());
             }
         }
-        return String.valueOf(price);
+        return PriceFormat.format2(price);
     }
 
     /**

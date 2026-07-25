@@ -1,5 +1,7 @@
 package Model.CardsLists;
 
+import Utils.PriceFormat;
+
 import java.io.File;
 import java.util.*;
 
@@ -333,8 +335,8 @@ public class DecksAndCollectionsList {
      * Returns the combined price of all cards across all collections and standalone decks.
      */
     public String getPrice() {
-        float total = Float.parseFloat(getCollectionsPrice()) + Float.parseFloat(getDecksPrice());
-        return String.valueOf(total);
+        float total = PriceFormat.parse(getCollectionsPrice()) + PriceFormat.parse(getDecksPrice());
+        return PriceFormat.format2(total);
     }
 
     /**
@@ -354,9 +356,9 @@ public class DecksAndCollectionsList {
     public String getCollectionsPrice() {
         float total = 0;
         for (ThemeCollection collection : this.collections) {
-            total += Float.parseFloat(collection.getPrice());
+            total += PriceFormat.parse(collection.getPrice());
         }
-        return String.valueOf(total);
+        return PriceFormat.format2(total);
     }
 
     /**
@@ -376,9 +378,9 @@ public class DecksAndCollectionsList {
     public String getDecksPrice() {
         float total = 0;
         for (Deck deck : this.decks) {
-            total += Float.parseFloat(deck.getPrice());
+            total += PriceFormat.parse(deck.getPrice());
         }
-        return String.valueOf(total);
+        return PriceFormat.format2(total);
     }
 
     @Override

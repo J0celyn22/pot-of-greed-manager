@@ -4,6 +4,7 @@ import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
 import Model.CardsLists.Deck;
 import Model.CardsLists.OwnershipStatus;
+import Utils.PriceFormat;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -402,10 +403,10 @@ public class HtmlGenerator {
      */
     public static String formatPrice(String price) {
         if (price == null || price.isEmpty()) {
-            return "0.00";
+            return PriceFormat.format2(0f);
         }
         try {
-            return String.format("%.2f", Float.parseFloat(price));
+            return PriceFormat.format2(PriceFormat.parse(price));
         } catch (NumberFormatException numberFormatException) {
             logger.warn("Could not parse price value: {}", price);
             return price;
@@ -437,7 +438,7 @@ public class HtmlGenerator {
             String rawPrice = cardElement.getCard().getPrice();
             if (rawPrice != null && !rawPrice.isEmpty()) {
                 try {
-                    cardPrice = Float.parseFloat(rawPrice);
+                    cardPrice = PriceFormat.parse(rawPrice);
                 } catch (NumberFormatException numberFormatException) {
                     logger.warn("Could not parse card price: {}", rawPrice);
                 }
@@ -451,14 +452,14 @@ public class HtmlGenerator {
 
         int ownedCount = totalCount - missingCount;
         String ownedPct = (totalCount > 0)
-                ? String.format("%.1f", (ownedCount * 100f) / totalCount)
+                ? PriceFormat.format1((ownedCount * 100f) / totalCount)
                 : "100.0";
 
         return new AdvancementStats(
                 missingCount,
                 totalCount,
-                String.format("%.2f", missingPriceSum),
-                String.format("%.2f", totalPriceSum),
+                PriceFormat.format2(missingPriceSum),
+                PriceFormat.format2(totalPriceSum),
                 ownedPct
         );
     }
@@ -557,11 +558,11 @@ public class HtmlGenerator {
         for (CardElement card : cardsList) {
             if (card.getCard() != null) {
                 if (card.getPrice() != null) {
-                    price += Float.parseFloat(card.getCard().getPrice());
+                    price += PriceFormat.parse(card.getCard().getPrice());
                 }
             }
         }
-        return String.format("%.2f", price);
+        return PriceFormat.format2(price);
     }
 
     /**
@@ -573,9 +574,9 @@ public class HtmlGenerator {
     public static String getPriceCard(List<Card> cardsList) {
         float price = 0;
         for (Card card : cardsList) {
-            price += Float.parseFloat(card.getPrice());
+            price += PriceFormat.parse(card.getPrice());
         }
-        return String.format("%.2f", price);
+        return PriceFormat.format2(price);
     }
 
     /**
@@ -1073,8 +1074,8 @@ public class HtmlGenerator {
         writer.write("<div class=\"card-value\">\n");
         writer.write("<p><b>" + entryValue + "</b></p>\n");
         if (entryKey.getPrice() != null) {
-            float unitPrice = Float.parseFloat(entryKey.getPrice());
-            writer.write("<b>" + String.format("%.2f", unitPrice) + "€ / " + String.format("%.2f", entryValue * unitPrice) + "€" + "</b>\n");
+            float unitPrice = PriceFormat.parse(entryKey.getPrice());
+            writer.write("<b>" + PriceFormat.format2(unitPrice) + "€ / " + PriceFormat.format2(entryValue * unitPrice) + "€" + "</b>\n");
         }
         writer.write("</div>\n");
         writer.write("</div>\n");
@@ -1328,9 +1329,9 @@ public class HtmlGenerator {
         writer.write("<div class=\"card-value\">\n");
         writer.write("<p><b>" + entryValue + "</b></p>\n");
         if (card.getPrice() != null) {
-            float unitPrice = Float.parseFloat(card.getPrice());
-            writer.write("<b>" + String.format("%.2f", unitPrice) + "€ / "
-                    + String.format("%.2f", entryValue * unitPrice) + "€</b>\n");
+            float unitPrice = PriceFormat.parse(card.getPrice());
+            writer.write("<b>" + PriceFormat.format2(unitPrice) + "€ / "
+                    + PriceFormat.format2(entryValue * unitPrice) + "€</b>\n");
         }
         writer.write("</div>\n");
         writer.write("</div>\n");

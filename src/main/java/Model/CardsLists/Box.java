@@ -1,5 +1,7 @@
 package Model.CardsLists;
 
+import Utils.PriceFormat;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -138,9 +140,9 @@ public class Box {
         float returnValue = 0;
 
         for (CardsGroup cardsGroup : this.content) {
-            returnValue += Float.parseFloat(cardsGroup.getPrice());
+            returnValue += PriceFormat.parse(cardsGroup.getPrice());
         }
 
-        return String.valueOf(returnValue);
+        return PriceFormat.format2(returnValue);
     }
 }
