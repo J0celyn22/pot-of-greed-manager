@@ -3,21 +3,22 @@ package Model.CardMarket;
 import org.jsoup.nodes.Document;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebDriverException;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * CardMarketLiveDiagnosticTest.java
  * <p>
- * NOT a normal automated test. Every method here makes real requests to the live
- * cardmarket.com, through the exact same Selenium/Chrome path the real scraper uses
- * ({@link CardScraper#createDriver()} / {@link CardScraper#fetchPage}) — so whatever
- * CHROME_USER_DATA_DIR is set to in CardScraper.java applies here too.
+ * NOT a normal automated test. Each method makes real navigations to the live cardmarket.com
+ * through the exact same path the real scraper uses ({@link CardScraper#fetchPage}), and
+ * reports what happened. A retry only happens if there's a genuine no-response failure
+ * (network error, DNS failure, page-load timeout) — never just because the response turned
+ * out to be a Cloudflare block page. A block page is a definitive answer, not a failed fetch.
  * <p>
- * Every method is {@code @Disabled} so nothing here ever runs automatically (a full test
- * run, CI, etc.). Run ONE method at a time, manually, from your IDE, when you actually want
- * to investigate — each one makes only 2 requests (not the full 623-expansion scrape), so
- * you get an answer in seconds instead of hours, and each one changes exactly one thing
- * relative to the first request, so a pass/fail actually isolates something.
+ * {@code @Disabled} by default so nothing here ever runs automatically. Run one method at a
+ * time, manually, from your IDE.
  */
 public class CardMarketLiveDiagnosticTest {
 
@@ -25,49 +26,69 @@ public class CardMarketLiveDiagnosticTest {
     private static final String BASE_URL = "https://www.cardmarket.com/en/YuGiOh/Users/" + SELLER
             + "/Offers/Singles?maxPrice=0.30&minAmt=1&sortBy=name_asc";
 
+    /**
+     * Retries only apply to a genuine no-response failure, not to a blocked/definitive answer.
+     */
+    private static final int MAX_ATTEMPTS_ON_NO_RESPONSE = 3;
+
+    /**
+     * A handful of real expansion IDs from DateACard's own list, for the sequential test.
+     */
+    private static final String[] SAMPLE_EXPANSION_IDS = {"1651", "5420", "1433", "1497", "1672"};
+
     @Test
-    @Disabled("Live network test against real cardmarket.com — run manually, one at a time")
-    public void secondRequestToTheSameUnfilteredUrl() {
-        // Isolates: does a 2nd request in the session get blocked even with no filter and
-        // no pagination at all — i.e. is it about being request #2 in general, not about
-        // idExpansion/site specifically?
-        runDiagnostic("Repeat of the exact same base URL", BASE_URL, BASE_URL);
+    @Disabled("Live network test against real cardmarket.com — run manually, by itself")
+    public void mainSellerPage() {
+        fetchOnceAndReport("Main seller page, no filter", BASE_URL);
     }
 
     @Test
-    @Disabled("Live network test against real cardmarket.com — run manually, one at a time")
-    public void paginatingTheUnfilteredUrl() {
-        // Isolates: does simple pagination (&site=2, no idExpansion filter) also get
-        // blocked, or does it only happen when idExpansion is involved?
-        runDiagnostic("Page 2 of the base URL, no filter", BASE_URL, BASE_URL + "&site=2");
+    @Disabled("Live network test against real cardmarket.com — run manually, by itself, "
+            + "and only as a separate step after checking mainSellerPage()")
+    public void oneFilteredSetPage() {
+        fetchOnceAndReport("One filtered set page (idExpansion=1651)", BASE_URL + "&idExpansion=1651");
     }
 
     @Test
-    @Disabled("Live network test against real cardmarket.com — run manually, one at a time")
-    public void filteringByExpansion() {
-        // The case we already know fails in the full scraper — reproduced here in the
-        // smallest possible harness for a clean, apples-to-apples comparison against the
-        // two tests above.
-        runDiagnostic("idExpansion filter", BASE_URL, BASE_URL + "&idExpansion=1651");
-    }
-
-    private void runDiagnostic(String label, String firstUrl, String secondUrl) {
-        WebDriver driver = CardScraper.createDriver();
-        try {
-            System.out.println("=== " + label + " ===");
-
-            Document first = CardScraper.fetchPage(driver, firstUrl);
-            System.out.println("Request 1 [" + firstUrl + "]: " + describe(first));
-
-            Document second = CardScraper.fetchPage(driver, secondUrl);
-            System.out.println("Request 2 [" + secondUrl + "]: " + describe(second));
-        } finally {
-            driver.quit();
+    @Disabled("Live network test against real cardmarket.com — run manually, by itself. "
+            + "Makes 5 real requests, one per fresh Chrome session, same as the real scraper now does.")
+    public void fiveSequentialFilteredPagesEachWithAFreshSession() {
+        // Validates the fresh-session-per-request fix at small scale before trusting it to a
+        // full 623-expansion run: each of these 5 requests gets its own brand-new Chrome
+        // session (exactly what CardScraper.fetchPage does now), rather than sharing one
+        // session across all 5 like the old (blocked) design did.
+        for (String expansionId : SAMPLE_EXPANSION_IDS) {
+            fetchOnceAndReport("Sequential test, expansion id=" + expansionId,
+                    BASE_URL + "&idExpansion=" + expansionId);
         }
     }
 
+    private void fetchOnceAndReport(String label, String url) {
+        System.out.println("=== " + label + " ===");
+        System.out.println("URL: " + url);
+
+        List<WebDriverException> failures = new ArrayList<>();
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS_ON_NO_RESPONSE; attempt++) {
+            try {
+                Document doc = CardScraper.fetchPage(url);
+                // A response came back at all - definitive, whatever it is. Stop here,
+                // don't retry just because it happens to be a block page.
+                System.out.println("Attempt " + attempt + ": got a response \u2014 " + describe(doc));
+                return;
+            } catch (WebDriverException webDriverException) {
+                failures.add(webDriverException);
+                boolean lastAttempt = attempt == MAX_ATTEMPTS_ON_NO_RESPONSE;
+                System.out.println("Attempt " + attempt + ": NO RESPONSE (" + webDriverException.getMessage()
+                        + ")" + (lastAttempt ? " \u2014 giving up." : " \u2014 retrying."));
+            }
+        }
+        System.out.println("Gave up after " + MAX_ATTEMPTS_ON_NO_RESPONSE
+                + " attempts with no response at all (not even a block page). Last error: "
+                + (failures.isEmpty() ? "none" : failures.get(failures.size() - 1).getMessage()));
+    }
+
     private String describe(Document doc) {
-        if (doc.title() != null && doc.title().contains("Attention Required")) {
+        if (CardScraper.isBlockedByCloudflare(doc)) {
             return "BLOCKED (Cloudflare \"Attention Required\")";
         }
         if (CardScraper.isEmptyResultsPage(doc)) {
@@ -79,7 +100,8 @@ public class CardMarketLiveDiagnosticTest {
         if (CardScraper.pageHasOfferRows(doc)) {
             return "OK \u2014 real offer rows found";
         }
-        return "UNEXPECTED \u2014 title=\"" + doc.title() + "\", first 200 chars of body: "
-                + doc.body().text().substring(0, Math.min(200, doc.body().text().length()));
+        String bodyText = doc.body() != null ? doc.body().text() : "";
+        return "UNRECOGNIZED \u2014 title=\"" + doc.title() + "\", first 200 chars of body: "
+                + bodyText.substring(0, Math.min(200, bodyText.length()));
     }
 }

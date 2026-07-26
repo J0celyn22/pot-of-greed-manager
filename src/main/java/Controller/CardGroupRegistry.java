@@ -479,15 +479,37 @@ public final class CardGroupRegistry {
      * Calls a forced refresh on every {@link GridView} currently registered in
      * {@link #GROUP_GRID_VIEWS}.  This propagates selection-state changes into nested
      * GridViews that a plain {@code TreeView.refresh()} call does not reach.
+     *
+     * <p>The refresh works by briefly setting a grid's items to {@code null} and back,
+     * which forces ControlsFX's {@code GridViewSkin} to recompute. On a grid whose skin is
+     * already attached and laid out, that {@code setItems(null)} call can trigger an internal
+     * ControlsFX listener that calls {@code getItems().size()} without a null check, throwing
+     * an uncaught {@link NullPointerException} on the FX Application Thread. Left unguarded,
+     * that exception would abort this whole loop — silently skipping the refresh for every
+     * grid still to come — and, since it fires during the {@code setItems(null)} call itself,
+     * would leave that grid's own items stuck at {@code null} (i.e. appearing empty) because
+     * the following restore line would never run. Each grid is therefore refreshed in
+     * isolation: a failure on one grid is logged and does not affect any other, and the
+     * restore step always runs even if the null step failed.
      */
     public static void refreshAllGridViews() {
         Platform.runLater(() -> {
             for (WeakReference<GridView<CardElement>> gridRef : GROUP_GRID_VIEWS.values()) {
                 GridView<CardElement> grid = gridRef.get();
-                if (grid != null) {
-                    ObservableList<CardElement> items = grid.getItems();
+                if (grid == null) {
+                    continue;
+                }
+                ObservableList<CardElement> items = grid.getItems();
+                try {
                     grid.setItems(null);
+                } catch (Exception exception) {
+                    logger.warn("refreshAllGridViews: setItems(null) failed for a GridView; "
+                            + "still restoring its items", exception);
+                }
+                try {
                     grid.setItems(items);
+                } catch (Exception exception) {
+                    logger.warn("refreshAllGridViews: restoring items failed for a GridView", exception);
                 }
             }
         });
@@ -960,7 +982,7 @@ public final class CardGroupRegistry {
      *
      * @param elements the elements about to be moved or removed
      * @return an identity-keyed map from element to its pre-move index in its origin group;
-     * elements whose origin group can't be found are simply absent from the map
+     *         elements whose origin group can't be found are simply absent from the map
      */
     public static Map<CardElement, Integer> captureOriginalIndices(List<CardElement> elements) {
         Map<CardElement, Integer> originalIndices = new IdentityHashMap<>();

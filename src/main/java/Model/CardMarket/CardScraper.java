@@ -23,6 +23,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.*;
 
 import static Model.FilePaths.outputPath;
@@ -56,6 +57,7 @@ public class CardScraper {
 
     private static final String TOO_MANY_RESULTS_MARKER = "300+ results";
     private static final String NO_OFFERS_MARKER = "There are no offers for your selected category";
+    private static final String CLOUDFLARE_BLOCKED_MARKER = "Attention Required! | Cloudflare";
 
     /**
      * Headless Chrome is more likely to be fingerprinted as a bot than a normal, visible
@@ -93,6 +95,16 @@ public class CardScraper {
     private static final String CHROME_PROFILE_NAME = "Default";
 
     /**
+     * Caps how many expansions {@link #scrapeByExpansion} processes in a single run, for
+     * testing at a small, controlled scale before committing to a full run (DateACard has
+     * 623 expansions — a full run is a multi-hour commitment, and sustained repeated
+     * requests haven't been validated the same way a single one has). Set to
+     * {@code Integer.MAX_VALUE} for normal use (no limit); set to a small number like 5 or
+     * 10 to test a short, deliberately bounded run first.
+     */
+    private static final int MAX_EXPANSIONS_PER_RUN = 5/*Integer.MAX_VALUE*/;
+
+    /**
      * Retrieves cards from the given CardMarket seller's offers that are present in the
      * OuicheList.
      *
@@ -118,15 +130,6 @@ public class CardScraper {
         String baseUrl = "https://www.cardmarket.com/en/YuGiOh/Users/" + seller.getUsername()
                 + "/Offers/Singles?" + buildBaseQueryString(maxPrice);
 
-        WebDriver driver;
-        try {
-            driver = createDriver();
-        } catch (Exception exception) {
-            logger.error("Could not start a Chrome browser for CardMarket scraping. "
-                    + "Make sure Google Chrome is installed on this machine.", exception);
-            return result;
-        }
-
         try (BufferedWriter writer = new BufferedWriter(
                 new OutputStreamWriter(
                         new FileOutputStream(outputPath + "\\ListeCardMarket_" + seller.getUsername() + ".txt"),
@@ -135,15 +138,22 @@ public class CardScraper {
             List<Entry> collected = new ArrayList<>();
 
             politeDelay();
-            Document firstPageDocument = fetchPage(driver, baseUrl);
+            Document firstPageDocument;
+            try {
+                firstPageDocument = fetchPage(baseUrl);
+            } catch (Exception exception) {
+                logger.error("Could not fetch the base page for {}. Make sure Google Chrome is installed on "
+                        + "this machine.", seller.getDisplayName(), exception);
+                return result;
+            }
 
             if (firstPageDocument.text().contains(TOO_MANY_RESULTS_MARKER)) {
                 logger.debug("{} has more than 300 unfiltered results; scraping expansion by expansion.",
                         seller.getDisplayName());
-                collected.addAll(scrapeByExpansion(driver, baseUrl, firstPageDocument, maOuicheList, maxPrice,
+                collected.addAll(scrapeByExpansion(baseUrl, firstPageDocument, maOuicheList, maxPrice,
                         ouicheCountMap, seller, writer));
             } else {
-                collected.addAll(scrapeSimplePagination(driver, baseUrl, firstPageDocument, maOuicheList, maxPrice,
+                collected.addAll(scrapeSimplePagination(baseUrl, firstPageDocument, maOuicheList, maxPrice,
                         ouicheCountMap, seller, writer));
             }
 
@@ -191,8 +201,6 @@ public class CardScraper {
 
         } catch (IOException ioException) {
             logger.error("Error writing CardMarket results file for {}.", seller.getDisplayName(), ioException);
-        } finally {
-            driver.quit();
         }
 
         return result;
@@ -205,7 +213,7 @@ public class CardScraper {
      * through it with {@code &site=N} until a page comes back empty.
      */
     private static List<Entry> scrapeSimplePagination(
-            WebDriver driver, String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList,
+            String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList,
             double maxPrice, Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer) {
 
         List<Entry> collected = new ArrayList<>();
@@ -227,7 +235,7 @@ public class CardScraper {
             String pageUrl = baseUrl + "&site=" + pageNumber;
             politeDelay();
             try {
-                pageDocument = fetchPage(driver, pageUrl);
+                pageDocument = fetchPage(pageUrl);
             } catch (WebDriverException webDriverException) {
                 logFetchFailure(writer, seller, "page " + pageNumber, webDriverException);
                 break;
@@ -243,14 +251,24 @@ public class CardScraper {
      * expansion individually, paginating each with {@code &site=N} until it comes back empty.
      */
     private static List<Entry> scrapeByExpansion(
-            WebDriver driver, String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList,
+            String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList,
             double maxPrice, Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer) {
 
         List<Entry> collected = new ArrayList<>();
         Map<String, String> expansionMap = extractExpansionMap(firstPageDocument);
         logger.debug("Found {} expansions to check for {}.", expansionMap.size(), seller.getDisplayName());
+        if (expansionMap.size() > MAX_EXPANSIONS_PER_RUN) {
+            logger.warn("MAX_EXPANSIONS_PER_RUN is set to {}, well below the {} expansions found for {} — "
+                            + "only checking the first {} this run.",
+                    MAX_EXPANSIONS_PER_RUN, expansionMap.size(), seller.getDisplayName(), MAX_EXPANSIONS_PER_RUN);
+        }
 
+        int expansionsProcessed = 0;
         for (Map.Entry<String, String> expansionEntry : expansionMap.entrySet()) {
+            if (expansionsProcessed >= MAX_EXPANSIONS_PER_RUN) {
+                break;
+            }
+            expansionsProcessed++;
             String expansionLabel = stripTrailingCount(expansionEntry.getKey());
             String expansionId = expansionEntry.getValue();
             logger.debug("Scraping expansion: {} (id={})", expansionLabel, expansionId);
@@ -263,7 +281,7 @@ public class CardScraper {
                 politeDelay();
                 Document pageDocument;
                 try {
-                    pageDocument = fetchPage(driver, pageUrl);
+                    pageDocument = fetchPage(pageUrl);
                 } catch (WebDriverException webDriverException) {
                     logFetchFailure(writer, seller, "expansion " + expansionLabel + " page " + pageNumber,
                             webDriverException);
@@ -307,14 +325,33 @@ public class CardScraper {
         }
         options.addArguments("--window-size=1920,1080");
         options.addArguments("--disable-blink-features=AutomationControlled");
+        // Restored from the last confirmed-working commit (804b84f) — removing this in
+        // favor of Chrome's real UA was based on a real-profile conflict theory that never
+        // actually applied (CHROME_USER_DATA_DIR has been blank in every real test since).
+        // A common, everywhere-in-the-wild version string plausibly blends in better than
+        // an unusually high, recent build number (Chrome's real UA when this regressed:
+        // 150.0.7871.186) that stands out to fingerprinting.
+        options.addArguments("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                + "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
         options.setExperimentalOption("excludeSwitches", List.of("enable-automation"));
         options.setExperimentalOption("useAutomationExtension", false);
 
         WebDriver driver = new ChromeDriver(options);
         try {
-            driver.manage().window().minimize();
+            driver.manage().timeouts().pageLoadTimeout(Duration.ofSeconds(30));
         } catch (Exception exception) {
-            logger.debug("Could not minimize the browser window (non-fatal): {}", exception.getMessage());
+            logger.debug("Could not set page load timeout (non-fatal): {}", exception.getMessage());
+        }
+        if (!HEADLESS) {
+            // Headless Chrome has no real window to minimize — this call is meaningless
+            // when HEADLESS is true, and window-management operations on a headless
+            // "window" are a known source of quirky, version-dependent behavior. Only
+            // run it when there's an actual window to minimize.
+            try {
+                driver.manage().window().minimize();
+            } catch (Exception exception) {
+                logger.debug("Could not minimize the browser window (non-fatal): {}", exception.getMessage());
+            }
         }
         try {
             ((JavascriptExecutor) driver).executeScript(
@@ -325,17 +362,33 @@ public class CardScraper {
         return driver;
     }
 
-    static Document fetchPage(WebDriver driver, String url) { // package-private for the live diagnostic test
-        driver.get(url);
-        waitForPageToSettle(driver);
-        return Jsoup.parse(driver.getPageSource(), url);
+    /**
+     * Fetches one page with a brand-new Chrome session, used once and closed immediately —
+     * never reused across multiple fetches. One long-lived session making many sequential
+     * requests turned out to be the actual trigger for CardMarket's block (confirmed: every
+     * isolated single-request test succeeded repeatedly, while the real multi-request scrape
+     * kept getting blocked using the exact same page-fetching code) — this is slower (Chrome
+     * startup overhead on every single page) but it's what's actually been shown to work.
+     */
+    static Document fetchPage(String url) { // package-private for the live diagnostic test
+        WebDriver driver = createDriver();
+        try {
+            driver.get(url);
+            waitForPageToSettle(driver);
+            return Jsoup.parse(driver.getPageSource(), url);
+        } finally {
+            driver.quit();
+        }
     }
 
     /**
      * Waits until the page actually shows something we recognize — the real offers table,
-     * CardMarket's own "no offers" text, or the "300+ results" banner — rather than guessing
-     * a fixed delay. A bot-check interstitial's readyState hits "complete" almost instantly
-     * too, well before the real content loads, so waiting on readyState alone isn't enough.
+     * CardMarket's own "no offers" text, the "300+ results" banner, or a Cloudflare block
+     * page — rather than guessing a fixed delay. A bot-check interstitial's readyState hits
+     * "complete" almost instantly too, well before real content loads, so waiting on
+     * readyState alone isn't enough. The Cloudflare block page is a definitive answer, not
+     * something to keep waiting past — recognizing it here means we stop in ~1s instead of
+     * wasting the full 25s timeout on a page that will never change.
      */
     private static void waitForPageToSettle(WebDriver driver) {
         long deadline = System.currentTimeMillis() + 25_000;
@@ -343,7 +396,8 @@ public class CardScraper {
             String html = driver.getPageSource();
             if (html != null && (html.contains("UserOffersTable")
                     || html.contains(NO_OFFERS_MARKER)
-                    || html.contains(TOO_MANY_RESULTS_MARKER))) {
+                    || html.contains(TOO_MANY_RESULTS_MARKER)
+                    || html.contains(CLOUDFLARE_BLOCKED_MARKER))) {
                 return;
             }
             try {
@@ -375,6 +429,11 @@ public class CardScraper {
 
     static boolean isEmptyResultsPage(Document doc) { // package-private for tests
         return doc.text().contains(NO_OFFERS_MARKER);
+    }
+
+    static boolean isBlockedByCloudflare(Document doc) { // package-private for tests
+        String title = doc.title();
+        return title != null && title.contains("Attention Required");
     }
 
     /**
