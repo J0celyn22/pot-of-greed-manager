@@ -79,7 +79,10 @@ public final class CardGridCellDropHandler {
 
     private void handleDragDetected(javafx.scene.input.MouseEvent event) {
         CardElement draggedElement = cell.getItem();
+        logger.debug("handleDragDetected: fired, cell.getItem()={}", draggedElement);
         if (draggedElement == null || draggedElement.getCard() == null) {
+            logger.warn("handleDragDetected: drag source cell has no item or no card "
+                    + "(item={}); drag session not started", draggedElement);
             return;
         }
 
@@ -220,6 +223,8 @@ public final class CardGridCellDropHandler {
 
         CardElement anchorElement = cell.getItem();
         if (anchorElement == null) {
+            logger.warn("handleDragDropped: drop cell has no item (cell.getItem() == null); "
+                    + "drop rejected");
             event.setDropCompleted(false);
             event.consume();
             return;
@@ -227,6 +232,8 @@ public final class CardGridCellDropHandler {
 
         CardsGroup targetGroup = CardGroupRegistry.findGroupForCardElement(anchorElement);
         if (targetGroup == null) {
+            logger.warn("handleDragDropped: no CardsGroup found for drop-target element {}; "
+                    + "drop rejected", anchorElement);
             event.setDropCompleted(false);
             event.consume();
             return;
@@ -235,6 +242,9 @@ public final class CardGridCellDropHandler {
         ObservableList<CardElement> targetList = CardGroupRegistry.observableListFor(targetGroup);
         int anchorIndex = targetList.indexOf(anchorElement);
         if (anchorIndex < 0) {
+            logger.warn("handleDragDropped: drop-target element {} not found in its own resolved "
+                            + "group's list (group={}, listSize={}); drop rejected",
+                    anchorElement, targetGroup, targetList.size());
             event.setDropCompleted(false);
             event.consume();
             return;
@@ -253,6 +263,8 @@ public final class CardGridCellDropHandler {
                     new ArrayList<>(DragDropManager.getDraggedElements());
             // Don't move an element onto itself.
             if (sourceElements.size() == 1 && sourceElements.get(0) == anchorElement) {
+                logger.warn("handleDragDropped: dragged element {} matches drop-target element "
+                        + "(dropping onto itself); drop rejected", anchorElement);
                 event.setDropCompleted(false);
                 event.consume();
                 return;

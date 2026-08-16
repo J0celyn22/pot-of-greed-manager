@@ -480,17 +480,20 @@ public final class CardGroupRegistry {
      * {@link #GROUP_GRID_VIEWS}.  This propagates selection-state changes into nested
      * GridViews that a plain {@code TreeView.refresh()} call does not reach.
      *
-     * <p>The refresh works by briefly setting a grid's items to {@code null} and back,
-     * which forces ControlsFX's {@code GridViewSkin} to recompute. On a grid whose skin is
-     * already attached and laid out, that {@code setItems(null)} call can trigger an internal
-     * ControlsFX listener that calls {@code getItems().size()} without a null check, throwing
-     * an uncaught {@link NullPointerException} on the FX Application Thread. Left unguarded,
-     * that exception would abort this whole loop — silently skipping the refresh for every
-     * grid still to come — and, since it fires during the {@code setItems(null)} call itself,
-     * would leave that grid's own items stuck at {@code null} (i.e. appearing empty) because
-     * the following restore line would never run. Each grid is therefore refreshed in
-     * isolation: a failure on one grid is logged and does not affect any other, and the
-     * restore step always runs even if the null step failed.
+     * <p>The refresh works by briefly swapping a grid's items for a fresh empty list and
+     * back, which forces ControlsFX's {@code GridViewSkin} to recompute. A previous version
+     * of this method used {@code null} as the temporary value instead. That triggers a
+     * ControlsFX cell-layout path ({@code GridRowSkin.updateCells()}) that calls
+     * {@code gridView.getItems().size()} with no null check, once the deferred JavaFX layout
+     * pulse following {@code setItems(null)} runs. Because that call happens on the layout
+     * pulse rather than synchronously inside {@code setItems()}, it falls outside the dynamic
+     * scope of any try/catch wrapped directly around the {@code setItems(null)} call here —
+     * the resulting {@link NullPointerException} cannot be caught at this call site no matter
+     * how it is wrapped. Using an empty {@code ObservableList} instead of {@code null} avoids
+     * the unguarded path entirely: {@code getItems()} is never null, so the later layout pulse
+     * always has a safe, zero-size list to read. Each grid is still refreshed in isolation as
+     * defense in depth: a failure on one grid is logged and does not affect any other, and the
+     * restore step always runs even if the temporary-swap step failed.
      */
     public static void refreshAllGridViews() {
         Platform.runLater(() -> {
@@ -501,9 +504,9 @@ public final class CardGroupRegistry {
                 }
                 ObservableList<CardElement> items = grid.getItems();
                 try {
-                    grid.setItems(null);
+                    grid.setItems(FXCollections.observableArrayList());
                 } catch (Exception exception) {
-                    logger.warn("refreshAllGridViews: setItems(null) failed for a GridView; "
+                    logger.warn("refreshAllGridViews: temporary empty-items swap failed for a GridView; "
                             + "still restoring its items", exception);
                 }
                 try {

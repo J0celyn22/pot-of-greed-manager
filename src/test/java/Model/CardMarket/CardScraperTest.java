@@ -247,6 +247,22 @@ public class CardScraperTest {
     }
 
     @Test
+    public void isChallengePage_detectsCloudflaresResolvableChallengeAndNothingElse() {
+        // Real marker from an actual captured challenge page ("Un instant…", loading
+        // /cdn-cgi/challenge-platform/...) — distinct from the hard block page.
+        String challengeHtml = "<html><head><title>Un instant\u2026</title>"
+                + "<script src=\"/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1?ray=abc\"></script>"
+                + "</head><body></body></html>";
+        Document challengeDoc = Jsoup.parse(challengeHtml, "https://www.cardmarket.com/");
+        Document blockedDoc = Jsoup.parse(TOO_MANY_RESULTS_HTML, "https://www.cardmarket.com/");
+        Document normalDoc = Jsoup.parse(ROWS_HTML, "https://www.cardmarket.com/");
+
+        assertTrue(CardScraper.isChallengePage(challengeDoc));
+        assertFalse(CardScraper.isChallengePage(blockedDoc));
+        assertFalse(CardScraper.isChallengePage(normalDoc));
+    }
+
+    @Test
     public void pageHasOfferRows_isTrueOnRealRowsEvenIfNoneMatchTheOuicheList() {
         // Regression test: pagination used to stop based on *matched* entries being empty,
         // which wrongly treated "real page, zero overlap with OuicheList" the same as "no

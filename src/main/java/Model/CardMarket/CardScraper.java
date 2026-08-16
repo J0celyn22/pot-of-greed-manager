@@ -58,6 +58,14 @@ public class CardScraper {
     private static final String TOO_MANY_RESULTS_MARKER = "300+ results";
     private static final String NO_OFFERS_MARKER = "There are no offers for your selected category";
     private static final String CLOUDFLARE_BLOCKED_MARKER = "Attention Required! | Cloudflare";
+    /**
+     * Cloudflare's resolvable JS/Turnstile challenge ("Un instant…" / "Just a moment…") —
+     * different from {@link #CLOUDFLARE_BLOCKED_MARKER}: this one can clear on its own
+     * (confirmed manually: ~5s in a real browser), the block page never does. Matching on
+     * this script path rather than the page title keeps it working regardless of the
+     * response's language.
+     */
+    private static final String CHALLENGE_PAGE_MARKER = "challenge-platform";
 
     /**
      * Headless Chrome is more likely to be fingerprinted as a bot than a normal, visible
@@ -388,17 +396,32 @@ public class CardScraper {
      * "complete" almost instantly too, well before real content loads, so waiting on
      * readyState alone isn't enough. The Cloudflare block page is a definitive answer, not
      * something to keep waiting past — recognizing it here means we stop in ~1s instead of
-     * wasting the full 25s timeout on a page that will never change.
+     * wasting the full timeout on a page that will never change.
+     * <p>
+     * Cloudflare's other, resolvable challenge page ({@link #CHALLENGE_PAGE_MARKER}) gets
+     * special handling: the base 25s window extends to 60s total the moment that page is
+     * seen, since it's known to sometimes clear on its own (confirmed manually) but
+     * automation may take longer to clear it than a real human browsing session did.
      */
     private static void waitForPageToSettle(WebDriver driver) {
         long deadline = System.currentTimeMillis() + 25_000;
+        boolean sawChallengePage = false;
+
         while (System.currentTimeMillis() < deadline) {
             String html = driver.getPageSource();
-            if (html != null && (html.contains("UserOffersTable")
-                    || html.contains(NO_OFFERS_MARKER)
-                    || html.contains(TOO_MANY_RESULTS_MARKER)
-                    || html.contains(CLOUDFLARE_BLOCKED_MARKER))) {
-                return;
+            if (html != null) {
+                if (html.contains("UserOffersTable")
+                        || html.contains(NO_OFFERS_MARKER)
+                        || html.contains(TOO_MANY_RESULTS_MARKER)
+                        || html.contains(CLOUDFLARE_BLOCKED_MARKER)) {
+                    return;
+                }
+                if (!sawChallengePage && html.contains(CHALLENGE_PAGE_MARKER)) {
+                    sawChallengePage = true;
+                    deadline = System.currentTimeMillis() + 60_000;
+                    logger.debug("Cloudflare's resolvable challenge page appeared; "
+                            + "waiting up to 60s total for it to clear on its own.");
+                }
             }
             try {
                 Thread.sleep(500);
@@ -407,7 +430,8 @@ public class CardScraper {
                 return;
             }
         }
-        logger.warn("Gave up waiting for recognizable page content after 25s; proceeding with whatever loaded.");
+        logger.warn("Gave up waiting for recognizable page content after {}; proceeding with whatever loaded.",
+                sawChallengePage ? "60s (a Cloudflare challenge page appeared but never cleared)" : "25s");
     }
 
     /**
@@ -436,6 +460,10 @@ public class CardScraper {
         return title != null && title.contains("Attention Required");
     }
 
+    static boolean isChallengePage(Document doc) { // package-private for tests
+        return doc.html().contains(CHALLENGE_PAGE_MARKER);
+    }
+
     /**
      * Whether the page has real offer rows at all, independent of whether any of them match
      * the OuicheList. Used to decide whether to keep paginating — {@link #parseOfferRows}
@@ -462,9 +490,18 @@ public class CardScraper {
         } catch (IOException ioException) {
             logger.warn("Could not write debug dump for {}: {}", context, ioException.getMessage());
         }
-        String message = context + ": no offer rows found, and CardMarket's own \"no offers\" text "
-                + "wasn't present either \u2014 Selenium likely didn't get the real page. Dumped what "
-                + "it actually saw to " + debugFileName;
+
+        String reason;
+        if (isBlockedByCloudflare(doc)) {
+            reason = "got Cloudflare's hard block page (final, nothing to wait out)";
+        } else if (isChallengePage(doc)) {
+            reason = "got stuck on Cloudflare's resolvable challenge page — it never cleared "
+                    + "even after waiting up to 60s";
+        } else {
+            reason = "no offer rows found, and CardMarket's own \"no offers\" text wasn't present either "
+                    + "\u2014 Selenium likely didn't get the real page";
+        }
+        String message = context + ": " + reason + ". Dumped what it actually saw to " + debugFileName;
         logger.warn("{}", message);
         try {
             writer.write(message + "\n");

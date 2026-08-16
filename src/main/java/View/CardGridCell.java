@@ -146,7 +146,10 @@ class CardGridCell extends GridCell<CardElement> {
     private void setupDragSource() {
         wrapper.setOnDragDetected(event -> {
             CardElement draggedCardElement = getItem();
+            logger.debug("setupDragSource: drag detected, getItem()={}", draggedCardElement);
             if (draggedCardElement == null || draggedCardElement.getCard() == null) {
+                logger.warn("setupDragSource: drag source cell has no item or no card "
+                        + "(item={}); drag session not started", draggedCardElement);
                 return;
             }
 
@@ -326,6 +329,8 @@ class CardGridCell extends GridCell<CardElement> {
             }
             CardElement anchor = getItem();
             if (anchor == null) {
+                logger.warn("setupDragTarget dropped: drop cell has no item (getItem() == null); "
+                        + "drop rejected");
                 event.setDropCompleted(false);
                 event.consume();
                 return;
@@ -333,6 +338,8 @@ class CardGridCell extends GridCell<CardElement> {
 
             CardsGroup group = CardGroupRegistry.findGroupForCardElement(anchor);
             if (group == null) {
+                logger.warn("setupDragTarget dropped: no CardsGroup found for drop-target element "
+                        + "{}; drop rejected", anchor);
                 event.setDropCompleted(false);
                 event.consume();
                 return;
@@ -341,6 +348,9 @@ class CardGridCell extends GridCell<CardElement> {
             javafx.collections.ObservableList<CardElement> list = CardGroupRegistry.observableListFor(group);
             int anchorIdx = list.indexOf(anchor);
             if (anchorIdx < 0) {
+                logger.warn("setupDragTarget dropped: drop-target element {} not found in its own "
+                                + "resolved group's list (group={}, listSize={}); drop rejected",
+                        anchor, group, list.size());
                 event.setDropCompleted(false);
                 event.consume();
                 return;
@@ -361,6 +371,8 @@ class CardGridCell extends GridCell<CardElement> {
             // own display automatically.
             CardsGroup realGroup = CardGroupRegistry.resolveRealGroupForOuicheListGroup(group);
             CardsGroup effectiveGroup = realGroup != null ? realGroup : group;
+            logger.debug("setupDragTarget dropped: group={}, resolveRealGroupForOuicheListGroup -> "
+                    + "realGroup={}", group, realGroup);
 
             // Capture move context so OuicheList notifications can be fired after
             // D&C rebuilds are queued (ensuring correct runLater ordering).
@@ -373,6 +385,8 @@ class CardGridCell extends GridCell<CardElement> {
                         new java.util.ArrayList<>(Controller.DragDropManager.getDraggedElements());
                 // Don't move onto itself
                 if (srcElements.size() == 1 && srcElements.get(0) == anchor) {
+                    logger.warn("setupDragTarget dropped: dragged element {} matches drop-target "
+                            + "element (dropping onto itself); drop rejected", anchor);
                     event.setDropCompleted(false);
                     event.consume();
                     return;
@@ -382,11 +396,16 @@ class CardGridCell extends GridCell<CardElement> {
                     for (CardElement ephemeralElement : srcElements) {
                         CardElement realElement =
                                 CardGroupRegistry.resolveRealElementForOuicheListElement(ephemeralElement);
+                        logger.debug("setupDragTarget dropped: resolveRealElementForOuicheListElement("
+                                + "{}) -> {}", ephemeralElement, realElement);
                         if (realElement != null) {
                             realSrcElements.add(realElement);
                         }
                     }
                     if (realSrcElements.isEmpty()) {
+                        logger.warn("setupDragTarget dropped: none of {} dragged ephemeral element(s) "
+                                        + "resolved to a real element (source elements={}); drop rejected",
+                                srcElements.size(), srcElements);
                         event.setDropCompleted(false);
                         event.consume();
                         return;

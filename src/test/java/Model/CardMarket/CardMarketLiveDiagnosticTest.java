@@ -31,9 +31,7 @@ public class CardMarketLiveDiagnosticTest {
      */
     private static final int MAX_ATTEMPTS_ON_NO_RESPONSE = 3;
 
-    /**
-     * A handful of real expansion IDs from DateACard's own list, for the sequential test.
-     */
+    /** A handful of real expansion IDs from DateACard's own list, for the sequential test. */
     private static final String[] SAMPLE_EXPANSION_IDS = {"1651", "5420", "1433", "1497", "1672"};
 
     @Test
