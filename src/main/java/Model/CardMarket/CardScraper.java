@@ -4,27 +4,30 @@ import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
 import Model.Shops.ShopCardMatcher;
 import Model.Shops.ShopResultEntry;
+import javafx.application.Platform;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonType;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-import org.openqa.selenium.JavascriptExecutor;
-import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.WebDriverException;
+import org.openqa.selenium.*;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedWriter;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStreamWriter;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static Model.FilePaths.outputPath;
 
@@ -66,6 +69,55 @@ public class CardScraper {
      * response's language.
      */
     private static final String CHALLENGE_PAGE_MARKER = "challenge-platform";
+
+    /**
+     * Candidate {@code src} substrings for Cloudflare's interactive checkbox iframe. Widened
+     * from a single exact domain: the page's own CSP allows the challenge frame to come from
+     * either {@code challenges.cloudflare.com} or a same-origin {@code /cdn-cgi/challenge-platform}
+     * path (managed challenges are commonly proxied same-origin), and neither page source
+     * captured while writing this actually contained the injected iframe to confirm which one
+     * is real here — both were pre-JavaScript snapshots (see {@link #dumpChallengeDiagnostics}).
+     */
+    private static final String[] CAPTCHA_IFRAME_SRC_MARKERS = {
+            "challenges.cloudflare.com",
+            "/cdn-cgi/challenge-platform",
+    };
+
+    /**
+     * Cloudflare's Turnstile widget conventionally has an accessible iframe title like
+     * "Widget containing a Cloudflare security challenge" — checked case-insensitively as a
+     * fallback for when the {@code src} doesn't match either marker above.
+     */
+    private static final String CAPTCHA_IFRAME_TITLE_MARKER = "challenge";
+
+    /**
+     * The human-readable prompt next to the checkbox, in the languages seen so far. A
+     * fallback for when the checkbox isn't inside a matchable iframe at all (e.g. rendered
+     * directly in the main document). The French line is written with unicode escapes rather
+     * than literal accented characters, matching this file's existing convention.
+     */
+    private static final String[] CAPTCHA_TEXT_MARKERS = {
+            "V\u00e9rifiez que vous \u00eates humain",
+            "Verify you are human",
+    };
+
+    /**
+     * How long to wait between each check of whether the Cloudflare challenge page has
+     * cleared on its own.
+     */
+    private static final Duration CHALLENGE_CHECK_INTERVAL = Duration.ofSeconds(5);
+
+    /**
+     * How many checks (each preceded by {@link #CHALLENGE_CHECK_INTERVAL}) to make within one
+     * cycle before refreshing the page and starting a new cycle.
+     */
+    private static final int CHALLENGE_CHECKS_PER_CYCLE = 3;
+
+    /**
+     * How many full check-cycles to run before giving up and reporting the page as still
+     * blocked. 2 means: check 3 times, refresh once, check 3 more times, then stop.
+     */
+    private static final int CHALLENGE_REFRESH_CYCLES = 1;
 
     /**
      * Headless Chrome is more likely to be fingerprinted as a bot than a normal, visible
@@ -314,6 +366,23 @@ public class CardScraper {
     }
 
     // ── Page fetching & parsing ─────────────────────────────────────────────────────────
+    /**
+     * Selectors tried, in order, for the actual clickable checkbox inside Cloudflare's
+     * captcha iframe. This widget's markup can only really be confirmed against the live
+     * challenge page, not from documentation, so treat this list as a first guess: if it
+     * turns out to miss the real element once you see it live, this is the list to fix —
+     * the surrounding loop in {@link #handleCloudflareChallenge} doesn't need to change.
+     */
+    private static final String[] CAPTCHA_CHECKBOX_SELECTORS = {
+            "input[type=checkbox]",
+            "label.cb-lb",
+            "#challenge-stage",
+    };
+    /**
+     * Null until checked, then whether a GUI is actually available for
+     * {@link #showManualChallengeDialog}. Set once by {@link #ensureJavaFxToolkitAvailable}.
+     */
+    private static volatile Boolean javaFxToolkitAvailable = null;
 
     /**
      * Starts a Chrome session, using your real profile if {@link #CHROME_USER_DATA_DIR} is
@@ -322,9 +391,9 @@ public class CardScraper {
      * the same category of thing any browser-based scraper does, not a way around anything
      * CardMarket couldn't otherwise see.
      */
-    static WebDriver createDriver() { // package-private for the live diagnostic test
+    static WebDriver createDriver(boolean headless, boolean minimizeWindow) { // package-private for the live diagnostic test
         ChromeOptions options = new ChromeOptions();
-        if (HEADLESS) {
+        if (headless) {
             options.addArguments("--headless=new");
         }
         if (!CHROME_USER_DATA_DIR.isBlank()) {
@@ -350,11 +419,10 @@ public class CardScraper {
         } catch (Exception exception) {
             logger.debug("Could not set page load timeout (non-fatal): {}", exception.getMessage());
         }
-        if (!HEADLESS) {
-            // Headless Chrome has no real window to minimize — this call is meaningless
-            // when HEADLESS is true, and window-management operations on a headless
-            // "window" are a known source of quirky, version-dependent behavior. Only
-            // run it when there's an actual window to minimize.
+        if (minimizeWindow) {
+            // Headless Chrome has no real window to minimize — this is only ever passed
+            // true for a non-headless window, and window-management operations on a
+            // headless "window" are a known source of quirky, version-dependent behavior.
             try {
                 driver.manage().window().minimize();
             } catch (Exception exception) {
@@ -379,14 +447,20 @@ public class CardScraper {
      * startup overhead on every single page) but it's what's actually been shown to work.
      */
     static Document fetchPage(String url) { // package-private for the live diagnostic test
-        WebDriver driver = createDriver();
+        boolean stillOnChallengePage;
+        Document document = null;
+        WebDriver driver = createDriver(HEADLESS, !HEADLESS);
         try {
             driver.get(url);
             waitForPageToSettle(driver);
-            return Jsoup.parse(driver.getPageSource(), url);
+            stillOnChallengePage = currentPageIsChallengePage(driver);
+            if (!stillOnChallengePage) {
+                document = Jsoup.parse(driver.getPageSource(), url);
+            }
         } finally {
             driver.quit();
         }
+        return stillOnChallengePage ? resolveWithManualFallback(url) : document;
     }
 
     /**
@@ -398,30 +472,23 @@ public class CardScraper {
      * something to keep waiting past — recognizing it here means we stop in ~1s instead of
      * wasting the full timeout on a page that will never change.
      * <p>
-     * Cloudflare's other, resolvable challenge page ({@link #CHALLENGE_PAGE_MARKER}) gets
-     * special handling: the base 25s window extends to 60s total the moment that page is
-     * seen, since it's known to sometimes clear on its own (confirmed manually) but
-     * automation may take longer to clear it than a real human browsing session did.
+     * Cloudflare's other, resolvable challenge page ({@link #CHALLENGE_PAGE_MARKER}) is
+     * handed off to {@link #handleCloudflareChallenge} the moment it's seen, instead of just
+     * waiting out a longer deadline here.
      */
     private static void waitForPageToSettle(WebDriver driver) {
         long deadline = System.currentTimeMillis() + 25_000;
-        boolean sawChallengePage = false;
 
         while (System.currentTimeMillis() < deadline) {
             String html = driver.getPageSource();
-            if (html != null) {
-                if (html.contains("UserOffersTable")
-                        || html.contains(NO_OFFERS_MARKER)
-                        || html.contains(TOO_MANY_RESULTS_MARKER)
-                        || html.contains(CLOUDFLARE_BLOCKED_MARKER)) {
-                    return;
-                }
-                if (!sawChallengePage && html.contains(CHALLENGE_PAGE_MARKER)) {
-                    sawChallengePage = true;
-                    deadline = System.currentTimeMillis() + 60_000;
-                    logger.debug("Cloudflare's resolvable challenge page appeared; "
-                            + "waiting up to 60s total for it to clear on its own.");
-                }
+            if (hasRecognizedContent(html)) {
+                return;
+            }
+            if (html != null && html.contains(CHALLENGE_PAGE_MARKER)) {
+                logger.debug("Cloudflare's resolvable challenge page appeared; "
+                        + "running the wait/refresh/checkbox routine.");
+                handleCloudflareChallenge(driver);
+                return;
             }
             try {
                 Thread.sleep(500);
@@ -430,8 +497,461 @@ public class CardScraper {
                 return;
             }
         }
-        logger.warn("Gave up waiting for recognizable page content after {}; proceeding with whatever loaded.",
-                sawChallengePage ? "60s (a Cloudflare challenge page appeared but never cleared)" : "25s");
+        logger.warn("Gave up waiting for recognizable page content after 25s; proceeding with whatever loaded.");
+    }
+
+    /**
+     * Whether {@code html} shows something recognized as real content: the actual offers
+     * table, CardMarket's own "no offers" text, the "300+ results" banner, or Cloudflare's
+     * hard block page. Factored out because {@link #CHALLENGE_PAGE_MARKER} alone isn't a
+     * reliable "still blocked" signal on its own — CardMarket embeds an ongoing Cloudflare
+     * bot-management script matching that marker on pages that already loaded real content
+     * too, so every check that decides "are we still stuck" needs to rule this in first.
+     */
+    private static boolean hasRecognizedContent(String html) {
+        return html != null && (html.contains("UserOffersTable")
+                || html.contains(NO_OFFERS_MARKER)
+                || html.contains(TOO_MANY_RESULTS_MARKER)
+                || html.contains(CLOUDFLARE_BLOCKED_MARKER));
+    }
+
+    /**
+     * Runs the automated part of getting past Cloudflare's resolvable challenge page:
+     * <ul>
+     *   <li>If the interactive "I am not a robot" checkbox is present, click it immediately —
+     *       no waiting, no refreshing.</li>
+     *   <li>Otherwise, wait {@link #CHALLENGE_CHECK_INTERVAL} and check again, up to
+     *       {@link #CHALLENGE_CHECKS_PER_CYCLE} times.</li>
+     *   <li>If it's still stuck after that, refresh the page and repeat, up to
+     *       {@link #CHALLENGE_REFRESH_CYCLES} cycles in total.</li>
+     * </ul>
+     * Assumes {@code driver} is currently on the challenge page when called.
+     */
+    static ChallengeOutcome handleCloudflareChallenge(WebDriver driver) { // package-private for tests
+        for (int cycle = 1; cycle <= CHALLENGE_REFRESH_CYCLES; cycle++) {
+            for (int check = 1; check <= CHALLENGE_CHECKS_PER_CYCLE; check++) {
+                if (hasInteractiveCaptcha(driver)) {
+                    logger.debug("Cloudflare's interactive checkbox challenge appeared; clicking it.");
+                    clickCaptchaCheckbox(driver);
+                    sleepQuietly(Duration.ofSeconds(2));
+                }
+                if (!currentPageIsChallengePage(driver)) {
+                    logger.debug("Cloudflare challenge cleared (cycle {} of {}, check {} of {}).",
+                            cycle, CHALLENGE_REFRESH_CYCLES, check, CHALLENGE_CHECKS_PER_CYCLE);
+                    return ChallengeOutcome.RESOLVED;
+                }
+                logger.debug("Cloudflare challenge still present (cycle {} of {}, check {} of {}); waiting {}s.",
+                        cycle, CHALLENGE_REFRESH_CYCLES, check, CHALLENGE_CHECKS_PER_CYCLE,
+                        CHALLENGE_CHECK_INTERVAL.getSeconds());
+                sleepQuietly(CHALLENGE_CHECK_INTERVAL);
+            }
+            if (!currentPageIsChallengePage(driver)) {
+                return ChallengeOutcome.RESOLVED;
+            }
+            /*if (cycle < CHALLENGE_REFRESH_CYCLES) {
+                logger.debug("Still stuck after {} checks; refreshing the page for cycle {} of {}.",
+                        CHALLENGE_CHECKS_PER_CYCLE, cycle + 1, CHALLENGE_REFRESH_CYCLES);
+                driver.navigate().refresh();
+            }*/
+        }
+        logger.warn("Cloudflare's challenge page did not clear after {} cycle(s) of {} checks with a "
+                + "refresh in between.", CHALLENGE_REFRESH_CYCLES, CHALLENGE_CHECKS_PER_CYCLE);
+        dumpChallengeDiagnostics(driver);
+        return ChallengeOutcome.STILL_BLOCKED;
+    }
+
+    /**
+     * Captures what the live driver actually sees the moment the automated routine gives up:
+     * the current DOM (post-JavaScript — unlike a browser's "View Source", which only ever
+     * shows the original server response and won't include anything injected afterward) plus
+     * a screenshot. Headless Chrome still renders a real page and can be screenshotted even
+     * with no visible window. This exists because neither of the two page sources checked
+     * while writing {@link #hasInteractiveCaptcha} actually contained Cloudflare's injected
+     * checkbox widget to confirm its markup against — both were snapshots of the page before
+     * that widget gets added — so the detection markers there are still a best-effort guess
+     * until a real dump like this one confirms or corrects them.
+     */
+    private static void dumpChallengeDiagnostics(WebDriver driver) {
+        String timestamp = String.valueOf(System.currentTimeMillis());
+
+        String htmlFileName = outputPath + "\\CardMarketChallengeDebug_" + timestamp + ".html";
+        try (BufferedWriter debugWriter = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(htmlFileName), StandardCharsets.UTF_8))) {
+            debugWriter.write(driver.getPageSource());
+            logger.warn("Dumped the live challenge page (post-JavaScript) to {}", htmlFileName);
+        } catch (IOException ioException) {
+            logger.warn("Could not write challenge page HTML dump: {}", ioException.getMessage());
+        }
+
+        if (driver instanceof TakesScreenshot) {
+            String screenshotFileName = outputPath + "\\CardMarketChallengeDebug_" + timestamp + ".png";
+            try {
+                File screenshotFile = ((TakesScreenshot) driver).getScreenshotAs(OutputType.FILE);
+                Files.copy(screenshotFile.toPath(), Path.of(screenshotFileName), StandardCopyOption.REPLACE_EXISTING);
+                logger.warn("Dumped a screenshot of the challenge page to {}", screenshotFileName);
+            } catch (Exception exception) {
+                logger.warn("Could not capture a challenge page screenshot: {}", exception.getMessage());
+            }
+        }
+    }
+
+    /**
+     * True only when the driver is genuinely still stuck: no recognized content has shown up
+     * ({@link #hasRecognizedContent}) <em>and</em> {@link #CHALLENGE_PAGE_MARKER} is present.
+     * Checking the marker alone isn't enough — CardMarket embeds Cloudflare's ongoing
+     * bot-management script (which also matches that marker) on pages that already have real
+     * content, so a marker-only check kept reporting "still blocked" on pages that had
+     * actually loaded fine, both here and inside {@link #handleCloudflareChallenge}'s loop.
+     */
+    private static boolean currentPageIsChallengePage(WebDriver driver) {
+        String html = driver.getPageSource();
+        return html != null && !hasRecognizedContent(html) && isChallengePage(Jsoup.parse(html));
+    }
+
+    /**
+     * Falls back to a real, visible browser window and a Retry/Stop prompt when the automated
+     * wait/refresh/checkbox routine in {@link #handleCloudflareChallenge} couldn't clear
+     * Cloudflare's challenge on its own. The person solves whatever Cloudflare is showing in
+     * that window, then chooses Retry (re-check the page) or Stop (cancel this fetch) — Retry
+     * can be chosen as many times as needed; the same visible session stays open the whole
+     * time rather than being recreated on every attempt, so nothing solved so far is lost.
+     */
+    private static Document resolveWithManualFallback(String url) {
+        WebDriver visibleDriver = createVisibleDriverForManualSolve();
+        try {
+            visibleDriver.get(url);
+            while (true) {
+                if (promptManualChallengeChoice() == ManualChallengeChoice.STOP) {
+                    throw new ManualChallengeStoppedException(
+                            "Scraping stopped: Cloudflare needed manual verification and the user "
+                                    + "chose to stop instead of retrying.");
+                }
+                if (waitForRecognizedContentOnly(visibleDriver)) {
+                    logger.debug("Recognized content appeared after manual solving; continuing the scrape.");
+                    return Jsoup.parse(visibleDriver.getPageSource(), url);
+                }
+                logger.debug("Still on Cloudflare's challenge page after Retry; asking again.");
+            }
+        } finally {
+            visibleDriver.quit();
+        }
+    }
+
+    /**
+     * Builds a visible, non-minimized Chrome window for the person to solve Cloudflare's
+     * challenge in by hand. Maximized on top of just being non-headless so it isn't easy to
+     * miss behind other windows.
+     */
+    private static WebDriver createVisibleDriverForManualSolve() {
+        WebDriver driver = createDriver(false, false);
+        try {
+            driver.manage().window().maximize();
+        } catch (Exception exception) {
+            logger.debug("Could not maximize the manual-solve browser window (non-fatal): {}",
+                    exception.getMessage());
+        }
+        return driver;
+    }
+
+    /**
+     * Asks the person to Retry or Stop, always via the real {@link Alert} dialog if at all
+     * possible — including when called from a background thread with no JavaFX toolkit
+     * running yet, like the live diagnostic test's plain JUnit run, where there's no console
+     * to type into (an IDE's test runner doesn't attach an interactive stdin the way running
+     * a plain {@code main()} does). {@link #promptManualChallengeChoiceViaConsole} only runs
+     * as a last resort if the toolkit genuinely can't start (e.g. no display available).
+     */
+    private static ManualChallengeChoice promptManualChallengeChoice() {
+        if (!ensureJavaFxToolkitAvailable()) {
+            return promptManualChallengeChoiceViaConsole();
+        }
+        if (Platform.isFxApplicationThread()) {
+            return showManualChallengeDialog();
+        }
+        // Not the FX thread (e.g. a plain JUnit test's main thread): schedule the dialog
+        // onto the FX thread and block this thread until it's actually been answered.
+        AtomicReference<ManualChallengeChoice> choiceHolder = new AtomicReference<>();
+        CountDownLatch dialogClosedLatch = new CountDownLatch(1);
+        Platform.runLater(() -> {
+            choiceHolder.set(showManualChallengeDialog());
+            dialogClosedLatch.countDown();
+        });
+        try {
+            dialogClosedLatch.await();
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            return ManualChallengeChoice.STOP;
+        }
+        return choiceHolder.get();
+    }
+
+    /**
+     * Starts the JavaFX toolkit if it isn't already running — needed when this is called from
+     * a plain JUnit run rather than the real app, which has already started it by the time any
+     * button click reaches this code. Returns whether a GUI is actually available; only false
+     * if the toolkit genuinely can't start (e.g. no display), in which case the caller falls
+     * back to the console prompt instead of crashing. Result is cached after the first call.
+     */
+    private static synchronized boolean ensureJavaFxToolkitAvailable() {
+        if (javaFxToolkitAvailable != null) {
+            return javaFxToolkitAvailable;
+        }
+        try {
+            Platform.startup(() -> {
+            });
+            // We're the ones who just started it, which only happens outside the real app.
+            // Without this, the platform would shut itself down the moment this first
+            // dialog closes, breaking every Retry attempt after the first.
+            Platform.setImplicitExit(false);
+            javaFxToolkitAvailable = true;
+        } catch (IllegalStateException alreadyStarted) {
+            // Real app case: Application.launch() already started the toolkit. Leave its
+            // implicit-exit setting alone — flipping it here would change the whole app's
+            // shutdown behavior for a case that doesn't need it.
+            javaFxToolkitAvailable = true;
+        } catch (Throwable startupFailure) {
+            logger.warn("Could not start the JavaFX toolkit for the manual-verification dialog; "
+                    + "falling back to a console prompt: {}", startupFailure.getMessage());
+            javaFxToolkitAvailable = false;
+        }
+        return javaFxToolkitAvailable;
+    }
+
+    private static ManualChallengeChoice showManualChallengeDialog() {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Cloudflare needs manual verification");
+        alert.setHeaderText("A visible browser window has opened for CardMarket's Cloudflare check.");
+        alert.setContentText("Solve the checkbox or wait it out in that window, then click Retry. "
+                + "Click Stop to cancel this scrape.");
+
+        ButtonType retryButtonType = new ButtonType("Retry");
+        ButtonType stopButtonType = new ButtonType("Stop");
+        alert.getButtonTypes().setAll(retryButtonType, stopButtonType);
+
+        Optional<ButtonType> result = alert.showAndWait();
+        return (result.isPresent() && result.get() == retryButtonType)
+                ? ManualChallengeChoice.RETRY
+                : ManualChallengeChoice.STOP;
+    }
+
+    private static ManualChallengeChoice promptManualChallengeChoiceViaConsole() {
+        logger.warn("Cloudflare needs manual verification. Solve it in the visible browser window, "
+                + "then type \"retry\" and press Enter here to re-check, or type \"stop\" to give up.");
+        Scanner consoleScanner = new Scanner(System.in);
+        while (true) {
+            String response = consoleScanner.nextLine().trim().toLowerCase(Locale.ROOT);
+            if ("retry".equals(response)) {
+                return ManualChallengeChoice.RETRY;
+            }
+            if ("stop".equals(response)) {
+                return ManualChallengeChoice.STOP;
+            }
+            logger.warn("Type \"retry\" or \"stop\".");
+        }
+    }
+
+    /**
+     * Polls for recognized real content or Cloudflare's hard block for up to 25s, without
+     * taking any automated escalation action — no refresh, no checkbox click. Deliberately
+     * separate from {@link #waitForPageToSettle}: reusing that method here would route back
+     * into {@link #handleCloudflareChallenge}, whose refresh could undo whatever the person
+     * just did by hand.
+     */
+    private static boolean waitForRecognizedContentOnly(WebDriver driver) {
+        long deadline = System.currentTimeMillis() + 25_000;
+        while (System.currentTimeMillis() < deadline) {
+            if (hasRecognizedContent(driver.getPageSource())) {
+                return true;
+            }
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether Cloudflare's challenge has escalated to the interactive checkbox: either a
+     * matching iframe is present (see {@link #findCaptchaFrame}), or — in case the checkbox
+     * turns out not to be in an iframe at all — the page text itself carries one of
+     * {@link #CAPTCHA_TEXT_MARKERS}. The plain wait-it-out version of the challenge matches
+     * neither.
+     */
+    private static boolean hasInteractiveCaptcha(WebDriver driver) {
+        if (findCaptchaFrame(driver) != null) {
+            return true;
+        }
+        String html = driver.getPageSource();
+        if (html == null) {
+            return false;
+        }
+        for (String marker : CAPTCHA_TEXT_MARKERS) {
+            if (html.contains(marker)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns the iframe that looks like Cloudflare's checkbox widget — matched by
+     * {@code src} against {@link #CAPTCHA_IFRAME_SRC_MARKERS}, or failing that, by
+     * {@code title} against {@link #CAPTCHA_IFRAME_TITLE_MARKER} — or {@code null} if no
+     * iframe on the page matches either.
+     */
+    private static WebElement findCaptchaFrame(WebDriver driver) {
+        for (WebElement frame : driver.findElements(By.tagName("iframe"))) {
+            String frameSource = frame.getAttribute("src");
+            if (frameSource != null) {
+                for (String marker : CAPTCHA_IFRAME_SRC_MARKERS) {
+                    if (frameSource.contains(marker)) {
+                        return frame;
+                    }
+                }
+            }
+            String frameTitle = frame.getAttribute("title");
+            if (frameTitle != null && frameTitle.toLowerCase(Locale.ROOT).contains(CAPTCHA_IFRAME_TITLE_MARKER)) {
+                return frame;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Switches into Cloudflare's captcha iframe and clicks the checkbox, then switches back
+     * to the main page regardless of whether the click succeeded. If the checkbox was
+     * detected via page text rather than a matchable iframe (see {@link #hasInteractiveCaptcha}),
+     * there's nothing to switch into, so this just logs that and returns — a case for the
+     * manual-solve fallback, not something to guess a click for.
+     */
+    private static void clickCaptchaCheckbox(WebDriver driver) {
+        WebElement captchaFrame = findCaptchaFrame(driver);
+        if (captchaFrame == null) {
+            logger.warn("The checkbox prompt was detected in the page text, but no matching iframe "
+                    + "was found to click inside — leaving it for manual solving.");
+            return;
+        }
+        try {
+            driver.switchTo().frame(captchaFrame);
+            if (!clickFirstMatchingSelector(driver, CAPTCHA_CHECKBOX_SELECTORS)) {
+                logger.warn("Found the Cloudflare captcha iframe but none of the known checkbox "
+                        + "selectors matched anything inside it.");
+            }
+        } catch (Exception exception) {
+            logger.warn("Failed to click the Cloudflare captcha checkbox: {}", exception.getMessage());
+        } finally {
+            driver.switchTo().defaultContent();
+        }
+    }
+
+    private static boolean clickFirstMatchingSelector(WebDriver driver, String[] selectors) {
+        for (String selector : selectors) {
+            List<WebElement> matches = driver.findElements(By.cssSelector(selector));
+            if (!matches.isEmpty()) {
+                matches.get(0).click();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void sleepQuietly(Duration duration) {
+        try {
+            Thread.sleep(duration.toMillis());
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Parses every offer row on a fetched page, keeping only rows at or under
+     * {@code maxPrice} that match a card in the OuicheList. Matching is done the same way
+     * every other shop scraper does it (see {@link ShopCardMatcher}); CardMarket doesn't
+     * expose a per-card print code on this page (only the set's own code, e.g. "YS15"), so
+     * matching here is always name-based.
+     */
+    static List<Entry> parseOfferRows( // package-private for tests
+                                       Document doc, List<CardElement> maOuicheList, double maxPrice,
+                                       Map<String, Integer> ouicheCountMap) {
+
+        List<Entry> rowEntries = new ArrayList<>();
+        Elements rows = doc.select("#UserOffersTable div.article-row");
+        int pricedRows = 0;
+        List<String> sampleUnmatchedNames = new ArrayList<>();
+
+        for (Element row : rows) {
+            Element productLink = row.selectFirst("a[href*=/Products/Singles/]");
+            if (productLink == null) {
+                continue;
+            }
+            String name = productLink.text().trim();
+            if (name.isEmpty()) {
+                continue;
+            }
+
+            Element priceElement = row.selectFirst("div.col-offer div.price-container span.color-primary");
+            if (priceElement == null) {
+                continue;
+            }
+            String priceText = priceElement.text()
+                    .replace("\u00A0", " ").replace("€", "").trim()
+                    .replace(',', '.').replaceAll("[^0-9.]", "");
+            double price;
+            try {
+                price = Double.parseDouble(priceText);
+            } catch (NumberFormatException numberFormatException) {
+                continue;
+            }
+            pricedRows++;
+            if (price > maxPrice) {
+                continue;
+            }
+
+            String normalizedName = ShopCardMatcher.normalizeForCompare(name);
+            Card card = !normalizedName.isEmpty()
+                    ? ShopCardMatcher.findCardByNormalizedName(maOuicheList, normalizedName, name)
+                    : ShopCardMatcher.findCardByName(maOuicheList, name);
+            if (card == null) {
+                if (sampleUnmatchedNames.size() < 5) {
+                    sampleUnmatchedNames.add(name);
+                }
+                continue;
+            }
+
+            String productUrl = productLink.absUrl("href");
+            Entry entry = new Entry(name, price, productUrl);
+            entry.card = card;
+            String imagePath = card.getImagePath();
+            entry.ouicheCount = (imagePath != null) ? ouicheCountMap.getOrDefault(imagePath, 0) : 0;
+            rowEntries.add(entry);
+        }
+
+        logger.debug("Page: {} row(s) found, {} had a parseable price, {} matched the OuicheList.{}",
+                rows.size(), pricedRows, rowEntries.size(),
+                (rowEntries.isEmpty() && !sampleUnmatchedNames.isEmpty())
+                        ? " Sample unmatched names: " + sampleUnmatchedNames
+                        : "");
+
+        return rowEntries;
+    }
+
+    /**
+     * What came out of one attempt to get past Cloudflare's resolvable challenge page.
+     * {@code STILL_BLOCKED} is the hook point for a future manual-solve fallback (making the
+     * browser visible and letting a person click through it) — not implemented yet, this
+     * method only covers the automated wait/refresh/checkbox part.
+     */
+    enum ChallengeOutcome { // package-private for tests
+        RESOLVED,
+        STILL_BLOCKED
+    }
+
+    private enum ManualChallengeChoice {
+        RETRY,
+        STOP
     }
 
     /**
@@ -575,75 +1095,17 @@ public class CardScraper {
     }
 
     /**
-     * Parses every offer row on a fetched page, keeping only rows at or under
-     * {@code maxPrice} that match a card in the OuicheList. Matching is done the same way
-     * every other shop scraper does it (see {@link ShopCardMatcher}); CardMarket doesn't
-     * expose a per-card print code on this page (only the set's own code, e.g. "YS15"), so
-     * matching here is always name-based.
+     * Thrown when the person clicks Stop on the manual-verification prompt. Deliberately a
+     * plain, unchecked exception rather than {@link WebDriverException} so it passes straight
+     * through the {@code catch (WebDriverException ...)} blocks elsewhere in this class (which
+     * only skip the current page or expansion) and aborts the whole scrape instead — matching
+     * what "Stop" is supposed to mean. Its writer/output file still gets closed properly on the
+     * way out, since {@link #getCardNamesFromWebsite} opens it in a try-with-resources block.
      */
-    static List<Entry> parseOfferRows( // package-private for tests
-            Document doc, List<CardElement> maOuicheList, double maxPrice,
-            Map<String, Integer> ouicheCountMap) {
-
-        List<Entry> rowEntries = new ArrayList<>();
-        Elements rows = doc.select("#UserOffersTable div.article-row");
-        int pricedRows = 0;
-        List<String> sampleUnmatchedNames = new ArrayList<>();
-
-        for (Element row : rows) {
-            Element productLink = row.selectFirst("a[href*=/Products/Singles/]");
-            if (productLink == null) {
-                continue;
-            }
-            String name = productLink.text().trim();
-            if (name.isEmpty()) {
-                continue;
-            }
-
-            Element priceElement = row.selectFirst("div.col-offer div.price-container span.color-primary");
-            if (priceElement == null) {
-                continue;
-            }
-            String priceText = priceElement.text()
-                    .replace("\u00A0", " ").replace("€", "").trim()
-                    .replace(',', '.').replaceAll("[^0-9.]", "");
-            double price;
-            try {
-                price = Double.parseDouble(priceText);
-            } catch (NumberFormatException numberFormatException) {
-                continue;
-            }
-            pricedRows++;
-            if (price > maxPrice) {
-                continue;
-            }
-
-            String normalizedName = ShopCardMatcher.normalizeForCompare(name);
-            Card card = !normalizedName.isEmpty()
-                    ? ShopCardMatcher.findCardByNormalizedName(maOuicheList, normalizedName, name)
-                    : ShopCardMatcher.findCardByName(maOuicheList, name);
-            if (card == null) {
-                if (sampleUnmatchedNames.size() < 5) {
-                    sampleUnmatchedNames.add(name);
-                }
-                continue;
-            }
-
-            String productUrl = productLink.absUrl("href");
-            Entry entry = new Entry(name, price, productUrl);
-            entry.card = card;
-            String imagePath = card.getImagePath();
-            entry.ouicheCount = (imagePath != null) ? ouicheCountMap.getOrDefault(imagePath, 0) : 0;
-            rowEntries.add(entry);
+    static class ManualChallengeStoppedException extends RuntimeException { // package-private for tests
+        ManualChallengeStoppedException(String message) {
+            super(message);
         }
-
-        logger.debug("Page: {} row(s) found, {} had a parseable price, {} matched the OuicheList.{}",
-                rows.size(), pricedRows, rowEntries.size(),
-                (rowEntries.isEmpty() && !sampleUnmatchedNames.isEmpty())
-                        ? " Sample unmatched names: " + sampleUnmatchedNames
-                        : "");
-
-        return rowEntries;
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────────
