@@ -402,14 +402,14 @@ public class CardScraper {
         }
         options.addArguments("--window-size=1920,1080");
         options.addArguments("--disable-blink-features=AutomationControlled");
-        // Restored from the last confirmed-working commit (804b84f) — removing this in
-        // favor of Chrome's real UA was based on a real-profile conflict theory that never
-        // actually applied (CHROME_USER_DATA_DIR has been blank in every real test since).
-        // A common, everywhere-in-the-wild version string plausibly blends in better than
-        // an unusually high, recent build number (Chrome's real UA when this regressed:
-        // 150.0.7871.186) that stands out to fingerprinting.
-        options.addArguments("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                + "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+        // Deliberately not spoofing the User-Agent string. Overriding only the UA header
+        // (as a prior version of this method did, claiming Chrome/124 while the machine
+        // actually runs Chrome 150+) does not change Chrome's Client Hints — the
+        // Sec-CH-UA / Sec-CH-UA-Full-Version-List request headers and navigator.userAgentData
+        // in JS still report the real installed version regardless of this flag. A UA header
+        // that disagrees with the browser's own Client Hints is an internally inconsistent
+        // fingerprint, and that inconsistency is a stronger bot signal to modern detection
+        // than an honest, if unusually recent, version number would be.
         options.setExperimentalOption("excludeSwitches", List.of("enable-automation"));
         options.setExperimentalOption("useAutomationExtension", false);
 
@@ -429,13 +429,36 @@ public class CardScraper {
                 logger.debug("Could not minimize the browser window (non-fatal): {}", exception.getMessage());
             }
         }
-        try {
-            ((JavascriptExecutor) driver).executeScript(
-                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});");
-        } catch (Exception exception) {
-            logger.debug("Could not patch navigator.webdriver (non-fatal): {}", exception.getMessage());
-        }
+        applyStealthPatchToEveryDocument(driver);
         return driver;
+    }
+
+    /**
+     * Registers the {@code navigator.webdriver} override as a CDP "on every new document"
+     * script, instead of running it once via {@link JavascriptExecutor#executeScript} right
+     * after driver creation. A one-off {@code executeScript} call at that point only ever
+     * patches the initial {@code about:blank} page — the override is silently gone the moment
+     * {@link WebDriver#get} navigates to a real document, and gone again on every reload,
+     * including the reload Cloudflare's own challenge triggers immediately after the checkbox
+     * is validated. That means every page actually inspected by Cloudflare — and specifically
+     * the one right after solving the checkbox — was being seen with {@code navigator.webdriver}
+     * back to {@code true}, which is a plausible reason the challenge kept reappearing even
+     * after clicking it. {@code Page.addScriptToEvaluateOnNewDocument} runs the patch before
+     * any page script on every document loaded in this session, reload included.
+     */
+    private static void applyStealthPatchToEveryDocument(WebDriver driver) {
+        if (!(driver instanceof ChromeDriver chromeDriver)) {
+            return;
+        }
+        try {
+            Map<String, Object> parameters = new HashMap<>();
+            parameters.put("source",
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});");
+            chromeDriver.executeCdpCommand("Page.addScriptToEvaluateOnNewDocument", parameters);
+        } catch (Exception exception) {
+            logger.debug("Could not register the navigator.webdriver override via CDP (non-fatal): {}",
+                    exception.getMessage());
+        }
     }
 
     /**
@@ -445,22 +468,39 @@ public class CardScraper {
      * isolated single-request test succeeded repeatedly, while the real multi-request scrape
      * kept getting blocked using the exact same page-fetching code) — this is slower (Chrome
      * startup overhead on every single page) but it's what's actually been shown to work.
+     * <p>
+     * Both of Cloudflare's page types — the resolvable challenge and the harder "Attention
+     * Required" block — are handed to {@link #resolveWithManualFallback}, which opens a
+     * visible window for the person to look at rather than silently returning either one as
+     * if it were real content. The hard block page has no checkbox to click, so Retry may
+     * genuinely need a wait or a different network before it clears — but the person should
+     * still get to see what actually came back instead of it being decided for them.
+     * <p>
+     * Both checks run against a single {@link WebDriver#getPageSource()} snapshot taken right
+     * after {@link #waitForPageToSettle} returns, not against a fresh read of the live page —
+     * see {@link #currentPageIsChallengePage}'s comment for why reading twice caused the
+     * manual-verification dialog to pop up for pages that had actually loaded fine.
      */
     static Document fetchPage(String url) { // package-private for the live diagnostic test
-        boolean stillOnChallengePage;
         Document document = null;
+        boolean needsManualFallback;
         WebDriver driver = createDriver(HEADLESS, !HEADLESS);
         try {
             driver.get(url);
             waitForPageToSettle(driver);
-            stillOnChallengePage = currentPageIsChallengePage(driver);
-            if (!stillOnChallengePage) {
-                document = Jsoup.parse(driver.getPageSource(), url);
+            String pageSource = driver.getPageSource();
+            Document settledDocument = Jsoup.parse(pageSource, url);
+            boolean stillOnChallengePage = pageSource != null
+                    && !hasRecognizedContent(pageSource)
+                    && isChallengePage(settledDocument);
+            needsManualFallback = stillOnChallengePage || isBlockedByCloudflare(settledDocument);
+            if (!needsManualFallback) {
+                document = settledDocument;
             }
         } finally {
             driver.quit();
         }
-        return stillOnChallengePage ? resolveWithManualFallback(url) : document;
+        return needsManualFallback ? resolveWithManualFallback(url) : document;
     }
 
     /**
@@ -601,7 +641,17 @@ public class CardScraper {
      * Checking the marker alone isn't enough — CardMarket embeds Cloudflare's ongoing
      * bot-management script (which also matches that marker) on pages that already have real
      * content, so a marker-only check kept reporting "still blocked" on pages that had
-     * actually loaded fine, both here and inside {@link #handleCloudflareChallenge}'s loop.
+     * actually loaded fine.
+     * <p>
+     * Only used inside {@link #handleCloudflareChallenge}'s wait/refresh loop, where a fresh
+     * {@link WebDriver#getPageSource()} read on every check is exactly what's wanted.
+     * {@link #fetchPage} does not call this — it takes one page-source snapshot after
+     * {@link #waitForPageToSettle} returns and runs the same logic against that single
+     * snapshot, rather than reading the live page again a moment later. Reading twice let a
+     * client-side re-render land between the two reads: {@link #waitForPageToSettle} could see
+     * real content on the first read, then this method's own second, independent read could
+     * briefly miss it, misreporting a perfectly good page as still blocked and popping the
+     * manual-verification dialog for no reason.
      */
     private static boolean currentPageIsChallengePage(WebDriver driver) {
         String html = driver.getPageSource();
@@ -609,17 +659,26 @@ public class CardScraper {
     }
 
     /**
-     * Falls back to a real, visible browser window and a Retry/Stop prompt when the automated
-     * wait/refresh/checkbox routine in {@link #handleCloudflareChallenge} couldn't clear
-     * Cloudflare's challenge on its own. The person solves whatever Cloudflare is showing in
-     * that window, then chooses Retry (re-check the page) or Stop (cancel this fetch) — Retry
-     * can be chosen as many times as needed; the same visible session stays open the whole
-     * time rather than being recreated on every attempt, so nothing solved so far is lost.
+     * Falls back to a real, visible browser window when the automated wait/refresh/checkbox
+     * routine in {@link #handleCloudflareChallenge} couldn't clear Cloudflare's challenge on
+     * its own. First checks, without prompting anyone, whether this fresh visible session
+     * already shows recognized content — it's a brand-new driver, not the same one that just
+     * got blocked or challenged, and headed vs. headless alone can be enough for it to land on
+     * a clean page immediately. Only if that check times out does it show the Retry/Stop
+     * prompt: the person solves whatever Cloudflare is showing, then chooses Retry (re-check
+     * the page) or Stop (cancel this fetch) — Retry can be chosen as many times as needed; the
+     * same visible session stays open the whole time rather than being recreated on every
+     * attempt, so nothing solved so far is lost.
      */
     private static Document resolveWithManualFallback(String url) {
         WebDriver visibleDriver = createVisibleDriverForManualSolve();
         try {
             visibleDriver.get(url);
+            if (waitForRecognizedContentOnly(visibleDriver)) {
+                logger.debug("The visible fallback session already shows recognized content; "
+                        + "continuing the scrape without prompting.");
+                return Jsoup.parse(visibleDriver.getPageSource(), url);
+            }
             while (true) {
                 if (promptManualChallengeChoice() == ManualChallengeChoice.STOP) {
                     throw new ManualChallengeStoppedException(
@@ -720,8 +779,11 @@ public class CardScraper {
     private static ManualChallengeChoice showManualChallengeDialog() {
         Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
         alert.setTitle("Cloudflare needs manual verification");
-        alert.setHeaderText("A visible browser window has opened for CardMarket's Cloudflare check.");
-        alert.setContentText("Solve the checkbox or wait it out in that window, then click Retry. "
+        alert.setHeaderText("A visible browser window has opened for CardMarket's Cloudflare page.");
+        alert.setContentText("If a checkbox or wait screen appears, solve it or let it clear, then "
+                + "click Retry. If it's Cloudflare's hard block page instead (no checkbox, "
+                + "\"Attention Required\"), Retry likely won't help until it clears on its own or "
+                + "from a different network — look at the window to tell which case this is. "
                 + "Click Stop to cancel this scrape.");
 
         ButtonType retryButtonType = new ButtonType("Retry");
@@ -735,8 +797,10 @@ public class CardScraper {
     }
 
     private static ManualChallengeChoice promptManualChallengeChoiceViaConsole() {
-        logger.warn("Cloudflare needs manual verification. Solve it in the visible browser window, "
-                + "then type \"retry\" and press Enter here to re-check, or type \"stop\" to give up.");
+        logger.warn("Cloudflare needs manual verification. Look at the visible browser window — "
+                + "solve the checkbox or wait screen if one appears, or note if it's the hard "
+                + "\"Attention Required\" block instead (nothing to click there). Then type "
+                + "\"retry\" and press Enter here to re-check, or type \"stop\" to give up.");
         Scanner consoleScanner = new Scanner(System.in);
         while (true) {
             String response = consoleScanner.nextLine().trim().toLowerCase(Locale.ROOT);
@@ -962,7 +1026,7 @@ public class CardScraper {
      * blocked even at this pace, that's a real signal the pattern itself (not the speed) is
      * what's triggering it, and pushing the delay even higher probably won't change that.
      */
-    private static void politeDelay() {
+    static void politeDelay() { // package-private for the live diagnostic test
         try {
             Thread.sleep(8000);
             Thread.sleep((long) (Math.random() * 7000));

@@ -54,8 +54,17 @@ public class CardMarketLiveDiagnosticTest {
         // Validates the fresh-session-per-request fix at small scale before trusting it to a
         // full 623-expansion run: each of these 5 requests gets its own brand-new Chrome
         // session (exactly what CardScraper.fetchPage does now), rather than sharing one
-        // session across all 5 like the old (blocked) design did.
+        // session across all 5 like the old (blocked) design did. The delay between requests
+        // matters here too — without it, this test itself fires far faster (roughly 2s apart)
+        // than the real scraper ever does (8-15s via CardScraper.politeDelay()), which is a
+        // bot-like burst pattern that risks tripping or escalating a Cloudflare block on its
+        // own, independent of anything this test is meant to validate.
+        boolean firstRequest = true;
         for (String expansionId : SAMPLE_EXPANSION_IDS) {
+            if (!firstRequest) {
+                CardScraper.politeDelay();
+            }
+            firstRequest = false;
             fetchOnceAndReport("Sequential test, expansion id=" + expansionId,
                     BASE_URL + "&idExpansion=" + expansionId);
         }
