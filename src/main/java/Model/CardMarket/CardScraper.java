@@ -102,22 +102,13 @@ public class CardScraper {
     };
 
     /**
-     * How long to wait between each check of whether the Cloudflare challenge page has
-     * cleared on its own.
+     * Minimum time to wait before {@link #waitForPageToSettle} attempts to click Cloudflare's
+     * interactive checkbox again, once it's already tried it once. Prevents hammering the
+     * checkbox on every 500ms content poll — clicking it repeatedly in quick succession is
+     * itself an unnatural, bot-like pattern, and this gives Cloudflare's own post-click
+     * validation JS time to run before deciding another attempt is needed.
      */
     private static final Duration CHALLENGE_CHECK_INTERVAL = Duration.ofSeconds(5);
-
-    /**
-     * How many checks (each preceded by {@link #CHALLENGE_CHECK_INTERVAL}) to make within one
-     * cycle before refreshing the page and starting a new cycle.
-     */
-    private static final int CHALLENGE_CHECKS_PER_CYCLE = 3;
-
-    /**
-     * How many full check-cycles to run before giving up and reporting the page as still
-     * blocked. 2 means: check 3 times, refresh once, check 3 more times, then stop.
-     */
-    private static final int CHALLENGE_REFRESH_CYCLES = 1;
 
     /**
      * Headless Chrome is more likely to be fingerprinted as a bot than a normal, visible
@@ -371,7 +362,7 @@ public class CardScraper {
      * captcha iframe. This widget's markup can only really be confirmed against the live
      * challenge page, not from documentation, so treat this list as a first guess: if it
      * turns out to miss the real element once you see it live, this is the list to fix —
-     * the surrounding loop in {@link #handleCloudflareChallenge} doesn't need to change.
+     * the surrounding poll loop in {@link #waitForPageToSettle} doesn't need to change.
      */
     private static final String[] CAPTCHA_CHECKBOX_SELECTORS = {
             "input[type=checkbox]",
@@ -476,10 +467,11 @@ public class CardScraper {
      * genuinely need a wait or a different network before it clears — but the person should
      * still get to see what actually came back instead of it being decided for them.
      * <p>
-     * Both checks run against a single {@link WebDriver#getPageSource()} snapshot taken right
-     * after {@link #waitForPageToSettle} returns, not against a fresh read of the live page —
-     * see {@link #currentPageIsChallengePage}'s comment for why reading twice caused the
-     * manual-verification dialog to pop up for pages that had actually loaded fine.
+     * Both checks run against the single page-source snapshot {@link #waitForPageToSettle}
+     * itself already confirmed and returns — not a fresh, independent read of the live page.
+     * A client-side re-render could otherwise land between two separate reads, briefly hiding
+     * real content that was there a moment before and popping the manual-verification window
+     * for a page that had actually loaded fine.
      */
     static Document fetchPage(String url) { // package-private for the live diagnostic test
         Document document = null;
@@ -487,8 +479,7 @@ public class CardScraper {
         WebDriver driver = createDriver(HEADLESS, !HEADLESS);
         try {
             driver.get(url);
-            waitForPageToSettle(driver);
-            String pageSource = driver.getPageSource();
+            String pageSource = waitForPageToSettle(driver);
             Document settledDocument = Jsoup.parse(pageSource, url);
             boolean stillOnChallengePage = pageSource != null
                     && !hasRecognizedContent(pageSource)
@@ -508,36 +499,65 @@ public class CardScraper {
      * CardMarket's own "no offers" text, the "300+ results" banner, or a Cloudflare block
      * page — rather than guessing a fixed delay. A bot-check interstitial's readyState hits
      * "complete" almost instantly too, well before real content loads, so waiting on
-     * readyState alone isn't enough. The Cloudflare block page is a definitive answer, not
-     * something to keep waiting past — recognizing it here means we stop in ~1s instead of
-     * wasting the full timeout on a page that will never change.
+     * readyState alone isn't enough.
      * <p>
-     * Cloudflare's other, resolvable challenge page ({@link #CHALLENGE_PAGE_MARKER}) is
-     * handed off to {@link #handleCloudflareChallenge} the moment it's seen, instead of just
-     * waiting out a longer deadline here.
+     * Deliberately does <em>not</em> treat {@link #CHALLENGE_PAGE_MARKER} alone as proof the
+     * page is genuinely stuck on Cloudflare's resolvable challenge: CardMarket embeds that
+     * same bot-management script on every page, including ones that already have (or are
+     * about to have) real content, so the marker is typically present on the very first
+     * page-source snapshot regardless of whether the page is actually being challenged or
+     * simply hasn't finished rendering yet. Committing to challenge-handling on that first
+     * sighting used to abandon this method's own poll loop early and hand off to a separate,
+     * coarser check schedule — which is what let a perfectly normal page, or Cloudflare's own
+     * self-clearing "Un instant…" flash, end up wrongly reported as still blocked, popping the
+     * visible manual-solve window for pages that just needed another second or two to load.
+     * <p>
+     * Instead, this keeps polling for recognized content across the full deadline below —
+     * which is what actually resolves both an ordinary slow load and the self-clearing
+     * challenge — and only reaches for the interactive checkbox
+     * ({@link #hasInteractiveCaptcha}) when one genuinely appears on the page. Only if the
+     * full deadline elapses with no recognized content does the caller ({@link #fetchPage})
+     * conclude the page is still blocked and fall back to a visible window; that fallback is
+     * meant to be the rare case, not the common one.
+     * <p>
+     * Returns the exact page-source snapshot this method used to make that call, rather than
+     * leaving the caller to read the live page again afterward. Reading twice independently —
+     * once here, once in the caller — is a race: the DOM can mutate between the two reads (an
+     * ongoing script, a re-render, anything), so a caller's own fresh read could miss content
+     * this method had just confirmed a moment earlier, wrongly concluding a perfectly normal
+     * page was still stuck and popping the manual-verification window for no reason.
      */
-    private static void waitForPageToSettle(WebDriver driver) {
+    private static String waitForPageToSettle(WebDriver driver) {
         long deadline = System.currentTimeMillis() + 25_000;
+        long nextCaptchaClickAllowedAt = 0;
+        String html = driver.getPageSource();
 
         while (System.currentTimeMillis() < deadline) {
-            String html = driver.getPageSource();
+            html = driver.getPageSource();
             if (hasRecognizedContent(html)) {
-                return;
+                return html;
             }
-            if (html != null && html.contains(CHALLENGE_PAGE_MARKER)) {
-                logger.debug("Cloudflare's resolvable challenge page appeared; "
-                        + "running the wait/refresh/checkbox routine.");
-                handleCloudflareChallenge(driver);
-                return;
+            long now = System.currentTimeMillis();
+            if (now >= nextCaptchaClickAllowedAt && hasInteractiveCaptcha(driver)) {
+                logger.debug("Cloudflare's interactive checkbox challenge appeared; clicking it.");
+                clickCaptchaCheckbox(driver);
+                nextCaptchaClickAllowedAt = now + CHALLENGE_CHECK_INTERVAL.toMillis();
+                html = driver.getPageSource();
+                if (hasRecognizedContent(html)) {
+                    return html;
+                }
             }
             try {
                 Thread.sleep(500);
             } catch (InterruptedException interruptedException) {
                 Thread.currentThread().interrupt();
-                return;
+                return html;
             }
         }
-        logger.warn("Gave up waiting for recognizable page content after 25s; proceeding with whatever loaded.");
+        logger.warn("Gave up waiting for recognizable page content after 25s; dumping diagnostics "
+                + "and proceeding with whatever loaded.");
+        dumpChallengeDiagnostics(driver);
+        return html;
     }
 
     /**
@@ -556,52 +576,8 @@ public class CardScraper {
     }
 
     /**
-     * Runs the automated part of getting past Cloudflare's resolvable challenge page:
-     * <ul>
-     *   <li>If the interactive "I am not a robot" checkbox is present, click it immediately —
-     *       no waiting, no refreshing.</li>
-     *   <li>Otherwise, wait {@link #CHALLENGE_CHECK_INTERVAL} and check again, up to
-     *       {@link #CHALLENGE_CHECKS_PER_CYCLE} times.</li>
-     *   <li>If it's still stuck after that, refresh the page and repeat, up to
-     *       {@link #CHALLENGE_REFRESH_CYCLES} cycles in total.</li>
-     * </ul>
-     * Assumes {@code driver} is currently on the challenge page when called.
-     */
-    static ChallengeOutcome handleCloudflareChallenge(WebDriver driver) { // package-private for tests
-        for (int cycle = 1; cycle <= CHALLENGE_REFRESH_CYCLES; cycle++) {
-            for (int check = 1; check <= CHALLENGE_CHECKS_PER_CYCLE; check++) {
-                if (hasInteractiveCaptcha(driver)) {
-                    logger.debug("Cloudflare's interactive checkbox challenge appeared; clicking it.");
-                    clickCaptchaCheckbox(driver);
-                    sleepQuietly(Duration.ofSeconds(2));
-                }
-                if (!currentPageIsChallengePage(driver)) {
-                    logger.debug("Cloudflare challenge cleared (cycle {} of {}, check {} of {}).",
-                            cycle, CHALLENGE_REFRESH_CYCLES, check, CHALLENGE_CHECKS_PER_CYCLE);
-                    return ChallengeOutcome.RESOLVED;
-                }
-                logger.debug("Cloudflare challenge still present (cycle {} of {}, check {} of {}); waiting {}s.",
-                        cycle, CHALLENGE_REFRESH_CYCLES, check, CHALLENGE_CHECKS_PER_CYCLE,
-                        CHALLENGE_CHECK_INTERVAL.getSeconds());
-                sleepQuietly(CHALLENGE_CHECK_INTERVAL);
-            }
-            if (!currentPageIsChallengePage(driver)) {
-                return ChallengeOutcome.RESOLVED;
-            }
-            /*if (cycle < CHALLENGE_REFRESH_CYCLES) {
-                logger.debug("Still stuck after {} checks; refreshing the page for cycle {} of {}.",
-                        CHALLENGE_CHECKS_PER_CYCLE, cycle + 1, CHALLENGE_REFRESH_CYCLES);
-                driver.navigate().refresh();
-            }*/
-        }
-        logger.warn("Cloudflare's challenge page did not clear after {} cycle(s) of {} checks with a "
-                + "refresh in between.", CHALLENGE_REFRESH_CYCLES, CHALLENGE_CHECKS_PER_CYCLE);
-        dumpChallengeDiagnostics(driver);
-        return ChallengeOutcome.STILL_BLOCKED;
-    }
-
-    /**
-     * Captures what the live driver actually sees the moment the automated routine gives up:
+     * Captures what the live driver actually sees the moment {@link #waitForPageToSettle}
+     * gives up:
      * the current DOM (post-JavaScript — unlike a browser's "View Source", which only ever
      * shows the original server response and won't include anything injected afterward) plus
      * a screenshot. Headless Chrome still renders a real page and can be screenshotted even
@@ -636,32 +612,9 @@ public class CardScraper {
     }
 
     /**
-     * True only when the driver is genuinely still stuck: no recognized content has shown up
-     * ({@link #hasRecognizedContent}) <em>and</em> {@link #CHALLENGE_PAGE_MARKER} is present.
-     * Checking the marker alone isn't enough — CardMarket embeds Cloudflare's ongoing
-     * bot-management script (which also matches that marker) on pages that already have real
-     * content, so a marker-only check kept reporting "still blocked" on pages that had
-     * actually loaded fine.
-     * <p>
-     * Only used inside {@link #handleCloudflareChallenge}'s wait/refresh loop, where a fresh
-     * {@link WebDriver#getPageSource()} read on every check is exactly what's wanted.
-     * {@link #fetchPage} does not call this — it takes one page-source snapshot after
-     * {@link #waitForPageToSettle} returns and runs the same logic against that single
-     * snapshot, rather than reading the live page again a moment later. Reading twice let a
-     * client-side re-render land between the two reads: {@link #waitForPageToSettle} could see
-     * real content on the first read, then this method's own second, independent read could
-     * briefly miss it, misreporting a perfectly good page as still blocked and popping the
-     * manual-verification dialog for no reason.
-     */
-    private static boolean currentPageIsChallengePage(WebDriver driver) {
-        String html = driver.getPageSource();
-        return html != null && !hasRecognizedContent(html) && isChallengePage(Jsoup.parse(html));
-    }
-
-    /**
-     * Falls back to a real, visible browser window when the automated wait/refresh/checkbox
-     * routine in {@link #handleCloudflareChallenge} couldn't clear Cloudflare's challenge on
-     * its own. First checks, without prompting anyone, whether this fresh visible session
+     * Falls back to a real, visible browser window when {@link #waitForPageToSettle} couldn't
+     * clear Cloudflare's challenge (or resolve a normal page) on its own within its deadline.
+     * First checks, without prompting anyone, whether this fresh visible session
      * already shows recognized content — it's a brand-new driver, not the same one that just
      * got blocked or challenged, and headed vs. headless alone can be enough for it to land on
      * a clean page immediately. Only if that check times out does it show the Retry/Stop
@@ -674,10 +627,11 @@ public class CardScraper {
         WebDriver visibleDriver = createVisibleDriverForManualSolve();
         try {
             visibleDriver.get(url);
-            if (waitForRecognizedContentOnly(visibleDriver)) {
+            String settledHtml = waitForRecognizedContentOnly(visibleDriver);
+            if (settledHtml != null) {
                 logger.debug("The visible fallback session already shows recognized content; "
                         + "continuing the scrape without prompting.");
-                return Jsoup.parse(visibleDriver.getPageSource(), url);
+                return Jsoup.parse(settledHtml, url);
             }
             while (true) {
                 if (promptManualChallengeChoice() == ManualChallengeChoice.STOP) {
@@ -685,9 +639,10 @@ public class CardScraper {
                             "Scraping stopped: Cloudflare needed manual verification and the user "
                                     + "chose to stop instead of retrying.");
                 }
-                if (waitForRecognizedContentOnly(visibleDriver)) {
+                settledHtml = waitForRecognizedContentOnly(visibleDriver);
+                if (settledHtml != null) {
                     logger.debug("Recognized content appeared after manual solving; continuing the scrape.");
-                    return Jsoup.parse(visibleDriver.getPageSource(), url);
+                    return Jsoup.parse(settledHtml, url);
                 }
                 logger.debug("Still on Cloudflare's challenge page after Retry; asking again.");
             }
@@ -816,25 +771,31 @@ public class CardScraper {
 
     /**
      * Polls for recognized real content or Cloudflare's hard block for up to 25s, without
-     * taking any automated escalation action — no refresh, no checkbox click. Deliberately
-     * separate from {@link #waitForPageToSettle}: reusing that method here would route back
-     * into {@link #handleCloudflareChallenge}, whose refresh could undo whatever the person
-     * just did by hand.
+     * taking any automated action of its own — no checkbox clicking. Deliberately kept
+     * separate from {@link #waitForPageToSettle}, which does click a checkbox if one appears:
+     * during manual solving, the person is already handling whatever's on screen by hand, and
+     * an automated click landing at the same time could interfere with that.
+     * <p>
+     * Returns the exact page-source snapshot that was recognized, or {@code null} if the
+     * deadline elapsed first — never makes the caller read the live page again, for the same
+     * reason {@link #waitForPageToSettle} doesn't: a second, independent read can race a DOM
+     * mutation and miss content this method had just confirmed.
      */
-    private static boolean waitForRecognizedContentOnly(WebDriver driver) {
+    private static String waitForRecognizedContentOnly(WebDriver driver) {
         long deadline = System.currentTimeMillis() + 25_000;
         while (System.currentTimeMillis() < deadline) {
-            if (hasRecognizedContent(driver.getPageSource())) {
-                return true;
+            String html = driver.getPageSource();
+            if (hasRecognizedContent(html)) {
+                return html;
             }
             try {
                 Thread.sleep(500);
             } catch (InterruptedException interruptedException) {
                 Thread.currentThread().interrupt();
-                return false;
+                return null;
             }
         }
-        return false;
+        return null;
     }
 
     /**
@@ -922,14 +883,6 @@ public class CardScraper {
         return false;
     }
 
-    private static void sleepQuietly(Duration duration) {
-        try {
-            Thread.sleep(duration.toMillis());
-        } catch (InterruptedException interruptedException) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
     /**
      * Parses every offer row on a fetched page, keeping only rows at or under
      * {@code maxPrice} that match a card in the OuicheList. Matching is done the same way
@@ -1000,17 +953,6 @@ public class CardScraper {
                         : "");
 
         return rowEntries;
-    }
-
-    /**
-     * What came out of one attempt to get past Cloudflare's resolvable challenge page.
-     * {@code STILL_BLOCKED} is the hook point for a future manual-solve fallback (making the
-     * browser visible and letting a person click through it) — not implemented yet, this
-     * method only covers the automated wait/refresh/checkbox part.
-     */
-    enum ChallengeOutcome { // package-private for tests
-        RESOLVED,
-        STILL_BLOCKED
     }
 
     private enum ManualChallengeChoice {
