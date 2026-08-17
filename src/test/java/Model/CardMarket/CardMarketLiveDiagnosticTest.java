@@ -1,8 +1,11 @@
 package Model.CardMarket;
 
+import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebDriverException;
 
 import java.util.ArrayList;
@@ -67,6 +70,80 @@ public class CardMarketLiveDiagnosticTest {
             firstRequest = false;
             fetchOnceAndReport("Sequential test, expansion id=" + expansionId,
                     BASE_URL + "&idExpansion=" + expansionId);
+        }
+    }
+
+    @Test
+    @Disabled("Live network test against real cardmarket.com — run manually, by itself. "
+            + "Deliberately reuses ONE Chrome session across 3 pages, unlike the real scraper's "
+            + "normal fresh-session-per-page behavior, to isolate what specifically changes on "
+            + "the second and third request within a single continuous session.")
+    public void threeSequentialFilteredPagesSameSession() {
+        // Bypasses CardScraper.fetchPage's own fresh-driver-per-page behavior on purpose —
+        // that's the opposite experiment from fiveSequentialFilteredPagesEachWithAFreshSession
+        // above. Uses the exact same building blocks fetchPage itself uses (createDriver,
+        // waitForPageToSettle, dumpChallengeDiagnostics, isBlockedByCloudflare, etc.) so each
+        // page's outcome here is directly comparable to a real fetchPage() call — the only
+        // variable being changed is whether the driver/session is shared across requests.
+        WebDriver driver = CardScraper.createDriver(false, true); // headed, off-screen, same as production
+        try {
+            boolean firstRequest = true;
+            for (int i = 0; i < 3 && i < SAMPLE_EXPANSION_IDS.length; i++) {
+                if (!firstRequest) {
+                    CardScraper.politeDelay();
+                }
+                firstRequest = false;
+                String url = BASE_URL + "&idExpansion=" + SAMPLE_EXPANSION_IDS[i];
+                reportOnePageSameSession(driver, "Same-session request #" + (i + 1), url);
+            }
+        } finally {
+            driver.quit();
+        }
+    }
+
+    private void reportOnePageSameSession(WebDriver driver, String label, String url) {
+        System.out.println("=== " + label + " ===");
+        System.out.println("URL: " + url);
+        long startedAt = System.currentTimeMillis();
+        driver.get(url);
+        String html = CardScraper.waitForPageToSettle(driver);
+        long elapsedMs = System.currentTimeMillis() - startedAt;
+        Document doc = Jsoup.parse(html, url);
+        System.out.println("Settled after " + elapsedMs + "ms \u2014 " + describe(doc));
+        // Dumped for every request, not just ones that time out internally, so page 1 (expected
+        // fine) and a later blocked/challenged page can be compared side by side afterward.
+        CardScraper.dumpChallengeDiagnostics(driver);
+    }
+
+    @Test
+    @Disabled("Live network test — but deliberately NOT against cardmarket.com. Run manually, by "
+            + "itself. Points our exact driver configuration at a public bot-detection test page "
+            + "instead, to check what it actually exposes (navigator.webdriver in particular) "
+            + "without spending another request against a site we suspect is already flagging us.")
+    public void checkAutomationFingerprintOnThirdPartySite() {
+        // Same createDriver(false, true) call fetchPage() itself uses in production — the
+        // point is to see exactly what THIS configuration exposes, not a hypothetical one.
+        // bot.sannysoft.com is a well-known, free automation-detection test page: it runs a
+        // battery of checks (WebDriver flag, headless tells, plugin/language lists, WebGL
+        // vendor, etc.) and renders them as a pass/fail table. If it's ever down or replaced,
+        // the direct navigator.webdriver check below and the screenshot still give a usable
+        // answer on their own.
+        WebDriver driver = CardScraper.createDriver(false, true);
+        try {
+            driver.get("https://bot.sannysoft.com/");
+            try {
+                Thread.sleep(2000); // the page's checks populate the table asynchronously after load
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            Object webdriverFlag = ((JavascriptExecutor) driver).executeScript("return navigator.webdriver;");
+            System.out.println("navigator.webdriver reports: " + webdriverFlag);
+            System.out.println("(expected on a normal, non-automated browser: null or undefined \u2014 "
+                    + "anything else, including the literal string \"true\", means our CDP patch "
+                    + "for this isn't actually taking effect)");
+            CardScraper.dumpChallengeDiagnostics(driver);
+        } finally {
+            driver.quit();
         }
     }
 

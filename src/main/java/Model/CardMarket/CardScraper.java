@@ -525,7 +525,7 @@ public class CardScraper {
      * this method had just confirmed a moment earlier, wrongly concluding a perfectly normal
      * page was still stuck and popping the manual-verification window for no reason.
      */
-    private static String waitForPageToSettle(WebDriver driver) {
+    static String waitForPageToSettle(WebDriver driver) { // package-private for the live diagnostic test
         long deadline = System.currentTimeMillis() + 25_000;
         long nextCaptchaClickAllowedAt = 0;
         String html = driver.getPageSource();
@@ -585,7 +585,7 @@ public class CardScraper {
      * that widget gets added — so the detection markers there are still a best-effort guess
      * until a real dump like this one confirms or corrects them.
      */
-    private static void dumpChallengeDiagnostics(WebDriver driver) {
+    static void dumpChallengeDiagnostics(WebDriver driver) { // package-private for the live diagnostic test
         String timestamp = String.valueOf(System.currentTimeMillis());
 
         String htmlFileName = outputPath + "\\CardMarketChallengeDebug_" + timestamp + ".html";
