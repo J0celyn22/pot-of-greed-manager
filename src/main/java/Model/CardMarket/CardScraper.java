@@ -111,20 +111,6 @@ public class CardScraper {
     private static final Duration CHALLENGE_CHECK_INTERVAL = Duration.ofSeconds(5);
 
     /**
-     * Headless Chrome is more likely to be fingerprinted as a bot than a normal, visible
-     * Chrome window. Off by default now — DateACard's real run got a hard Cloudflare
-     * "Access Denied" block (not a timing/JS-challenge issue) on essentially every request
-     * past the first, so it's worth ruling out headless-mode fingerprinting as a contributor.
-     */
-    /**
-     * Headless by default — every test so far (headless on, headless off, minimized window)
-     * has had the exact same outcome: first request succeeds, second gets blocked. No test
-     * has actually isolated headless mode as the variable that mattered, so there's no real
-     * evidence for keeping the window visible at the cost of it popping up on screen.
-     */
-    private static final boolean HEADLESS = true;
-
-    /**
      * Point this at your own Chrome user-data directory to have Selenium drive your real
      * profile (real cookies, history, and accumulated trust) instead of a brand-new, blank
      * one. This looks like the actual fix, not the delay/headless tweaks — a fresh,
@@ -382,7 +368,7 @@ public class CardScraper {
      * the same category of thing any browser-based scraper does, not a way around anything
      * CardMarket couldn't otherwise see.
      */
-    static WebDriver createDriver(boolean headless, boolean minimizeWindow) { // package-private for the live diagnostic test
+    static WebDriver createDriver(boolean headless, boolean keepOffScreen) { // package-private for the live diagnostic test
         ChromeOptions options = new ChromeOptions();
         if (headless) {
             options.addArguments("--headless=new");
@@ -392,6 +378,17 @@ public class CardScraper {
             options.addArguments("--profile-directory=" + CHROME_PROFILE_NAME);
         }
         options.addArguments("--window-size=1920,1080");
+        if (keepOffScreen) {
+            // Positioned fully off any physical monitor before the window is ever created,
+            // rather than created on-screen and minimized afterward. A post-launch
+            // driver.manage().window().minimize() call still requires Chrome to first paint a
+            // real, on-screen, focus-stealing window before the minimize command can be
+            // applied — confirmed live: the window was visibly flashing onto the screen and
+            // stealing focus on every single page fetch, which made the computer unusable
+            // during a run of hundreds of pages. Launching already positioned off-screen means
+            // Chrome never paints anything within the visible desktop area in the first place.
+            options.addArguments("--window-position=-32000,-32000");
+        }
         options.addArguments("--disable-blink-features=AutomationControlled");
         // Deliberately not spoofing the User-Agent string. Overriding only the UA header
         // (as a prior version of this method did, claiming Chrome/124 while the machine
@@ -409,16 +406,6 @@ public class CardScraper {
             driver.manage().timeouts().pageLoadTimeout(Duration.ofSeconds(30));
         } catch (Exception exception) {
             logger.debug("Could not set page load timeout (non-fatal): {}", exception.getMessage());
-        }
-        if (minimizeWindow) {
-            // Headless Chrome has no real window to minimize — this is only ever passed
-            // true for a non-headless window, and window-management operations on a
-            // headless "window" are a known source of quirky, version-dependent behavior.
-            try {
-                driver.manage().window().minimize();
-            } catch (Exception exception) {
-                logger.debug("Could not minimize the browser window (non-fatal): {}", exception.getMessage());
-            }
         }
         applyStealthPatchToEveryDocument(driver);
         return driver;
@@ -460,12 +447,26 @@ public class CardScraper {
      * kept getting blocked using the exact same page-fetching code) — this is slower (Chrome
      * startup overhead on every single page) but it's what's actually been shown to work.
      * <p>
+     * Drives a headed (non-headless) window positioned off-screen rather than a headless one.
+     * Headless was the reason a visible browser window kept appearing for essentially every
+     * page, not just genuinely Cloudflare-gated ones: live testing showed a headed session
+     * reliably getting past Cloudflare while a headless one for the same URL almost never did,
+     * no matter how the automated wait/checkbox routine was tuned. Starting off-screen (see
+     * {@link #createDriver}) keeps the window from ever appearing on screen or stealing focus
+     * for the common case (a page that just loads normally); it's only brought into view in
+     * {@link #resolveWithManualFallback}, and only once this method's own settle attempt has
+     * actually concluded the page is stuck on a genuine Cloudflare page.
+     * <p>
      * Both of Cloudflare's page types — the resolvable challenge and the harder "Attention
-     * Required" block — are handed to {@link #resolveWithManualFallback}, which opens a
-     * visible window for the person to look at rather than silently returning either one as
-     * if it were real content. The hard block page has no checkbox to click, so Retry may
-     * genuinely need a wait or a different network before it clears — but the person should
-     * still get to see what actually came back instead of it being decided for them.
+     * Required" block — are handed to {@link #resolveWithManualFallback}, which reuses this
+     * same driver and session rather than creating a second, separate one: tearing the
+     * session down and starting fresh would also discard whatever partial progress Cloudflare's
+     * own challenge state had made, and doubles Chrome startup cost on every gated page for no
+     * benefit. It makes the window visible for the person to look at rather than silently
+     * returning either page type as if it were real content. The hard block page has no
+     * checkbox to click, so Retry may genuinely need a wait or a different network before it
+     * clears — but the person should still get to see what actually came back instead of it
+     * being decided for them.
      * <p>
      * Both checks run against the single page-source snapshot {@link #waitForPageToSettle}
      * itself already confirmed and returns — not a fresh, independent read of the live page.
@@ -474,9 +475,8 @@ public class CardScraper {
      * for a page that had actually loaded fine.
      */
     static Document fetchPage(String url) { // package-private for the live diagnostic test
-        Document document = null;
-        boolean needsManualFallback;
-        WebDriver driver = createDriver(HEADLESS, !HEADLESS);
+        Document document;
+        WebDriver driver = createDriver(false, true); // headed, off-screen: invisible unless Cloudflare needs solving
         try {
             driver.get(url);
             String pageSource = waitForPageToSettle(driver);
@@ -484,14 +484,12 @@ public class CardScraper {
             boolean stillOnChallengePage = pageSource != null
                     && !hasRecognizedContent(pageSource)
                     && isChallengePage(settledDocument);
-            needsManualFallback = stillOnChallengePage || isBlockedByCloudflare(settledDocument);
-            if (!needsManualFallback) {
-                document = settledDocument;
-            }
+            boolean needsManualFallback = stillOnChallengePage || isBlockedByCloudflare(settledDocument);
+            document = needsManualFallback ? resolveWithManualFallback(driver, url) : settledDocument;
         } finally {
             driver.quit();
         }
-        return needsManualFallback ? resolveWithManualFallback(url) : document;
+        return document;
     }
 
     /**
@@ -612,59 +610,59 @@ public class CardScraper {
     }
 
     /**
-     * Falls back to a real, visible browser window when {@link #waitForPageToSettle} couldn't
-     * clear Cloudflare's challenge (or resolve a normal page) on its own within its deadline.
-     * First checks, without prompting anyone, whether this fresh visible session
-     * already shows recognized content — it's a brand-new driver, not the same one that just
-     * got blocked or challenged, and headed vs. headless alone can be enough for it to land on
-     * a clean page immediately. Only if that check times out does it show the Retry/Stop
-     * prompt: the person solves whatever Cloudflare is showing, then chooses Retry (re-check
-     * the page) or Stop (cancel this fetch) — Retry can be chosen as many times as needed; the
-     * same visible session stays open the whole time rather than being recreated on every
-     * attempt, so nothing solved so far is lost.
+     * Falls back to making the current, already-navigated driver visible when
+     * {@link #waitForPageToSettle} couldn't clear Cloudflare's challenge (or resolve a normal
+     * page) on its own within its deadline. Reuses {@code driver} as-is — no re-navigation —
+     * since it's already sitting on the URL and possibly mid-way through Cloudflare's own
+     * challenge state; starting a second, separate session here would throw that away and pay
+     * Chrome's startup cost twice for one page.
+     * <p>
+     * First checks, without prompting anyone, whether the page has actually settled since
+     * {@link #waitForPageToSettle} gave up — its deadline is generous but not infinite, and
+     * content can land a moment after it returns. Only if that check also times out does it
+     * show the Retry/Stop prompt: the person solves whatever Cloudflare is showing, then
+     * chooses Retry (re-check the page) or Stop (cancel this fetch) — Retry can be chosen as
+     * many times as needed; the same session stays open the whole time rather than being
+     * recreated on every attempt, so nothing solved so far is lost.
      */
-    private static Document resolveWithManualFallback(String url) {
-        WebDriver visibleDriver = createVisibleDriverForManualSolve();
-        try {
-            visibleDriver.get(url);
-            String settledHtml = waitForRecognizedContentOnly(visibleDriver);
+    private static Document resolveWithManualFallback(WebDriver driver, String url) {
+        makeWindowVisibleForManualSolve(driver);
+        String settledHtml = waitForRecognizedContentOnly(driver);
+        if (settledHtml != null) {
+            logger.debug("Recognized content appeared right after making the window visible; "
+                    + "continuing the scrape without prompting.");
+            return Jsoup.parse(settledHtml, url);
+        }
+        while (true) {
+            if (promptManualChallengeChoice() == ManualChallengeChoice.STOP) {
+                throw new ManualChallengeStoppedException(
+                        "Scraping stopped: Cloudflare needed manual verification and the user "
+                                + "chose to stop instead of retrying.");
+            }
+            settledHtml = waitForRecognizedContentOnly(driver);
             if (settledHtml != null) {
-                logger.debug("The visible fallback session already shows recognized content; "
-                        + "continuing the scrape without prompting.");
+                logger.debug("Recognized content appeared after manual solving; continuing the scrape.");
                 return Jsoup.parse(settledHtml, url);
             }
-            while (true) {
-                if (promptManualChallengeChoice() == ManualChallengeChoice.STOP) {
-                    throw new ManualChallengeStoppedException(
-                            "Scraping stopped: Cloudflare needed manual verification and the user "
-                                    + "chose to stop instead of retrying.");
-                }
-                settledHtml = waitForRecognizedContentOnly(visibleDriver);
-                if (settledHtml != null) {
-                    logger.debug("Recognized content appeared after manual solving; continuing the scrape.");
-                    return Jsoup.parse(settledHtml, url);
-                }
-                logger.debug("Still on Cloudflare's challenge page after Retry; asking again.");
-            }
-        } finally {
-            visibleDriver.quit();
+            logger.debug("Still on Cloudflare's challenge page after Retry; asking again.");
         }
     }
 
     /**
-     * Builds a visible, non-minimized Chrome window for the person to solve Cloudflare's
-     * challenge in by hand. Maximized on top of just being non-headless so it isn't easy to
-     * miss behind other windows.
+     * Brings an already-running driver's window into view so the person can see and solve
+     * whatever Cloudflare is showing it. {@link #fetchPage} starts this window positioned
+     * fully off-screen (see its comment), not minimized, so it's moved back onto the primary
+     * monitor before maximizing — maximizing alone could otherwise size it to whatever
+     * (nonexistent) monitor its off-screen coordinates nominally belong to.
      */
-    private static WebDriver createVisibleDriverForManualSolve() {
-        WebDriver driver = createDriver(false, false);
+    private static void makeWindowVisibleForManualSolve(WebDriver driver) {
         try {
+            driver.manage().window().setPosition(new Point(0, 0));
             driver.manage().window().maximize();
         } catch (Exception exception) {
-            logger.debug("Could not maximize the manual-solve browser window (non-fatal): {}",
+            logger.debug("Could not bring the manual-solve browser window into view (non-fatal): {}",
                     exception.getMessage());
         }
-        return driver;
     }
 
     /**
