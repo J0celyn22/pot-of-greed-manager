@@ -300,7 +300,9 @@ public class CardScraper {
                 dumpUnexpectedPage(writer, seller, "page " + pageNumber, pageDocument);
                 break;
             }
-            List<Entry> pageEntries = parseOfferRows(pageDocument, maOuicheList, maxPrice, ouicheCountMap);
+            String currentPageUrl = pageNumber == 1 ? baseUrl : baseUrl + "&site=" + pageNumber;
+            List<Entry> pageEntries = parseOfferRows(pageDocument, maOuicheList, maxPrice, ouicheCountMap,
+                    currentPageUrl);
             collected.addAll(pageEntries);
 
             pageNumber++;
@@ -369,7 +371,8 @@ public class CardScraper {
                             pageDocument);
                     break;
                 }
-                List<Entry> pageEntries = parseOfferRows(pageDocument, maOuicheList, maxPrice, ouicheCountMap);
+                List<Entry> pageEntries = parseOfferRows(pageDocument, maOuicheList, maxPrice, ouicheCountMap,
+                        pageUrl);
                 collected.addAll(pageEntries);
                 pageNumber++;
             }
@@ -1079,10 +1082,16 @@ public class CardScraper {
      * every other shop scraper does it (see {@link ShopCardMatcher}); CardMarket doesn't
      * expose a per-card print code on this page (only the set's own code, e.g. "YS15"), so
      * matching here is always name-based.
+     *
+     * <p>Every {@link Entry} produced from this page is linked to {@code pageUrl} — the
+     * seller's own filtered offers page (expansion + page number) — rather than the
+     * individual card's generic {@code /Products/Singles/...} page. Only the seller's offers
+     * page carries this seller's actual listing and its "Add to cart" button; the generic
+     * product page isn't specific to this seller at all.
      */
     static List<Entry> parseOfferRows( // package-private for tests
                                        Document doc, List<CardElement> maOuicheList, double maxPrice,
-                                       Map<String, Integer> ouicheCountMap) {
+                                       Map<String, Integer> ouicheCountMap, String pageUrl) {
 
         List<Entry> rowEntries = new ArrayList<>();
         Elements rows = doc.select("#UserOffersTable div.article-row");
@@ -1128,8 +1137,7 @@ public class CardScraper {
                 continue;
             }
 
-            String productUrl = productLink.absUrl("href");
-            Entry entry = new Entry(name, price, productUrl);
+            Entry entry = new Entry(name, price, pageUrl);
             entry.card = card;
             String imagePath = card.getImagePath();
             entry.ouicheCount = (imagePath != null) ? ouicheCountMap.getOrDefault(imagePath, 0) : 0;
@@ -1341,6 +1349,11 @@ public class CardScraper {
     static class Entry {
         final String name;
         final double price;
+        /**
+         * URL of the seller's own filtered offers page (expansion + page number) this entry
+         * was found on — not the card's generic {@code /Products/Singles/...} page. Only the
+         * seller's offers page has this seller's actual listing and "Add to cart" button.
+         */
         final String productUrl;
         int ouicheCount = 0;
         /**

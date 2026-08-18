@@ -33,6 +33,15 @@ public class CardScraperTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
+     * Stand-in for the seller's own filtered offers page URL, exactly as
+     * {@link #scrapeSimplePagination} / {@link #scrapeByExpansion} build it. Every
+     * {@link CardScraper.Entry} produced from a page should link here, not to the row's own
+     * {@code /Products/Singles/...} link.
+     */
+    private static final String TEST_PAGE_URL =
+            "https://www.cardmarket.com/en/YuGiOh/Users/testSeller/Offers/Singles?testPage";
+
+    /**
      * Minimal reconstruction of CardMarket's real offer-row structure, with three real
      * cards/prices from an actual DateACard page: Axe Dragonute (0,19€), Banner of Courage
      * (0,19€), Odd-Eyes Dragon (0,24€).
@@ -137,7 +146,7 @@ public class CardScraperTest {
         List<CardElement> emptyOuicheList = new ArrayList<>();
 
         List<CardScraper.Entry> entries =
-                CardScraper.parseOfferRows(doc, emptyOuicheList, 10.0, Map.of());
+                CardScraper.parseOfferRows(doc, emptyOuicheList, 10.0, Map.of(), TEST_PAGE_URL);
 
         // Nothing in the OuicheList, so nothing should match, but this at least proves the
         // row/price selectors find all three rows in the first place (a selector mismatch
@@ -155,7 +164,7 @@ public class CardScraperTest {
                 // "Odd-Eyes Dragon" intentionally absent
         );
 
-        List<CardScraper.Entry> entries = CardScraper.parseOfferRows(doc, ouicheList, 10.0, Map.of());
+        List<CardScraper.Entry> entries = CardScraper.parseOfferRows(doc, ouicheList, 10.0, Map.of(), TEST_PAGE_URL);
 
         assertEquals(2, entries.size(), "Expected exactly the 2 OuicheList cards to match, "
                 + "not the 3rd one that isn't in the list");
@@ -174,7 +183,7 @@ public class CardScraperTest {
                 makeCard("Odd-Eyes Dragon", null)
         );
 
-        List<CardScraper.Entry> entries = CardScraper.parseOfferRows(doc, ouicheList, 0.20, Map.of());
+        List<CardScraper.Entry> entries = CardScraper.parseOfferRows(doc, ouicheList, 0.20, Map.of(), TEST_PAGE_URL);
 
         assertEquals(2, entries.size(), "0,24€ Odd-Eyes Dragon should be excluded by a 0.20 maxPrice");
         assertTrue(entries.stream().noneMatch(entry -> entry.name.equals("Odd-Eyes Dragon")));
@@ -185,10 +194,31 @@ public class CardScraperTest {
         Document doc = Jsoup.parse(ROWS_HTML, "https://www.cardmarket.com/");
         List<CardElement> ouicheList = ouicheListOf(makeCard("Odd-Eyes Dragon", null));
 
-        List<CardScraper.Entry> entries = CardScraper.parseOfferRows(doc, ouicheList, 10.0, Map.of());
+        List<CardScraper.Entry> entries = CardScraper.parseOfferRows(doc, ouicheList, 10.0, Map.of(), TEST_PAGE_URL);
 
         assertEquals(1, entries.size());
         assertEquals(0.24, entries.get(0).price, 0.001, "\"0,24 €\" should parse as 0.24, not 24 or 0.0");
+    }
+
+    @Test
+    public void parseOfferRows_linksEntriesToThePageUrlNotTheRowsProductLink() {
+        // ROWS_HTML rows each carry their own distinct /Products/Singles/... href — verify
+        // the entry ignores that per-row link entirely and always uses the seller's own
+        // filtered offers page instead, since only that page has this seller's "Add to cart".
+        Document doc = Jsoup.parse(ROWS_HTML, "https://www.cardmarket.com/");
+        List<CardElement> ouicheList = ouicheListOf(
+                makeCard("Axe Dragonute", null),
+                makeCard("Banner of Courage", null),
+                makeCard("Odd-Eyes Dragon", null)
+        );
+
+        List<CardScraper.Entry> entries = CardScraper.parseOfferRows(doc, ouicheList, 10.0, Map.of(), TEST_PAGE_URL);
+
+        assertEquals(3, entries.size());
+        for (CardScraper.Entry entry : entries) {
+            assertEquals(TEST_PAGE_URL, entry.productUrl,
+                    "Every entry from this page should link to the page itself, not a per-card product page");
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -209,7 +239,7 @@ public class CardScraperTest {
         Document doc = Jsoup.parse(htmlRow, "https://www.cardmarket.com/");
         List<CardElement> ouicheList = ouicheListOf(makeCard("Cyber-Tech Alligator", null));
 
-        List<CardScraper.Entry> entries = CardScraper.parseOfferRows(doc, ouicheList, 10.0, Map.of());
+        List<CardScraper.Entry> entries = CardScraper.parseOfferRows(doc, ouicheList, 10.0, Map.of(), TEST_PAGE_URL);
 
         assertEquals(1, entries.size(), "Hyphenated names should still match after normalization");
     }
@@ -228,7 +258,7 @@ public class CardScraperTest {
         Document doc = Jsoup.parse(htmlRow, "https://www.cardmarket.com/");
         List<CardElement> ouicheList = ouicheListOf(makeCard("Graceful Charity", "Charité Gracieuse"));
 
-        List<CardScraper.Entry> entries = CardScraper.parseOfferRows(doc, ouicheList, 10.0, Map.of());
+        List<CardScraper.Entry> entries = CardScraper.parseOfferRows(doc, ouicheList, 10.0, Map.of(), TEST_PAGE_URL);
 
         assertEquals(1, entries.size());
     }
