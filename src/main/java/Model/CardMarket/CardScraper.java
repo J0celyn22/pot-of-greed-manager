@@ -142,6 +142,21 @@ public class CardScraper {
     private static final int MAX_EXPANSIONS_PER_RUN = 5/*Integer.MAX_VALUE*/;
 
     /**
+     * Switches page fetching from a fresh direct-Selenium session per page (see
+     * {@link #fetchPage(String)}) to a single {@link PythonCardMarketBridge} session reused
+     * across the whole run. Exists as a separate switch, not a replacement, so the direct
+     * path stays available to fall back to \u2014 see the class-level discussion in
+     * {@link PythonCardMarketBridge} for why the bridge exists at all (SeleniumBase's UC
+     * Mode survives more than one request per session; plain Selenium here couldn't).
+     * <p>
+     * When this is {@code true}, {@code python/cardmarket_bridge.py} needs to actually work
+     * on this machine (Python on {@code PATH}, {@code seleniumbase} installed, Chrome
+     * installed) \u2014 see {@link PythonCardMarketBridgeLiveDiagnosticTest} to check that in
+     * isolation before trusting it for a real run.
+     */
+    private static final boolean USE_PYTHON_BRIDGE = true;
+
+    /**
      * Retrieves cards from the given CardMarket seller's offers that are present in the
      * OuicheList.
      *
@@ -167,77 +182,96 @@ public class CardScraper {
         String baseUrl = "https://www.cardmarket.com/en/YuGiOh/Users/" + seller.getUsername()
                 + "/Offers/Singles?" + buildBaseQueryString(maxPrice);
 
-        try (BufferedWriter writer = new BufferedWriter(
-                new OutputStreamWriter(
-                        new FileOutputStream(outputPath + "\\ListeCardMarket_" + seller.getUsername() + ".txt"),
-                        StandardCharsets.UTF_8))) {
-
-            List<Entry> collected = new ArrayList<>();
-
-            politeDelay();
-            Document firstPageDocument;
+        PythonCardMarketBridge bridge = null;
+        if (USE_PYTHON_BRIDGE) {
             try {
-                firstPageDocument = fetchPage(baseUrl);
-            } catch (Exception exception) {
-                logger.error("Could not fetch the base page for {}. Make sure Google Chrome is installed on "
-                        + "this machine.", seller.getDisplayName(), exception);
+                bridge = new PythonCardMarketBridge();
+                bridge.start();
+            } catch (IOException startupIoException) {
+                logger.error("Could not start the Python CardMarket bridge \u2014 check that Python is on "
+                        + "PATH with seleniumbase installed, and that python/cardmarket_bridge.py is present "
+                        + "relative to the working directory.", startupIoException);
                 return result;
             }
+        }
 
-            if (firstPageDocument.text().contains(TOO_MANY_RESULTS_MARKER)) {
-                logger.debug("{} has more than 300 unfiltered results; scraping expansion by expansion.",
-                        seller.getDisplayName());
-                collected.addAll(scrapeByExpansion(baseUrl, firstPageDocument, maOuicheList, maxPrice,
-                        ouicheCountMap, seller, writer));
-            } else {
-                collected.addAll(scrapeSimplePagination(baseUrl, firstPageDocument, maOuicheList, maxPrice,
-                        ouicheCountMap, seller, writer));
-            }
+        try {
+            try (BufferedWriter writer = new BufferedWriter(
+                    new OutputStreamWriter(
+                            new FileOutputStream(outputPath + "\\ListeCardMarket_" + seller.getUsername() + ".txt"),
+                            StandardCharsets.UTF_8))) {
 
-            // ── 1. Sort all matched entries by price ascending ────────────────────────
-            collected.sort(Comparator.comparingDouble(entry -> entry.price));
+                List<Entry> collected = new ArrayList<>();
 
-            // ── 2. Group same-name entries together ───────────────────────────────────
-            //    The first occurrence of each name keeps its position in the price-sorted
-            //    order; subsequent copies of the same card are placed immediately after it,
-            //    even if their price is higher than the next card's first occurrence.
-            Map<String, List<Entry>> entriesByName = new LinkedHashMap<>();
-            for (Entry entry : collected) {
-                entriesByName.computeIfAbsent(entry.name, key -> new ArrayList<>()).add(entry);
-            }
-            List<Entry> regrouped = new ArrayList<>(collected.size());
-            for (List<Entry> group : entriesByName.values()) {
-                regrouped.addAll(group);
-            }
-            collected = regrouped;
-
-            // ── 3. Write to txt file and build the result list ────────────────────────
-            Map<String, Integer> occurrenceCounts = new HashMap<>();
-            for (Entry entry : collected) {
-                int occurrence = occurrenceCounts.getOrDefault(entry.name, 0) + 1;
-                occurrenceCounts.put(entry.name, occurrence);
-
-                String priceString = String.format(Locale.US, "%.2f", entry.price);
-                StringBuilder line = new StringBuilder();
-                line.append(entry.name).append(", Price: ").append(priceString).append("€");
-
-                if (occurrence > 1) {
-                    line.append(", Occurrence: ").append(occurrence);
+                politeDelay();
+                Document firstPageDocument;
+                try {
+                    firstPageDocument = fetchPage(baseUrl, bridge);
+                } catch (Exception exception) {
+                    logger.error("Could not fetch the base page for {}. Make sure Google Chrome is installed on "
+                            + "this machine.", seller.getDisplayName(), exception);
+                    return result;
                 }
-                line.append(", InOuicheList: ").append(entry.ouicheCount);
-                line.append(" Link: ").append(entry.productUrl);
 
-                writer.write(line + "\n");
-                logger.debug("{}", line);
+                if (firstPageDocument.text().contains(TOO_MANY_RESULTS_MARKER)) {
+                    logger.debug("{} has more than 300 unfiltered results; scraping expansion by expansion.",
+                            seller.getDisplayName());
+                    collected.addAll(scrapeByExpansion(baseUrl, firstPageDocument, maOuicheList, maxPrice,
+                            ouicheCountMap, seller, writer, bridge));
+                } else {
+                    collected.addAll(scrapeSimplePagination(baseUrl, firstPageDocument, maOuicheList, maxPrice,
+                            ouicheCountMap, seller, writer, bridge));
+                }
 
-                result.add(new ShopResultEntry(
-                        entry.card, entry.name, entry.price, entry.ouicheCount, entry.productUrl, occurrence));
+                // ── 1. Sort all matched entries by price ascending ────────────────────────
+                collected.sort(Comparator.comparingDouble(entry -> entry.price));
+
+                // ── 2. Group same-name entries together ───────────────────────────────────
+                //    The first occurrence of each name keeps its position in the price-sorted
+                //    order; subsequent copies of the same card are placed immediately after it,
+                //    even if their price is higher than the next card's first occurrence.
+                Map<String, List<Entry>> entriesByName = new LinkedHashMap<>();
+                for (Entry entry : collected) {
+                    entriesByName.computeIfAbsent(entry.name, key -> new ArrayList<>()).add(entry);
+                }
+                List<Entry> regrouped = new ArrayList<>(collected.size());
+                for (List<Entry> group : entriesByName.values()) {
+                    regrouped.addAll(group);
+                }
+                collected = regrouped;
+
+                // ── 3. Write to txt file and build the result list ────────────────────────
+                Map<String, Integer> occurrenceCounts = new HashMap<>();
+                for (Entry entry : collected) {
+                    int occurrence = occurrenceCounts.getOrDefault(entry.name, 0) + 1;
+                    occurrenceCounts.put(entry.name, occurrence);
+
+                    String priceString = String.format(Locale.US, "%.2f", entry.price);
+                    StringBuilder line = new StringBuilder();
+                    line.append(entry.name).append(", Price: ").append(priceString).append("€");
+
+                    if (occurrence > 1) {
+                        line.append(", Occurrence: ").append(occurrence);
+                    }
+                    line.append(", InOuicheList: ").append(entry.ouicheCount);
+                    line.append(" Link: ").append(entry.productUrl);
+
+                    writer.write(line + "\n");
+                    logger.debug("{}", line);
+
+                    result.add(new ShopResultEntry(
+                            entry.card, entry.name, entry.price, entry.ouicheCount, entry.productUrl, occurrence));
+                }
+
+                writer.write("\n");
+
+            } catch (IOException ioException) {
+                logger.error("Error writing CardMarket results file for {}.", seller.getDisplayName(), ioException);
             }
-
-            writer.write("\n");
-
-        } catch (IOException ioException) {
-            logger.error("Error writing CardMarket results file for {}.", seller.getDisplayName(), ioException);
+        } finally {
+            if (bridge != null) {
+                bridge.close();
+            }
         }
 
         return result;
@@ -251,7 +285,8 @@ public class CardScraper {
      */
     private static List<Entry> scrapeSimplePagination(
             String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList,
-            double maxPrice, Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer) {
+            double maxPrice, Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer,
+            PythonCardMarketBridge bridge) {
 
         List<Entry> collected = new ArrayList<>();
         Document pageDocument = firstPageDocument;
@@ -272,7 +307,7 @@ public class CardScraper {
             String pageUrl = baseUrl + "&site=" + pageNumber;
             politeDelay();
             try {
-                pageDocument = fetchPage(pageUrl);
+                pageDocument = fetchPage(pageUrl, bridge);
             } catch (WebDriverException webDriverException) {
                 logFetchFailure(writer, seller, "page " + pageNumber, webDriverException);
                 break;
@@ -289,7 +324,8 @@ public class CardScraper {
      */
     private static List<Entry> scrapeByExpansion(
             String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList,
-            double maxPrice, Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer) {
+            double maxPrice, Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer,
+            PythonCardMarketBridge bridge) {
 
         List<Entry> collected = new ArrayList<>();
         Map<String, String> expansionMap = extractExpansionMap(firstPageDocument);
@@ -318,7 +354,7 @@ public class CardScraper {
                 politeDelay();
                 Document pageDocument;
                 try {
-                    pageDocument = fetchPage(pageUrl);
+                    pageDocument = fetchPage(pageUrl, bridge);
                 } catch (WebDriverException webDriverException) {
                     logFetchFailure(writer, seller, "expansion " + expansionLabel + " page " + pageNumber,
                             webDriverException);
@@ -522,6 +558,90 @@ public class CardScraper {
             driver.quit();
         }
         return document;
+    }
+
+    /**
+     * Fetches through {@code bridge} if one is running ({@link #USE_PYTHON_BRIDGE}), or the
+     * direct-Selenium {@link #fetchPage(String)} otherwise. The two paths' failure modes are
+     * deliberately unified here: a {@link PythonCardMarketBridge.PythonBridgeException} gets
+     * wrapped as a {@link WebDriverException} so the call sites in
+     * {@link #scrapeSimplePagination} and {@link #scrapeByExpansion} don't need their own
+     * {@code catch} blocks to change depending on which path actually ran. A
+     * {@link ManualChallengeStoppedException} raised while resolving a bridge-side manual
+     * fallback is deliberately left unwrapped, for the same reason it isn't caught anywhere
+     * along the direct path either — it's meant to propagate all the way out and abort the
+     * whole run, not be mistaken for an ordinary fetch failure.
+     */
+    private static Document fetchPage(String url, PythonCardMarketBridge bridge) {
+        if (bridge == null) {
+            return fetchPage(url);
+        }
+        try {
+            return fetchPageViaBridge(bridge, url);
+        } catch (PythonCardMarketBridge.PythonBridgeException pythonBridgeException) {
+            throw new WebDriverException(pythonBridgeException.getMessage(), pythonBridgeException);
+        }
+    }
+
+    /**
+     * The bridge-path counterpart of the manual-fallback branch inside {@link #fetchPage(String)}
+     * itself: same "is this actually still stuck" check ({@link #needsManualFallback}), same
+     * decision to hand off to a manual-resolve method when it is.
+     */
+    private static Document fetchPageViaBridge(PythonCardMarketBridge bridge, String url)
+            throws PythonCardMarketBridge.PythonBridgeException {
+        Document document = bridge.fetchPage(url);
+        return needsManualFallback(document) ? resolveBridgeManualFallback(bridge, url) : document;
+    }
+
+    /**
+     * Whether a fetched page is still stuck on Cloudflare's resolvable challenge, or hit its
+     * hard block outright — the same two conditions {@link #fetchPage(String)} checks inline
+     * against the raw page-source string {@link #waitForPageToSettle} hands it. This version
+     * takes a {@link Document} instead, for callers (the bridge path) that only ever get one
+     * back rather than a live driver to read a fresh string from; {@link Document#outerHtml()}
+     * re-serializes rather than reproducing the original bytes, but every marker this checks
+     * for is plain text or script content jsoup preserves, so that difference doesn't matter
+     * here. Left as its own copy rather than folding into {@link #fetchPage(String)} itself —
+     * that method's own inline version is deliberately reading the exact snapshot it already
+     * settled on, not a document built from it, to avoid a second, racy read; no reason to
+     * disturb an already-working method to share three lines of logic.
+     */
+    private static boolean needsManualFallback(Document doc) {
+        boolean stillOnChallengePage = !hasRecognizedContent(doc.outerHtml()) && isChallengePage(doc);
+        return stillOnChallengePage || isBlockedByCloudflare(doc);
+    }
+
+    /**
+     * The bridge-path counterpart of {@link #resolveWithManualFallback}. No equivalent of that
+     * method's first step (making an already-open window visible) is needed here: the sidecar's
+     * browser is visible for the entire run, not just when something needs solving — see
+     * {@code cardmarket_bridge.py}'s own module docstring. Reuses the same Retry/Stop prompt
+     * ({@link #promptManualChallengeChoice}) unchanged, since it takes no {@link WebDriver} and
+     * doesn't care which fetch path is asking.
+     * <p>
+     * Unlike the direct path's Retry, which just re-polls the same already-loaded page for
+     * content to appear, a bridge Retry sends a fresh {@code "fetch"} request through the
+     * sidecar — UC Mode's own disconnect/reconnect navigation runs again. That's the only lever
+     * the stdin/stdout protocol offers as it stands (no "just re-read the current page" action
+     * exists), and matches what solving the challenge in the visible window should actually
+     * produce: the same URL, re-requested, now showing real content instead of the challenge.
+     */
+    private static Document resolveBridgeManualFallback(PythonCardMarketBridge bridge, String url)
+            throws PythonCardMarketBridge.PythonBridgeException {
+        while (true) {
+            if (promptManualChallengeChoice() == ManualChallengeChoice.STOP) {
+                throw new ManualChallengeStoppedException(
+                        "Scraping stopped: Cloudflare needed manual verification and the user "
+                                + "chose to stop instead of retrying.");
+            }
+            Document retriedDocument = bridge.fetchPage(url);
+            if (!needsManualFallback(retriedDocument)) {
+                logger.debug("Recognized content appeared after manual solving; continuing the scrape.");
+                return retriedDocument;
+            }
+            logger.debug("Still on Cloudflare's challenge page after Retry; asking again.");
+        }
     }
 
     /**
@@ -1033,14 +1153,14 @@ public class CardScraper {
     /**
      * Much longer than before (was ~1-3s) — the block DateACard triggered came right after
      * the first few rapid, sequential idExpansion requests, which is exactly the kind of
-     * pattern a WAF rule would key on. This is a genuine tradeoff: at ~8-15s per request,
-     * a full 300+-expansion scrape realistically takes a couple of hours. If it still gets
+     * pattern a WAF rule would key on. This is a genuine tradeoff: at ~1-8s per request,
+     * a full 600+-expansion scrape realistically takes a couple of hours. If it still gets
      * blocked even at this pace, that's a real signal the pattern itself (not the speed) is
      * what's triggering it, and pushing the delay even higher probably won't change that.
      */
     static void politeDelay() { // package-private for the live diagnostic test
         try {
-            Thread.sleep(8000);
+            Thread.sleep(1000);
             Thread.sleep((long) (Math.random() * 7000));
         } catch (InterruptedException interruptedException) {
             Thread.currentThread().interrupt();
@@ -1068,6 +1188,35 @@ public class CardScraper {
      */
     static boolean pageHasOfferRows(Document doc) { // package-private for tests
         return !doc.select("#UserOffersTable div.article-row").isEmpty();
+    }
+
+    /**
+     * Classifies a fetched page into a short, human-readable outcome label by composing the
+     * predicates above, for diagnostic tests to print. Not used by the scraping pipeline
+     * itself, which checks each predicate individually where the distinction actually changes
+     * behavior. Shared so every diagnostic test describes outcomes the same way regardless of
+     * which fetch path (direct Selenium, or a sidecar like the Python bridge) produced the
+     * Document.
+     */
+    static String describeClassification(Document doc) { // package-private for tests
+        if (isBlockedByCloudflare(doc)) {
+            return "BLOCKED (Cloudflare \"Attention Required\")";
+        }
+        if (isChallengePage(doc)) {
+            return "CHALLENGE PAGE (Cloudflare's resolvable challenge, never settled)";
+        }
+        if (isEmptyResultsPage(doc)) {
+            return "OK \u2014 empty results page";
+        }
+        if (doc.text().contains(TOO_MANY_RESULTS_MARKER)) {
+            return "OK \u2014 \"300+ results\" banner shown";
+        }
+        if (pageHasOfferRows(doc)) {
+            return "OK \u2014 real offer rows found";
+        }
+        String bodyText = doc.body() != null ? doc.body().text() : "";
+        return "UNRECOGNIZED \u2014 title=\"" + doc.title() + "\", first 200 chars of body: "
+                + bodyText.substring(0, Math.min(200, bodyText.length()));
     }
 
     /**
