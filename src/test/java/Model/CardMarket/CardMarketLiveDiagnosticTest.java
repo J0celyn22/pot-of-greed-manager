@@ -8,6 +8,7 @@ import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebDriverException;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -142,6 +143,79 @@ public class CardMarketLiveDiagnosticTest {
                     + "anything else, including the literal string \"true\", means our CDP patch "
                     + "for this isn't actually taking effect)");
             CardScraper.dumpChallengeDiagnostics(driver);
+        } finally {
+            driver.quit();
+        }
+    }
+
+    @Test
+    @Disabled("Manual, interactive live test — run by itself, then switch to the opened Chrome "
+            + "window and navigate it yourself (click a card, click through pages, whatever a "
+            + "real visitor would do). Logs every URL change and page classification it observes "
+            + "for up to 10 minutes, so we can see whether manual, link-driven navigation (real "
+            + "Referer headers, real click events) avoids the block that CardScraper.fetchPage's "
+            + "direct driver.get(url) calls hit on page 2 within one session. Uses production "
+            + "driver settings — headed, on-screen (you need to see and click it), stealth patch "
+            + "applied.")
+    public void manualNavigationRecorder_currentSettings() {
+        runManualNavigationRecorder(CardScraper.createDriver(false, false), false);
+    }
+
+    @Test
+    @Disabled("Same as manualNavigationRecorder_currentSettings, but with the navigator.webdriver "
+            + "stealth patch turned OFF entirely — a control variant, to see whether manual "
+            + "navigation behaves any differently with it removed. Run one recorder variant at a "
+            + "time, by itself; comparing them means running each in its own separate session.")
+    public void manualNavigationRecorder_noStealthPatch() {
+        runManualNavigationRecorder(CardScraper.createDriver(false, false, false), false);
+    }
+
+    @Test
+    @Disabled("Same as manualNavigationRecorder_currentSettings, but warms the fresh profile up "
+            + "first: visits the general category page and attempts to dismiss the cookie-consent "
+            + "banner, before opening the real filtered start URL. Testing the hypothesis that a "
+            + "profile whose first-ever request is a deep filtered URL, with no consent cookie and "
+            + "no Cloudflare visitor cookie ever established, doesn't look like a real first-time "
+            + "visitor — see CardScraper.warmUpFreshProfile's comment for the reasoning.")
+    public void manualNavigationRecorder_withWarmUp() {
+        runManualNavigationRecorder(CardScraper.createDriver(false, false), true);
+    }
+
+    private void runManualNavigationRecorder(WebDriver driver, boolean warmUp) {
+        try {
+            if (warmUp) {
+                System.out.println("Warming up the fresh profile first (category page + attempting "
+                        + "to dismiss the cookie banner)...");
+                CardScraper.warmUpFreshProfile(driver);
+            }
+            String startUrl = BASE_URL + "&idExpansion=" + SAMPLE_EXPANSION_IDS[0];
+            System.out.println("Opened: " + startUrl);
+            System.out.println("Switch to the Chrome window now and navigate by hand — click a "
+                    + "card, go to another page, whatever you'd normally do. Every URL change and "
+                    + "page outcome gets logged below for up to 10 minutes, or until you stop this "
+                    + "test from the IDE.");
+            driver.get(startUrl);
+
+            String lastUrl = null;
+            String lastOutcome = null;
+            long deadline = System.currentTimeMillis() + Duration.ofMinutes(10).toMillis();
+            while (System.currentTimeMillis() < deadline) {
+                String currentUrl = driver.getCurrentUrl();
+                String outcome = describe(Jsoup.parse(driver.getPageSource(), currentUrl));
+                if (!java.util.Objects.equals(currentUrl, lastUrl) || !java.util.Objects.equals(outcome, lastOutcome)) {
+                    System.out.println("[" + java.time.LocalTime.now().withNano(0) + "] " + currentUrl
+                            + "\n    \u2014 " + outcome);
+                    lastUrl = currentUrl;
+                    lastOutcome = outcome;
+                }
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException interruptedException) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            System.out.println("Recorder timed out after 10 minutes with no further changes.");
         } finally {
             driver.quit();
         }

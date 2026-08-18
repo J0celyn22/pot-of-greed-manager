@@ -369,6 +369,16 @@ public class CardScraper {
      * CardMarket couldn't otherwise see.
      */
     static WebDriver createDriver(boolean headless, boolean keepOffScreen) { // package-private for the live diagnostic test
+        return createDriver(headless, keepOffScreen, true);
+    }
+
+    /**
+     * Same as {@link #createDriver(boolean, boolean)}, with the {@code navigator.webdriver}
+     * stealth patch made optional — only so the live diagnostic test can build a
+     * patch-disabled control variant to compare against. Production code should keep using
+     * the 2-arg overload, which always applies the patch.
+     */
+    static WebDriver createDriver(boolean headless, boolean keepOffScreen, boolean applyStealthPatch) { // package-private for the live diagnostic test
         ChromeOptions options = new ChromeOptions();
         if (headless) {
             options.addArguments("--headless=new");
@@ -400,6 +410,14 @@ public class CardScraper {
         // than an honest, if unusually recent, version number would be.
         options.setExperimentalOption("excludeSwitches", List.of("enable-automation"));
         options.setExperimentalOption("useAutomationExtension", false);
+        // A curl comparison of the same request from a real browser vs. this driver showed the
+        // real one sending 9 Accept-Language entries (personal language settings built up over
+        // time) against this driver's default 4 — a fresh profile's Accept-Language falls back
+        // to whatever the OS locale implies, not a real person's actual configured list.
+        // intl.accept_languages is the profile preference Chrome actually derives the
+        // Accept-Language header from.
+        options.setExperimentalOption("prefs", Map.of(
+                "intl.accept_languages", "fr-FR,fr,en-US,en,es,de,de-DE,ja"));
 
         WebDriver driver = new ChromeDriver(options);
         try {
@@ -407,7 +425,9 @@ public class CardScraper {
         } catch (Exception exception) {
             logger.debug("Could not set page load timeout (non-fatal): {}", exception.getMessage());
         }
-        applyStealthPatchToEveryDocument(driver);
+        if (applyStealthPatch) {
+            applyStealthPatchToEveryDocument(driver);
+        }
         return driver;
     }
 
@@ -423,6 +443,17 @@ public class CardScraper {
      * back to {@code true}, which is a plausible reason the challenge kept reappearing even
      * after clicking it. {@code Page.addScriptToEvaluateOnNewDocument} runs the patch before
      * any page script on every document loaded in this session, reload included.
+     * <p>
+     * Patches {@code Navigator.prototype}, not {@code navigator} directly, and returns
+     * {@code false} rather than {@code undefined} — confirmed via a live check against
+     * bot.sannysoft.com that an earlier version of this patch (own-property on {@code
+     * navigator}, returning {@code undefined}) still left its stricter "WebDriver (New)" check
+     * flagged as "present (failed)", even though a plain {@code navigator.webdriver} read came
+     * back {@code null}. A real, non-automated Chrome reports the property as the boolean
+     * {@code false}, defined on {@code Navigator.prototype}, not as an own property on the
+     * instance — {@code undefined}, and {@code navigator.hasOwnProperty('webdriver')} being
+     * {@code true}, are each themselves anomalies a stricter check can catch even when the
+     * simple falsy-value check passes.
      */
     private static void applyStealthPatchToEveryDocument(WebDriver driver) {
         if (!(driver instanceof ChromeDriver chromeDriver)) {
@@ -431,7 +462,8 @@ public class CardScraper {
         try {
             Map<String, Object> parameters = new HashMap<>();
             parameters.put("source",
-                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});");
+                    "Object.defineProperty(Navigator.prototype, 'webdriver', "
+                            + "{get: () => false, configurable: true, enumerable: true});");
             chromeDriver.executeCdpCommand("Page.addScriptToEvaluateOnNewDocument", parameters);
         } catch (Exception exception) {
             logger.debug("Could not register the navigator.webdriver override via CDP (non-fatal): {}",
@@ -662,6 +694,46 @@ public class CardScraper {
         } catch (Exception exception) {
             logger.debug("Could not bring the manual-solve browser window into view (non-fatal): {}",
                     exception.getMessage());
+        }
+    }
+
+    /**
+     * Best-effort warm-up for a fresh profile: visits CardMarket's general category page — not
+     * the deep, filtered offers URL {@link #fetchPage} actually wants — and dismisses the
+     * cookie-consent banner. A curl comparison of a real browser's request against this
+     * driver's showed the real one carrying a {@code cookie_settings} cookie (CardMarket's own
+     * consent-banner-dismissed marker) and a {@code _cfuvid} cookie (Cloudflare's per-visitor
+     * rate-limiting cookie, meant to distinguish individual visitors sharing an IP) — neither
+     * of which our fresh profile had. A profile whose very first-ever request is a deep
+     * filtered URL, with no consent banner ever dismissed and no visitor cookie ever
+     * established, doesn't resemble how a real first-time visitor's browser actually arrives at
+     * that page. This is a hypothesis being tested, not a confirmed fix.
+     * <p>
+     * Clicks "Only Required Cookies", not "Accept All" — the real profile's own
+     * {@code cookie_settings} cookie value ({@code preferences=0,statistics=0,marketing=0})
+     * shows that's what was actually chosen there, and accepting all would consent to
+     * marketing/analytics tracking that choice explicitly declined.
+     */
+    static void warmUpFreshProfile(WebDriver driver) { // package-private for the live diagnostic test
+        try {
+            driver.get("https://www.cardmarket.com/en/YuGiOh");
+            waitForPageToSettle(driver);
+        } catch (Exception exception) {
+            logger.debug("Warm-up navigation to the category page failed (non-fatal): {}", exception.getMessage());
+            return;
+        }
+        try {
+            WebElement button = driver.findElement(By.cssSelector("button[data-testid='AcceptRequiredCookies']"));
+            button.click();
+            logger.debug("Clicked \"Only Required Cookies\" on the consent banner.");
+            try {
+                Thread.sleep(800); // the banner submits via AJAX, not a page reload — give it a moment
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+            }
+        } catch (Exception exception) {
+            logger.debug("Could not find/click the \"Only Required Cookies\" button (non-fatal) — "
+                    + "banner markup may have changed: {}", exception.getMessage());
         }
     }
 
