@@ -17,7 +17,10 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Bridges to {@code python/cardmarket_bridge.py}, a SeleniumBase UC Mode sidecar, over a
- * line-delimited JSON protocol on the child process's stdin/stdout. Exists because
+ * line-delimited JSON protocol on the child process's stdin/stdout: {@code "fetch"} (navigate
+ * and settle), {@code "check"} (re-poll the already-loaded page without navigating — see
+ * {@link #checkCurrentPage()}), and {@code "restart_session"} (fresh browser, same process —
+ * see {@link #restartSession()}), alongside {@code "shutdown"}. Exists because
  * {@link CardScraper}'s own Selenium+ChromeDriver setup was traced (see the project's history)
  * to a block happening after the first request on a CDP-attached session, at a layer plain
  * Selenium's Java API doesn't expose a way to change — UC Mode addresses that specific layer,
@@ -131,6 +134,66 @@ public class PythonCardMarketBridge implements AutoCloseable {
         }
         throw new PythonBridgeException("Python bridge reported an error for " + url + ": "
                 + response.optString("message", "(no message)"));
+    }
+
+    /**
+     * Re-reads whatever page is already loaded in the bridge's browser, polling for it to
+     * settle — without navigating anywhere first. Sends the sidecar's {@code "check"} action.
+     * <p>
+     * This exists specifically for {@link CardScraper}'s manual-fallback Retry: after a person
+     * solves Cloudflare's checkbox by hand in the bridge's visible window, the page they just
+     * solved is already sitting there loaded. Calling {@link #fetchPage(String)} again for
+     * Retry would re-navigate to the same URL from scratch — throwing away whatever the person
+     * just solved and asking Cloudflare fresh, which is both pointless and was, in practice,
+     * visibly restarting the browser mid-solve. This method reads the current state instead,
+     * the same way the direct-Selenium path's own Retry
+     * ({@code CardScraper.waitForRecognizedContentOnly}) just re-polls its already-open driver
+     * without a fresh {@code driver.get(url)}.
+     *
+     * @throws PythonBridgeException same failure modes as {@link #fetchPage(String)}
+     */
+    public Document checkCurrentPage() throws PythonBridgeException {
+        JSONObject request = new JSONObject();
+        request.put("action", "check");
+
+        JSONObject response = sendRequestAndAwaitResponse(request);
+        String status = response.optString("status", "");
+        String html = response.optString("html", "");
+        String finalUrl = response.optString("url", "");
+
+        if ("ok".equals(status) || "blocked".equals(status)) {
+            return Jsoup.parse(html, finalUrl);
+        }
+        throw new PythonBridgeException("Python bridge reported an error while checking the current page: "
+                + response.optString("message", "(no message)"));
+    }
+
+    /**
+     * Closes the bridge's current browser session and opens a brand new one in its place,
+     * without restarting the sidecar process itself — sends the sidecar's
+     * {@code "restart_session"} action and waits for its acknowledgement. Every fetch after
+     * this call behaves like the very first fetch of a fresh run (a brand-new profile, no
+     * carried-over Cloudflare flags from whatever got the old session hard-blocked).
+     * <p>
+     * Meant for {@link CardScraper}'s manual-fallback handling specifically when Cloudflare's
+     * hard "Attention Required" block page turns up, not for its ordinary resolvable-challenge
+     * Retry path (that one should use {@link #checkCurrentPage()} instead, to avoid discarding
+     * a person's just-solved checkbox for no reason) — restarting the session is comparatively
+     * expensive (full Chrome relaunch) and only worth paying when the old session is the
+     * problem, not when it's mid-solve.
+     *
+     * @throws PythonBridgeException same failure modes as {@link #fetchPage(String)}
+     */
+    public void restartSession() throws PythonBridgeException {
+        JSONObject request = new JSONObject();
+        request.put("action", "restart_session");
+
+        JSONObject response = sendRequestAndAwaitResponse(request);
+        String status = response.optString("status", "");
+        if (!"ok".equals(status)) {
+            throw new PythonBridgeException("Python bridge reported an error while restarting its session: "
+                    + response.optString("message", "(no message)"));
+        }
     }
 
     private JSONObject sendRequestAndAwaitResponse(JSONObject request) throws PythonBridgeException {

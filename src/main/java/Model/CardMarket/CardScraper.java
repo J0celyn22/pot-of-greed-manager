@@ -28,6 +28,8 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static Model.FilePaths.outputPath;
 
@@ -44,8 +46,23 @@ import static Model.FilePaths.outputPath;
  * see {@link #extractExpansionMap(Document)}) and paginating each one individually, since
  * a single expansion is very unlikely to also exceed 300 offers.
  * <p>
- * Either way, "is there a next page" is answered the simplest possible way: fetch the next
- * page and check whether CardMarket's own empty-state text is present.
+ * A single expansion CAN still exceed 300 offers though — confirmed live (a seller's own
+ * unfiltered "2019 Gold Sarcophagus Tin Mega Pack" listing alone showed the same "300+
+ * results" banner and an open-ended "Page 1 of 15+" pagination label). When one expansion is
+ * itself still 300+, {@link #scrapeByExpansion} narrows further by rarity (the seller's own
+ * {@code idRarity} filter, read the same way as expansions — see
+ * {@link #extractRarityMap(Document)}), one rarity value at a time, since rarity × expansion
+ * is very unlikely to also exceed 300. If some rarity slice is somehow STILL 300+ (no further
+ * filter dimension left to add), that slice is logged to the console and summarized with a
+ * single link to its own first page in the output file, rather than iterating potentially
+ * dozens of pages for it.
+ * <p>
+ * Either way, "is there a next page" is answered from CardMarket's own "Page X of Y" label
+ * (see {@link #extractTotalPageCount}) when it's present — stopping right after the last real
+ * page instead of always fetching one page past the end just to confirm it's empty. Falls back
+ * to fetch-and-check-if-empty when that label isn't found. That label can also be the
+ * open-ended "Page X of Y+" form on a still-300+ page, which {@link #extractTotalPageCount}
+ * deliberately refuses to treat as an exact count (Y is a floor, not the true last page).
  * <p>
  * Pages are fetched with a real, Selenium-driven Chrome browser rather than a plain HTTP
  * client — CardMarket's seller-offers pages return HTTP 403 to a bare Jsoup request (even
@@ -139,7 +156,7 @@ public class CardScraper {
      * {@code Integer.MAX_VALUE} for normal use (no limit); set to a small number like 5 or
      * 10 to test a short, deliberately bounded run first.
      */
-    private static final int MAX_EXPANSIONS_PER_RUN = 5/*Integer.MAX_VALUE*/;
+    private static final int MAX_EXPANSIONS_PER_RUN = Integer.MAX_VALUE;
 
     /**
      * Switches page fetching from a fresh direct-Selenium session per page (see
@@ -278,108 +295,25 @@ public class CardScraper {
     }
 
     // ── Scraping strategies ────────────────────────────────────────────────────────────
-
-    /**
-     * Simple case: the base (unfiltered) query already sorts/paginates cleanly. Just page
-     * through it with {@code &site=N} until a page comes back empty.
-     */
-    private static List<Entry> scrapeSimplePagination(
-            String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList,
-            double maxPrice, Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer,
-            PythonCardMarketBridge bridge) {
-
-        List<Entry> collected = new ArrayList<>();
-        Document pageDocument = firstPageDocument;
-        int pageNumber = 1;
-
-        while (true) {
-            if (isEmptyResultsPage(pageDocument)) {
-                break;
-            }
-            if (!pageHasOfferRows(pageDocument)) {
-                dumpUnexpectedPage(writer, seller, "page " + pageNumber, pageDocument);
-                break;
-            }
-            String currentPageUrl = pageNumber == 1 ? baseUrl : baseUrl + "&site=" + pageNumber;
-            List<Entry> pageEntries = parseOfferRows(pageDocument, maOuicheList, maxPrice, ouicheCountMap,
-                    currentPageUrl);
-            collected.addAll(pageEntries);
-
-            pageNumber++;
-            String pageUrl = baseUrl + "&site=" + pageNumber;
-            politeDelay();
-            try {
-                pageDocument = fetchPage(pageUrl, bridge);
-            } catch (WebDriverException webDriverException) {
-                logFetchFailure(writer, seller, "page " + pageNumber, webDriverException);
-                break;
-            }
-        }
-
-        return collected;
-    }
-
-    /**
-     * Fallback for sellers with 300+ unfiltered results: read the seller's own expansion
-     * list (with counts) straight out of the page we already fetched, then loop each
-     * expansion individually, paginating each with {@code &site=N} until it comes back empty.
-     */
-    private static List<Entry> scrapeByExpansion(
-            String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList,
-            double maxPrice, Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer,
-            PythonCardMarketBridge bridge) {
-
-        List<Entry> collected = new ArrayList<>();
-        Map<String, String> expansionMap = extractExpansionMap(firstPageDocument);
-        logger.debug("Found {} expansions to check for {}.", expansionMap.size(), seller.getDisplayName());
-        if (expansionMap.size() > MAX_EXPANSIONS_PER_RUN) {
-            logger.warn("MAX_EXPANSIONS_PER_RUN is set to {}, well below the {} expansions found for {} — "
-                            + "only checking the first {} this run.",
-                    MAX_EXPANSIONS_PER_RUN, expansionMap.size(), seller.getDisplayName(), MAX_EXPANSIONS_PER_RUN);
-        }
-
-        int expansionsProcessed = 0;
-        for (Map.Entry<String, String> expansionEntry : expansionMap.entrySet()) {
-            if (expansionsProcessed >= MAX_EXPANSIONS_PER_RUN) {
-                break;
-            }
-            expansionsProcessed++;
-            String expansionLabel = stripTrailingCount(expansionEntry.getKey());
-            String expansionId = expansionEntry.getValue();
-            logger.debug("Scraping expansion: {} (id={})", expansionLabel, expansionId);
-
-            int pageNumber = 1;
-            while (true) {
-                String pageUrl = baseUrl + "&idExpansion=" + expansionId
-                        + (pageNumber > 1 ? "&site=" + pageNumber : "");
-
-                politeDelay();
-                Document pageDocument;
-                try {
-                    pageDocument = fetchPage(pageUrl, bridge);
-                } catch (WebDriverException webDriverException) {
-                    logFetchFailure(writer, seller, "expansion " + expansionLabel + " page " + pageNumber,
-                            webDriverException);
-                    break;
-                }
-
-                if (isEmptyResultsPage(pageDocument)) {
-                    break;
-                }
-                if (!pageHasOfferRows(pageDocument)) {
-                    dumpUnexpectedPage(writer, seller, "expansion " + expansionLabel + " page " + pageNumber,
-                            pageDocument);
-                    break;
-                }
-                List<Entry> pageEntries = parseOfferRows(pageDocument, maOuicheList, maxPrice, ouicheCountMap,
-                        pageUrl);
-                collected.addAll(pageEntries);
-                pageNumber++;
-            }
-        }
-
-        return collected;
-    }
+    private static final String CHALLENGE_PROMPT_TITLE = "Cloudflare needs manual verification";
+    private static final String CHALLENGE_PROMPT_HEADER =
+            "A visible browser window has opened for CardMarket's Cloudflare page.";
+    private static final String CHALLENGE_PROMPT_CONTENT =
+            "If a checkbox or wait screen appears, solve it or let it clear, then click Retry. "
+                    + "If it's Cloudflare's hard block page instead (no checkbox, \"Attention "
+                    + "Required\"), Retry likely won't help until it clears on its own or from a "
+                    + "different network — look at the window to tell which case this is. "
+                    + "Click Stop to cancel this scrape.";
+    private static final String HARD_BLOCK_PROMPT_TITLE = "Cloudflare blocked this session";
+    private static final String HARD_BLOCK_PROMPT_HEADER =
+            "CardMarket's Cloudflare showed the hard \"Attention Required\" block page — "
+                    + "nothing to solve in this session.";
+    private static final String HARD_BLOCK_PROMPT_CONTENT =
+            "Click Retry to close this browser session and start a fresh one, then try this page "
+                    + "again — this discards the current session's cookies/profile and takes a moment "
+                    + "to relaunch Chrome. If the block is tied to this network/IP rather than the "
+                    + "session, a fresh session may hit the same block again. "
+                    + "Click Stop to cancel this scrape.";
 
     // ── Page fetching & parsing ─────────────────────────────────────────────────────────
     /**
@@ -585,16 +519,185 @@ public class CardScraper {
             throw new WebDriverException(pythonBridgeException.getMessage(), pythonBridgeException);
         }
     }
+    /**
+     * Regex for CardMarket's own "Page X of Y" pagination label — e.g. "Page 1 of 2" — used
+     * by {@link #extractTotalPageCount} to read how many pages a filtered result set actually
+     * has. Matched against {@link Document#text()} rather than a specific CSS selector: the
+     * exact markup around this label hasn't been confirmed against a live page (CardMarket's
+     * Cloudflare protection blocks a plain fetch even for inspection purposes), while the text
+     * itself is what was actually confirmed live. A text-pattern match is also more resilient
+     * to markup/class changes than a specific selector would be.
+     * <p>
+     * {@code Y} is intentionally unbounded digits, not capped — CardMarket could show
+     * three-or-more-digit page counts for a very large unfiltered result set.
+     * <p>
+     * The trailing {@code (\+)?} captures an optional literal {@code "+"} right after the
+     * digits — confirmed live on a 300+-results page, which showed "Page 1 of 15+", not a
+     * plain "Page 1 of 15". That "+" means "at least 15, true count unknown" (matches this
+     * seller's own "300+" hit count shown elsewhere on the same page), not "exactly 15". A
+     * naive {@code \d+} capture still matches and returns 15 from "15+", which is wrong in a
+     * way that actively loses data rather than just missing an optimization: stopping after
+     * page 15 would silently drop every offer on pages 16 and beyond, for a result set that
+     * can run into the hundreds of pages. {@link #extractTotalPageCount} checks this capture
+     * group and refuses to return a count at all when it's present, falling back to
+     * fetch-until-empty for exactly this case, the same as when the label is missing entirely.
+     */
+    private static final Pattern PAGE_COUNT_PATTERN = Pattern.compile("Page\\s+\\d+\\s+of\\s+(\\d+)(\\+)?");
 
     /**
-     * The bridge-path counterpart of the manual-fallback branch inside {@link #fetchPage(String)}
-     * itself: same "is this actually still stuck" check ({@link #needsManualFallback}), same
-     * decision to hand off to a manual-resolve method when it is.
+     * Simple case: the base (unfiltered) query already sorts/paginates cleanly. Pages through
+     * it with {@code &site=N}, stopping once CardMarket's own "Page X of Y" label (read from
+     * the first page, see {@link #extractTotalPageCount}) says there's nothing left — rather
+     * than always fetching one page past the end just to confirm it's empty. If that label
+     * isn't found (unrecognized markup), falls back to fetching until a page comes back empty,
+     * same as before this optimization existed.
      */
-    private static Document fetchPageViaBridge(PythonCardMarketBridge bridge, String url)
-            throws PythonCardMarketBridge.PythonBridgeException {
-        Document document = bridge.fetchPage(url);
-        return needsManualFallback(document) ? resolveBridgeManualFallback(bridge, url) : document;
+    private static List<Entry> scrapeSimplePagination(
+            String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList,
+            double maxPrice, Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer,
+            PythonCardMarketBridge bridge) {
+
+        List<Entry> collected = new ArrayList<>();
+        Document pageDocument = firstPageDocument;
+        int pageNumber = 1;
+        Optional<Integer> totalPages = extractTotalPageCount(firstPageDocument);
+
+        while (true) {
+            if (isEmptyResultsPage(pageDocument)) {
+                break;
+            }
+            if (!pageHasOfferRows(pageDocument)) {
+                dumpUnexpectedPage(writer, seller, "page " + pageNumber, pageDocument);
+                break;
+            }
+            String currentPageUrl = pageNumber == 1 ? baseUrl : baseUrl + "&site=" + pageNumber;
+            List<Entry> pageEntries = parseOfferRows(pageDocument, maOuicheList, maxPrice, ouicheCountMap,
+                    currentPageUrl);
+            collected.addAll(pageEntries);
+
+            if (totalPages.isPresent() && pageNumber >= totalPages.get()) {
+                break; // Just parsed the last page per CardMarket's own count — no next-page fetch needed.
+            }
+
+            pageNumber++;
+            String pageUrl = baseUrl + "&site=" + pageNumber;
+            politeDelay();
+            try {
+                pageDocument = fetchPage(pageUrl, bridge);
+            } catch (WebDriverException webDriverException) {
+                logFetchFailure(writer, seller, "page " + pageNumber, webDriverException);
+                break;
+            }
+        }
+
+        return collected;
+    }
+
+    /**
+     * Fallback for sellers with 300+ unfiltered results: read the seller's own expansion
+     * list (with counts) straight out of the page we already fetched, then loop each
+     * expansion individually, stopping each one as soon as CardMarket's own "Page X of Y"
+     * label says there's nothing left, the same way {@link #scrapeSimplePagination} does — see
+     * {@link #extractTotalPageCount} for why and its fallback when that label isn't found.
+     * <p>
+     * A single expansion can itself still be 300+ results (confirmed live — see this class's
+     * own doc comment). When that happens for a given expansion, this method narrows further
+     * by rarity via {@link #scrapeExpansionByRarity}, one rarity value at a time, instead of
+     * paginating that expansion's raw (still-300+, unsorted) result set directly.
+     */
+    private static List<Entry> scrapeByExpansion(
+            String baseUrl, Document firstPageDocument, List<CardElement> maOuicheList,
+            double maxPrice, Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer,
+            PythonCardMarketBridge bridge) {
+
+        List<Entry> collected = new ArrayList<>();
+        Map<String, String> expansionMap = extractExpansionMap(firstPageDocument);
+        logger.debug("Found {} expansions to check for {}.", expansionMap.size(), seller.getDisplayName());
+        if (expansionMap.size() > MAX_EXPANSIONS_PER_RUN) {
+            logger.warn("MAX_EXPANSIONS_PER_RUN is set to {}, well below the {} expansions found for {} — "
+                            + "only checking the first {} this run.",
+                    MAX_EXPANSIONS_PER_RUN, expansionMap.size(), seller.getDisplayName(), MAX_EXPANSIONS_PER_RUN);
+        }
+
+        int expansionsProcessed = 0;
+        for (Map.Entry<String, String> expansionEntry : expansionMap.entrySet()) {
+            if (expansionsProcessed >= MAX_EXPANSIONS_PER_RUN) {
+                break;
+            }
+            expansionsProcessed++;
+            String expansionLabel = stripTrailingCount(expansionEntry.getKey());
+            String expansionId = expansionEntry.getValue();
+            logger.debug("Scraping expansion: {} (id={})", expansionLabel, expansionId);
+
+            String expansionUrl = baseUrl + "&idExpansion=" + expansionId;
+            PaginatedScrapeResult expansionResult = scrapePaginated(
+                    expansionUrl, maOuicheList, maxPrice, ouicheCountMap, seller, writer, bridge,
+                    "expansion " + expansionLabel);
+            collected.addAll(expansionResult.entries);
+
+            if (expansionResult.stillTooManyResults) {
+                collected.addAll(scrapeExpansionByRarity(
+                        expansionUrl, firstPageDocument, expansionLabel, maOuicheList, maxPrice, ouicheCountMap,
+                        seller, writer, bridge));
+            }
+        }
+
+        return collected;
+    }
+
+    /**
+     * Narrows a single expansion that's itself still 300+ results (see {@link #scrapeByExpansion}'s
+     * own doc comment for when this is reached) by looping over the seller's rarity filter
+     * ({@link #extractRarityMap}) on top of the expansion filter already applied, one rarity
+     * value at a time — {@code &idExpansion=X&idRarity=Y}. Rarity × expansion is very unlikely
+     * to also exceed 300 offers, the same assumption {@link #scrapeByExpansion} itself makes
+     * about expansion alone relative to a seller's whole unfiltered catalog.
+     * <p>
+     * {@code firstPageDocument} is the seller's original unfiltered (or not-yet-rarity-filtered)
+     * page — the same one {@link #extractExpansionMap} already read expansions from — since the
+     * rarity filter's own option list ({@code options.rarityOptions}) lives in that same JSON
+     * blob and doesn't need a fresh fetch to read.
+     * <p>
+     * If some rarity slice is somehow STILL 300+ even narrowed by both expansion and rarity —
+     * no further filter dimension is applied here — that slice is not paginated at all. Instead:
+     * a warning is logged to the console, and {@link #writeUnresolvedOverflowSummaryLine} adds
+     * one line to the output file naming the slice and linking only its first page, rather than
+     * silently iterating a potentially large number of pages for a sliver of the catalog this
+     * scraper has no further way to narrow automatically.
+     */
+    private static List<Entry> scrapeExpansionByRarity(
+            String expansionUrl, Document firstPageDocument, String expansionLabel,
+            List<CardElement> maOuicheList, double maxPrice, Map<String, Integer> ouicheCountMap,
+            CardMarketSeller seller, BufferedWriter writer, PythonCardMarketBridge bridge) {
+
+        List<Entry> collected = new ArrayList<>();
+        Map<String, String> rarityMap = extractRarityMap(firstPageDocument);
+        logger.info("Expansion \"{}\" for {} is still 300+ results on its own; narrowing further by "
+                        + "rarity ({} rarity values to check).",
+                expansionLabel, seller.getDisplayName(), rarityMap.size());
+
+        for (Map.Entry<String, String> rarityEntry : rarityMap.entrySet()) {
+            String rarityLabel = rarityEntry.getKey();
+            String rarityId = rarityEntry.getValue();
+            String expansionAndRarityUrl = expansionUrl + "&idRarity=" + rarityId;
+            String sliceDescription = "expansion " + expansionLabel + ", rarity " + rarityLabel;
+            logger.debug("Scraping {} (idRarity={})", sliceDescription, rarityId);
+
+            PaginatedScrapeResult rarityResult = scrapePaginated(
+                    expansionAndRarityUrl, maOuicheList, maxPrice, ouicheCountMap, seller, writer, bridge,
+                    sliceDescription);
+            collected.addAll(rarityResult.entries);
+
+            if (rarityResult.stillTooManyResults) {
+                logger.warn("{} is STILL 300+ results even narrowed by rarity \u2014 no further filter "
+                                + "available. Only its first page is linked in the output file; this "
+                                + "slice was not fully paginated.",
+                        sliceDescription);
+                writeUnresolvedOverflowSummaryLine(writer, sliceDescription, expansionAndRarityUrl);
+            }
+        }
+
+        return collected;
     }
 
     /**
@@ -613,38 +716,6 @@ public class CardScraper {
     private static boolean needsManualFallback(Document doc) {
         boolean stillOnChallengePage = !hasRecognizedContent(doc.outerHtml()) && isChallengePage(doc);
         return stillOnChallengePage || isBlockedByCloudflare(doc);
-    }
-
-    /**
-     * The bridge-path counterpart of {@link #resolveWithManualFallback}. No equivalent of that
-     * method's first step (making an already-open window visible) is needed here: the sidecar's
-     * browser is visible for the entire run, not just when something needs solving — see
-     * {@code cardmarket_bridge.py}'s own module docstring. Reuses the same Retry/Stop prompt
-     * ({@link #promptManualChallengeChoice}) unchanged, since it takes no {@link WebDriver} and
-     * doesn't care which fetch path is asking.
-     * <p>
-     * Unlike the direct path's Retry, which just re-polls the same already-loaded page for
-     * content to appear, a bridge Retry sends a fresh {@code "fetch"} request through the
-     * sidecar — UC Mode's own disconnect/reconnect navigation runs again. That's the only lever
-     * the stdin/stdout protocol offers as it stands (no "just re-read the current page" action
-     * exists), and matches what solving the challenge in the visible window should actually
-     * produce: the same URL, re-requested, now showing real content instead of the challenge.
-     */
-    private static Document resolveBridgeManualFallback(PythonCardMarketBridge bridge, String url)
-            throws PythonCardMarketBridge.PythonBridgeException {
-        while (true) {
-            if (promptManualChallengeChoice() == ManualChallengeChoice.STOP) {
-                throw new ManualChallengeStoppedException(
-                        "Scraping stopped: Cloudflare needed manual verification and the user "
-                                + "chose to stop instead of retrying.");
-            }
-            Document retriedDocument = bridge.fetchPage(url);
-            if (!needsManualFallback(retriedDocument)) {
-                logger.debug("Recognized content appeared after manual solving; continuing the scrape.");
-                return retriedDocument;
-            }
-            logger.debug("Still on Cloudflare's challenge page after Retry; asking again.");
-        }
     }
 
     /**
@@ -861,26 +932,251 @@ public class CardScraper {
     }
 
     /**
+     * Fetches {@code filterUrl}'s first page, and if it's still showing CardMarket's "300+
+     * results" banner, stops right there and reports {@code stillTooManyResults = true} without
+     * fetching any further pages — pagination past page 1 only makes sense once a caller has
+     * applied enough filters to bring a result set under 300 and CardMarket actually sorts and
+     * paginates it normally; paginating a still-unsorted 300+ set would mean fetching a
+     * potentially huge, arbitrarily-ordered number of pages for the same slice a caller is
+     * about to re-fetch anyway under a narrower filter.
+     * <p>
+     * Otherwise, pages through {@code filterUrl} with {@code &site=N}, stopping once CardMarket's
+     * own "Page X of Y" label (read from the first page, see {@link #extractTotalPageCount})
+     * says there's nothing left, falling back to fetch-until-empty when that label isn't found —
+     * the same pagination behavior {@link #scrapeSimplePagination} implements for the site-wide
+     * unfiltered case, extracted here so {@link #scrapeByExpansion} and
+     * {@link #scrapeExpansionByRarity} share one implementation instead of three copies of the
+     * same loop.
+     *
+     * @param descriptionForLogging short human-readable label for this slice (e.g. "expansion
+     *                              Foo" or "expansion Foo, rarity Bar"), used only in log/error
+     *                              messages so they identify which slice a failure came from.
+     */
+    private static PaginatedScrapeResult scrapePaginated(
+            String filterUrl, List<CardElement> maOuicheList, double maxPrice,
+            Map<String, Integer> ouicheCountMap, CardMarketSeller seller, BufferedWriter writer,
+            PythonCardMarketBridge bridge, String descriptionForLogging) {
+
+        List<Entry> collected = new ArrayList<>();
+        int pageNumber = 1;
+        Document pageDocument;
+
+        politeDelay();
+        try {
+            pageDocument = fetchPage(filterUrl, bridge);
+        } catch (WebDriverException webDriverException) {
+            logFetchFailure(writer, seller, descriptionForLogging + " page 1", webDriverException);
+            return new PaginatedScrapeResult(collected, false);
+        }
+
+        if (pageDocument.text().contains(TOO_MANY_RESULTS_MARKER)) {
+            return new PaginatedScrapeResult(collected, true);
+        }
+
+        Optional<Integer> totalPages = Optional.empty();
+        while (true) {
+            if (isEmptyResultsPage(pageDocument)) {
+                break;
+            }
+            if (!pageHasOfferRows(pageDocument)) {
+                dumpUnexpectedPage(writer, seller, descriptionForLogging + " page " + pageNumber, pageDocument);
+                break;
+            }
+            if (pageNumber == 1) {
+                totalPages = extractTotalPageCount(pageDocument);
+            }
+            String currentPageUrl = pageNumber == 1 ? filterUrl : filterUrl + "&site=" + pageNumber;
+            List<Entry> pageEntries = parseOfferRows(pageDocument, maOuicheList, maxPrice, ouicheCountMap,
+                    currentPageUrl);
+            collected.addAll(pageEntries);
+
+            if (totalPages.isPresent() && pageNumber >= totalPages.get()) {
+                break; // Just parsed the last page per CardMarket's own count — no next-page fetch needed.
+            }
+
+            pageNumber++;
+            String pageUrl = filterUrl + "&site=" + pageNumber;
+            politeDelay();
+            try {
+                pageDocument = fetchPage(pageUrl, bridge);
+            } catch (WebDriverException webDriverException) {
+                logFetchFailure(writer, seller, descriptionForLogging + " page " + pageNumber, webDriverException);
+                break;
+            }
+        }
+
+        return new PaginatedScrapeResult(collected, false);
+    }
+
+    /**
+     * Writes one line to the output file for a result slice this scraper couldn't fully
+     * enumerate (still 300+ results even after every available filter — see
+     * {@link #scrapeExpansionByRarity}), naming the slice and linking only its own first page
+     * rather than the dozens of individual card links a fully-paginated slice would otherwise
+     * get. IO failures here are logged and swallowed rather than propagated, matching how
+     * {@link #logFetchFailure} already treats output-file writes elsewhere in this class as
+     * best-effort: losing this one summary line isn't worth aborting an otherwise-successful
+     * scrape over.
+     */
+    private static void writeUnresolvedOverflowSummaryLine(
+            BufferedWriter writer, String sliceDescription, String firstPageUrl) {
+        try {
+            writer.write("STILL 300+ RESULTS (not fully scraped) \u2014 " + sliceDescription
+                    + " \u2014 first page: " + firstPageUrl + "\n");
+        } catch (IOException ignored) {
+            // Best-effort logging only; nothing more useful to do if the writer itself fails.
+        }
+    }
+
+    /**
+     * The bridge-path counterpart of the manual-fallback branch inside {@link #fetchPage(String)}
+     * itself: same "is this actually still stuck" check ({@link #needsManualFallback}), same
+     * decision to hand off to a manual-resolve method when it is.
+     */
+    private static Document fetchPageViaBridge(PythonCardMarketBridge bridge, String url)
+            throws PythonCardMarketBridge.PythonBridgeException {
+        Document document = bridge.fetchPage(url);
+        return needsManualFallback(document) ? resolveBridgeManualFallback(bridge, url, document) : document;
+    }
+
+    /**
+     * The bridge-path counterpart of {@link #resolveWithManualFallback}. No equivalent of that
+     * method's first step (making an already-open window visible) is needed here: the sidecar's
+     * browser is visible for the entire run, not just when something needs solving — see
+     * {@code cardmarket_bridge.py}'s own module docstring.
+     * <p>
+     * Branches on which of the two states {@code document} is actually in, since they call for
+     * different Retry behavior:
+     * <ul>
+     *   <li>A resolvable challenge (checkbox / wait screen) goes through
+     *       {@link #resolveBridgeChallengeRetry}, whose Retry just re-reads the same already-open
+     *       page — solving the checkbox in the visible window is exactly what should make that
+     *       re-read see real content next.</li>
+     *   <li>Cloudflare's hard "Attention Required" block goes through
+     *       {@link #resolveBridgeHardBlockRetry}, whose Retry restarts the whole browser session
+     *       first — a hard block has nothing to click or wait out in the same session, so
+     *       re-reading (or even re-navigating) it again would just see the same block. See that
+     *       method for why a full session restart, not just a fresh URL, is what Retry does here.</li>
+     * </ul>
+     * A page can be stuck on the resolvable challenge for so long that the sidecar's own settle
+     * deadline (25s) runs out and it reports {@code "status": "blocked"} without the page ever
+     * actually reaching Cloudflare's hard-block title. That case is still routed to
+     * {@link #resolveBridgeChallengeRetry}, not here — {@link #isBlockedByCloudflare} checks the
+     * page's own title, not the sidecar's status string, so a timed-out-but-still-just-a-challenge
+     * page correctly falls through to the challenge Retry path (re-poll, no session restart)
+     * rather than being treated as a hard block it never actually reached.
+     */
+    private static Document resolveBridgeManualFallback(
+            PythonCardMarketBridge bridge, String url, Document document)
+            throws PythonCardMarketBridge.PythonBridgeException {
+        return isBlockedByCloudflare(document)
+                ? resolveBridgeHardBlockRetry(bridge, url)
+                : resolveBridgeChallengeRetry(bridge, url);
+    }
+
+    /**
+     * Retry behavior for Cloudflare's ordinary resolvable challenge (checkbox / wait screen)
+     * on the bridge path: re-reads whatever is already loaded in the sidecar's browser via
+     * {@link PythonCardMarketBridge#checkCurrentPage()}, without navigating anywhere.
+     * <p>
+     * This used to send a fresh {@code "fetch"} instead — a full re-navigation via UC Mode's
+     * disconnect/reconnect. That was a real bug: solving the checkbox by hand in the visible
+     * window already leaves the browser sitting on (or about to show) real content, and
+     * re-navigating discards that progress and asks Cloudflare fresh again — which is what
+     * made the browser visibly restart mid-solve and could tip Cloudflare into its harder
+     * block on the very next attempt. {@link PythonCardMarketBridge#checkCurrentPage()} matches
+     * what the direct-Selenium path's own Retry already does
+     * ({@link #waitForRecognizedContentOnly}: re-poll the live driver, no fresh {@code driver.get}).
+     */
+    private static Document resolveBridgeChallengeRetry(PythonCardMarketBridge bridge, String url)
+            throws PythonCardMarketBridge.PythonBridgeException {
+        while (true) {
+            if (promptManualChallengeChoice() == ManualChallengeChoice.STOP) {
+                throw new ManualChallengeStoppedException(
+                        "Scraping stopped: Cloudflare needed manual verification and the user "
+                                + "chose to stop instead of retrying.");
+            }
+            Document retriedDocument = bridge.checkCurrentPage();
+            if (isBlockedByCloudflare(retriedDocument)) {
+                // Escalated to the hard block while we were checking — hand off instead of
+                // looping here forever on a challenge Retry that can no longer succeed.
+                logger.debug("Escalated to Cloudflare's hard block while resolving the challenge; "
+                        + "switching to the hard-block Retry flow.");
+                return resolveBridgeHardBlockRetry(bridge, url);
+            }
+            if (!needsManualFallback(retriedDocument)) {
+                logger.debug("Recognized content appeared after manual solving; continuing the scrape.");
+                return retriedDocument;
+            }
+            logger.debug("Still on Cloudflare's challenge page after Retry; asking again.");
+        }
+    }
+
+    /**
+     * Retry behavior for Cloudflare's hard "Attention Required" block on the bridge path.
+     * Unlike the resolvable-challenge case, there's nothing to click or wait out in the same
+     * session — a hard block is CardMarket/Cloudflare's decision about this specific browser
+     * session (profile, cookies, fingerprint, request history), not a puzzle on the current
+     * page. Re-reading or even re-navigating the same session would almost certainly just see
+     * the same block again.
+     * <p>
+     * So Retry here calls {@link PythonCardMarketBridge#restartSession()} first — closing the
+     * flagged browser and opening a brand-new one in the same sidecar process — then re-fetches
+     * {@code url} as if this were the very first request of a fresh run. This does mean losing
+     * whatever warm-up/cookies the old session had built up, and paying a full Chrome relaunch;
+     * that cost is only worth it because the alternative (retrying inside the same flagged
+     * session) has no realistic chance of succeeding at all.
+     * <p>
+     * A restart doesn't guarantee the fresh session won't also get blocked — if the block is
+     * IP-based rather than session-based, restarting the browser won't help and the same prompt
+     * will simply reappear. That's a real possibility this can't distinguish from a session-only
+     * block, and Stop remains the right choice if repeated restarts keep landing back here.
+     */
+    private static Document resolveBridgeHardBlockRetry(PythonCardMarketBridge bridge, String url)
+            throws PythonCardMarketBridge.PythonBridgeException {
+        while (true) {
+            if (promptManualHardBlockChoice() == ManualChallengeChoice.STOP) {
+                throw new ManualChallengeStoppedException(
+                        "Scraping stopped: Cloudflare's hard block page was shown and the user "
+                                + "chose to stop instead of retrying with a fresh session.");
+            }
+            logger.debug("Restarting the bridge's browser session after a hard Cloudflare block...");
+            bridge.restartSession();
+            Document retriedDocument = bridge.fetchPage(url);
+            if (!needsManualFallback(retriedDocument)) {
+                logger.debug("Recognized content appeared after restarting the session; continuing the scrape.");
+                return retriedDocument;
+            }
+            logger.debug("Still blocked (or challenged) after restarting the session; asking again.");
+        }
+    }
+
+    /**
      * Asks the person to Retry or Stop, always via the real {@link Alert} dialog if at all
      * possible — including when called from a background thread with no JavaFX toolkit
      * running yet, like the live diagnostic test's plain JUnit run, where there's no console
      * to type into (an IDE's test runner doesn't attach an interactive stdin the way running
-     * a plain {@code main()} does). {@link #promptManualChallengeChoiceViaConsole} only runs
-     * as a last resort if the toolkit genuinely can't start (e.g. no display available).
+     * a plain {@code main()} does). {@link #promptManualChoiceViaConsole} only runs as a last
+     * resort if the toolkit genuinely can't start (e.g. no display available).
+     * <p>
+     * Shared by both the resolvable-challenge prompt and the hard-block prompt — only the
+     * dialog's text differs between them (see {@link #promptManualChallengeChoice()} and
+     * {@link #promptManualHardBlockChoice()}), since what Retry actually does once chosen is
+     * decided by the caller, not this method.
      */
-    private static ManualChallengeChoice promptManualChallengeChoice() {
+    private static ManualChallengeChoice promptManualChoice(String title, String headerText, String contentText) {
         if (!ensureJavaFxToolkitAvailable()) {
-            return promptManualChallengeChoiceViaConsole();
+            return promptManualChoiceViaConsole(contentText);
         }
         if (Platform.isFxApplicationThread()) {
-            return showManualChallengeDialog();
+            return showManualChallengeDialog(title, headerText, contentText);
         }
         // Not the FX thread (e.g. a plain JUnit test's main thread): schedule the dialog
         // onto the FX thread and block this thread until it's actually been answered.
         AtomicReference<ManualChallengeChoice> choiceHolder = new AtomicReference<>();
         CountDownLatch dialogClosedLatch = new CountDownLatch(1);
         Platform.runLater(() -> {
-            choiceHolder.set(showManualChallengeDialog());
+            choiceHolder.set(showManualChallengeDialog(title, headerText, contentText));
             dialogClosedLatch.countDown();
         });
         try {
@@ -890,6 +1186,20 @@ public class CardScraper {
             return ManualChallengeChoice.STOP;
         }
         return choiceHolder.get();
+    }
+
+    private static ManualChallengeChoice promptManualChallengeChoice() {
+        return promptManualChoice(CHALLENGE_PROMPT_TITLE, CHALLENGE_PROMPT_HEADER, CHALLENGE_PROMPT_CONTENT);
+    }
+
+    /**
+     * The hard-block counterpart of {@link #promptManualChallengeChoice()} — same dialog
+     * mechanics, different text, and its Retry means something different to the caller
+     * ({@link #resolveBridgeHardBlockRetry}: restart the whole browser session, not just
+     * re-read the current page).
+     */
+    private static ManualChallengeChoice promptManualHardBlockChoice() {
+        return promptManualChoice(HARD_BLOCK_PROMPT_TITLE, HARD_BLOCK_PROMPT_HEADER, HARD_BLOCK_PROMPT_CONTENT);
     }
 
     /**
@@ -924,15 +1234,12 @@ public class CardScraper {
         return javaFxToolkitAvailable;
     }
 
-    private static ManualChallengeChoice showManualChallengeDialog() {
+    private static ManualChallengeChoice showManualChallengeDialog(
+            String title, String headerText, String contentText) {
         Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-        alert.setTitle("Cloudflare needs manual verification");
-        alert.setHeaderText("A visible browser window has opened for CardMarket's Cloudflare page.");
-        alert.setContentText("If a checkbox or wait screen appears, solve it or let it clear, then "
-                + "click Retry. If it's Cloudflare's hard block page instead (no checkbox, "
-                + "\"Attention Required\"), Retry likely won't help until it clears on its own or "
-                + "from a different network — look at the window to tell which case this is. "
-                + "Click Stop to cancel this scrape.");
+        alert.setTitle(title);
+        alert.setHeaderText(headerText);
+        alert.setContentText(contentText);
 
         ButtonType retryButtonType = new ButtonType("Retry");
         ButtonType stopButtonType = new ButtonType("Stop");
@@ -944,11 +1251,8 @@ public class CardScraper {
                 : ManualChallengeChoice.STOP;
     }
 
-    private static ManualChallengeChoice promptManualChallengeChoiceViaConsole() {
-        logger.warn("Cloudflare needs manual verification. Look at the visible browser window — "
-                + "solve the checkbox or wait screen if one appears, or note if it's the hard "
-                + "\"Attention Required\" block instead (nothing to click there). Then type "
-                + "\"retry\" and press Enter here to re-check, or type \"stop\" to give up.");
+    private static ManualChallengeChoice promptManualChoiceViaConsole(String contentText) {
+        logger.warn("{} Then type \"retry\" and press Enter here, or type \"stop\" to give up.", contentText);
         Scanner consoleScanner = new Scanner(System.in);
         while (true) {
             String response = consoleScanner.nextLine().trim().toLowerCase(Locale.ROOT);
@@ -1179,6 +1483,51 @@ public class CardScraper {
         return doc.text().contains(NO_OFFERS_MARKER);
     }
 
+    /**
+     * Reads the total page count from CardMarket's own "Page X of Y" label, or empty if that
+     * label isn't present, doesn't parse, or is the open-ended "Page X of Y+" form CardMarket
+     * shows for its 300+-results view (see {@link #PAGE_COUNT_PATTERN}'s own doc for why that
+     * specific case can't be trusted as an exact count). Callers fall back to their existing
+     * fetch-and-check-if-empty loop in any of these cases (see {@link #scrapeSimplePagination}
+     * and {@link #scrapeByExpansion}), so an unrecognized or open-ended label degrades to the
+     * previous (slightly less efficient, but correct) behavior instead of truncating results.
+     * <p>
+     * Reading this up front lets both pagination loops stop as soon as they've fetched the
+     * last real page, instead of always fetching one extra page past the end just to confirm
+     * it's empty — for a filtered set with N pages, that's N fetches instead of N+1, which adds
+     * up over hundreds of expansions in a full run.
+     */
+    static Optional<Integer> extractTotalPageCount(Document doc) { // package-private for tests
+        Matcher matcher = PAGE_COUNT_PATTERN.matcher(doc.text());
+        if (!matcher.find()) {
+            return Optional.empty();
+        }
+        if (matcher.group(2) != null) {
+            // Open-ended "Page X of Y+" (seen on 300+-results pages) — Y is a floor, not the
+            // real count. Must not be treated as "stop after page Y"; see this field's own
+            // Javadoc on PAGE_COUNT_PATTERN for why.
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(Integer.parseInt(matcher.group(1)));
+        } catch (NumberFormatException numberFormatException) {
+            logger.debug("Found a \"Page X of Y\" label but couldn't parse the page count out of it "
+                    + "(non-fatal, falling back to fetch-until-empty): {}", numberFormatException.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Reads the seller's expansion filter (name, idExpansion, offer count) straight out of
+     * the JSON embedded in the page's own filter widget
+     * ({@code div[data-component-name=CategoryOffersFilterComponent]}, attribute
+     * {@code data-props} → {@code options.expansionOptions}). This is present on every
+     * offers page for the seller, filtered or not, so no extra request is needed.
+     */
+    static Map<String, String> extractExpansionMap(Document doc) { // package-private for tests
+        return extractFilterOptionMap(doc, "expansionOptions", "expansion");
+    }
+
     static boolean isBlockedByCloudflare(Document doc) { // package-private for tests
         String title = doc.title();
         return title != null && title.contains("Attention Required");
@@ -1275,43 +1624,88 @@ public class CardScraper {
     }
 
     /**
-     * Reads the seller's expansion filter (name, idExpansion, offer count) straight out of
-     * the JSON embedded in the page's own filter widget
-     * ({@code div[data-component-name=CategoryOffersFilterComponent]}, attribute
-     * {@code data-props} → {@code options.expansionOptions}). This is present on every
-     * offers page for the seller, filtered or not, so no extra request is needed.
+     * Reads the seller's rarity filter (label, idRarity) the same way {@link #extractExpansionMap}
+     * reads expansions — same JSON blob, {@code options.rarityOptions} instead of
+     * {@code options.expansionOptions}. Confirmed present live alongside expansionOptions in the
+     * same {@code data-props} attribute (both come from CardMarket's own
+     * {@code CategoryOffersFilterComponent}, not a separate widget or request).
+     * <p>
+     * Unlike expansions, rarity option labels here have no trailing offer count to strip — e.g.
+     * "Ultra Rare", not "Ultra Rare (123)" — since CardMarket only shows per-rarity counts once
+     * an expansion is already selected, and this map is read from the seller's unfiltered (or
+     * expansion-only-filtered) page. {@link #scrapeByExpansion} only reaches for this map at all
+     * when a single expansion is itself still 300+ results (see the class-level doc comment),
+     * to narrow that one expansion further; it isn't used as a first-level split the way
+     * expansions are, since almost every expansion needs no rarity narrowing at all.
      */
-    static Map<String, String> extractExpansionMap(Document doc) { // package-private for tests
-        Map<String, String> expansionMap = new LinkedHashMap<>();
+    static Map<String, String> extractRarityMap(Document doc) { // package-private for tests
+        return extractFilterOptionMap(doc, "rarityOptions", "rarity");
+    }
+
+    /**
+     * Shared reader behind {@link #extractExpansionMap} and {@link #extractRarityMap}: both
+     * pull a {@code label}/{@code value} option list out of the same
+     * {@code CategoryOffersFilterComponent} JSON blob, just under a different key
+     * ({@code optionsArrayKey}) and for a different filter dimension ({@code filterNameForLogging},
+     * used only in log messages). The pseudo "All" entry ({@code value == "0"}) is always
+     * skipped — for expansions this scraper wants each real expansion individually, and for
+     * rarities the "All" entry is exactly the unfiltered request that got this page's own
+     * caller into "still 300+" trouble in the first place.
+     */
+    private static Map<String, String> extractFilterOptionMap(
+            Document doc, String optionsArrayKey, String filterNameForLogging) {
+        Map<String, String> optionMap = new LinkedHashMap<>();
 
         Element filterComponent = doc.selectFirst("div[data-component-name=CategoryOffersFilterComponent]");
         if (filterComponent == null) {
-            logger.warn("Could not find CardMarket's expansion filter component on the page.");
-            return expansionMap;
+            logger.warn("Could not find CardMarket's {} filter component on the page.", filterNameForLogging);
+            return optionMap;
         }
         String dataProps = filterComponent.attr("data-props");
         if (dataProps.isEmpty()) {
-            logger.warn("CardMarket's expansion filter component had no data-props attribute.");
-            return expansionMap;
+            logger.warn("CardMarket's {} filter component had no data-props attribute.", filterNameForLogging);
+            return optionMap;
         }
 
         try {
             JSONObject propsJson = new JSONObject(dataProps);
-            JSONArray expansionOptions = propsJson.getJSONObject("options").getJSONArray("expansionOptions");
-            for (int index = 0; index < expansionOptions.length(); index++) {
-                JSONObject expansionOption = expansionOptions.getJSONObject(index);
-                String label = expansionOption.getString("label");
-                String idExpansion = String.valueOf(expansionOption.get("value"));
-                if ("0".equals(idExpansion)) {
+            JSONArray options = propsJson.getJSONObject("options").getJSONArray(optionsArrayKey);
+            for (int index = 0; index < options.length(); index++) {
+                JSONObject option = options.getJSONObject(index);
+                String label = option.getString("label");
+                String value = String.valueOf(option.get("value"));
+                if ("0".equals(value)) {
                     continue; // the pseudo "All" entry
                 }
-                expansionMap.put(label, idExpansion);
+                optionMap.put(label, value);
             }
         } catch (Exception exception) {
-            logger.error("Failed to parse CardMarket's expansion filter JSON.", exception);
+            logger.error("Failed to parse CardMarket's {} filter JSON.", filterNameForLogging, exception);
         }
 
-        return expansionMap;
+        return optionMap;
+    }
+
+    /**
+     * Holds what {@link #scrapePaginated} found for one filtered URL: every matched entry
+     * collected across all its pages, and whether the very first page was still showing
+     * CardMarket's "300+ results" banner — meaning this URL's own filters weren't narrow
+     * enough to bring the seller's sort-and-paginate view under CardMarket's 300-result cap,
+     * and pagination past page 1 was skipped rather than blindly followed. Callers use this
+     * flag to decide whether to apply another layer of filtering ({@link #scrapeByExpansion}
+     * reacting to the site-wide result; {@link #scrapeExpansionByRarity} reacting to a single
+     * expansion's result) or, if no further filter is available, to fall back to
+     * {@link #writeUnresolvedOverflowSummaryLine} instead of paginating a possibly very large,
+     * unsorted result set.
+     */
+    private static final class PaginatedScrapeResult {
+        final List<Entry> entries;
+        final boolean stillTooManyResults;
+
+        PaginatedScrapeResult(List<Entry> entries, boolean stillTooManyResults) {
+            this.entries = entries;
+            this.stillTooManyResults = stillTooManyResults;
+        }
     }
 
     /**

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -105,6 +106,24 @@ public class CardScraperTest {
             "<div>There are no offers for your selected category and/or filters.</div>";
 
     /**
+     * CardMarket's own pagination label as confirmed live on a two-page filtered result set —
+     * see {@code https://www.cardmarket.com/en/YuGiOh/Users/DateACard/Offers/Singles?
+     * maxPrice=0.3&minAmt=1&sortBy=name_asc&idExpansion=1651}, which showed "Page 1 of 2".
+     */
+    private static final String PAGE_1_OF_2_HTML = "<div class=\"pagination\">Page 1 of 2</div>";
+    private static final String PAGE_2_OF_2_HTML = "<div class=\"pagination\">Page 2 of 2</div>";
+
+    /**
+     * CardMarket's own pagination label as confirmed live on a genuine 300+-results page —
+     * see {@code https://www.cardmarket.com/en/YuGiOh/Users/DateACard/Offers/Singles?
+     * maxPrice=0.30&minAmt=1&sortBy=name_asc&idExpansion=2602}, which showed "Page 1 of 15+"
+     * (note the trailing "+", also reflected in this same page's "300+ Hits" count). This is
+     * an open-ended floor, not an exact count — extractTotalPageCount() must not treat 15 as
+     * the real last page here, or results past page 15 would be silently dropped.
+     */
+    private static final String PAGE_1_OF_15_PLUS_HTML = "<div class=\"pagination\">Page 1 of 15+</div>";
+
+    /**
      * Minimal reconstruction of the real {@code data-props} JSON embedded in CardMarket's
      * expansion filter widget — same shape as the real one, just fewer entries.
      */
@@ -115,6 +134,22 @@ public class CardScraperTest {
                     + "{&quot;label&quot;:&quot;2-Player Starter Deck Yuya &amp; Declan (32)&quot;,"
                     + "&quot;value&quot;:1651},"
                     + "{&quot;label&quot;:&quot;Starter Deck: 2009 (149)&quot;,&quot;value&quot;:1172}"
+                    + "]}}\"></div>";
+
+    /**
+     * Minimal reconstruction of the real {@code data-props} JSON's {@code rarityOptions} —
+     * confirmed live in the same {@code CategoryOffersFilterComponent} blob as expansionOptions
+     * (see e.g. the "Common"/"Rare"/"Secret Rare" etc. entries on
+     * {@code https://www.cardmarket.com/en/YuGiOh/Users/DateACard/Offers/Singles}), just fewer
+     * entries here. Rarity labels carry no trailing offer count, unlike expansion labels.
+     */
+    private static final String RARITY_FILTER_HTML =
+            "<div data-component-name=\"CategoryOffersFilterComponent\" data-props=\""
+                    + "{&quot;options&quot;:{&quot;rarityOptions&quot;:["
+                    + "{&quot;label&quot;:&quot;All&quot;,&quot;value&quot;:&quot;0&quot;},"
+                    + "{&quot;label&quot;:&quot;Common&quot;,&quot;value&quot;:&quot;29&quot;},"
+                    + "{&quot;label&quot;:&quot;Rare&quot;,&quot;value&quot;:&quot;28&quot;},"
+                    + "{&quot;label&quot;:&quot;Secret Rare&quot;,&quot;value&quot;:&quot;5&quot;}"
                     + "]}}\"></div>";
 
     /**
@@ -277,6 +312,49 @@ public class CardScraperTest {
     }
 
     @Test
+    public void extractTotalPageCount_readsTheRealPageXOfYLabel() {
+        // Confirmed live: https://www.cardmarket.com/en/YuGiOh/Users/DateACard/Offers/Singles?
+        // maxPrice=0.3&minAmt=1&sortBy=name_asc&idExpansion=1651 showed "Page 1 of 2".
+        Document page1 = Jsoup.parse(PAGE_1_OF_2_HTML, "https://www.cardmarket.com/");
+        Document page2 = Jsoup.parse(PAGE_2_OF_2_HTML, "https://www.cardmarket.com/");
+
+        assertEquals(Optional.of(2), CardScraper.extractTotalPageCount(page1));
+        assertEquals(Optional.of(2), CardScraper.extractTotalPageCount(page2));
+    }
+
+    @Test
+    public void extractTotalPageCount_isEmptyWhenTheLabelIsAbsent() {
+        // No "Page X of Y" text at all (e.g. a single-page result set, or unrecognized
+        // markup) — callers should fall back to fetch-until-empty rather than stopping early
+        // on a false "no more pages" read.
+        Document withoutLabel = Jsoup.parse(ROWS_HTML, "https://www.cardmarket.com/");
+
+        assertEquals(Optional.empty(), CardScraper.extractTotalPageCount(withoutLabel));
+    }
+
+    @Test
+    public void extractTotalPageCount_isEmptyOnMalformedPageCount() {
+        Document malformed = Jsoup.parse(
+                "<div class=\"pagination\">Page 1 of many</div>", "https://www.cardmarket.com/");
+
+        assertEquals(Optional.empty(), CardScraper.extractTotalPageCount(malformed));
+    }
+
+    @Test
+    public void extractTotalPageCount_isEmptyOnOpenEndedPlusCount() {
+        // Regression test: confirmed live on a genuine 300+-results page
+        // (https://www.cardmarket.com/en/YuGiOh/Users/DateACard/Offers/Singles?
+        // maxPrice=0.30&minAmt=1&sortBy=name_asc&idExpansion=2602), which showed
+        // "Page 1 of 15+" — a floor, not the real count. A naive \d+ capture would read 15
+        // and cause the caller to stop after page 15, silently dropping every offer past it
+        // on a result set that can run into the hundreds of pages. Must return empty so
+        // callers fall back to fetch-until-empty instead.
+        Document openEnded = Jsoup.parse(PAGE_1_OF_15_PLUS_HTML, "https://www.cardmarket.com/");
+
+        assertEquals(Optional.empty(), CardScraper.extractTotalPageCount(openEnded));
+    }
+
+    @Test
     public void isChallengePage_detectsCloudflaresResolvableChallengeAndNothingElse() {
         // Real marker from an actual captured challenge page ("Un instant…", loading
         // /cdn-cgi/challenge-platform/...) — distinct from the hard block page.
@@ -326,6 +404,18 @@ public class CardScraperTest {
         assertEquals(2, expansionMap.size(), "The pseudo \"All\" (value 0) entry should be skipped");
         assertEquals("1651", expansionMap.get("2-Player Starter Deck Yuya & Declan (32)"));
         assertEquals("1172", expansionMap.get("Starter Deck: 2009 (149)"));
+    }
+
+    @Test
+    public void extractRarityMap_parsesRealShapedJsonAndSkipsTheAllEntry() {
+        Document doc = Jsoup.parse(RARITY_FILTER_HTML, "https://www.cardmarket.com/");
+
+        Map<String, String> rarityMap = CardScraper.extractRarityMap(doc);
+
+        assertEquals(3, rarityMap.size(), "The pseudo \"All\" (value 0) entry should be skipped");
+        assertEquals("29", rarityMap.get("Common"));
+        assertEquals("28", rarityMap.get("Rare"));
+        assertEquals("5", rarityMap.get("Secret Rare"));
     }
 
     @Test
