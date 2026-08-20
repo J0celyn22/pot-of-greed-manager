@@ -65,6 +65,13 @@ public class CardScannerPane extends VBox {
                 "-fx-background-color: #1a0a26; -fx-border-color: #cdfc04; -fx-border-width: 1;");
         previewContainer.setPadding(new Insets(10));
         VBox.setVgrow(previewContainer, Priority.ALWAYS);
+        // A StackPane's own preferred/min size is computed from its children by default, but
+        // previewImageView's fit dimensions are bound back to this container's width/height
+        // (see showPreviewFrame). Leaving the container's size computed would make that a
+        // circular dependency, growing a little further every frame instead of settling. Pinning
+        // it here means only VBox's vgrow(ALWAYS) above decides this pane's actual size.
+        previewContainer.setMinSize(0, 0);
+        previewContainer.setPrefSize(0, 0);
 
         this.getChildren().addAll(topBar, previewContainer);
     }

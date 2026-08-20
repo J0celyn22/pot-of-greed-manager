@@ -43,6 +43,14 @@ public class SharedCollectionTab extends HBox {
 
     private static final Logger logger = LoggerFactory.getLogger(SharedCollectionTab.class);
 
+    /**
+     * The header row's normal height, shared by the tab-specific left header and whichever
+     * pane ({@link FilterPane} or {@link CardScannerPane}) is currently showing in
+     * {@link #rightHeaderPane}. Exposed so {@code Controller.RealMainController} can restore
+     * this exact value after temporarily growing the row for the scanner pane.
+     */
+    public static final double DEFAULT_HEADER_ROW_HEIGHT = 200;
+
     public ScrollPane getMenuScrollPane() {
         return menuScrollPane;
     }
@@ -160,7 +168,7 @@ public class SharedCollectionTab extends HBox {
         headerVertSep.setPrefWidth(2);
 
         HBox headerRow = new HBox(0, headerPane, headerVertSep, rightHeaderPane);
-        headerRow.setPrefHeight(200);
+        headerRow.setPrefHeight(DEFAULT_HEADER_ROW_HEIGHT);
         headerRow.getStyleClass().add("header-pane");
         headerPane.prefWidthProperty().bind(headerRow.widthProperty().divide(3).subtract(1));
         headerPane.maxWidthProperty().bind(headerPane.prefWidthProperty());

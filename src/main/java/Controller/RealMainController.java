@@ -130,6 +130,13 @@ public class RealMainController {
      */
     private CardScannerPane sharedCardScannerPane;
     /**
+     * The header row's height while the scanner pane is showing — 2.5x
+     * {@link SharedCollectionTab#DEFAULT_HEADER_ROW_HEIGHT}, giving the live preview enough
+     * room to actually be useful instead of the cramped 200px filters strip it swaps in for.
+     */
+    private static final double CARD_SCANNER_HEADER_ROW_HEIGHT =
+            SharedCollectionTab.DEFAULT_HEADER_ROW_HEIGHT * 2.5;
+    /**
      * The Python camera-scanner sidecar for whichever scanner session is currently open, or
      * {@code null} when the scanner pane isn't showing. Unlike {@link #sharedCardScannerPane},
      * this is deliberately not reused across opens — a fresh subprocess starts every time the
@@ -600,6 +607,7 @@ public class RealMainController {
         AnchorPane.setBottomAnchor(sharedCardScannerPane, 0.0);
         AnchorPane.setLeftAnchor(sharedCardScannerPane, 0.0);
         AnchorPane.setRightAnchor(sharedCardScannerPane, 0.0);
+        setHeaderRowHeight(headerPane, CARD_SCANNER_HEADER_ROW_HEIGHT);
         startCardScanner();
     }
 
@@ -611,6 +619,22 @@ public class RealMainController {
         AnchorPane.setBottomAnchor(sharedFilterPane, 0.0);
         AnchorPane.setLeftAnchor(sharedFilterPane, 0.0);
         AnchorPane.setRightAnchor(sharedFilterPane, 0.0);
+        setHeaderRowHeight(headerPane, SharedCollectionTab.DEFAULT_HEADER_ROW_HEIGHT);
+    }
+
+    /**
+     * The right-header {@code AnchorPane} passed around here ({@link #sharedFilterPane}'s or
+     * {@link #sharedCardScannerPane}'s parent) is itself a child of the tab's single header
+     * {@code HBox} row, alongside the tab-specific left header — see
+     * {@code View.SharedCollectionTab#buildHeaderRow}. That row has one shared height, so
+     * growing the scanner pane taller than the filters view means growing that whole row (and
+     * with it, the left header sitting beside it) while the scanner is open, then restoring it
+     * on close.
+     */
+    private void setHeaderRowHeight(AnchorPane headerPane, double height) {
+        if (headerPane.getParent() instanceof HBox headerRow) {
+            headerRow.setPrefHeight(height);
+        }
     }
 
     /**
