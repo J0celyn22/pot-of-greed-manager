@@ -4,6 +4,8 @@ import Model.CardsLists.Card;
 import Model.CardsLists.CardRarity;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -24,6 +26,7 @@ import static Model.Database.PrintCodeToKonamiId.getPrintCodeToKonamiId;
 // A DAO (Data Access Object) pattern would decouple the data-access layer from callers
 // and make it easier to swap storage backends, but requires a larger refactor.
 public class Database {
+    private static final Logger logger = LoggerFactory.getLogger(Database.class);
     private static final Map<String, JSONObject> jsonContentMap = new HashMap<>();
     private static final List<String> setsList = new ArrayList<>();
     private static final Map<Integer, Card> allCardsList = new HashMap<>();
@@ -43,8 +46,19 @@ public class Database {
      * @return the parsed JSONObject, or null if not found or readable
      */
     public static JSONObject openJson(String element) {
-        // Attempt to fetch/update the file.
-        FileFetcher.fetchFile(element);
+        // Attempt to fetch/update the file. A single remote source being unreachable or
+        // rejecting the request (e.g. a 4xx on first-ever fetch, see FileFetcher.fetchFile)
+        // must not crash startup: this method runs inside Database's static initializer for
+        // every entry in addresses.json, and an uncaught exception here would permanently
+        // poison the Database class for the rest of the JVM's life (JLS: a failed static
+        // initializer makes every later use throw NoClassDefFoundError, even once the
+        // transient network condition would otherwise have resolved on retry).
+        try {
+            FileFetcher.fetchFile(element);
+        } catch (RuntimeException e) {
+            logger.warn("Could not fetch '{}': {} -- continuing with whatever local copy (if any) is available.",
+                    element, e.getMessage());
+        }
         String[] addresses = DataBaseUpdate.getAddresses(element);
         if (addresses.length > 0) {
             String localPath = addresses[0];
@@ -91,7 +105,14 @@ public class Database {
      * @return the content of the file as a list of strings, or null if an error occurs
      */
     public static List<String> openSets(String element) {
-        fetchFile(element);
+        // See the comment in openJson: this runs inside Database's static initializer too,
+        // so a single unreachable/rejected remote source must not crash it.
+        try {
+            fetchFile(element);
+        } catch (RuntimeException e) {
+            logger.warn("Could not fetch '{}': {} -- continuing with whatever local copy (if any) is available.",
+                    element, e.getMessage());
+        }
         String[] addresses = DataBaseUpdate.getAddresses(element);
         if (addresses.length > 0) {
             String localPath = addresses[0];
