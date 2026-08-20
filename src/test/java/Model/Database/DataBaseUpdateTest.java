@@ -4,6 +4,7 @@ import Model.FilePaths;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import java.io.File;
 import java.net.URISyntaxException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,7 +23,8 @@ class DataBaseUpdateTest {
     })
     public void testGetAddresses(String input, String expectedPath, String expectedAddress) throws URISyntaxException {
         String[] res = DataBaseUpdate.getAddresses(input);
-        assertEquals(FilePaths.databaseDir + "\\" + expectedPath, res[0]);
+        String expectedLocalPath = FilePaths.databaseDir + File.separator + expectedPath.replace("\\", File.separator);
+        assertEquals(expectedLocalPath, res[0]);
         assertEquals(expectedAddress, res[1]);
     }
 }

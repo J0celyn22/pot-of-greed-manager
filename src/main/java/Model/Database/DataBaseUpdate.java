@@ -4,6 +4,7 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -364,11 +365,11 @@ public class DataBaseUpdate {
         for (String k : json.keySet()) {
             Object value = json.get(k);
             if (value instanceof JSONObject) {
-                if (!path.endsWith("\\")) {
-                    path += "\\";
+                if (!path.endsWith(File.separator)) {
+                    path += File.separator;
                 }
                 String[] result = findElement((JSONObject) value, key, originalKey,
-                        path + k + "\\", replacement);
+                        path + k + File.separator, replacement);
                 if (result != null) {
                     return result;
                 }
