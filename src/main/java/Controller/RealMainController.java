@@ -1,5 +1,6 @@
 package Controller;
 
+import Model.CardScanner.PythonCardScannerBridge;
 import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
 import Model.CardsLists.SubListCreator;
@@ -22,6 +23,7 @@ import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
@@ -127,6 +129,14 @@ public class RealMainController {
      * created on first use, same pattern as {@link #sharedFilterPane}.
      */
     private CardScannerPane sharedCardScannerPane;
+    /**
+     * The Python camera-scanner sidecar for whichever scanner session is currently open, or
+     * {@code null} when the scanner pane isn't showing. Unlike {@link #sharedCardScannerPane},
+     * this is deliberately not reused across opens — a fresh subprocess starts every time the
+     * scanner pane opens, and this bridge is discarded once it's stopped, so {@code null} vs.
+     * non-null always answers "is a camera subprocess currently running" without extra state.
+     */
+    private PythonCardScannerBridge activeCardScannerBridge;
     /**
      * AnchorPane that holds the right-panel card list/mosaic view. Shared across tabs.
      */
@@ -590,15 +600,63 @@ public class RealMainController {
         AnchorPane.setBottomAnchor(sharedCardScannerPane, 0.0);
         AnchorPane.setLeftAnchor(sharedCardScannerPane, 0.0);
         AnchorPane.setRightAnchor(sharedCardScannerPane, 0.0);
+        startCardScanner();
     }
 
     private void showFilterPaneInHeader(AnchorPane headerPane) {
+        stopCardScanner();
         headerPane.getChildren().clear();
         headerPane.getChildren().add(sharedFilterPane);
         AnchorPane.setTopAnchor(sharedFilterPane, 0.0);
         AnchorPane.setBottomAnchor(sharedFilterPane, 0.0);
         AnchorPane.setLeftAnchor(sharedFilterPane, 0.0);
         AnchorPane.setRightAnchor(sharedFilterPane, 0.0);
+    }
+
+    /**
+     * Starts a fresh {@link PythonCardScannerBridge} subprocess and wires its frame/error
+     * events into {@link #sharedCardScannerPane}. Called every time the scanner pane is shown
+     * (not just the first time), matching Unit 4's "opening the pane starts the camera" rule —
+     * see {@link #activeCardScannerBridge}'s own comment for why a fresh subprocess per open,
+     * rather than one reused across opens, keeps that rule simple to guarantee.
+     */
+    private void startCardScanner() {
+        sharedCardScannerPane.resetPreview();
+        sharedCardScannerPane.setPreviewStatusText("Starting camera\u2026");
+
+        activeCardScannerBridge = new PythonCardScannerBridge(
+                sharedCardScannerPane::showPreviewFrame,
+                sharedCardScannerPane::setPreviewStatusText);
+        try {
+            activeCardScannerBridge.start();
+        } catch (IOException startupIoException) {
+            logger.error("Could not start the Python card-scanner bridge \u2014 check that Python is on "
+                    + "PATH with opencv-python installed, and that python/card_scanner_bridge.py is present "
+                    + "relative to the working directory.", startupIoException);
+            sharedCardScannerPane.setPreviewStatusText(
+                    "Could not start the camera process. See the application log for details.");
+            activeCardScannerBridge = null;
+        }
+    }
+
+    /**
+     * Stops whichever {@link PythonCardScannerBridge} subprocess is currently running, if any.
+     * No-op if the scanner wasn't open (e.g. a tab switch that happened while the ordinary
+     * filters view was already showing). The actual shutdown wait runs on a background thread,
+     * not the JavaFX application thread, since {@link PythonCardScannerBridge#close()} can
+     * block for a few seconds waiting for the sidecar to exit — blocking here would freeze the
+     * UI for that long every time the scanner pane closes.
+     */
+    private void stopCardScanner() {
+        if (activeCardScannerBridge == null) {
+            return;
+        }
+        PythonCardScannerBridge bridgeToClose = activeCardScannerBridge;
+        activeCardScannerBridge = null;
+
+        Thread shutdownThread = new Thread(bridgeToClose::close, "card-scanner-bridge-shutdown");
+        shutdownThread.setDaemon(true);
+        shutdownThread.start();
     }
 
     // =========================================================================
