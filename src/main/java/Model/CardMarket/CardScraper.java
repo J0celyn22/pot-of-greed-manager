@@ -4,6 +4,7 @@ import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
 import Model.Shops.ShopCardMatcher;
 import Model.Shops.ShopResultEntry;
+import Utils.CardNameUtils;
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
@@ -1430,7 +1431,7 @@ public class CardScraper {
                 continue;
             }
 
-            String normalizedName = ShopCardMatcher.normalizeForCompare(name);
+            String normalizedName = CardNameUtils.normalizeForCompare(name);
             Card card = !normalizedName.isEmpty()
                     ? ShopCardMatcher.findCardByNormalizedName(maOuicheList, normalizedName, name)
                     : ShopCardMatcher.findCardByName(maOuicheList, name);

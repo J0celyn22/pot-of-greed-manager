@@ -4,6 +4,7 @@ import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
 import Model.Shops.ShopCardMatcher;
 import Model.Shops.ShopResultEntry;
+import Utils.CardNameUtils;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -211,7 +212,7 @@ public class CardScraper {
                                     if (konamiId != null)
                                         card = ShopCardMatcher.findCardById(maOuicheList, konamiId);
                                     else {
-                                        String normalized = ShopCardMatcher.normalizeForCompare(name);
+                                        String normalized = CardNameUtils.normalizeForCompare(name);
                                         if (!normalized.isEmpty())
                                             card = ShopCardMatcher.findCardByNormalizedName(maOuicheList, normalized, name);
                                         else
@@ -313,7 +314,7 @@ public class CardScraper {
                                 if (konamiId != null) {
                                     card = ShopCardMatcher.findCardById(maOuicheList, konamiId);
                                 } else {
-                                    String normalized = ShopCardMatcher.normalizeForCompare(name);
+                                    String normalized = CardNameUtils.normalizeForCompare(name);
                                     if (!normalized.isEmpty())
                                         card = ShopCardMatcher.findCardByNormalizedName(maOuicheList, normalized, name);
                                     else
@@ -407,9 +408,10 @@ public class CardScraper {
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────────
-    // Card-matching logic (buildOuicheCountMap, normalizeForCompare, findCardByNormalizedName,
-    // findCardByName, findCardById) lives in Model.Shops.ShopCardMatcher, shared with every
-    // other shop scraper.
+    // Card-matching logic (buildOuicheCountMap, findCardByNormalizedName, findCardByName,
+    // findCardById) lives in Model.Shops.ShopCardMatcher, shared with every other shop
+    // scraper. normalizeForCompare itself lives in Utils.CardNameUtils, shared beyond
+    // shop matching (e.g. OCR-based card recognition).
 
     private static class Entry {
         String name;

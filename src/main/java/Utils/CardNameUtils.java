@@ -1,5 +1,7 @@
 package Utils;
 
+import java.text.Normalizer;
+
 /**
  * Utility methods for cleaning and normalising card-related display names.
  *
@@ -73,5 +75,29 @@ public final class CardNameUtils {
         String prefix = raw.substring(0, leading);
         String suffix = raw.substring(raw.length() - trailing);
         return prefix + newDisplayName + suffix;
+    }
+
+    /**
+     * Normalizes a String for name comparison: lowercase, strip diacritics,
+     * remove punctuation, collapse extra spaces.
+     *
+     * <p>Used to compare card names against each other where the source and
+     * target may differ in case, accents, or punctuation — e.g. a name
+     * scraped from a shop's website, or read via OCR, against a name stored
+     * in the database.
+     *
+     * @param text the raw text to normalize (may be {@code null})
+     * @return the normalized text, never {@code null}
+     */
+    public static String normalizeForCompare(String text) {
+        if (text == null) {
+            return "";
+        }
+        String normalized = text.toLowerCase().trim();
+        normalized = Normalizer.normalize(normalized, Normalizer.Form.NFD)
+                .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
+        normalized = normalized.replaceAll("[^\\p{Alnum}\\s]", "");
+        normalized = normalized.replaceAll("\\s+", " ").trim();
+        return normalized;
     }
 }
