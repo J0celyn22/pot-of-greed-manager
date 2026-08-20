@@ -18,6 +18,11 @@ public class KonamiIdToNames {
     private static Map<String, Integer> enNamesToKonamiId;
     private static Map<Integer, String> konamiIdToFrNames;
     private static Map<Integer, String> konamiIdToJaNames;
+    private static Map<Integer, String> konamiIdToEsNames;
+    private static Map<Integer, String> konamiIdToDeNames;
+    private static Map<Integer, String> konamiIdToItNames;
+    private static Map<Integer, String> konamiIdToPtNames;
+    private static Map<Integer, String> konamiIdToKrNames;
 
     /**
      * Retrieves the map of Konami IDs to their corresponding English names.
@@ -117,6 +122,77 @@ public class KonamiIdToNames {
      */
     public static void setKonamiIdToJaNames(Map<Integer, String> konamiIdToJaNames) {
         KonamiIdToNames.konamiIdToJaNames = konamiIdToJaNames;
+    }
+
+    /**
+     * Retrieves the map of Konami IDs to their corresponding Spanish names.
+     *
+     * <p>Lazily initialized the same way as {@link #getKonamiIdToFrNames()}.
+     *
+     * @return a map of Konami IDs to Spanish names
+     */
+    public static Map<Integer, String> getKonamiIdToEsNames() {
+        if (konamiIdToEsNames == null) {
+            CreateKonamiIdToNamesMaps();
+        }
+        return konamiIdToEsNames;
+    }
+
+    /**
+     * Retrieves the map of Konami IDs to their corresponding German names.
+     *
+     * <p>Lazily initialized the same way as {@link #getKonamiIdToFrNames()}.
+     *
+     * @return a map of Konami IDs to German names
+     */
+    public static Map<Integer, String> getKonamiIdToDeNames() {
+        if (konamiIdToDeNames == null) {
+            CreateKonamiIdToNamesMaps();
+        }
+        return konamiIdToDeNames;
+    }
+
+    /**
+     * Retrieves the map of Konami IDs to their corresponding Italian names.
+     *
+     * <p>Lazily initialized the same way as {@link #getKonamiIdToFrNames()}.
+     *
+     * @return a map of Konami IDs to Italian names
+     */
+    public static Map<Integer, String> getKonamiIdToItNames() {
+        if (konamiIdToItNames == null) {
+            CreateKonamiIdToNamesMaps();
+        }
+        return konamiIdToItNames;
+    }
+
+    /**
+     * Retrieves the map of Konami IDs to their corresponding Portuguese names.
+     *
+     * <p>Lazily initialized the same way as {@link #getKonamiIdToFrNames()}.
+     *
+     * @return a map of Konami IDs to Portuguese names
+     */
+    public static Map<Integer, String> getKonamiIdToPtNames() {
+        if (konamiIdToPtNames == null) {
+            CreateKonamiIdToNamesMaps();
+        }
+        return konamiIdToPtNames;
+    }
+
+    /**
+     * Retrieves the map of Konami IDs to their corresponding Korean names.
+     *
+     * <p>Sourced from ygoresources' {@code ko} name index (Korean's ISO 639-1
+     * code), lazily initialized the same way as {@link #getKonamiIdToFrNames()}.
+     *
+     * @return a map of Konami IDs to Korean names
+     */
+    public static Map<Integer, String> getKonamiIdToKrNames() {
+        if (konamiIdToKrNames == null) {
+            CreateKonamiIdToNamesMaps();
+        }
+        return konamiIdToKrNames;
     }
 
     /**
@@ -232,13 +308,21 @@ public class KonamiIdToNames {
      * different languages.
      *
      * <p>This method initializes the maps of Konami IDs to their corresponding
-     * names in English, French, and Japanese. It also initializes the reverse
-     * maps of names to their corresponding Konami IDs in English.
+     * names in English, French, Japanese, Spanish, German, Italian, Portuguese,
+     * and Korean (ygoresources' {@code ko} index). It also initializes the
+     * reverse map of names to their corresponding Konami IDs in English.
+     *
+     * <p>Chinese ({@code name_CN} on {@link Model.CardsLists.Card}) isn't
+     * covered here — ygoresources' name-index API doesn't expose a Chinese
+     * index (only {@code en|ja|de|fr|it|es|pt|ko}), so that field currently
+     * has no automated data source and stays unpopulated.
      *
      * @throws Exception if there is an issue during the map creation process
      */
     public static void CreateKonamiIdToNamesMaps() {
-        String[] keys = {"en.json", "fr.json", "ja.json"};
+        String[] keys = {
+                "en.json", "fr.json", "ja.json", "es.json", "de.json", "it.json", "pt.json", "ko.json"
+        };
         Map<Integer, String>[] dictionaries = new HashMap[keys.length];
         Map<String, Integer>[] reverseDictionaries = new HashMap[keys.length];
 
@@ -268,6 +352,11 @@ public class KonamiIdToNames {
         konamiIdToEnNames = dictionaries[0];
         konamiIdToFrNames = dictionaries[1];
         konamiIdToJaNames = dictionaries[2];
+        konamiIdToEsNames = dictionaries[3];
+        konamiIdToDeNames = dictionaries[4];
+        konamiIdToItNames = dictionaries[5];
+        konamiIdToPtNames = dictionaries[6];
+        konamiIdToKrNames = dictionaries[7];
         enNamesToKonamiId = reverseDictionaries[0];
     }
 
@@ -287,26 +376,27 @@ public class KonamiIdToNames {
      * Returns a string representation of the Konami ID to names mappings.
      *
      * <p>This method constructs a string that contains the mappings of Konami IDs
-     * to their corresponding names in English, French, and Japanese. Each map is
-     * represented as a series of key-value pairs, where each pair is enclosed in
-     * parentheses and separated by a newline. The English, French, and Japanese
-     * mappings are separated by additional newline characters.
+     * to their corresponding names in every language covered by
+     * {@link #CreateKonamiIdToNamesMaps()}. Each map is represented as a series
+     * of key-value pairs, where each pair is enclosed in parentheses and
+     * separated by a newline. Each language's mapping is separated by an
+     * additional newline character.
      *
      * @return a string representation of the Konami ID to names mappings
      */
     @Override
     public String toString() {
         StringBuilder result = new StringBuilder();
-        for (Integer key : konamiIdToEnNames.keySet()) {
-            result.append("(").append(key).append(", ").append(konamiIdToEnNames.get(key)).append(")\n");
-        }
-        result.append("\n");
-        for (Integer key : konamiIdToFrNames.keySet()) {
-            result.append("(").append(key).append(", ").append(konamiIdToFrNames.get(key)).append(")\n");
-        }
-        result.append("\n");
-        for (Integer key : konamiIdToJaNames.keySet()) {
-            result.append("(").append(key).append(", ").append(konamiIdToJaNames.get(key)).append(")\n");
+        Map<Integer, String>[] allLanguageMaps = new Map[]{
+                konamiIdToEnNames, konamiIdToFrNames, konamiIdToJaNames,
+                konamiIdToEsNames, konamiIdToDeNames, konamiIdToItNames,
+                konamiIdToPtNames, konamiIdToKrNames
+        };
+        for (Map<Integer, String> languageMap : allLanguageMaps) {
+            for (Integer key : languageMap.keySet()) {
+                result.append("(").append(key).append(", ").append(languageMap.get(key)).append(")\n");
+            }
+            result.append("\n");
         }
         return result.toString();
     }

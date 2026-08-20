@@ -4,13 +4,21 @@
     "images": {
       "<passcode>.jpg": "https://images.ygoprodeck.com/images/cards/<passcode>.jpg"
     },
-    "archetypes.json": "https://db.ygoprodeck.com/api/v7/archetypes.php"
+    "archetypes.json": "https://db.ygoprodeck.com/api/v7/archetypes.php",
+    "konamiId": {
+      "<konamiId>.json": "https://db.ygoprodeck.com/api/v7/cardinfo.php?konami_id=<konamiId>"
+    }
   },
   "ygoresources": {
     "name": {
       "en.json": "https://db.ygoresources.com/data/idx/card/name/en",
       "fr.json": "https://db.ygoresources.com/data/idx/card/name/fr",
-      "ja.json": "https://db.ygoresources.com/data/idx/card/name/ja"
+      "ja.json": "https://db.ygoresources.com/data/idx/card/name/ja",
+      "es.json": "https://db.ygoresources.com/data/idx/card/name/es",
+      "de.json": "https://db.ygoresources.com/data/idx/card/name/de",
+      "it.json": "https://db.ygoresources.com/data/idx/card/name/it",
+      "pt.json": "https://db.ygoresources.com/data/idx/card/name/pt",
+      "ko.json": "https://db.ygoresources.com/data/idx/card/name/ko"
     },
     "printcode": {
       "_sets.txt": "https://db.ygoresources.com/data/idx/printcode/_sets",
