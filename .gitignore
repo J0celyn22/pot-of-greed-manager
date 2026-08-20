@@ -27,10 +27,12 @@ bin/
 
 ### Maven ###
 target/
+/dependency-reduced-pom.xml
 
 ### Runtime data (fetched/generated locally, not source) ###
 /Database/
 /Output/
+/default_folders.txt
 
 ### Mac OS ###
 .DS_Store
