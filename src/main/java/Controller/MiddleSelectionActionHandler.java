@@ -580,6 +580,108 @@ final class MiddleSelectionActionHandler {
     }
 
     /**
+     * Resolves the "quick add" insertion point exactly the way the numpad/Enter shortcuts do —
+     * (1) the last-selected middle element on the active tab, else (2) the last-clicked
+     * navigation item, else (3) the last element in the active tree, else (4) the last
+     * navigation group found in the tree — inserts {@code toInsert} there, and selects the
+     * result so a following add continues from where this one left off.
+     *
+     * <p>Moved here (rather than staying private to {@link KeyboardShortcutHandler}) so any
+     * future non-keyboard trigger that needs to add cards using the exact same targeting rules —
+     * e.g. a camera-scan detection — can call it directly instead of duplicating it.
+     *
+     * @param toInsert       cards to insert, in order
+     * @param activeTabIndex the currently selected main-tab index (0 = My Collection,
+     *                       1 = Decks and Collections)
+     * @param activeTreeView the active tab's middle TreeView
+     */
+    static void insertCardsAtQuickAddTarget(List<Card> toInsert, int activeTabIndex,
+                                            TreeView<String> activeTreeView) {
+        int totalInserted = toInsert.size();
+
+        CardElement targetElement = getQuickAddTargetMiddleElement(activeTreeView);
+        if (targetElement != null
+                && pasteCardsAfterElement(toInsert, targetElement, activeTabIndex)) {
+            selectElementAfterQuickAddInsert(targetElement, totalInserted, activeTreeView);
+            return;
+        }
+
+        Object navItem = SelectionManager.getLastClickedNavigationItem();
+        if (navItem != null && navItemBelongsToActiveTab(navItem, activeTabIndex)) {
+            List<CardElement> backing = getTargetGroupElements(navItem);
+            pasteCardsIntoNavigationItem(toInsert, navItem);
+            if (!backing.isEmpty()) {
+                SelectionManager.selectElement(backing.get(backing.size() - 1));
+            }
+            return;
+        }
+
+        if (activeTreeView == null || activeTreeView.getRoot() == null) {
+            return;
+        }
+        List<CardElement> allElements =
+                CardTreeCell.collectAllElementsInTreeOrder(activeTreeView.getRoot());
+        if (!allElements.isEmpty()) {
+            CardElement lastElement = allElements.get(allElements.size() - 1);
+            if (pasteCardsAfterElement(toInsert, lastElement, activeTabIndex)) {
+                selectElementAfterQuickAddInsert(lastElement, totalInserted, activeTreeView);
+                return;
+            }
+        }
+
+        Object lastNavModel = findLastNavModelInTree(activeTreeView);
+        if (lastNavModel != null) {
+            List<CardElement> backing = getTargetGroupElements(lastNavModel);
+            pasteCardsIntoNavigationItem(toInsert, lastNavModel);
+            if (!backing.isEmpty()) {
+                SelectionManager.selectElement(backing.get(backing.size() - 1));
+            }
+        }
+    }
+
+    /**
+     * @return the last-selected middle element, if the MIDDLE selection is active and belongs
+     * to {@code activeTreeView}; otherwise the last-clicked middle element, if it still belongs
+     * to {@code activeTreeView}; otherwise {@code null}.
+     */
+    private static CardElement getQuickAddTargetMiddleElement(TreeView<String> activeTreeView) {
+        if ("MIDDLE".equals(SelectionManager.getActivePart())
+                && !SelectionManager.getSelectedMiddleElements().isEmpty()
+                && activeTreeView != null) {
+            List<CardElement> allElements =
+                    CardTreeCell.collectAllElementsInTreeOrder(activeTreeView.getRoot());
+            java.util.Set<CardElement> selected = SelectionManager.getSelectedMiddleElements();
+            for (int index = allElements.size() - 1; index >= 0; index--) {
+                if (selected.contains(allElements.get(index))) {
+                    return allElements.get(index);
+                }
+            }
+        }
+        CardElement last = SelectionManager.getLastMiddleElement();
+        return elemBelongsToActiveTab(last, activeTreeView) ? last : null;
+    }
+
+    /**
+     * Selects the element {@code count} positions after {@code anchor} in tree order (clamped
+     * to the last element), i.e. the last of the just-inserted cards — so a following quick-add
+     * continues from there.
+     */
+    private static void selectElementAfterQuickAddInsert(CardElement anchor, int count,
+                                                         TreeView<String> activeTreeView) {
+        if (activeTreeView == null) {
+            return;
+        }
+        List<CardElement> allElements =
+                CardTreeCell.collectAllElementsInTreeOrder(activeTreeView.getRoot());
+        int anchorIndex = allElements.indexOf(anchor);
+        if (anchorIndex < 0) {
+            return;
+        }
+        int lastIndex = Math.min(anchorIndex + count, allElements.size() - 1);
+        SelectionManager.selectElement(allElements.get(lastIndex));
+    }
+
+    /**
      * Copies the current selection to {@link CardClipboard}: full {@link CardElement}
      * snapshots when the MIDDLE selection is active (preserving condition, rarity, and
      * custom tags across the copy/paste cycle), or bare {@link Card}s when copying from

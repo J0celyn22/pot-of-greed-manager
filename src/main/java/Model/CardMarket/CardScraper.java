@@ -1472,8 +1472,8 @@ public class CardScraper {
      */
     static void politeDelay() { // package-private for the live diagnostic test
         try {
-            Thread.sleep(1000);
-            Thread.sleep((long) (Math.random() * 7000));
+            Thread.sleep(500);
+            Thread.sleep((long) (Math.random() * 4500));
         } catch (InterruptedException interruptedException) {
             Thread.currentThread().interrupt();
         }

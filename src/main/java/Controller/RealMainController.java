@@ -122,6 +122,12 @@ public class RealMainController {
      */
     private FilterPane sharedFilterPane;
     /**
+     * The single CardScannerPane instance that swaps in for {@link #sharedFilterPane} in
+     * whichever tab's right-header pane is active when the camera button is clicked. Lazily
+     * created on first use, same pattern as {@link #sharedFilterPane}.
+     */
+    private CardScannerPane sharedCardScannerPane;
+    /**
      * AnchorPane that holds the right-panel card list/mosaic view. Shared across tabs.
      */
     private AnchorPane cardsDisplayContainer;
@@ -486,9 +492,17 @@ public class RealMainController {
                     evt.consume();
                 }
             });
+            sharedFilterPane.getCameraButton().setOnAction(event -> toggleCardScannerPane());
         }
 
         AnchorPane rightHeaderPane = tab.getRightHeaderPane();
+        // A tab switch always lands on the ordinary filters view, even if the scanner pane was
+        // left open in whichever tab it was last shown in — scanning is tied to the collection
+        // you were adding to, and switching tabs makes that ambiguous. Route through the same
+        // close path a manual "Close" click uses, rather than silently dropping the pane below.
+        if (rightHeaderPane.getChildren().contains(sharedCardScannerPane)) {
+            showFilterPaneInHeader(rightHeaderPane);
+        }
         if (!rightHeaderPane.getChildren().contains(sharedFilterPane)) {
             rightHeaderPane.getChildren().clear();
             rightHeaderPane.getChildren().add(sharedFilterPane);
@@ -519,6 +533,72 @@ public class RealMainController {
         AnchorPane.setBottomAnchor(rightContentVBox, 0.0);
         AnchorPane.setLeftAnchor(rightContentVBox, 0.0);
         AnchorPane.setRightAnchor(rightContentVBox, 0.0);
+    }
+
+    // =========================================================================
+    // Camera scanner pane
+    // =========================================================================
+
+    /**
+     * Swaps {@link #sharedCardScannerPane} in for {@link #sharedFilterPane} (or back again) in
+     * whichever tab's right-header pane currently holds one of them. No-op if neither is
+     * currently parented anywhere (shouldn't happen once {@link #injectSharedRightPanel} has
+     * run at least once, which it always has by the time this can be clicked).
+     */
+    private void toggleCardScannerPane() {
+        AnchorPane headerPane = currentRightHeaderPane();
+        if (headerPane == null) {
+            logger.warn("Camera button clicked but neither the FilterPane nor the scanner pane "
+                    + "is currently attached to a right-header pane; ignoring.");
+            return;
+        }
+        if (headerPane.getChildren().contains(sharedFilterPane)) {
+            showCardScannerPaneInHeader(headerPane);
+        } else {
+            showFilterPaneInHeader(headerPane);
+        }
+    }
+
+    /**
+     * @return the right-header pane currently holding {@link #sharedFilterPane} or
+     * {@link #sharedCardScannerPane}, whichever of the two is presently attached; {@code null}
+     * if neither is attached anywhere.
+     */
+    private AnchorPane currentRightHeaderPane() {
+        if (sharedFilterPane.getParent() instanceof AnchorPane parentPane) {
+            return parentPane;
+        }
+        if (sharedCardScannerPane != null
+                && sharedCardScannerPane.getParent() instanceof AnchorPane parentPane) {
+            return parentPane;
+        }
+        return null;
+    }
+
+    private void showCardScannerPaneInHeader(AnchorPane headerPane) {
+        if (sharedCardScannerPane == null) {
+            sharedCardScannerPane = new CardScannerPane();
+            sharedCardScannerPane.getCloseButton().setOnAction(event -> {
+                if (sharedCardScannerPane.getParent() instanceof AnchorPane currentHeaderPane) {
+                    showFilterPaneInHeader(currentHeaderPane);
+                }
+            });
+        }
+        headerPane.getChildren().clear();
+        headerPane.getChildren().add(sharedCardScannerPane);
+        AnchorPane.setTopAnchor(sharedCardScannerPane, 0.0);
+        AnchorPane.setBottomAnchor(sharedCardScannerPane, 0.0);
+        AnchorPane.setLeftAnchor(sharedCardScannerPane, 0.0);
+        AnchorPane.setRightAnchor(sharedCardScannerPane, 0.0);
+    }
+
+    private void showFilterPaneInHeader(AnchorPane headerPane) {
+        headerPane.getChildren().clear();
+        headerPane.getChildren().add(sharedFilterPane);
+        AnchorPane.setTopAnchor(sharedFilterPane, 0.0);
+        AnchorPane.setBottomAnchor(sharedFilterPane, 0.0);
+        AnchorPane.setLeftAnchor(sharedFilterPane, 0.0);
+        AnchorPane.setRightAnchor(sharedFilterPane, 0.0);
     }
 
     // =========================================================================
