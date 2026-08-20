@@ -47,7 +47,7 @@ public class CardToHtml {
      *                      {@code Decks\}, {@code Images\}, {@code Cards\}, etc.)
      */
     public static void generateAllCardPages(String outputRootDir) {
-        String cardsDirPath = outputRootDir + "Cards\\";
+        String cardsDirPath = outputRootDir + "Cards" + File.separator;
         File cardsDir = new File(cardsDirPath);
         if (!cardsDir.exists()) {
             cardsDir.mkdirs();
@@ -224,7 +224,7 @@ public class CardToHtml {
         writer.write("<!DOCTYPE html>\n<html>\n<head>\n");
         writer.write("<meta charset=\"UTF-8\">\n");
         writer.write("<title>" + escapeHtml(pageTitle) + "</title>\n");
-        writer.write("<link rel=\"icon\" href=\"..\\Images\\Icon.png\">\n");
+        writer.write("<link rel=\"icon\" href=\"../Images/Icon.png\">\n");
         writer.write("<style>\n");
         writer.write(
                 "body {\n"
@@ -299,7 +299,7 @@ public class CardToHtml {
         String cardAlt = card.getName_EN() != null ? card.getName_EN() : currentImageFileName;
         writer.write("<div class=\"card-page-layout\">\n");
 
-        writer.write("  <img src=\"..\\Images\\" + currentImageFileName + ".jpg\" "
+        writer.write("  <img src=\"../Images/" + currentImageFileName + ".jpg\" "
                 + "alt=\"" + escapeHtml(cardAlt) + "\" "
                 + "class=\"card-full-image\">\n");
 
@@ -333,12 +333,12 @@ public class CardToHtml {
                         : siblingFileName;
 
                 if (isCurrent) {
-                    writer.write("      <img src=\"..\\Images\\" + siblingFileName + ".jpg\" "
+                    writer.write("      <img src=\"../Images/" + siblingFileName + ".jpg\" "
                             + "alt=\"" + escapeHtml(siblingAlt) + "\" "
                             + "class=\"" + thumbClass + "\">\n");
                 } else {
                     writer.write("      <a href=\"" + siblingFileName + ".html\">"
-                            + "<img src=\"..\\Images\\" + siblingFileName + ".jpg\" "
+                            + "<img src=\"../Images/" + siblingFileName + ".jpg\" "
                             + "alt=\"" + escapeHtml(siblingAlt) + "\" "
                             + "class=\"" + thumbClass + "\">"
                             + "</a>\n");

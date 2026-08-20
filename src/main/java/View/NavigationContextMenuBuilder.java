@@ -36,7 +36,10 @@ public final class NavigationContextMenuBuilder {
         graphic.setPadding(new Insets(2, 6, 2, 6));
         menuItem.setGraphic(graphic);
         menuItem.setText("");
-        menuItem.setOnAction(e -> { /* TODO: implement action for: " + text + " */ });
+        // Action not implemented yet for any caller of makeItem (currently "Add Deck",
+        // "Add archetype", "Add" in CardTreeCell) - logged so a click is visibly a no-op
+        // instead of silently doing nothing.
+        menuItem.setOnAction(e -> logger.debug("makeItem action not implemented yet: {}", text));
         return menuItem;
     }
 

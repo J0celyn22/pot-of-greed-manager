@@ -293,10 +293,10 @@ public class CollectionFileIO {
 
         generateHtml(decksCardsList, outputPathLists, "Decks List");
 
-        DeckToHtml.generateDecksMenu(outputPath + "Decks\\", decksList.getDecks());
+        DeckToHtml.generateDecksMenu(outputPath + "Decks" + File.separator, decksList.getDecks());
         for (int i = 0; i < decksList.getDecks().size(); i++) {
-            DeckToHtml.generateDeckAsListHtml(decksList.getDecks().get(i), outputPath + "Decks\\", decksList.getDecks());
-            DeckToHtml.generateDeckAsMosaicHtml(decksList.getDecks().get(i), outputPath + "Decks\\", decksList.getDecks());
+            DeckToHtml.generateDeckAsListHtml(decksList.getDecks().get(i), outputPath + "Decks" + File.separator, decksList.getDecks());
+            DeckToHtml.generateDeckAsMosaicHtml(decksList.getDecks().get(i), outputPath + "Decks" + File.separator, decksList.getDecks());
         }
     }
 

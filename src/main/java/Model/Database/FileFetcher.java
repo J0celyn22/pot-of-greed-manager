@@ -296,7 +296,7 @@ public class FileFetcher {
                 semaphore.release();
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.warn("Error fetching '{}' from '{}'", element, remotePath, e);
         }
     }
 
@@ -445,7 +445,7 @@ public class FileFetcher {
                 fetchFile(printcode + ".json");
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.warn("Error during fetchAllFiles", e);
         }
     }
 }

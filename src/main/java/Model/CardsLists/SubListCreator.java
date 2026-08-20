@@ -3,12 +3,15 @@ package Model.CardsLists;
 import Model.Database.Database;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class SubListCreator {
+    private static final Logger logger = LoggerFactory.getLogger(SubListCreator.class);
     private static List<CardElement> monsterList = new ArrayList<>();
     private static List<CardElement> spellList = new ArrayList<>();
     private static List<CardElement> trapList = new ArrayList<>();
@@ -84,10 +87,10 @@ public class SubListCreator {
                 } else if (card.getCard().getCardType().contains("Trap")) {
                     trapList.add(card);
                 } else {
-                    System.out.println("Card type not found : " + card.getCard().getName_EN() + " - " + card.getCard().getPrintCode() + " - " + card.getCard().getKonamiId());
+                    logger.warn("Card type not found : {} - {} - {}", card.getCard().getName_EN(), card.getCard().getPrintCode(), card.getCard().getKonamiId());
                 }
             } else {
-                System.out.println("Card type not found : " + card.getCard().getName_EN() + " - " + card.getCard().getPrintCode() + " - " + card.getCard().getKonamiId());
+                logger.warn("Card type not found : {} - {} - {}", card.getCard().getName_EN(), card.getCard().getPrintCode(), card.getCard().getKonamiId());
             }
         }
     }
@@ -298,12 +301,12 @@ public class SubListCreator {
                             break;
 
                         default:
-                            System.out.println("Monster Card subtype not found : " + card.getCard().getName_EN() + " - " + card.getCard().getPrintCode() + " - " + card.getCard().getKonamiId());
+                            logger.warn("Monster Card subtype not found : {} - {} - {}", card.getCard().getName_EN(), card.getCard().getPrintCode(), card.getCard().getKonamiId());
                             break;
                     }
                 }
             } else {
-                System.out.println("Monster Card subtype not found : " + card.getCard().getName_EN() + " - " + card.getCard().getPrintCode() + " - " + card.getCard().getKonamiId());
+                logger.warn("Monster Card subtype not found : {} - {} - {}", card.getCard().getName_EN(), card.getCard().getPrintCode(), card.getCard().getKonamiId());
             }
         }
     }
@@ -351,12 +354,12 @@ public class SubListCreator {
                             break;
 
                         default:
-                            System.out.println("Spell Card subtype not found : " + card.getCard().getName_EN() + " - " + card.getCard().getPrintCode() + " - " + card.getCard().getKonamiId());
+                            logger.warn("Spell Card subtype not found : {} - {} - {}", card.getCard().getName_EN(), card.getCard().getPrintCode(), card.getCard().getKonamiId());
                             break;
                     }
                 }
             } else {
-                System.out.println("Spell Card subtype not found : " + card.getCard().getName_EN() + " - " + card.getCard().getPrintCode() + " - " + card.getCard().getKonamiId());
+                logger.warn("Spell Card subtype not found : {} - {} - {}", card.getCard().getName_EN(), card.getCard().getPrintCode(), card.getCard().getKonamiId());
             }
         }
     }
@@ -388,12 +391,12 @@ public class SubListCreator {
                             break;
 
                         default:
-                            System.out.println("Trap Card subtype not found : " + card.getCard().getName_EN() + " - " + card.getCard().getPrintCode() + " - " + card.getCard().getKonamiId());
+                            logger.warn("Trap Card subtype not found : {} - {} - {}", card.getCard().getName_EN(), card.getCard().getPrintCode(), card.getCard().getKonamiId());
                             break;
                     }
                 }
             } else {
-                System.out.println("Trap Card subtype not found : " + card.getCard().getName_EN() + " - " + card.getCard().getPrintCode() + " - " + card.getCard().getKonamiId());
+                logger.warn("Trap Card subtype not found : {} - {} - {}", card.getCard().getName_EN(), card.getCard().getPrintCode(), card.getCard().getKonamiId());
             }
         }
     }

@@ -1,6 +1,8 @@
 package Model.FormatList;
 
 import Model.CardsLists.Card;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedWriter;
 import java.io.FileOutputStream;
@@ -14,6 +16,8 @@ import java.util.Map;
 import static Model.FormatList.HtmlGenerator.*;
 
 public class ArchetypesListsToHtml {
+
+    private static final Logger logger = LoggerFactory.getLogger(ArchetypesListsToHtml.class);
 
     /**
      * Generates HTML files for all archetypes in the provided lists.
@@ -61,7 +65,7 @@ public class ArchetypesListsToHtml {
         fileName = fileName.replace("\\", "-").replace("/", "-").replace("\"", "");
         String filePath = dirPath + fileName + ".html";
         createHtmlFile(filePath);
-        String relativeImagePath = "..\\Images\\";
+        String relativeImagePath = "../Images/";
         String imagesDirPath = dirPath + relativeImagePath;
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
             addHeader(writer, fileName, relativeImagePath, dirPath);
@@ -93,7 +97,7 @@ public class ArchetypesListsToHtml {
             addArchetypeLinkButtons(writer, allArchetypesNames);
             addFooter(writer);
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.warn("Error generating archetype HTML file '{}'", filePath, e);
         }
     }
 
@@ -108,7 +112,7 @@ public class ArchetypesListsToHtml {
         String filePath = dirPath + "Archetypes Menu.html";
         createHtmlFile(filePath);
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8))) {
-            String relativeImagePath = "..\\Images\\";
+            String relativeImagePath = "../Images/";
             addHeader(writer, "Archetypes", relativeImagePath, dirPath);
             addTitle(writer, "Archetypes");
 
@@ -117,7 +121,7 @@ public class ArchetypesListsToHtml {
 
             addFooter(writer);
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.warn("Error generating archetypes menu file '{}'", filePath, e);
         }
     }
 }

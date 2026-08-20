@@ -6,6 +6,7 @@ import Model.FormatList.ArchetypesListsToHtml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -93,7 +94,7 @@ public class OuicheListGenerationService {
         CreateArchetypeLists(Model.Database.Database.getAllCardsList());
 
         logger.info("Generating archetype HTML pages");
-        String outputPathArchetypes = outputPath + "Archetypes\\";
+        String outputPathArchetypes = outputPath + "Archetypes" + File.separator;
         Files.createDirectories(Paths.get(outputPathArchetypes));
 
         // Create the Archetypes menu and then the individual archetype pages

@@ -7,6 +7,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mockito;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
@@ -50,7 +51,7 @@ public class IntegrationTest {
         }
 
         // Get the directory where the JAR file is located
-        expectedPath = databaseDir + "\\" + expectedPath;
+        expectedPath = databaseDir + File.separator + expectedPath.replace("\\", File.separator);
 
         // Delete the file if it exists
         Files.deleteIfExists(Paths.get(expectedPath));
@@ -136,7 +137,7 @@ public class IntegrationTest {
     @Test
     public void testReadLocalRevision() throws IOException, URISyntaxException {
         // Read the current revision from the file
-        String content = Files.readString(Path.of(databaseDir + "\\ygoresources\\revision.txt"));
+        String content = Files.readString(Path.of(databaseDir + File.separator + "ygoresources" + File.separator + "revision.txt"));
         int expectedRevision = Integer.parseInt(content.trim());
 
         // Read the revision using the function

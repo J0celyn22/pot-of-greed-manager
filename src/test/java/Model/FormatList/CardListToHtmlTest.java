@@ -165,7 +165,7 @@ class CardListToHtmlTest {
 
         String content = Files.readString(tempDir.resolve("Menu.html"));
         assertTrue(content.contains("<title>Menu</title>"));
-        assertTrue(content.contains("Lists\\Collection Complete List.html"));
-        assertTrue(content.contains("Lists\\OuicheList.html"));
+        assertTrue(content.contains("Lists/Collection Complete List.html"));
+        assertTrue(content.contains("Lists/OuicheList.html"));
     }
 }

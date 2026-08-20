@@ -74,7 +74,7 @@ public class Database {
                     return new JSONObject(content);
                 }
             } catch (IOException e) {
-                System.out.println("Error reading file " + localPath + ": " + e.getMessage());
+                logger.warn("Error reading file {}: {}", localPath, e.getMessage());
                 return null;
             } catch (org.json.JSONException e) {
                 // The local cache file exists but its content isn't valid JSON -- almost
@@ -87,8 +87,8 @@ public class Database {
                 // stale so the next fetchFile() call retries instead of reusing the
                 // broken content, and degrade to "not available" for this element, same
                 // as the IOException case above.
-                System.out.println("Corrupted local file for '" + element + "' (" + localPath
-                        + "): " + e.getMessage() + " -- marking stale for re-fetch.");
+                logger.warn("Corrupted local file for '{}' ({}): {} -- marking stale for re-fetch.",
+                        element, localPath, e.getMessage());
                 FileFetcher.addInvalidatedPath(localPath);
                 return null;
             }
@@ -330,14 +330,14 @@ public class Database {
 
                             allCardsList.put(imageId, card);
                         } catch (Exception e) {
-                            System.out.println("Error during the creation of allCardsList: " + e.getMessage());
+                            logger.warn("Error during the creation of allCardsList: {}", e.getMessage());
                         }
                     }
                 }
-                System.out.println("allCardsList created");
+                logger.debug("allCardsList created");
             }
         } catch (Exception e) {
-            System.out.println("Error during the creation of allCardsList: " + e.getMessage());
+            logger.warn("Error during the creation of allCardsList: {}", e.getMessage());
         }
     }
 

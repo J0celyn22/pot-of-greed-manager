@@ -57,7 +57,7 @@ public class HtmlGenerator {
         if (parentDir != null && !parentDir.exists()) {
             boolean mkdirs = parentDir.mkdirs();
             if (!mkdirs) {
-                //System.out.println("Parent directory was not created: " + parentDir.getAbsolutePath());
+                logger.warn("Parent directory was not created: {}", parentDir.getAbsolutePath());
             }
         }
 
@@ -90,7 +90,7 @@ public class HtmlGenerator {
         //Create relativeImagePath directory if it doesn't exist
         boolean mkdirs = new File(dirPath + relativeImagePath).mkdirs();
         if (!mkdirs) {
-            //System.out.println("Directory was not created: " + dirPath + relativeImagePath);
+            logger.warn("Directory was not created: {}", dirPath + relativeImagePath);
         }
 
         //If relativeImagePath + "Icon.png" does not exist, copy it from resources
@@ -126,7 +126,7 @@ public class HtmlGenerator {
         }*/
 
 
-        writer.write("<html>\n<head>\n<meta charset=\"UTF-8\">\n<title>" + title + "</title>\n<link rel=\"icon\" href=\"" + relativeImagePath + "Icon.png\">\n<link rel=\"manifest\" href=\".\\manifest.json\">\n<style>\n/* Styling for the rectangles */\n" +
+        writer.write("<html>\n<head>\n<meta charset=\"UTF-8\">\n<title>" + title + "</title>\n<link rel=\"icon\" href=\"" + relativeImagePath + "Icon.png\">\n<link rel=\"manifest\" href=\"./manifest.json\">\n<style>\n/* Styling for the rectangles */\n" +
                 "ul {\n" +
                 "    list-style: none;\n" +
                 "    padding: 0;\n" +
@@ -624,7 +624,7 @@ public class HtmlGenerator {
                         "    <li><a class=\"menu-link\" href=\"Collection Complete List.html\">Collection</a></li>\n" +
                         "    <li><a class=\"menu-link\" href=\"Available Cards.html\">Available Cards List</a></li>\n" +
                         "    <li><a class=\"menu-link\" href=\"Decks List.html\">Decks List</a></li>\n" +
-                        "    <li><a class=\"menu-link\" href=\"..\\Decks\\Decks Menu.html\">Decks Menu</a></li>\n" +
+                        "    <li><a class=\"menu-link\" href=\"../Decks/Decks Menu.html\">Decks Menu</a></li>\n" +
                         "</ul>\n" +
                         "<ul>\n" +
                         "    <li><a class=\"menu-link\" href=\"Detailed OuicheList - Mosaic.html\">Complete List - Mosaic</a></li>\n" +
@@ -710,7 +710,7 @@ public class HtmlGenerator {
     public static void addDeckLinkButtons(BufferedWriter writer, List<Deck> decksList, String type) throws IOException {
         writer.write(
                 "<ul>\n" +
-                        "    <li><a class=\"menu-link\" href=\"..\\Lists\\Decks List.html\">Decks List</a></li>\n" +
+                        "    <li><a class=\"menu-link\" href=\"../Lists/Decks List.html\">Decks List</a></li>\n" +
                         "</ul>\n");
         writer.write("<ul>\n");
         for (Deck deck : decksList) {
@@ -730,7 +730,7 @@ public class HtmlGenerator {
         // Link back to the Archetypes List page (if you have one)
         writer.write(
                 "<ul>\n" +
-                        "    <li><a class=\"menu-link\" href=\"..\\Archetypes\\Archetypes Menu.html\">Archetypes Menu</a></li>\n" +
+                        "    <li><a class=\"menu-link\" href=\"../Archetypes/Archetypes Menu.html\">Archetypes Menu</a></li>\n" +
                         "</ul>\n"
         );
 
@@ -759,7 +759,7 @@ public class HtmlGenerator {
             return "#";
         }
         String baseName = imageFileName.replaceAll("\\.[^.]+$", "");
-        return "..\\Cards\\" + baseName + ".html";
+        return "../Cards/" + baseName + ".html";
     }
 
     /**

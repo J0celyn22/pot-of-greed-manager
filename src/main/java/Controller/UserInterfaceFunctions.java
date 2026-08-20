@@ -338,9 +338,10 @@ public class UserInterfaceFunctions {
      * directory. If the file does not exist, the method does nothing.
      */
     public static void playLaughSound() {
-        String audioFilePath = ".\\src\\main\\resources\\PotOfGreedLaugh.mp3";
+        String audioFilePath = "." + File.separator + "src" + File.separator + "main"
+                + File.separator + "resources" + File.separator + "PotOfGreedLaugh.mp3";
         if (!new File(audioFilePath).exists()) {
-            audioFilePath = "resources\\PotOfGreedLaugh.mp3";
+            audioFilePath = "resources" + File.separator + "PotOfGreedLaugh.mp3";
         }
         Media media = new Media(new File(audioFilePath).toURI().toString());
         MediaPlayer mediaPlayer = new MediaPlayer(media);

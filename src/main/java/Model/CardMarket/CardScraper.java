@@ -215,7 +215,7 @@ public class CardScraper {
         try {
             try (BufferedWriter writer = new BufferedWriter(
                     new OutputStreamWriter(
-                            new FileOutputStream(outputPath + "\\ListeCardMarket_" + seller.getUsername() + ".txt"),
+                            new FileOutputStream(outputPath + "ListeCardMarket_" + seller.getUsername() + ".txt"),
                             StandardCharsets.UTF_8))) {
 
                 List<Entry> collected = new ArrayList<>();
@@ -814,7 +814,7 @@ public class CardScraper {
     static void dumpChallengeDiagnostics(WebDriver driver) { // package-private for the live diagnostic test
         String timestamp = String.valueOf(System.currentTimeMillis());
 
-        String htmlFileName = outputPath + "\\CardMarketChallengeDebug_" + timestamp + ".html";
+        String htmlFileName = outputPath + "CardMarketChallengeDebug_" + timestamp + ".html";
         try (BufferedWriter debugWriter = new BufferedWriter(
                 new OutputStreamWriter(new FileOutputStream(htmlFileName), StandardCharsets.UTF_8))) {
             debugWriter.write(driver.getPageSource());
@@ -824,7 +824,7 @@ public class CardScraper {
         }
 
         if (driver instanceof TakesScreenshot) {
-            String screenshotFileName = outputPath + "\\CardMarketChallengeDebug_" + timestamp + ".png";
+            String screenshotFileName = outputPath + "CardMarketChallengeDebug_" + timestamp + ".png";
             try {
                 File screenshotFile = ((TakesScreenshot) driver).getScreenshotAs(OutputType.FILE);
                 Files.copy(screenshotFile.toPath(), Path.of(screenshotFileName), StandardCopyOption.REPLACE_EXISTING);
@@ -1584,7 +1584,7 @@ public class CardScraper {
      */
     private static void dumpUnexpectedPage(
             BufferedWriter writer, CardMarketSeller seller, String context, Document doc) {
-        String debugFileName = outputPath + "\\CardMarketDebug_" + seller.getUsername()
+        String debugFileName = outputPath + "CardMarketDebug_" + seller.getUsername()
                 + "_" + System.currentTimeMillis() + ".html";
         try (BufferedWriter debugWriter = new BufferedWriter(
                 new OutputStreamWriter(new FileOutputStream(debugFileName), StandardCharsets.UTF_8))) {

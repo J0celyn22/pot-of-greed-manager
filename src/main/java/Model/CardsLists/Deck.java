@@ -1,6 +1,8 @@
 package Model.CardsLists;
 
 import Utils.PriceFormat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.util.ArrayList;
@@ -10,6 +12,7 @@ import java.util.List;
  * Non-physical list of cards
  */
 public class Deck {
+    private static final Logger logger = LoggerFactory.getLogger(Deck.class);
     private String name;
     private List<CardElement> mainDeck;
     private List<CardElement> extraDeck;
@@ -60,7 +63,7 @@ public class Deck {
                     }
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                logger.warn("Error reading deck file '{}'", filePath, e);
             }
         }
     }
@@ -209,7 +212,7 @@ public class Deck {
                 for (String tl : trailingLines) writer.println(tl);
             }
         } catch (FileNotFoundException e) {
-            e.printStackTrace();
+            logger.warn("Error saving deck to '{}'", path, e);
         }
     }
 

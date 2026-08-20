@@ -73,7 +73,7 @@ public class DataBaseUpdate {
             FileFetcher.refetchInvalidatedFiles();
 
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.warn("Error during updateCache", e);
         }
     }
 
@@ -322,7 +322,7 @@ public class DataBaseUpdate {
                 return result;
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.warn("Error resolving addresses for '{}'", element, e);
         }
         return new String[0];
     }
@@ -350,7 +350,7 @@ public class DataBaseUpdate {
                 }
                 addressesJson = new JSONObject(new String(encoded, StandardCharsets.UTF_8));
             } catch (Exception e) {
-                e.printStackTrace();
+                logger.warn("Error loading addresses.json", e);
             }
         }
         return addressesJson;

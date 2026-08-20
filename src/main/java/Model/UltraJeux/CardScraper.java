@@ -124,7 +124,7 @@ public class CardScraper {
 
         try (BufferedWriter writer = new BufferedWriter(
                 new OutputStreamWriter(
-                        new FileOutputStream(outputPath + "\\ListeUltraJeux.txt"),
+                        new FileOutputStream(outputPath + "ListeUltraJeux.txt"),
                         StandardCharsets.UTF_8))) {
 
             List<Entry> collected = new ArrayList<>();
@@ -400,7 +400,7 @@ public class CardScraper {
             writer.write("\n");
 
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.warn("Error writing UltraJeux results", e);
         }
 
         return result;

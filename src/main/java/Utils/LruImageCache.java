@@ -1,6 +1,8 @@
 package Utils;
 
 import javafx.scene.image.Image;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.ref.SoftReference;
 import java.util.LinkedHashMap;
@@ -14,6 +16,8 @@ import java.util.Map;
  * This version uses the original caching logic (with file path as the key).
  */
 public class LruImageCache {
+
+    private static final Logger logger = LoggerFactory.getLogger(LruImageCache.class);
 
     // Dynamically determine the maximum number of cached images based on available JVM memory.
     private static final int MAX_ENTRIES;
@@ -39,7 +43,7 @@ public class LruImageCache {
         } else {
             MAX_ENTRIES = 19200;
         }
-        System.out.println("LruImageCache: Max cache entries: " + MAX_ENTRIES);
+        logger.debug("Max cache entries: {}", MAX_ENTRIES);
     }
 
     // The cache stores images using SoftReferences, keyed by their file path.
