@@ -159,8 +159,12 @@ public class CardScannerPane extends VBox {
         scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         scrollPane.setStyle("-fx-background: #100317; -fx-background-color: #100317;"
                 + "-fx-border-color: #cdfc04; -fx-border-width: 1;");
-        scrollPane.setPrefWidth(170);
-        scrollPane.setMaxWidth(340);
+        // Wide enough for at least two 150px tile columns (see buildCandidatesTilePane) plus
+        // hgap and the pane's own border/scrollbar allowance — previously pinned to 170 (one
+        // column), which meant a card with more printCodes than fit one column always overflowed
+        // into a horizontal scrollbar instead of actually using a second column.
+        scrollPane.setPrefWidth(330);
+        scrollPane.setMaxWidth(500);
         scrollPane.setManaged(false);
         scrollPane.setVisible(false);
         return scrollPane;
@@ -226,7 +230,16 @@ public class CardScannerPane extends VBox {
         if (frame != null && frame.getWidth() > 0 && frame.getHeight() > 0) {
             double aspectRatio = frame.getWidth() / frame.getHeight();
             if (aspectRatio != boundPreviewAspectRatio) {
-                previewContainer.maxWidthProperty().bind(previewContainer.heightProperty().multiply(aspectRatio));
+                // height * aspectRatio is almost never a whole-pixel value, but Region snaps its
+                // own layout bounds to whole pixels while the border stroke is drawn against
+                // those snapped bounds. Binding maxWidth to the raw fractional value left a
+                // mismatch between what the HBox allotted and where the border actually landed,
+                // showing a hairline of the pane's background past the border on the right edge.
+                // Flooring keeps the bound width from ever landing above the snapped size the
+                // border is drawn at.
+                previewContainer.maxWidthProperty().bind(
+                        previewContainer.heightProperty().multiply(aspectRatio)
+                                .map(value -> Math.floor(value.doubleValue())));
                 boundPreviewAspectRatio = aspectRatio;
             }
         }

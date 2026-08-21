@@ -390,10 +390,11 @@ public class CardScannerCoordinator {
         List<CardScannerPane.PrintCodeCandidate> paneCandidates = new ArrayList<>();
         for (CardTextMatcher.CardCandidates.PrintCodeOption printCodeOption : cardCandidates.getPrintCodeOptions()) {
             String printCode = printCodeOption.getPrintCode();
-            String language = printCodeOption.getLanguage();
-            String displayLabel = (language == null || language.isBlank())
-                    ? printCode
-                    : printCode + " (" + language + ")";
+            // Buttons show only the printCode itself now — every candidate offered here is
+            // already narrowed to the language(s) the detected card name is actually in (see
+            // CardTextMatcher.narrowByDetectedName), so an explicit "(EN)"/"(FR)" suffix on the
+            // button no longer adds information and was cluttering the label.
+            String displayLabel = printCode;
             Runnable onAdd = singleArtwork
                     ? () -> insertPrintCode(printCode, activeTabIndex, activeTreeView)
                     : null;

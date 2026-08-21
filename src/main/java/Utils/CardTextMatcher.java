@@ -75,8 +75,10 @@ public final class CardTextMatcher {
     private static final int PRINT_CODE_MAX_EDIT_DISTANCE = 2;
 
     /**
-     * Matches the leading letters of a print code's segment after its last hyphen, up to (not
-     * including) its first digit — see {@link #parseLanguageFromPrintCode} for how this is used.
+     * Matches the letters immediately after a print code's last hyphen, up to (not including)
+     * the first digit — see {@link #parseLanguagesFromPrintCode} for how the captured letters are
+     * then interpreted (only the first two count; older/regional codes use one-letter or no-letter
+     * shorthand).
      */
     private static final Pattern PRINT_CODE_LANGUAGE_PATTERN = Pattern.compile("^([A-Za-z]+)\\d");
 
@@ -364,34 +366,41 @@ public final class CardTextMatcher {
     }
 
     /**
-     * Narrows {@code validPrintCodes} down to just the ones whose actual printed card (via
-     * {@link Database#getAllPrintedCardsList()}) has a name, in any language, matching
-     * {@code matchedText} — so a physical card read by its English name only ever offers print
-     * codes for English reprints of it, rather than every language {@code PrintCodeToKonamiId}
-     * knows a print code for. Different-language reprints of the same Konami ID are a genuinely
-     * different name (a French print's {@link Card#getName_FR()} isn't a translation lookup away
-     * from what was recognized, it's a different string entirely), so without this narrowing a
-     * {@link CardCandidates} mixes in printCodes for cards that don't share the name actually
-     * seen.
+     * Narrows {@code validPrintCodes} down to just the ones whose parsed language (see
+     * {@link #parseLanguagesFromPrintCode}) matches a language {@code matchedText} was actually
+     * read in — so a physical card read by its English name only ever offers print codes for
+     * English reprints of it, rather than every language {@code PrintCodeToKonamiId} knows a
+     * print code for.
+     *
+     * <p>Every print code's {@link Card} copy in {@link Database#getAllPrintedCardsList()} is
+     * deep-copied from the same representative card for its Konami ID (see
+     * {@code Database#createAllPrintedCardsList}), so every printCode's copy carries the
+     * <em>same</em> all-language name fields regardless of which language that printCode is
+     * actually printed in — checking "does this card's name match in any language" (as an
+     * earlier version of this method did) therefore always matches every printCode and narrows
+     * nothing. Instead, this determines which specific language field(s) {@code matchedText}
+     * equals via {@link #matchingLanguages}, then keeps only the print codes whose own parsed
+     * language is one of those — e.g. a French detection only offers French print codes, even
+     * though every candidate's underlying {@link Card} object also has an English name that
+     * happens to be populated.
      *
      * <p>A {@link MatchField#PASS_CODE} match has no recognized name text to narrow by — a pass
      * code identifies an artwork the same way regardless of which language's copy is in frame —
      * so every valid print code stays a candidate in that case, same as before this method
-     * existed. Best-effort otherwise, same spirit as {@link #parseLanguageFromPrintCode}: if
-     * narrowing by name would leave nothing (e.g. a data gap between
-     * {@link Database#getAllPrintedCardsList()} and whichever name field actually matched), falls
-     * back to the full, unnarrowed list rather than hiding every candidate.
+     * existed. Best-effort otherwise: if narrowing would leave nothing (e.g. a print code whose
+     * language couldn't be parsed, or a data gap), falls back to the full, unnarrowed list rather
+     * than hiding every candidate.
      *
      * @param validPrintCodes every print code {@link PrintCodeToKonamiId} knows for the Konami ID
      * @param matchedField    which field the original match came through
      * @param matchedText     the originally recognized text
-     * @return {@code validPrintCodes}, narrowed to name matches when {@code matchedField} is
-     * {@link MatchField#NAME} and at least one narrows; {@code validPrintCodes} unchanged
-     * otherwise
+     * @return {@code validPrintCodes}, narrowed to the language(s) {@code matchedText} matched
+     * when {@code matchedField} is {@link MatchField#NAME} or {@link MatchField#NAME_AND_PRINT_CODE}
+     * and at least one print code narrows; {@code validPrintCodes} unchanged otherwise
      */
     private static List<String> narrowByDetectedName(
             List<String> validPrintCodes, MatchField matchedField, String matchedText) throws URISyntaxException {
-        if (matchedField != MatchField.NAME) {
+        if (matchedField != MatchField.NAME && matchedField != MatchField.NAME_AND_PRINT_CODE) {
             return validPrintCodes;
         }
         String normalizedTarget = normalizeForNameCompare(matchedText);
@@ -399,14 +408,64 @@ public final class CardTextMatcher {
             return validPrintCodes;
         }
         Map<String, Card> printedCards = Database.getAllPrintedCardsList();
+        // Every printCode's Card copy shares identical name fields (see the javadoc above), so
+        // it doesn't matter which candidate's copy this is read from — grab any one of them to
+        // find out which language(s) matchedText actually names.
+        Card representativeCard = printedCards.get(validPrintCodes.get(0));
+        Set<String> matchedLanguages = representativeCard == null
+                ? Set.of()
+                : matchingLanguages(representativeCard, normalizedTarget);
+        if (matchedLanguages.isEmpty()) {
+            return validPrintCodes;
+        }
+
         List<String> narrowed = new ArrayList<>();
         for (String printCode : validPrintCodes) {
-            Card printedCard = printedCards.get(printCode);
-            if (printedCard != null && matchesAnyLanguageName(printedCard, normalizedTarget)) {
+            Set<String> printCodeLanguages = parseLanguagesFromPrintCode(printCode);
+            if (!Collections.disjoint(printCodeLanguages, matchedLanguages)) {
                 narrowed.add(printCode);
             }
         }
         return narrowed.isEmpty() ? validPrintCodes : narrowed;
+    }
+
+    /**
+     * @return the uppercased language suffixes (matching {@link Card}'s {@code getName_XX}
+     * naming and {@link #parseLanguagesFromPrintCode}'s parsed print-code language) whose name
+     * field on {@code card} normalizes to {@code normalizedTarget}; a name can legitimately match
+     * more than one language field at once (e.g. an identical English/German print), so every
+     * language, not just the first found, is returned
+     */
+    private static Set<String> matchingLanguages(Card card, String normalizedTarget) {
+        Set<String> languages = new LinkedHashSet<>();
+        if (normalizedTarget.equals(normalizeForNameCompare(card.getName_EN()))) {
+            languages.add("EN");
+        }
+        if (normalizedTarget.equals(normalizeForNameCompare(card.getName_FR()))) {
+            languages.add("FR");
+        }
+        if (normalizedTarget.equals(normalizeForNameCompare(card.getName_JA()))) {
+            languages.add("JA");
+        }
+        if (normalizedTarget.equals(normalizeForNameCompare(card.getName_ES()))) {
+            languages.add("ES");
+        }
+        if (normalizedTarget.equals(normalizeForNameCompare(card.getName_DE()))) {
+            languages.add("DE");
+        }
+        if (normalizedTarget.equals(normalizeForNameCompare(card.getName_IT()))) {
+            languages.add("IT");
+        }
+        if (normalizedTarget.equals(normalizeForNameCompare(card.getName_CN()))) {
+            languages.add("CN");
+        }
+        if (normalizedTarget.equals(normalizeForNameCompare(card.getName_KR()))) {
+            languages.add("KR");
+        }
+        if (normalizedTarget.equals(normalizeForNameCompare(card.getName_PT()))) {
+            languages.add("PT");
+        }
+        return languages;
     }
 
     /**
@@ -423,7 +482,7 @@ public final class CardTextMatcher {
      * Builds a {@link CardCandidates} for a Konami ID with more than one valid print code left to
      * offer (already narrowed by {@link #narrowByDetectedName} for a name match): every print
      * code from {@code printCodesToOffer} (tagged with a best-effort parsed language via
-     * {@link #parseLanguageFromPrintCode}), plus every artwork variant via
+     * {@link #parseLanguagesFromPrintCode}), plus every artwork variant via
      * {@link CardDatabaseManager#getAliasCards(int)} — both pieces already existed and are already
      * used elsewhere in the app (the fuzzy print-code tier and {@code View.CardEditPopup}'s
      * artwork picker, respectively), so this just wires them together for a caller to render.
@@ -433,7 +492,9 @@ public final class CardTextMatcher {
             throws Exception {
         List<CardCandidates.PrintCodeOption> printCodeOptions = new ArrayList<>();
         for (String printCode : printCodesToOffer) {
-            printCodeOptions.add(new CardCandidates.PrintCodeOption(printCode, parseLanguageFromPrintCode(printCode)));
+            String displayLanguage = String.join("/", parseLanguagesFromPrintCode(printCode));
+            printCodeOptions.add(new CardCandidates.PrintCodeOption(
+                    printCode, displayLanguage.isEmpty() ? null : displayLanguage));
         }
 
         Integer representativePassCode = CardDatabaseManager.getKonamiIdToPassCode().get(konamiId);
@@ -466,28 +527,75 @@ public final class CardTextMatcher {
     }
 
     /**
-     * Best-effort language extraction from a print code string, e.g. {@code "LOB-EN001"} to
-     * {@code "EN"} — the letters immediately after the last hyphen and before the trailing digit
-     * run. {@link CardNameIndex} merges every language into one name lookup with no language tag
-     * of its own to reuse instead, so this parses it straight out of the print code's shape rather
-     * than tracking which language the OCR side actually saw (deferred to a later unit — see the
-     * class javadoc).
+     * Best-effort language extraction from a print code string, resolving to the canonical
+     * language suffix(es) used by {@link Card}'s {@code getName_XX} fields ({@code EN}, {@code
+     * FR}, {@code JA}, {@code ES}, {@code DE}, {@code IT}, {@code CN}, {@code KR}, {@code PT}).
+     * {@link CardNameIndex} merges every language into one name lookup with no language tag of
+     * its own to reuse instead, so this parses it straight out of the print code's shape rather
+     * than tracking which language the OCR side actually saw.
+     *
+     * <p>Handles several print-code eras/conventions, not just the modern two-letter shape:
+     * <ul>
+     *   <li>Three or more letters after the hyphen (e.g. {@code "SGX3-FRE19"}'s {@code "FRE"}) —
+     *       only the first two count; the modern two-letter language code, plus one leftover
+     *       letter some older/regional prints carry, not a third language letter.</li>
+     *   <li>Exactly two letters — the modern code, with two known synonym pairs: {@code "AE"} or
+     *       {@code "EN"} for English, {@code "ES"} or {@code "SP"} for Spanish. Every other
+     *       two-letter code is already canonical ({@code "FR"}, {@code "DE"}, {@code "JA"},
+     *       {@code "IT"}, {@code "CN"}, {@code "KR"}, {@code "PT"}).</li>
+     *   <li>Exactly one letter — an older single-letter code: {@code "E"} or {@code "A"} for
+     *       English, {@code "C"} or {@code "F"} for French, {@code "G"} for German, {@code "J"}
+     *       for Japanese, {@code "K"} for Korean.</li>
+     *   <li>No letter at all (an all-digit segment right after the hyphen) — the oldest print
+     *       codes, which never disambiguated English from Japanese; returns both, since neither
+     *       can be ruled out from the code alone.</li>
+     * </ul>
      *
      * @param printCode the print code to parse, exactly as stored (e.g. from
      *                  {@link PrintCodeToKonamiId#getKonamiIdToPrintCodes()})
-     * @return the parsed language segment, uppercased, or {@code null} if the print code's shape
-     * didn't match (no hyphen, or no letters before a digit run after it)
+     * @return the parsed language(s), uppercased and canonicalized, as a set of one (almost
+     * always), two ({@code EN}/{@code JA} for a letterless code), or zero entries (the print
+     * code's shape didn't match at all — no hyphen, or nothing usable before the trailing digit
+     * run)
      */
-    private static String parseLanguageFromPrintCode(String printCode) {
+    private static Set<String> parseLanguagesFromPrintCode(String printCode) {
         if (printCode == null) {
-            return null;
+            return Set.of();
         }
         int lastHyphenIndex = printCode.lastIndexOf('-');
         if (lastHyphenIndex < 0 || lastHyphenIndex == printCode.length() - 1) {
-            return null;
+            return Set.of();
         }
-        Matcher languageMatcher = PRINT_CODE_LANGUAGE_PATTERN.matcher(printCode.substring(lastHyphenIndex + 1));
-        return languageMatcher.find() ? languageMatcher.group(1).toUpperCase(Locale.ROOT) : null;
+        String afterHyphen = printCode.substring(lastHyphenIndex + 1);
+        Matcher languageMatcher = PRINT_CODE_LANGUAGE_PATTERN.matcher(afterHyphen);
+        if (!languageMatcher.find()) {
+            // No letters before the digit run at all — the oldest codes never distinguished
+            // English from Japanese.
+            return Set.of("EN", "JA");
+        }
+        String letters = languageMatcher.group(1).toUpperCase(Locale.ROOT);
+        // A third (or later) letter isn't a language letter at all on any known code shape —
+        // only the first two ever carry the language.
+        String languageLetters = letters.length() > 2 ? letters.substring(0, 2) : letters;
+
+        return switch (languageLetters) {
+            case "AE", "EN" -> Set.of("EN");
+            case "ES", "SP" -> Set.of("ES");
+            case "FR" -> Set.of("FR");
+            case "DE" -> Set.of("DE");
+            case "JA" -> Set.of("JA");
+            case "IT" -> Set.of("IT");
+            case "CN" -> Set.of("CN");
+            case "KR" -> Set.of("KR");
+            case "PT" -> Set.of("PT");
+            // One-letter shorthand from older print codes.
+            case "E", "A" -> Set.of("EN");
+            case "C", "F" -> Set.of("FR");
+            case "G" -> Set.of("DE");
+            case "J" -> Set.of("JA");
+            case "K" -> Set.of("KR");
+            default -> Set.of();
+        };
     }
 
     /**
@@ -720,7 +828,7 @@ public final class CardTextMatcher {
 
         /**
          * @return every print code valid for {@link #getKonamiId()}, each tagged with a
-         * best-effort parsed language (see {@link #parseLanguageFromPrintCode}); never empty,
+         * best-effort parsed language (see {@link #parseLanguagesFromPrintCode}); never empty,
          * since {@link #resolveKonamiId} only builds a {@link CardCandidates} when there are at
          * least two
          */
@@ -770,8 +878,10 @@ public final class CardTextMatcher {
             }
 
             /**
-             * @return the best-effort parsed language (e.g. {@code "EN"}), or {@code null} if
-             * {@link #parseLanguageFromPrintCode} couldn't parse one from this print code's shape
+             * @return the best-effort parsed language (e.g. {@code "EN"}, or {@code "EN/JA"} for
+             * an older print code with no language letter at all — see
+             * {@link #parseLanguagesFromPrintCode}), or {@code null} if no language could be
+             * parsed from this print code's shape at all
              */
             public String getLanguage() {
                 return language;
