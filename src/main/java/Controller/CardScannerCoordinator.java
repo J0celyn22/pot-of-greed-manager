@@ -3,6 +3,7 @@ package Controller;
 import Model.CardScanner.PythonCardScannerBridge;
 import Model.CardScanner.ScanLockDebouncer;
 import Model.CardsLists.Card;
+import Model.Database.Database;
 import Utils.CardTextMatcher;
 import View.CardScannerPane;
 import View.FilterPane;
@@ -15,10 +16,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.net.URISyntaxException;
+import java.util.*;
 import java.util.function.Supplier;
 
 /**
@@ -260,20 +259,12 @@ public class CardScannerCoordinator {
     }
 
     /**
-     * Unit 6's detection handling: resolves one detection cycle's OCR candidates via
-     * {@link CardTextMatcher#matchCandidates}, feeds whether anything matched into
-     * {@link #debouncer}, and — only on the specific call that transitions the debouncer from
-     * released to locked, i.e. exactly once per "a card was shown" rather than once per frame
-     * it stays in view — either inserts the card via
-     * {@link MiddleSelectionActionHandler#insertCardsAtQuickAddTarget} if the active tab allows
-     * it, or reports why not otherwise.
-     *
-     * <p>As of Unit 7, {@link CardTextMatcher#matchCandidates} can resolve to a
-     * {@link CardTextMatcher.CardCandidates} instead of a confident
-     * {@link CardTextMatcher.MatchResult}, when the candidates narrow to a Konami ID with more
-     * than one valid printing. Choosing among those is a later unit's UI (Units 8/9); for now
-     * this just reports that multiple printings were detected and skips the insert, the same as
-     * the pre-Unit-7 behavior would have looked like if it hadn't been silently guessing.
+     * Resolves one detection cycle's OCR candidates via {@link CardTextMatcher#matchCandidates},
+     * feeds whether anything matched into {@link #debouncer}, and — only on the specific call
+     * that transitions the debouncer from released to locked, i.e. exactly once per "a card was
+     * shown" rather than once per frame it stays in view — hands off to
+     * {@link #handleCandidateResolution} or {@link #handleUnambiguousResolution} depending on
+     * which {@link CardTextMatcher.Resolution} subtype came back.
      *
      * <p>Called on the JavaFX application thread (see {@link PythonCardScannerBridge}'s own
      * listener contract), so no synchronization is needed against {@link #debouncer} or
@@ -301,30 +292,17 @@ public class CardScannerCoordinator {
                 return; // still locked onto an earlier detection; this is a continuation, not a new add
             }
 
-            if (resolution.get() instanceof CardTextMatcher.CardCandidates multiplePrintings) {
-                String cardLabel = multiplePrintings.getDisplayName();
-                sharedCardScannerPane.setDetectionFeedbackText(
-                        "Multiple printings detected" + (cardLabel != null ? " for " + cardLabel : "")
-                                + " \u2014 picking a specific one isn't wired up yet");
-                return;
-            }
-
-            if (!(resolution.get() instanceof CardTextMatcher.MatchResult matchResult)) {
-                return; // unreachable: Resolution has exactly two subtypes and CardCandidates already returned above
-            }
-            Card matchedCard = matchResult.getCard();
             int activeTabIndex = mainTabPane.getSelectionModel().getSelectedIndex();
-            if (activeTabIndex != INSERT_ALLOWED_TAB_INDEX) {
-                sharedCardScannerPane.setDetectionFeedbackText(
-                        "Detected: " + matchedCard.getNameOrNumber()
-                                + " \u2014 scanning to add isn't wired up for this tab yet");
+            TreeView<String> activeTreeView = activeMiddleTreeViewSupplier.get();
+
+            if (resolution.get() instanceof CardTextMatcher.CardCandidates cardCandidates) {
+                handleCandidateResolution(cardCandidates, activeTabIndex, activeTreeView);
                 return;
             }
-
-            TreeView<String> activeTreeView = activeMiddleTreeViewSupplier.get();
-            MiddleSelectionActionHandler.insertCardsAtQuickAddTarget(
-                    List.of(matchedCard), activeTabIndex, activeTreeView);
-            sharedCardScannerPane.setDetectionFeedbackText("Added: " + matchedCard.getNameOrNumber());
+            if (resolution.get() instanceof CardTextMatcher.MatchResult matchResult) {
+                handleUnambiguousResolution(matchResult, activeTabIndex, activeTreeView);
+            }
+            // unreachable otherwise: Resolution has exactly these two subtypes
         } catch (RuntimeException unexpectedMatchOrInsertFailure) {
             logger.error("Failed to resolve or insert a camera-scanner detection", unexpectedMatchOrInsertFailure);
             if (sharedCardScannerPane != null) {
@@ -332,5 +310,135 @@ public class CardScannerCoordinator {
                         "Something went wrong resolving that card. See the application log for details.");
             }
         }
+    }
+
+    /**
+     * A pass code, print code, or unambiguous name match — inserts via
+     * {@link MiddleSelectionActionHandler#insertCardsAtQuickAddTarget} if the active tab allows
+     * it, same as Unit 6 always did, or reports why not otherwise. Clears any printCode
+     * candidates a previous, ambiguous detection cycle may have left showing, so switching from
+     * an ambiguous card to an unambiguous one doesn't leave stale buttons on screen.
+     */
+    private void handleUnambiguousResolution(
+            CardTextMatcher.MatchResult matchResult, int activeTabIndex, TreeView<String> activeTreeView) {
+        sharedCardScannerPane.clearPrintCodeCandidates();
+        Card matchedCard = matchResult.getCard();
+        if (activeTabIndex != INSERT_ALLOWED_TAB_INDEX) {
+            sharedCardScannerPane.setDetectionFeedbackText(
+                    "Detected: " + matchedCard.getNameOrNumber()
+                            + " \u2014 scanning to add isn't wired up for this tab yet");
+            return;
+        }
+        insertResolvedCard(matchedCard, activeTabIndex, activeTreeView);
+    }
+
+    /**
+     * A name or pass code narrowed to a Konami ID with more than one valid printing — Unit 8's
+     * addition, replacing Unit 7's placeholder "picking a specific one isn't wired up yet"
+     * message with actual printCode buttons via
+     * {@link CardScannerPane#showPrintCodeCandidates(List)}.
+     *
+     * <p>{@link CardTextMatcher.CardCandidates#getPrintCodeOptions()} and
+     * {@link CardTextMatcher.CardCandidates#getArtworkOptions()} are two independent axes, not
+     * one artwork list per printCode — every printCode button in a given candidates set shares
+     * the same artwork-ambiguity question, so whether a click adds immediately or only selects is
+     * decided once for the whole set (see {@link #buildPaneCandidates}), not per button.
+     * Artwork disambiguation itself ({@code getArtworkOptions().size() > 1}) is Unit 9's concern;
+     * this unit only ever offers printCode buttons.
+     *
+     * <p>Same tab restriction as the unambiguous case: rendering clickable buttons that could
+     * only ever fail to insert isn't useful, so a disallowed tab gets the same kind of "not
+     * wired up yet" message instead, with any previously-shown candidates cleared.
+     */
+    private void handleCandidateResolution(
+            CardTextMatcher.CardCandidates cardCandidates, int activeTabIndex, TreeView<String> activeTreeView) {
+        String cardLabel = cardCandidates.getDisplayName();
+        String forCardName = cardLabel != null ? " for " + cardLabel : "";
+
+        if (activeTabIndex != INSERT_ALLOWED_TAB_INDEX) {
+            sharedCardScannerPane.clearPrintCodeCandidates();
+            sharedCardScannerPane.setDetectionFeedbackText(
+                    "Multiple printings detected" + forCardName
+                            + " \u2014 scanning to add isn't wired up for this tab yet");
+            return;
+        }
+
+        boolean singleArtwork = cardCandidates.getArtworkOptions().size() <= 1;
+        sharedCardScannerPane.showPrintCodeCandidates(
+                buildPaneCandidates(cardCandidates, singleArtwork, activeTabIndex, activeTreeView));
+        sharedCardScannerPane.setDetectionFeedbackText(
+                "Multiple printings detected" + forCardName + (singleArtwork
+                        ? " \u2014 choose a printCode to add"
+                        : " \u2014 choose a printCode (artwork selection isn't wired up yet)"));
+    }
+
+    /**
+     * Translates {@code cardCandidates}' printCode options into the view-model list
+     * {@link CardScannerPane#showPrintCodeCandidates(List)} renders, so {@link CardScannerPane}
+     * itself never needs to know about {@link CardTextMatcher}'s types.
+     *
+     * @param singleArtwork whether {@code cardCandidates} has at most one artwork option overall
+     *                      (see {@link #handleCandidateResolution}) — when {@code true}, every
+     *                      button here gets an {@code onAdd} callback that looks the specific
+     *                      printed card up and inserts it immediately; when {@code false}, every
+     *                      button gets a {@code null} callback, since Unit 8 only lets those be
+     *                      visually selected (Unit 9 wires up completing the add from there)
+     */
+    private List<CardScannerPane.PrintCodeCandidate> buildPaneCandidates(
+            CardTextMatcher.CardCandidates cardCandidates, boolean singleArtwork,
+            int activeTabIndex, TreeView<String> activeTreeView) {
+        List<CardScannerPane.PrintCodeCandidate> paneCandidates = new ArrayList<>();
+        for (CardTextMatcher.CardCandidates.PrintCodeOption printCodeOption : cardCandidates.getPrintCodeOptions()) {
+            String printCode = printCodeOption.getPrintCode();
+            String language = printCodeOption.getLanguage();
+            String displayLabel = (language == null || language.isBlank())
+                    ? printCode
+                    : printCode + " (" + language + ")";
+            Runnable onAdd = singleArtwork
+                    ? () -> insertPrintCode(printCode, activeTabIndex, activeTreeView)
+                    : null;
+            paneCandidates.add(
+                    new CardScannerPane.PrintCodeCandidate(printCode, displayLabel, singleArtwork, onAdd));
+        }
+        return paneCandidates;
+    }
+
+    /**
+     * Looks a specific printCode up via {@link Database#getAllPrintedCardsList()} — the same
+     * lookup {@link CardTextMatcher.CardCandidates.PrintCodeOption#getPrintCode()}'s own javadoc
+     * documents it as a valid key for — and inserts it. A missing entry would mean
+     * {@code PrintCodeToKonamiId} and {@code getAllPrintedCardsList()} have drifted out of sync
+     * with each other; reported rather than thrown, since one bad button shouldn't crash the
+     * whole scanning session.
+     */
+    private void insertPrintCode(String printCode, int activeTabIndex, TreeView<String> activeTreeView) {
+        try {
+            Card printedCard = Database.getAllPrintedCardsList().get(printCode);
+            if (printedCard == null) {
+                logger.warn("printCode candidate \"{}\" had no entry in getAllPrintedCardsList(); ignoring click",
+                        printCode);
+                sharedCardScannerPane.setDetectionFeedbackText(
+                        "Couldn't find a card for print code " + printCode
+                                + ". See the application log for details.");
+                return;
+            }
+            insertResolvedCard(printedCard, activeTabIndex, activeTreeView);
+        } catch (URISyntaxException uriSyntaxException) {
+            logger.error("Failed to look up printCode \"{}\" from a scanner candidate button",
+                    printCode, uriSyntaxException);
+            sharedCardScannerPane.setDetectionFeedbackText(
+                    "Something went wrong adding that card. See the application log for details.");
+        }
+    }
+
+    /**
+     * Shared by the unambiguous auto-add path and a single-artwork printCode button click:
+     * inserts {@code card} via {@link MiddleSelectionActionHandler#insertCardsAtQuickAddTarget},
+     * clears any printCode candidates left showing, and reports what was added.
+     */
+    private void insertResolvedCard(Card card, int activeTabIndex, TreeView<String> activeTreeView) {
+        MiddleSelectionActionHandler.insertCardsAtQuickAddTarget(List.of(card), activeTabIndex, activeTreeView);
+        sharedCardScannerPane.clearPrintCodeCandidates();
+        sharedCardScannerPane.setDetectionFeedbackText("Added: " + card.getNameOrNumber());
     }
 }

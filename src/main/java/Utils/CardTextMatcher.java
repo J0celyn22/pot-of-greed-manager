@@ -322,8 +322,11 @@ public final class CardTextMatcher {
      *       ygoresources print-code data;</li>
      *   <li>exactly one — resolved unambiguously through
      *       {@link Database#getAllPrintedCardsList()}, which does set the print code correctly;</li>
-     *   <li>more than one — returns a {@link CardCandidates} instead of guessing, for the caller
-     *       to render (Units 8/9) or, until then, simply report as ambiguous.</li>
+     *   <li>more than one — narrowed by {@link #narrowByDetectedName} first (a no-op for a
+     *       pass-code match), then either resolved the same as the "exactly one" case above if
+     *       that narrows it that far, or returns a {@link CardCandidates} of just the narrowed
+     *       print codes instead of guessing, for the caller to render (Units 8/9) or, until then,
+     *       simply report as ambiguous.</li>
      * </ul>
      *
      * @param konamiId     the already-identified Konami ID, or {@code null} if the matched card
@@ -331,7 +334,8 @@ public final class CardTextMatcher {
      * @param fallbackCard the card originally matched via {@link #findByPassCode},
      *                     {@link #findByName}, or {@link #findRepresentativeCard}
      * @param matchedField which field the original match came through
-     * @param matchedText  the original recognized text, for logging only
+     * @param matchedText  the original recognized text, for logging and (for a {@link MatchField#NAME}
+     *                     match) narrowing print codes down to the ones matching this text
      */
     private static Optional<Resolution> resolveKonamiId(
             Integer konamiId, Card fallbackCard, MatchField matchedField, String matchedText) {
@@ -347,10 +351,62 @@ public final class CardTextMatcher {
                 Card printedCard = Database.getAllPrintedCardsList().get(validPrintCodes.get(0));
                 return Optional.of(wrapAsMatch(printedCard != null ? printedCard : fallbackCard, matchedField, matchedText));
             }
-            return Optional.of(buildCardCandidates(konamiId, validPrintCodes, matchedField, matchedText));
+
+            List<String> printCodesToOffer = narrowByDetectedName(validPrintCodes, matchedField, matchedText);
+            if (printCodesToOffer.size() == 1) {
+                Card printedCard = Database.getAllPrintedCardsList().get(printCodesToOffer.get(0));
+                return Optional.of(wrapAsMatch(printedCard != null ? printedCard : fallbackCard, matchedField, matchedText));
+            }
+            return Optional.of(buildCardCandidates(konamiId, printCodesToOffer, matchedField, matchedText));
         } catch (Exception exception) {
             throw new RuntimeException(exception);
         }
+    }
+
+    /**
+     * Narrows {@code validPrintCodes} down to just the ones whose actual printed card (via
+     * {@link Database#getAllPrintedCardsList()}) has a name, in any language, matching
+     * {@code matchedText} — so a physical card read by its English name only ever offers print
+     * codes for English reprints of it, rather than every language {@code PrintCodeToKonamiId}
+     * knows a print code for. Different-language reprints of the same Konami ID are a genuinely
+     * different name (a French print's {@link Card#getName_FR()} isn't a translation lookup away
+     * from what was recognized, it's a different string entirely), so without this narrowing a
+     * {@link CardCandidates} mixes in printCodes for cards that don't share the name actually
+     * seen.
+     *
+     * <p>A {@link MatchField#PASS_CODE} match has no recognized name text to narrow by — a pass
+     * code identifies an artwork the same way regardless of which language's copy is in frame —
+     * so every valid print code stays a candidate in that case, same as before this method
+     * existed. Best-effort otherwise, same spirit as {@link #parseLanguageFromPrintCode}: if
+     * narrowing by name would leave nothing (e.g. a data gap between
+     * {@link Database#getAllPrintedCardsList()} and whichever name field actually matched), falls
+     * back to the full, unnarrowed list rather than hiding every candidate.
+     *
+     * @param validPrintCodes every print code {@link PrintCodeToKonamiId} knows for the Konami ID
+     * @param matchedField    which field the original match came through
+     * @param matchedText     the originally recognized text
+     * @return {@code validPrintCodes}, narrowed to name matches when {@code matchedField} is
+     * {@link MatchField#NAME} and at least one narrows; {@code validPrintCodes} unchanged
+     * otherwise
+     */
+    private static List<String> narrowByDetectedName(
+            List<String> validPrintCodes, MatchField matchedField, String matchedText) throws URISyntaxException {
+        if (matchedField != MatchField.NAME) {
+            return validPrintCodes;
+        }
+        String normalizedTarget = normalizeForNameCompare(matchedText);
+        if (normalizedTarget.isEmpty()) {
+            return validPrintCodes;
+        }
+        Map<String, Card> printedCards = Database.getAllPrintedCardsList();
+        List<String> narrowed = new ArrayList<>();
+        for (String printCode : validPrintCodes) {
+            Card printedCard = printedCards.get(printCode);
+            if (printedCard != null && matchesAnyLanguageName(printedCard, normalizedTarget)) {
+                narrowed.add(printCode);
+            }
+        }
+        return narrowed.isEmpty() ? validPrintCodes : narrowed;
     }
 
     /**
@@ -364,18 +420,19 @@ public final class CardTextMatcher {
     }
 
     /**
-     * Builds a {@link CardCandidates} for a Konami ID with more than one valid print code: every
-     * print code from {@code validPrintCodes} (tagged with a best-effort parsed language via
+     * Builds a {@link CardCandidates} for a Konami ID with more than one valid print code left to
+     * offer (already narrowed by {@link #narrowByDetectedName} for a name match): every print
+     * code from {@code printCodesToOffer} (tagged with a best-effort parsed language via
      * {@link #parseLanguageFromPrintCode}), plus every artwork variant via
      * {@link CardDatabaseManager#getAliasCards(int)} — both pieces already existed and are already
      * used elsewhere in the app (the fuzzy print-code tier and {@code View.CardEditPopup}'s
      * artwork picker, respectively), so this just wires them together for a caller to render.
      */
     private static CardCandidates buildCardCandidates(
-            Integer konamiId, List<String> validPrintCodes, MatchField matchedField, String matchedText)
+            Integer konamiId, List<String> printCodesToOffer, MatchField matchedField, String matchedText)
             throws Exception {
         List<CardCandidates.PrintCodeOption> printCodeOptions = new ArrayList<>();
-        for (String printCode : validPrintCodes) {
+        for (String printCode : printCodesToOffer) {
             printCodeOptions.add(new CardCandidates.PrintCodeOption(printCode, parseLanguageFromPrintCode(printCode)));
         }
 
