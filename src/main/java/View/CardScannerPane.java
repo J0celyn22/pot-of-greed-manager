@@ -24,12 +24,18 @@ import javafx.scene.text.TextAlignment;
  * time it's called. This pane still has no subprocess or detection logic of its own; frames
  * come from whichever bridge class the owning controller wires up (see
  * {@code Model.CardScanner.PythonCardScannerBridge}), not from anything inside this class.
+ *
+ * <p>{@link #setDetectionFeedbackText(String)} is Unit 6's addition — a one-line status shown
+ * below the preview reporting what the detection loop just did. Like the preview frames
+ * themselves, this pane only displays what it's told; the actual OCR/matching/insertion
+ * decisions live in {@code Controller.CardScannerCoordinator}.
  */
 public class CardScannerPane extends VBox {
 
     private final Button closeButton;
     private final Label previewStatusLabel;
     private final StackPane previewContainer;
+    private final Label detectionFeedbackLabel;
 
     /**
      * Lazily created the first time {@link #showPreviewFrame(Image)} is called, and torn back
@@ -73,7 +79,14 @@ public class CardScannerPane extends VBox {
         previewContainer.setMinSize(0, 0);
         previewContainer.setPrefSize(0, 0);
 
-        this.getChildren().addAll(topBar, previewContainer);
+        detectionFeedbackLabel = new Label(" ");
+        detectionFeedbackLabel.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 12; -fx-font-weight: bold;");
+        detectionFeedbackLabel.setWrapText(true);
+        detectionFeedbackLabel.setTextAlignment(TextAlignment.CENTER);
+        detectionFeedbackLabel.setMaxWidth(Double.MAX_VALUE);
+        detectionFeedbackLabel.setAlignment(Pos.CENTER);
+
+        this.getChildren().addAll(topBar, previewContainer, detectionFeedbackLabel);
     }
 
     public Button getCloseButton() {
@@ -96,6 +109,16 @@ public class CardScannerPane extends VBox {
      */
     public void setPreviewStatusText(String text) {
         previewStatusLabel.setText(text);
+    }
+
+    /**
+     * Updates the feedback line shown below the preview — Unit 6's addition, reporting what the
+     * detection loop just did (e.g. "Added: Dark Magician", "Multiple cards match this name",
+     * "Scanning isn't wired up for this tab yet"). A blank string clears it back to empty rather
+     * than leaving stale text showing between detections.
+     */
+    public void setDetectionFeedbackText(String text) {
+        detectionFeedbackLabel.setText(text == null || text.isBlank() ? " " : text);
     }
 
     /**
@@ -132,5 +155,6 @@ public class CardScannerPane extends VBox {
             previewContainer.getChildren().setAll(previewStatusLabel);
             previewImageView = null;
         }
+        setDetectionFeedbackText(null);
     }
 }

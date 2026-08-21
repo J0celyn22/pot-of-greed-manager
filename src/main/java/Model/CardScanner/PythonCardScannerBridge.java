@@ -2,6 +2,7 @@ package Model.CardScanner;
 
 import javafx.application.Platform;
 import javafx.scene.image.Image;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.slf4j.Logger;
@@ -29,7 +30,12 @@ import java.util.function.Consumer;
  * <p>
  * Unit 4 of the camera card-scanner feature (see the project's camera-scanner plan doc): proves
  * this live-video path end-to-end with a "dumb" feed only — no OCR or card detection is wired
- * through here yet.
+ * through here yet. Unit 6 adds the {@code "detection"} event: the sidecar now also runs OCR on
+ * a throttled subset of captured frames and reports whatever text it read with confidence above
+ * its own threshold, as an ordered list of candidate strings (highest confidence first, possibly
+ * empty). This class stays a dumb transport for that too — resolving a candidate list into an
+ * actual {@link Model.CardsLists.Card} (and deciding whether to add it) is
+ * {@code Controller.CardScannerCoordinator}'s job, not this class's.
  * <p>
  * One instance is meant to be started once per scanner-pane-open and closed once per
  * scanner-pane-close (see {@code Controller.RealMainController}'s {@code startCardScanner()}/
@@ -56,6 +62,7 @@ public class PythonCardScannerBridge implements AutoCloseable {
 
     private final Consumer<Image> frameListener;
     private final Consumer<String> errorMessageListener;
+    private final Consumer<List<String>> detectionListener;
 
     private Process process;
     private BufferedWriter processInput;
@@ -73,10 +80,17 @@ public class PythonCardScannerBridge implements AutoCloseable {
      *                             surfacing that in the scanner pane's status label, distinct
      *                             from {@link #logger}, which every event is also logged
      *                             through regardless.
+     * @param detectionListener    called on the JavaFX application thread with each {@code
+     *                             "detection"} event's candidate text list, ordered
+     *                             highest-confidence first — empty (never {@code null}) when a
+     *                             detection cycle ran but found nothing above the sidecar's
+     *                             confidence threshold. Never called concurrently with itself.
      */
-    public PythonCardScannerBridge(Consumer<Image> frameListener, Consumer<String> errorMessageListener) {
+    public PythonCardScannerBridge(Consumer<Image> frameListener, Consumer<String> errorMessageListener,
+                                   Consumer<List<String>> detectionListener) {
         this.frameListener = frameListener;
         this.errorMessageListener = errorMessageListener;
+        this.detectionListener = detectionListener;
     }
 
     /**
@@ -156,7 +170,35 @@ public class PythonCardScannerBridge implements AutoCloseable {
             case "frame" -> handleFrameEvent(event);
             case "status" -> logger.info("[card_scanner_bridge.py] status: {}", event.optString("status", ""));
             case "error" -> handleErrorEvent(event);
+            case "detection" -> handleDetectionEvent(event);
             default -> logger.warn("card_scanner_bridge.py sent an unrecognized event type '{}': {}", type, line);
+        }
+    }
+
+    /**
+     * Parses a {@code "detection"} event's {@code candidates} array (each entry a {@code
+     * {"text": ..., "confidence": ...}} object) into an ordered list of just the text, and hands
+     * it to {@link #detectionListener}. A malformed or missing {@code candidates} array is
+     * treated the same as an empty detection cycle rather than a fatal error — one bad line from
+     * the sidecar shouldn't take down live detection.
+     */
+    private void handleDetectionEvent(JSONObject event) {
+        List<String> candidateTexts = new ArrayList<>();
+        JSONArray candidates = event.optJSONArray("candidates");
+        if (candidates != null) {
+            for (int index = 0; index < candidates.length(); index++) {
+                JSONObject candidate = candidates.optJSONObject(index);
+                if (candidate == null) {
+                    continue;
+                }
+                String text = candidate.optString("text", "");
+                if (!text.isBlank()) {
+                    candidateTexts.add(text);
+                }
+            }
+        }
+        if (detectionListener != null) {
+            Platform.runLater(() -> detectionListener.accept(candidateTexts));
         }
     }
 

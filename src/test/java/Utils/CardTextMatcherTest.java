@@ -4,6 +4,7 @@ import Model.CardsLists.Card;
 import Model.Database.Database;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -173,14 +174,38 @@ class CardTextMatcherTest {
 
     // --- test fixtures, derived from live data ---------------------------------
 
+    private static String corruptOneCharacter(String text) {
+        char[] characters = text.toCharArray();
+        char replacement = characters[0] == 'X' ? 'Y' : 'X';
+        characters[0] = replacement;
+        return new String(characters);
+    }
+
+    @Test
+    void matchText_syntheticCardWithAccentedSpanishName_matchesWithoutAccent() {
+        Card syntheticCard = buildSyntheticCardWithAllLanguageNames();
+        Integer syntheticKey = -999002;
+        Database.getAllCardsList().put(syntheticKey, syntheticCard);
+        try {
+            String nameWithoutAccent = "Nombre Espanol de Prueba Zzyx";
+
+            Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchText(nameWithoutAccent);
+
+            assertTrue(result.isPresent(), "a de-accented Spanish name should still resolve");
+            assertEquals(CardTextMatcher.MatchField.NAME, result.get().getMatchedField());
+        } finally {
+            Database.getAllCardsList().remove(syntheticKey);
+        }
+    }
+
     /**
-     * Only name_EN, name_FR, and name_JA are ever populated by the live
-     * database today (see {@code CardTextMatcher.findByName}'s javadoc), so
-     * there's no real card data to test the other six languages against.
-     * This registers one synthetic card with a distinct name in all nine
-     * languages directly into {@link Database}'s live card map, confirms
-     * every one of the nine resolves back to it, then removes the synthetic
-     * entry so it doesn't leak into other tests.
+     * Registers one synthetic card with a distinct name in all nine
+     * languages directly into {@link Database}'s live card map (there's no
+     * real card in the loaded data guaranteed to have a distinct,
+     * predictable name in all nine at once), confirms every one of the nine
+     * resolves back to it via {@link CardTextMatcher#matchText}'s exact
+     * linear-scan tier, then removes the synthetic entry so it doesn't leak
+     * into other tests.
      */
     @Test
     void matchText_syntheticCardWithAllNineLanguageNames_resolvesViaEachOne() {
@@ -204,22 +229,7 @@ class CardTextMatcherTest {
         }
     }
 
-    @Test
-    void matchText_syntheticCardWithAccentedSpanishName_matchesWithoutAccent() {
-        Card syntheticCard = buildSyntheticCardWithAllLanguageNames();
-        Integer syntheticKey = -999002;
-        Database.getAllCardsList().put(syntheticKey, syntheticCard);
-        try {
-            String nameWithoutAccent = "Nombre Espanol de Prueba Zzyx";
-
-            Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchText(nameWithoutAccent);
-
-            assertTrue(result.isPresent(), "a de-accented Spanish name should still resolve");
-            assertEquals(CardTextMatcher.MatchField.NAME, result.get().getMatchedField());
-        } finally {
-            Database.getAllCardsList().remove(syntheticKey);
-        }
-    }
+    // --- matchCandidates: Unit 6's multi-candidate entry point ------------------
 
     @Test
     void matchText_digitOnlyStringWithNoPassCodeMatch_doesNotAlsoTryNameTier() {
@@ -229,5 +239,94 @@ class CardTextMatcherTest {
         Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchText("0000000");
 
         assertFalse(result.isPresent());
+    }
+
+    @Test
+    void matchCandidates_null_returnsEmpty() {
+        assertFalse(CardTextMatcher.matchCandidates(null).isPresent());
+    }
+
+    @Test
+    void matchCandidates_emptyList_returnsEmpty() {
+        assertFalse(CardTextMatcher.matchCandidates(List.of()).isPresent());
+    }
+
+    @Test
+    void matchCandidates_allGarbageCandidates_returnsEmpty() {
+        Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchCandidates(
+                List.of("zzqxv nonsense", "not a card either", "0000000"));
+
+        assertFalse(result.isPresent());
+    }
+
+    @Test
+    void matchCandidates_realPassCodeAmongGarbage_resolvesRegardlessOfPosition() {
+        Card sampleCard = findAnyCardWithPassCode();
+
+        Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchCandidates(
+                List.of("some flavor text noise", sampleCard.getPassCode(), "ATK/2500 DEF/2100"));
+
+        assertTrue(result.isPresent(), "a real pass code among other candidates should still resolve");
+        assertEquals(CardTextMatcher.MatchField.PASS_CODE, result.get().getMatchedField());
+        assertEquals(sampleCard.getPassCode(), result.get().getCard().getPassCode());
+    }
+
+    @Test
+    void matchCandidates_realPrintCodeAsFirstCandidate_resolvesViaPrintCodeTier() throws Exception {
+        Map.Entry<String, Card> samplePrintedCard = findAnyPrintedCard();
+
+        Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchCandidates(
+                List.of(samplePrintedCard.getKey(), "some other noisy line"));
+
+        assertTrue(result.isPresent(), "a real print code should resolve via the exact-code tier");
+        assertEquals(CardTextMatcher.MatchField.PRINT_CODE, result.get().getMatchedField());
+    }
+
+    @Test
+    void matchCandidates_printCodeCandidateWinsOverUnrelatedNameCandidate() throws Exception {
+        // Regression check for the ordering bug caught during review: an exact print-code
+        // candidate must win outright, even when a different candidate in the same cycle is a
+        // real card name for some *other* card entirely (i.e. matchCandidates must not just
+        // grab the first candidate that resolves to *anything*).
+        Map.Entry<String, Card> samplePrintedCard = findAnyPrintedCard();
+        Card unrelatedNamedCard = findAnyCardWithEnglishName();
+
+        Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchCandidates(
+                List.of(unrelatedNamedCard.getName_EN(), samplePrintedCard.getKey()));
+
+        assertTrue(result.isPresent());
+        assertEquals(CardTextMatcher.MatchField.PRINT_CODE, result.get().getMatchedField(),
+                "an exact print code elsewhere in the cycle should win over a plain name match");
+    }
+
+    @Test
+    void matchCandidates_nameCandidateAlone_resolvesViaNameFallback() {
+        Card sampleCard = findAnyCardWithEnglishName();
+
+        Optional<CardTextMatcher.MatchResult> result =
+                CardTextMatcher.matchCandidates(List.of("unrelated noise line", sampleCard.getName_EN()));
+
+        assertTrue(result.isPresent(), "a real name with no accompanying print code should still resolve");
+        assertEquals(sampleCard.getPassCode(), result.get().getCard().getPassCode());
+    }
+
+    @Test
+    void matchCandidates_nameWithSlightlyNoisyPrintCode_narrowsToPrintCodeMatch() throws Exception {
+        Map.Entry<String, Card> samplePrintedCard = findAnyPrintedCard();
+        String realName = samplePrintedCard.getValue().getName_EN();
+        // Skip this run if the sampled printed card has no English name or its print code is too
+        // short to safely corrupt one character out of — rather than assert on data we can't
+        // control, since this test's whole point is exercising the fuzzy tier against whatever
+        // real data happens to be loaded.
+        if (realName == null || realName.isBlank() || samplePrintedCard.getKey().length() < 2) {
+            return;
+        }
+        String noisyPrintCode = corruptOneCharacter(samplePrintedCard.getKey());
+
+        Optional<CardTextMatcher.MatchResult> result =
+                CardTextMatcher.matchCandidates(List.of(realName, noisyPrintCode));
+
+        assertTrue(result.isPresent(), "a real name plus a one-character-off print code should still resolve");
+        assertEquals(CardTextMatcher.MatchField.NAME_AND_PRINT_CODE, result.get().getMatchedField());
     }
 }

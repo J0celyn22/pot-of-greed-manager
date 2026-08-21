@@ -1,6 +1,5 @@
 package Controller;
 
-import Model.CardScanner.PythonCardScannerBridge;
 import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
 import Model.CardsLists.SubListCreator;
@@ -23,7 +22,6 @@ import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
@@ -124,26 +122,11 @@ public class RealMainController {
      */
     private FilterPane sharedFilterPane;
     /**
-     * The single CardScannerPane instance that swaps in for {@link #sharedFilterPane} in
-     * whichever tab's right-header pane is active when the camera button is clicked. Lazily
-     * created on first use, same pattern as {@link #sharedFilterPane}.
+     * Owns the camera scanner pane's lifecycle, pane-swap, and (as of Unit 6) detection-to-insert
+     * logic — see {@link CardScannerCoordinator}'s own javadoc for why this moved out of this
+     * class rather than growing here alongside everything Unit 6 added.
      */
-    private CardScannerPane sharedCardScannerPane;
-    /**
-     * The header row's height while the scanner pane is showing — 2.5x
-     * {@link SharedCollectionTab#DEFAULT_HEADER_ROW_HEIGHT}, giving the live preview enough
-     * room to actually be useful instead of the cramped 200px filters strip it swaps in for.
-     */
-    private static final double CARD_SCANNER_HEADER_ROW_HEIGHT =
-            SharedCollectionTab.DEFAULT_HEADER_ROW_HEIGHT * 2.5;
-    /**
-     * The Python camera-scanner sidecar for whichever scanner session is currently open, or
-     * {@code null} when the scanner pane isn't showing. Unlike {@link #sharedCardScannerPane},
-     * this is deliberately not reused across opens — a fresh subprocess starts every time the
-     * scanner pane opens, and this bridge is discarded once it's stopped, so {@code null} vs.
-     * non-null always answers "is a camera subprocess currently running" without extra state.
-     */
-    private PythonCardScannerBridge activeCardScannerBridge;
+    private CardScannerCoordinator cardScannerCoordinator;
     /**
      * AnchorPane that holds the right-panel card list/mosaic view. Shared across tabs.
      */
@@ -236,6 +219,9 @@ public class RealMainController {
                 () -> isMosaicMode,
                 this::getActiveMiddleTreeView,
                 this::updateTabDirtyIndicators);
+
+        // ── 3c. Camera scanner pane lifecycle + detection-to-insert handling ───
+        cardScannerCoordinator = new CardScannerCoordinator(mainTabPane, this::getActiveMiddleTreeView);
 
         // ── 4. Wire CardDetailPane action buttons ─────────────────────────────
         for (SharedCollectionTab tab : java.util.List.of(myCollectionTab, decksTab, ouicheListTab)) {
@@ -509,17 +495,21 @@ public class RealMainController {
                     evt.consume();
                 }
             });
-            sharedFilterPane.getCameraButton().setOnAction(event -> toggleCardScannerPane());
+            sharedFilterPane.getCameraButton().setOnAction(
+                    event -> cardScannerCoordinator.toggleCardScannerPane(sharedFilterPane));
         }
+
+        // The shared camera button's enabled state has to be re-set on every injection (not just
+        // the first), since it's a single instance reused across every tab, and needs to reflect
+        // whichever tab is being injected right now, not whichever was active when it was built.
+        sharedFilterPane.getCameraButton().setDisable(!cardScannerCoordinator.isCameraAvailableFor(tab.getTabType()));
 
         AnchorPane rightHeaderPane = tab.getRightHeaderPane();
         // A tab switch always lands on the ordinary filters view, even if the scanner pane was
         // left open in whichever tab it was last shown in — scanning is tied to the collection
         // you were adding to, and switching tabs makes that ambiguous. Route through the same
         // close path a manual "Close" click uses, rather than silently dropping the pane below.
-        if (rightHeaderPane.getChildren().contains(sharedCardScannerPane)) {
-            showFilterPaneInHeader(rightHeaderPane);
-        }
+        cardScannerCoordinator.closeIfOpenIn(rightHeaderPane, sharedFilterPane);
         if (!rightHeaderPane.getChildren().contains(sharedFilterPane)) {
             rightHeaderPane.getChildren().clear();
             rightHeaderPane.getChildren().add(sharedFilterPane);
@@ -550,137 +540,6 @@ public class RealMainController {
         AnchorPane.setBottomAnchor(rightContentVBox, 0.0);
         AnchorPane.setLeftAnchor(rightContentVBox, 0.0);
         AnchorPane.setRightAnchor(rightContentVBox, 0.0);
-    }
-
-    // =========================================================================
-    // Camera scanner pane
-    // =========================================================================
-
-    /**
-     * Swaps {@link #sharedCardScannerPane} in for {@link #sharedFilterPane} (or back again) in
-     * whichever tab's right-header pane currently holds one of them. No-op if neither is
-     * currently parented anywhere (shouldn't happen once {@link #injectSharedRightPanel} has
-     * run at least once, which it always has by the time this can be clicked).
-     */
-    private void toggleCardScannerPane() {
-        AnchorPane headerPane = currentRightHeaderPane();
-        if (headerPane == null) {
-            logger.warn("Camera button clicked but neither the FilterPane nor the scanner pane "
-                    + "is currently attached to a right-header pane; ignoring.");
-            return;
-        }
-        if (headerPane.getChildren().contains(sharedFilterPane)) {
-            showCardScannerPaneInHeader(headerPane);
-        } else {
-            showFilterPaneInHeader(headerPane);
-        }
-    }
-
-    /**
-     * @return the right-header pane currently holding {@link #sharedFilterPane} or
-     * {@link #sharedCardScannerPane}, whichever of the two is presently attached; {@code null}
-     * if neither is attached anywhere.
-     */
-    private AnchorPane currentRightHeaderPane() {
-        if (sharedFilterPane.getParent() instanceof AnchorPane parentPane) {
-            return parentPane;
-        }
-        if (sharedCardScannerPane != null
-                && sharedCardScannerPane.getParent() instanceof AnchorPane parentPane) {
-            return parentPane;
-        }
-        return null;
-    }
-
-    private void showCardScannerPaneInHeader(AnchorPane headerPane) {
-        if (sharedCardScannerPane == null) {
-            sharedCardScannerPane = new CardScannerPane();
-            sharedCardScannerPane.getCloseButton().setOnAction(event -> {
-                if (sharedCardScannerPane.getParent() instanceof AnchorPane currentHeaderPane) {
-                    showFilterPaneInHeader(currentHeaderPane);
-                }
-            });
-        }
-        headerPane.getChildren().clear();
-        headerPane.getChildren().add(sharedCardScannerPane);
-        AnchorPane.setTopAnchor(sharedCardScannerPane, 0.0);
-        AnchorPane.setBottomAnchor(sharedCardScannerPane, 0.0);
-        AnchorPane.setLeftAnchor(sharedCardScannerPane, 0.0);
-        AnchorPane.setRightAnchor(sharedCardScannerPane, 0.0);
-        setHeaderRowHeight(headerPane, CARD_SCANNER_HEADER_ROW_HEIGHT);
-        startCardScanner();
-    }
-
-    private void showFilterPaneInHeader(AnchorPane headerPane) {
-        stopCardScanner();
-        headerPane.getChildren().clear();
-        headerPane.getChildren().add(sharedFilterPane);
-        AnchorPane.setTopAnchor(sharedFilterPane, 0.0);
-        AnchorPane.setBottomAnchor(sharedFilterPane, 0.0);
-        AnchorPane.setLeftAnchor(sharedFilterPane, 0.0);
-        AnchorPane.setRightAnchor(sharedFilterPane, 0.0);
-        setHeaderRowHeight(headerPane, SharedCollectionTab.DEFAULT_HEADER_ROW_HEIGHT);
-    }
-
-    /**
-     * The right-header {@code AnchorPane} passed around here ({@link #sharedFilterPane}'s or
-     * {@link #sharedCardScannerPane}'s parent) is itself a child of the tab's single header
-     * {@code HBox} row, alongside the tab-specific left header — see
-     * {@code View.SharedCollectionTab#buildHeaderRow}. That row has one shared height, so
-     * growing the scanner pane taller than the filters view means growing that whole row (and
-     * with it, the left header sitting beside it) while the scanner is open, then restoring it
-     * on close.
-     */
-    private void setHeaderRowHeight(AnchorPane headerPane, double height) {
-        if (headerPane.getParent() instanceof HBox headerRow) {
-            headerRow.setPrefHeight(height);
-        }
-    }
-
-    /**
-     * Starts a fresh {@link PythonCardScannerBridge} subprocess and wires its frame/error
-     * events into {@link #sharedCardScannerPane}. Called every time the scanner pane is shown
-     * (not just the first time), matching Unit 4's "opening the pane starts the camera" rule —
-     * see {@link #activeCardScannerBridge}'s own comment for why a fresh subprocess per open,
-     * rather than one reused across opens, keeps that rule simple to guarantee.
-     */
-    private void startCardScanner() {
-        sharedCardScannerPane.resetPreview();
-        sharedCardScannerPane.setPreviewStatusText("Starting camera\u2026");
-
-        activeCardScannerBridge = new PythonCardScannerBridge(
-                sharedCardScannerPane::showPreviewFrame,
-                sharedCardScannerPane::setPreviewStatusText);
-        try {
-            activeCardScannerBridge.start();
-        } catch (IOException startupIoException) {
-            logger.error("Could not start the Python card-scanner bridge \u2014 check that Python is on "
-                    + "PATH with opencv-python installed, and that python/card_scanner_bridge.py is present "
-                    + "relative to the working directory.", startupIoException);
-            sharedCardScannerPane.setPreviewStatusText(
-                    "Could not start the camera process. See the application log for details.");
-            activeCardScannerBridge = null;
-        }
-    }
-
-    /**
-     * Stops whichever {@link PythonCardScannerBridge} subprocess is currently running, if any.
-     * No-op if the scanner wasn't open (e.g. a tab switch that happened while the ordinary
-     * filters view was already showing). The actual shutdown wait runs on a background thread,
-     * not the JavaFX application thread, since {@link PythonCardScannerBridge#close()} can
-     * block for a few seconds waiting for the sidecar to exit — blocking here would freeze the
-     * UI for that long every time the scanner pane closes.
-     */
-    private void stopCardScanner() {
-        if (activeCardScannerBridge == null) {
-            return;
-        }
-        PythonCardScannerBridge bridgeToClose = activeCardScannerBridge;
-        activeCardScannerBridge = null;
-
-        Thread shutdownThread = new Thread(bridgeToClose::close, "card-scanner-bridge-shutdown");
-        shutdownThread.setDaemon(true);
-        shutdownThread.start();
     }
 
     // =========================================================================

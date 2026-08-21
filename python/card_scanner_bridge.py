@@ -1,16 +1,26 @@
-"""Long-lived stdout-streaming sidecar for the camera card scanner's live preview.
+"""Long-lived stdout-streaming sidecar for the camera card scanner's live preview and detection.
 
-Unit 4 of the camera card-scanner feature (see docs/camera-scanner-plan.md): proves the
-Python-to-Java live video path end-to-end. This script owns the webcam directly (opens it via
-opencv-python's VideoCapture) and pushes preview frames to Java continuously and unprompted —
-no OCR or card detection here, that is a later unit's scope.
+Unit 4 of the camera card-scanner feature (see docs/camera-scanner-plan.md) proved the
+Python-to-Java live video path end-to-end with a "dumb" feed only. Unit 6 adds the actual
+detection step: a throttled subset of captured frames also gets run through OCR, and whatever
+text is read with confidence above OCR_CONFIDENCE_THRESHOLD is pushed to Java as a "detection"
+event. This script still only reports raw recognized text — resolving that text into an actual
+Card, deciding whether it's confident enough to add, and the add/lock/release debounce logic all
+live on the Java side (see Controller.CardScannerCoordinator and Model.CardScanner.
+ScanLockDebouncer) so this stays a thin, replaceable OCR sensor rather than growing its own copy
+of the app's card-matching logic.
 
 Protocol: unlike python/cardmarket_bridge.py, which is strictly request-in / response-out, this
 script's stdout is an ASYNC EVENT STREAM — one JSON object per line, pushed by this process on
 its own schedule, not in response to a specific request:
   {"type": "status", "status": "camera_opened"}
   {"type": "frame", "jpeg_base64": "<base64-encoded JPEG bytes>"}
+  {"type": "detection", "candidates": [{"text": "...", "confidence": 0.87}, ...]}
   {"type": "error", "message": "<description>"}
+A "detection" event's candidates list is ordered highest-confidence first and may be empty (a
+detection cycle ran but nothing crossed OCR_CONFIDENCE_THRESHOLD) — it is never omitted or
+skipped just because it's empty, since Java's debounce logic needs to see "nothing detected this
+cycle" as its own event, not infer it from a gap between frame events.
 Java's write side (stdin here) stays request-shaped, but one-way — no response line is paired
 with a command:
   {"action": "shutdown"}
@@ -19,12 +29,13 @@ stdin, a dedicated background thread listens for stdin commands throughout this 
 it does not read every camera frame itself (see listen_for_commands()/main() below).
 
 Same stdout-fd-corruption fix as cardmarket_bridge.py, and for the same category of reason:
-opencv-python is exactly the kind of native-backed library (camera-backend init banners, codec
-warnings) that can write straight to the real stdout file descriptor regardless of what
-sys.stdout points at in Python — see that script's own docstring for the full incident this
-was traced from. The fix has to run before the cv2 import below, for the same reason it has to
-run before cardmarket_bridge.py's seleniumbase import: once a third-party import has a chance to
-write a startup banner, it is too late to redirect it.
+opencv-python (and, as of Unit 6, rapidocr/onnxruntime) is exactly the kind of native-backed
+library (camera-backend init banners, codec warnings, ONNX Runtime session-creation logging) that
+can write straight to the real stdout file descriptor regardless of what sys.stdout points at in
+Python — see that script's own docstring for the full incident this was traced from. The fix has
+to run before the cv2 and rapidocr imports below, for the same reason it has to run before
+cardmarket_bridge.py's seleniumbase import: once a third-party import has a chance to write a
+startup banner, it is too late to redirect it.
 """
 
 import os
@@ -44,19 +55,45 @@ import threading  # noqa: E402
 import time  # noqa: E402
 
 import cv2  # noqa: E402
+from rapidocr import RapidOCR  # noqa: E402
 
 # Which OS camera device to open. Hardcoded to the default webcam for this unit — picking a
 # specific camera among several is out of scope until it's an actual problem.
 CAMERA_INDEX = 0
 
-# Preview frame rate sent to Java, independent of whatever rate a later unit's OCR/detection
-# might run at. Starting point per the project's plan doc; tune once this is actually running
-# against real hardware.
+# Preview frame rate sent to Java, independent of the detection rate below. Starting point per
+# the project's plan doc; tune once this is actually running against real hardware.
 TARGET_PREVIEW_FPS = 12
 
 # JPEG quality (0-100) for preview frames. Preview only needs to look reasonable on screen, not
 # be detection-grade, so this favors smaller/faster frames over maximum fidelity.
 JPEG_QUALITY = 70
+
+# How often OCR actually runs, independent of TARGET_PREVIEW_FPS — OCR is far slower than
+# encoding a JPEG, and running it on every previewed frame would drag preview smoothness down to
+# OCR speed. Starting value; the real bottleneck here is per-frame OCR inference time, which is
+# explicitly a Unit 7 tuning concern per the plan doc, not something to pre-optimize now.
+TARGET_DETECTION_FPS = 4
+PREVIEW_FRAMES_PER_DETECTION = max(1, round(TARGET_PREVIEW_FPS / TARGET_DETECTION_FPS))
+
+# Minimum OCR confidence (RapidOCR's own per-line score, 0-1) for a recognized text line to be
+# forwarded to Java at all. Starting value, not tuned against any real scan yet — see
+# Model.Database.CardNameIndex's own javadoc for the matching threshold on the Java side
+# (edit-distance for print codes), which has the same "needs real data to tune" caveat.
+OCR_CONFIDENCE_THRESHOLD = 0.6
+
+# Caps how many recognized lines get sent per detection cycle, so a frame full of flavor-text
+# noise doesn't turn into an oversized "candidates" array Java has to try matching one by one.
+MAX_DETECTION_CANDIDATES = 5
+
+# Constructed once, lazily, by get_ocr_engine() below and reused for the process's whole life —
+# RapidOCR() loads its models on construction (auto-downloaded to the package directory on the
+# very first run anywhere on the machine, then cached locally), which is too slow to redo on
+# every detection cycle. Stays None if construction ever fails, so detection can be cleanly
+# disabled for the session without taking the whole sidecar (and the still-working preview) down
+# with it.
+ocr_engine = None
+ocr_engine_failed = False
 
 shutdown_event = threading.Event()
 
@@ -75,6 +112,67 @@ def send_response(response_dict):
     """
     line = (json.dumps(response_dict) + "\n").encode("utf-8")
     os.write(STDOUT_FD, line)
+
+
+def get_ocr_engine():
+    """Lazily constructs and caches the module-level OCR engine on first use, so model loading
+    happens once, after the webcam is already confirmed open, rather than delaying startup (or
+    failing outright) before Java even knows the camera worked. Returns None if construction
+    fails, logging the failure once rather than retrying (and re-failing) every detection cycle.
+
+    Uses RapidOCR's default model configuration — Chinese and English text recognition, which
+    also covers accented Latin-script text (French, Spanish, German, Italian, Portuguese) at
+    reduced accuracy for the accented characters specifically, tolerable here since matching
+    on the Java side already strips diacritics before comparing (see
+    Utils.CardTextMatcher#normalizeForNameCompare / Utils.CardNameUtils#normalizeForCompare).
+    Japanese and Korean card text will not read reliably against this default configuration —
+    RapidOCR supports dedicated language packs for those (Rec.lang_type), but wiring one up needs
+    a real decision about which non-Latin languages actually matter for this collection, which is
+    a Unit 7-style follow-up rather than a default to guess at here.
+    """
+    global ocr_engine, ocr_engine_failed
+    if ocr_engine is not None or ocr_engine_failed:
+        return ocr_engine
+    try:
+        ocr_engine = RapidOCR()
+        log("OCR engine loaded.")
+    except Exception as ocr_load_error:  # noqa: BLE001 - any failure here should degrade, not crash
+        ocr_engine_failed = True
+        send_response({
+            "type": "error",
+            "message": f"Could not load the OCR engine; card detection is disabled for this "
+                       f"session, but the preview will keep working. ({ocr_load_error})",
+        })
+        log(f"Failed to load OCR engine: {ocr_load_error}")
+    return ocr_engine
+
+
+def run_detection(frame):
+    """Runs OCR on a single frame and returns the recognized text lines whose confidence clears
+    OCR_CONFIDENCE_THRESHOLD, ordered highest-confidence first and capped at
+    MAX_DETECTION_CANDIDATES. Returns an empty list (never None) if the engine isn't available or
+    nothing on the frame was read confidently — an empty result is a normal, expected outcome for
+    most detection cycles (most frames aren't holding a card up to the camera), not an error.
+    """
+    engine = get_ocr_engine()
+    if engine is None:
+        return []
+
+    try:
+        result = engine(frame)
+    except Exception as ocr_call_error:  # noqa: BLE001 - one bad frame shouldn't end detection
+        log(f"OCR call failed on a frame, skipping this detection cycle: {ocr_call_error}")
+        return []
+
+    if not result or not result.txts:
+        return []
+
+    scored_lines = [
+        (text.strip(), score) for text, score in zip(result.txts, result.scores)
+        if text and text.strip() and score >= OCR_CONFIDENCE_THRESHOLD
+    ]
+    scored_lines.sort(key=lambda scored_line: scored_line[1], reverse=True)
+    return scored_lines[:MAX_DETECTION_CANDIDATES]
 
 
 def listen_for_commands():
@@ -116,8 +214,14 @@ def stream_preview_frames(capture):
     event, until shutdown_event is set. A per-frame failed read is reported as a non-fatal
     "error" event and skipped, rather than treated as a reason to stop the whole stream — a
     single dropped frame (camera momentarily busy, a driver hiccup) shouldn't end the session.
+
+    Every PREVIEW_FRAMES_PER_DETECTION-th captured frame also gets run through OCR and sent as a
+    "detection" event, in addition to (not instead of) that frame's ordinary "frame" event — see
+    TARGET_DETECTION_FPS's own comment for why this runs at a separate, slower cadence than
+    preview.
     """
     frame_interval_seconds = 1.0 / TARGET_PREVIEW_FPS
+    frames_since_last_detection = 0
 
     while not shutdown_event.is_set():
         frame_start_time = time.time()
@@ -135,6 +239,17 @@ def stream_preview_frames(capture):
 
         jpeg_base64 = base64.b64encode(jpeg_bytes).decode("ascii")
         send_response({"type": "frame", "jpeg_base64": jpeg_base64})
+
+        frames_since_last_detection += 1
+        if frames_since_last_detection >= PREVIEW_FRAMES_PER_DETECTION:
+            frames_since_last_detection = 0
+            scored_candidates = run_detection(frame)
+            send_response({
+                "type": "detection",
+                "candidates": [
+                    {"text": text, "confidence": score} for text, score in scored_candidates
+                ],
+            })
 
         elapsed_seconds = time.time() - frame_start_time
         remaining_seconds = frame_interval_seconds - elapsed_seconds

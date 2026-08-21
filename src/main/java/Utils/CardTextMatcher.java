@@ -1,15 +1,15 @@
 package Utils;
 
 import Model.CardsLists.Card;
+import Model.Database.CardDatabaseManager;
+import Model.Database.CardNameIndex;
 import Model.Database.Database;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URISyntaxException;
 import java.text.Normalizer;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.regex.Pattern;
 
 /**
@@ -17,32 +17,47 @@ import java.util.regex.Pattern;
  * into a {@link Card} from the loaded card database.
  *
  * <p>This is the bridge between "some text was read off a card" and this
- * project's actual card model — it does not perform OCR itself. Matching is
- * tried in priority order against the fields that are cheapest and least
- * ambiguous to recognize first:
+ * project's actual card model — it does not perform OCR itself. Two entry
+ * points cover the two shapes a detection can arrive in:
+ * <ul>
+ *   <li>{@link #matchText(String)} — one known-field string (e.g. the
+ *       caller already knows it's trying a pass code). Matching is exact
+ *       after normalization, with no fuzzy/edit-distance fallback — the
+ *       original Unit 5 tier order below.</li>
+ *   <li>{@link #matchCandidates(List)} — several OCR candidate lines from
+ *       one detection cycle, when the caller doesn't know which line (if
+ *       any) is the name vs. the print code. Tries every candidate through
+ *       {@link #matchText} first, then falls back to
+ *       {@link Model.Database.CardNameIndex}-backed multi-language name
+ *       matching with edit-distance-tolerant print-code narrowing — see
+ *       {@link #matchByFuzzyNameAndPrintCode} for the full tier.</li>
+ * </ul>
+ * Both share the same priority order against the fields that are cheapest
+ * and least ambiguous to recognize first:
  * <ol>
  *   <li>Pass code — the printed 6-8 digit card number</li>
  *   <li>Print code — the printed set code, e.g. {@code "LOB-EN001"}</li>
  *   <li>Card name — checked against every language {@link Card} declares
  *       (English, French, Japanese, Spanish, German, Italian, Chinese,
- *       Korean, Portuguese). Only English, French, and Japanese are actually
- *       populated by {@link Database} today — see {@link #findByName} for
- *       details — but all nine are checked so this stays correct without
- *       changes if that ever expands.</li>
+ *       Korean, Portuguese) — see {@link #findByName} for exactly which of
+ *       those the live database actually populates today.</li>
  * </ol>
- *
- * <p>Matching within each tier is an exact match after normalization
- * (case-insensitive and diacritic-insensitive for names; whitespace-stripped
- * and uppercased for codes). There is deliberately no fuzzy/edit-distance
- * fallback here — the right tolerance for OCR noise depends on which OCR
- * library ends up chosen and what its actual error patterns look like, and
- * guessing a threshold now would mean tuning it against nothing.
  */
 public final class CardTextMatcher {
 
     private static final Logger logger = LoggerFactory.getLogger(CardTextMatcher.class);
 
     private static final Pattern PASS_CODE_PATTERN = Pattern.compile("\\d{6,8}");
+
+    /**
+     * Starting-value tolerance for {@link #matchByFuzzyNameAndPrintCode}'s print-code narrowing
+     * step — how far (in {@link CardNameIndex#levenshteinDistance}, on normalized text) a
+     * candidate's closest valid print code is allowed to be and still count as a confident match.
+     * Not tuned against any real scan yet, same caveat as {@code card_scanner_bridge.py}'s own
+     * {@code OCR_CONFIDENCE_THRESHOLD} — see {@link CardNameIndex#matchPrintCode} for why this is
+     * deliberately left to the caller rather than fixed inside that method.
+     */
+    private static final int PRINT_CODE_MAX_EDIT_DISTANCE = 2;
 
     private CardTextMatcher() {
     }
@@ -66,6 +81,34 @@ public final class CardTextMatcher {
             return Optional.empty();
         }
 
+        Optional<MatchResult> codeMatch = matchExactCode(trimmed);
+        if (codeMatch.isPresent()) {
+            return codeMatch;
+        }
+
+        Optional<Card> nameMatch = findByName(trimmed);
+        if (nameMatch.isPresent()) {
+            MatchResult result = new MatchResult(nameMatch.get(), MatchField.NAME);
+            logMatch(trimmed, result);
+            return Optional.of(result);
+        }
+
+        logger.debug("No card match found for recognized text \"{}\"", trimmed);
+        return Optional.empty();
+    }
+
+    /**
+     * The pass-code and print-code tiers of {@link #matchText}, split out so
+     * {@link #matchCandidates} can run these two unambiguous, code-shaped tiers across every
+     * candidate in a detection cycle before attempting any name-based resolution. Without this
+     * split, a candidate that happens to be a readable card name would win via {@link #findByName}
+     * before a *different* candidate that's a print code ever got a chance to narrow the result
+     * to the correct artwork — {@link #matchText} itself doesn't need to care about that, since
+     * it only ever sees one string at a time, but {@link #matchCandidates} does.
+     *
+     * @param trimmed already-trimmed, non-blank text
+     */
+    private static Optional<MatchResult> matchExactCode(String trimmed) {
         String codeCandidate = trimmed.toUpperCase(Locale.ROOT).replaceAll("\\s+", "");
 
         if (PASS_CODE_PATTERN.matcher(codeCandidate).matches()) {
@@ -83,16 +126,166 @@ public final class CardTextMatcher {
             logMatch(trimmed, result);
             return Optional.of(result);
         }
+        return Optional.empty();
+    }
 
-        Optional<Card> nameMatch = findByName(trimmed);
-        if (nameMatch.isPresent()) {
-            MatchResult result = new MatchResult(nameMatch.get(), MatchField.NAME);
-            logMatch(trimmed, result);
-            return Optional.of(result);
+    /**
+     * Resolves a whole detection cycle's worth of OCR candidate lines into a {@link Card} —
+     * Unit 6's entry point, used instead of {@link #matchText(String)} when the caller has
+     * several recognized lines from one frame (name, print code, pass code may each land as a
+     * separate line) rather than a single known-field string.
+     *
+     * <p>Priority order, across *all* candidates at each tier before moving to the next — not
+     * per-candidate in isolation, which matters: a name candidate that already resolves to some
+     * card must not win before a print-code candidate elsewhere in the same cycle gets a chance
+     * to narrow that name down to the specific artwork actually in frame.
+     * <ol>
+     *   <li>{@link #matchExactCode} on every candidate — a real, exact pass code or print code
+     *       needs no narrowing, so this wins outright wherever it's found.</li>
+     *   <li>{@link #matchByFuzzyNameAndPrintCode} — an exact name match (via
+     *       {@link CardNameIndex}, covering languages {@link #findByName} still can't) narrowed
+     *       by an edit-distance-tolerant print-code read from another candidate in the same
+     *       cycle, falling back to a representative card (or {@link #findByName}'s own linear
+     *       scan) only once no candidate narrows it.</li>
+     * </ol>
+     *
+     * @param recognizedCandidates OCR candidate lines for one detection cycle, ideally ordered
+     *                             highest-confidence first (though this method doesn't require
+     *                             that ordering — every candidate is tried at each tier); may be
+     *                             {@code null} or empty
+     * @return the matched card and how it was resolved, or {@link Optional#empty()} if nothing
+     * in the database matches any candidate
+     */
+    public static Optional<MatchResult> matchCandidates(List<String> recognizedCandidates) {
+        if (recognizedCandidates == null || recognizedCandidates.isEmpty()) {
+            return Optional.empty();
         }
 
-        logger.debug("No card match found for recognized text \"{}\"", trimmed);
+        for (String candidate : recognizedCandidates) {
+            if (candidate == null) {
+                continue;
+            }
+            String trimmed = candidate.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            Optional<MatchResult> codeMatch = matchExactCode(trimmed);
+            if (codeMatch.isPresent()) {
+                return codeMatch;
+            }
+        }
+
+        return matchByFuzzyNameAndPrintCode(recognizedCandidates);
+    }
+
+    /**
+     * The name-based fallback tier for {@link #matchCandidates}, reached only once no candidate
+     * in the cycle resolved via {@link #matchExactCode}. Tries each candidate as a name via
+     * {@link CardNameIndex#getKonamiIdsForName(String)}, skipping any candidate that resolves to
+     * zero or more-than-one Konami ID — an empty result means it just isn't a name, and more
+     * than one means a genuine cross-language collision that {@link CardNameIndex}'s own javadoc
+     * says needs manual confirmation rather than a silent guess, which this method has no way to
+     * ask for, so it moves on to the next candidate instead of picking one.
+     *
+     * <p>Once exactly one Konami ID is found, tries to narrow it to a specific print/artwork via
+     * {@link #tryNarrowByPrintCode} using every other candidate from the same cycle, before
+     * falling back to a representative card for that Konami ID via
+     * {@link #findRepresentativeCard} — the same "pick the card the primary artwork's pass code
+     * points to" resolution {@link Database} itself already uses when building
+     * {@link Database#getAllPrintedCardsList()}. Only once no candidate resolves a Konami ID at
+     * all does this fall further back to {@link #findByName}'s own linear scan, as a last resort
+     * for a name that exists as a live {@link Card} object but isn't reachable via
+     * {@link CardNameIndex} (e.g. a gap between its data source and {@link Database}'s).
+     */
+    private static Optional<MatchResult> matchByFuzzyNameAndPrintCode(List<String> recognizedCandidates) {
+        for (String nameCandidate : recognizedCandidates) {
+            Set<Integer> konamiIds = CardNameIndex.getKonamiIdsForName(nameCandidate);
+            if (konamiIds.size() != 1) {
+                continue;
+            }
+            Integer konamiId = konamiIds.iterator().next();
+
+            Optional<MatchResult> printCodeNarrowed =
+                    tryNarrowByPrintCode(konamiId, nameCandidate, recognizedCandidates);
+            if (printCodeNarrowed.isPresent()) {
+                return printCodeNarrowed;
+            }
+
+            Optional<Card> representativeCard = findRepresentativeCard(konamiId);
+            if (representativeCard.isPresent()) {
+                MatchResult result = new MatchResult(representativeCard.get(), MatchField.NAME);
+                logMatch(nameCandidate, result);
+                return Optional.of(result);
+            }
+        }
+
+        for (String nameCandidate : recognizedCandidates) {
+            Optional<Card> nameMatch = findByName(nameCandidate);
+            if (nameMatch.isPresent()) {
+                MatchResult result = new MatchResult(nameMatch.get(), MatchField.NAME);
+                logMatch(nameCandidate, result);
+                return Optional.of(result);
+            }
+        }
         return Optional.empty();
+    }
+
+    /**
+     * Tries to narrow {@code konamiId} to one specific print code by running every candidate
+     * other than {@code nameCandidate} itself through {@link CardNameIndex#matchPrintCode},
+     * keeping whichever produces the closest (lowest edit-distance) match across all of them.
+     *
+     * @return a {@link MatchResult} resolved via {@link Database#getAllPrintedCardsList()} if
+     * the closest match is within {@link #PRINT_CODE_MAX_EDIT_DISTANCE}, otherwise empty
+     */
+    private static Optional<MatchResult> tryNarrowByPrintCode(
+
+            Integer konamiId, String nameCandidate, List<String> recognizedCandidates) {
+        try {
+            CardNameIndex.PrintCodeMatch bestMatch = null;
+            for (String otherCandidate : recognizedCandidates) {
+                if (otherCandidate.equals(nameCandidate)) {
+                    continue;
+                }
+                List<CardNameIndex.PrintCodeMatch> matches =
+                        CardNameIndex.matchPrintCode(otherCandidate, Set.of(konamiId));
+                if (!matches.isEmpty()
+                        && (bestMatch == null || matches.get(0).getEditDistance() < bestMatch.getEditDistance())) {
+                    bestMatch = matches.get(0);
+                }
+            }
+            if (bestMatch == null || bestMatch.getEditDistance() > PRINT_CODE_MAX_EDIT_DISTANCE) {
+                return Optional.empty();
+            }
+            Card printedCard = Database.getAllPrintedCardsList().get(bestMatch.getPrintCode());
+            if (printedCard == null) {
+                return Optional.empty();
+            }
+            MatchResult result = new MatchResult(printedCard, MatchField.NAME_AND_PRINT_CODE);
+            logMatch(nameCandidate + " + " + bestMatch.getPrintCode(), result);
+            return Optional.of(result);
+        } catch (URISyntaxException uriSyntaxException) {
+            throw new RuntimeException(uriSyntaxException);
+        }
+    }
+
+    /**
+     * Resolves a Konami ID to a representative {@link Card} when no print code narrowed it to a
+     * specific artwork — the same primary-artwork lookup chain
+     * {@code Database#createAllPrintedCardsList} already uses internally (Konami ID to pass
+     * code via {@link CardDatabaseManager#getKonamiIdToPassCode()}, then pass code to
+     * {@link Card} via {@link Database#getAllCardsList()}), reused here rather than duplicated.
+     */
+    private static Optional<Card> findRepresentativeCard(Integer konamiId) {
+        try {
+            Integer representativePassCode = CardDatabaseManager.getKonamiIdToPassCode().get(konamiId);
+            if (representativePassCode == null) {
+                return Optional.empty();
+            }
+            return Optional.ofNullable(Database.getAllCardsList().get(representativePassCode));
+        } catch (Exception exception) {
+            throw new RuntimeException(exception);
+        }
     }
 
     /**
@@ -148,19 +341,19 @@ public final class CardTextMatcher {
 
     /**
      * Looks up a card by exact name (case-insensitive, diacritic-insensitive)
-     * against every language name field {@link Card} declares.
+     * against every language name field {@link Card} declares, via a linear
+     * scan over {@link Database#getAllCardsList()}.
      * <p>
-     * Only {@code name_EN}, {@code name_FR}, and {@code name_JA} are ever set
-     * today — {@code addresses.json} only wires up English, French, and
-     * Japanese name indexes ({@code en.json}/{@code fr.json}/{@code ja.json}
-     * from ygoresources.com), so {@code name_ES}, {@code name_DE},
-     * {@code name_IT}, {@code name_CN}, {@code name_KR}, and {@code name_PT}
-     * are always {@code null} on every loaded card at present; there is no
-     * data source for those languages in the project yet, so those six
-     * branches are inert until one is added. All nine are still checked here
-     * so this method doesn't need to change if that data source ever shows
-     * up — {@link #normalizeForNameCompare} returns {@code ""} for a
-     * {@code null} field, which never matches a non-empty target.
+     * {@code name_CN} has no data source in this project yet (nothing populates
+     * it in {@link Database#createAllCardsList}) so that branch stays inert;
+     * the other eight are all populated today. This method intentionally stays
+     * a linear scan over live {@link Card} objects rather than switching to
+     * {@link Model.Database.CardNameIndex}'s faster Konami-ID-keyed lookup,
+     * so it keeps resolving cards that only exist as live objects in
+     * {@link Database#getAllCardsList()} (as opposed to a Konami ID in
+     * {@link Model.Database.KonamiIdToNames}) — {@link #matchCandidates}'s
+     * fuzzy fallback tier is where {@link Model.Database.CardNameIndex}
+     * actually gets used, precisely because it doesn't need that.
      * </p>
      *
      * @param rawName the candidate name, not yet normalized
@@ -226,7 +419,13 @@ public final class CardTextMatcher {
     public enum MatchField {
         PASS_CODE,
         PRINT_CODE,
-        NAME
+        NAME,
+        /**
+         * Resolved via {@link #matchByFuzzyNameAndPrintCode}: an exact name match narrowed to a
+         * specific print/artwork by an edit-distance-tolerant print-code match on a separate
+         * candidate line, rather than either exact tier in {@link #matchText}.
+         */
+        NAME_AND_PRINT_CODE
     }
 
     /**
