@@ -4,12 +4,14 @@ import Model.CardsLists.Card;
 import Model.Database.CardDatabaseManager;
 import Model.Database.CardNameIndex;
 import Model.Database.Database;
+import Model.Database.PrintCodeToKonamiId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URISyntaxException;
 import java.text.Normalizer;
 import java.util.*;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -42,6 +44,19 @@ import java.util.regex.Pattern;
  *       Korean, Portuguese) — see {@link #findByName} for exactly which of
  *       those the live database actually populates today.</li>
  * </ol>
+ *
+ * <p><b>Unit 7:</b> a pass code or a card name only ever identifies a card's
+ * <em>Konami ID</em>, not one specific printing — {@link Database#getAllCardsList()}
+ * holds one entry per artwork with {@link Card#getPrintCode()} never set, so handing
+ * back whichever entry {@link #findByPassCode} or {@link #findByName} happened to scan
+ * first was silently picking an arbitrary artwork with no print code at all. Both tiers
+ * now resolve through {@link #resolveKonamiId}, which checks how many print codes
+ * {@link PrintCodeToKonamiId} actually knows for that Konami ID: one means an
+ * unambiguous {@link MatchResult} resolved via {@link Database#getAllPrintedCardsList()}
+ * (which does set the print code correctly); more than one means a {@link CardCandidates}
+ * for the caller to choose among instead of guessing. Every public entry point below
+ * therefore returns an {@link Optional} of the {@link Resolution} marker interface rather
+ * than {@link MatchResult} directly.
  */
 public final class CardTextMatcher {
 
@@ -59,6 +74,12 @@ public final class CardTextMatcher {
      */
     private static final int PRINT_CODE_MAX_EDIT_DISTANCE = 2;
 
+    /**
+     * Matches the leading letters of a print code's segment after its last hyphen, up to (not
+     * including) its first digit — see {@link #parseLanguageFromPrintCode} for how this is used.
+     */
+    private static final Pattern PRINT_CODE_LANGUAGE_PATTERN = Pattern.compile("^([A-Za-z]+)\\d");
+
     private CardTextMatcher() {
     }
 
@@ -69,10 +90,11 @@ public final class CardTextMatcher {
      *
      * @param recognizedText the raw text recognized off a card (may be
      *                       {@code null} or blank)
-     * @return the matched card and which field it matched on, or
-     * {@link Optional#empty()} if nothing in the database matches
+     * @return the matched card and which field it matched on, or a
+     * {@link CardCandidates} if it narrows to a Konami ID with more than one valid
+     * printing, or {@link Optional#empty()} if nothing in the database matches
      */
-    public static Optional<MatchResult> matchText(String recognizedText) {
+    public static Optional<Resolution> matchText(String recognizedText) {
         if (recognizedText == null) {
             return Optional.empty();
         }
@@ -81,16 +103,15 @@ public final class CardTextMatcher {
             return Optional.empty();
         }
 
-        Optional<MatchResult> codeMatch = matchExactCode(trimmed);
+        Optional<Resolution> codeMatch = matchExactCode(trimmed);
         if (codeMatch.isPresent()) {
             return codeMatch;
         }
 
         Optional<Card> nameMatch = findByName(trimmed);
         if (nameMatch.isPresent()) {
-            MatchResult result = new MatchResult(nameMatch.get(), MatchField.NAME);
-            logMatch(trimmed, result);
-            return Optional.of(result);
+            Card matchedCard = nameMatch.get();
+            return resolveKonamiId(parseKonamiId(matchedCard.getKonamiId()), matchedCard, MatchField.NAME, trimmed);
         }
 
         logger.debug("No card match found for recognized text \"{}\"", trimmed);
@@ -108,15 +129,15 @@ public final class CardTextMatcher {
      *
      * @param trimmed already-trimmed, non-blank text
      */
-    private static Optional<MatchResult> matchExactCode(String trimmed) {
+    private static Optional<Resolution> matchExactCode(String trimmed) {
         String codeCandidate = trimmed.toUpperCase(Locale.ROOT).replaceAll("\\s+", "");
 
         if (PASS_CODE_PATTERN.matcher(codeCandidate).matches()) {
             Optional<Card> passCodeMatch = findByPassCode(codeCandidate);
             if (passCodeMatch.isPresent()) {
-                MatchResult result = new MatchResult(passCodeMatch.get(), MatchField.PASS_CODE);
-                logMatch(trimmed, result);
-                return Optional.of(result);
+                Card matchedCard = passCodeMatch.get();
+                return resolveKonamiId(
+                        parseKonamiId(matchedCard.getKonamiId()), matchedCard, MatchField.PASS_CODE, trimmed);
             }
         }
 
@@ -124,7 +145,8 @@ public final class CardTextMatcher {
         if (printCodeMatch.isPresent()) {
             MatchResult result = new MatchResult(printCodeMatch.get(), MatchField.PRINT_CODE);
             logMatch(trimmed, result);
-            return Optional.of(result);
+            Resolution resolution = result;
+            return Optional.of(resolution);
         }
         return Optional.empty();
     }
@@ -153,10 +175,11 @@ public final class CardTextMatcher {
      *                             highest-confidence first (though this method doesn't require
      *                             that ordering — every candidate is tried at each tier); may be
      *                             {@code null} or empty
-     * @return the matched card and how it was resolved, or {@link Optional#empty()} if nothing
+     * @return the matched card and how it was resolved, a {@link CardCandidates} if it narrows
+     * to a Konami ID with more than one valid printing, or {@link Optional#empty()} if nothing
      * in the database matches any candidate
      */
-    public static Optional<MatchResult> matchCandidates(List<String> recognizedCandidates) {
+    public static Optional<Resolution> matchCandidates(List<String> recognizedCandidates) {
         if (recognizedCandidates == null || recognizedCandidates.isEmpty()) {
             return Optional.empty();
         }
@@ -169,7 +192,7 @@ public final class CardTextMatcher {
             if (trimmed.isEmpty()) {
                 continue;
             }
-            Optional<MatchResult> codeMatch = matchExactCode(trimmed);
+            Optional<Resolution> codeMatch = matchExactCode(trimmed);
             if (codeMatch.isPresent()) {
                 return codeMatch;
             }
@@ -197,7 +220,7 @@ public final class CardTextMatcher {
      * for a name that exists as a live {@link Card} object but isn't reachable via
      * {@link CardNameIndex} (e.g. a gap between its data source and {@link Database}'s).
      */
-    private static Optional<MatchResult> matchByFuzzyNameAndPrintCode(List<String> recognizedCandidates) {
+    private static Optional<Resolution> matchByFuzzyNameAndPrintCode(List<String> recognizedCandidates) {
         for (String nameCandidate : recognizedCandidates) {
             Set<Integer> konamiIds = CardNameIndex.getKonamiIdsForName(nameCandidate);
             if (konamiIds.size() != 1) {
@@ -208,23 +231,22 @@ public final class CardTextMatcher {
             Optional<MatchResult> printCodeNarrowed =
                     tryNarrowByPrintCode(konamiId, nameCandidate, recognizedCandidates);
             if (printCodeNarrowed.isPresent()) {
-                return printCodeNarrowed;
+                Resolution resolution = printCodeNarrowed.get();
+                return Optional.of(resolution);
             }
 
             Optional<Card> representativeCard = findRepresentativeCard(konamiId);
             if (representativeCard.isPresent()) {
-                MatchResult result = new MatchResult(representativeCard.get(), MatchField.NAME);
-                logMatch(nameCandidate, result);
-                return Optional.of(result);
+                return resolveKonamiId(konamiId, representativeCard.get(), MatchField.NAME, nameCandidate);
             }
         }
 
         for (String nameCandidate : recognizedCandidates) {
             Optional<Card> nameMatch = findByName(nameCandidate);
             if (nameMatch.isPresent()) {
-                MatchResult result = new MatchResult(nameMatch.get(), MatchField.NAME);
-                logMatch(nameCandidate, result);
-                return Optional.of(result);
+                Card matchedCard = nameMatch.get();
+                return resolveKonamiId(
+                        parseKonamiId(matchedCard.getKonamiId()), matchedCard, MatchField.NAME, nameCandidate);
             }
         }
         return Optional.empty();
@@ -289,12 +311,140 @@ public final class CardTextMatcher {
     }
 
     /**
+     * Unit 7's fix, shared by every tier that identifies a Konami ID via an exact pass-code or
+     * name match: rather than handing {@code fallbackCard} straight back (an arbitrary, printCode
+     * -less artwork straight out of {@link Database#getAllCardsList()}), checks how many print
+     * codes {@link PrintCodeToKonamiId} actually knows are valid for {@code konamiId} and resolves
+     * accordingly:
+     * <ul>
+     *   <li>none known — falls back to {@code fallbackCard} unchanged, the same degraded-but-
+     *       working behavior as before this unit, for names/pass codes not yet covered by the
+     *       ygoresources print-code data;</li>
+     *   <li>exactly one — resolved unambiguously through
+     *       {@link Database#getAllPrintedCardsList()}, which does set the print code correctly;</li>
+     *   <li>more than one — returns a {@link CardCandidates} instead of guessing, for the caller
+     *       to render (Units 8/9) or, until then, simply report as ambiguous.</li>
+     * </ul>
+     *
+     * @param konamiId     the already-identified Konami ID, or {@code null} if the matched card
+     *                     has none — falls back to {@code fallbackCard} unchanged in that case too
+     * @param fallbackCard the card originally matched via {@link #findByPassCode},
+     *                     {@link #findByName}, or {@link #findRepresentativeCard}
+     * @param matchedField which field the original match came through
+     * @param matchedText  the original recognized text, for logging only
+     */
+    private static Optional<Resolution> resolveKonamiId(
+            Integer konamiId, Card fallbackCard, MatchField matchedField, String matchedText) {
+        if (konamiId == null) {
+            return Optional.of(wrapAsMatch(fallbackCard, matchedField, matchedText));
+        }
+        try {
+            List<String> validPrintCodes = PrintCodeToKonamiId.getKonamiIdToPrintCodes().get(String.valueOf(konamiId));
+            if (validPrintCodes == null || validPrintCodes.isEmpty()) {
+                return Optional.of(wrapAsMatch(fallbackCard, matchedField, matchedText));
+            }
+            if (validPrintCodes.size() == 1) {
+                Card printedCard = Database.getAllPrintedCardsList().get(validPrintCodes.get(0));
+                return Optional.of(wrapAsMatch(printedCard != null ? printedCard : fallbackCard, matchedField, matchedText));
+            }
+            return Optional.of(buildCardCandidates(konamiId, validPrintCodes, matchedField, matchedText));
+        } catch (Exception exception) {
+            throw new RuntimeException(exception);
+        }
+    }
+
+    /**
+     * Wraps {@code card} as a confident {@link MatchResult}, logging it the same way every other
+     * confident match already does.
+     */
+    private static MatchResult wrapAsMatch(Card card, MatchField matchedField, String matchedText) {
+        MatchResult result = new MatchResult(card, matchedField);
+        logMatch(matchedText, result);
+        return result;
+    }
+
+    /**
+     * Builds a {@link CardCandidates} for a Konami ID with more than one valid print code: every
+     * print code from {@code validPrintCodes} (tagged with a best-effort parsed language via
+     * {@link #parseLanguageFromPrintCode}), plus every artwork variant via
+     * {@link CardDatabaseManager#getAliasCards(int)} — both pieces already existed and are already
+     * used elsewhere in the app (the fuzzy print-code tier and {@code View.CardEditPopup}'s
+     * artwork picker, respectively), so this just wires them together for a caller to render.
+     */
+    private static CardCandidates buildCardCandidates(
+            Integer konamiId, List<String> validPrintCodes, MatchField matchedField, String matchedText)
+            throws Exception {
+        List<CardCandidates.PrintCodeOption> printCodeOptions = new ArrayList<>();
+        for (String printCode : validPrintCodes) {
+            printCodeOptions.add(new CardCandidates.PrintCodeOption(printCode, parseLanguageFromPrintCode(printCode)));
+        }
+
+        Integer representativePassCode = CardDatabaseManager.getKonamiIdToPassCode().get(konamiId);
+        List<Card> artworkOptions = representativePassCode != null
+                ? CardDatabaseManager.getAliasCards(representativePassCode)
+                : List.of();
+
+        logger.debug("Recognized text \"{}\" narrowed to Konami ID {} with {} possible printings; "
+                        + "deferring the exact print/artwork choice to the caller",
+                matchedText, konamiId, printCodeOptions.size());
+        return new CardCandidates(konamiId, matchedField, printCodeOptions, artworkOptions);
+    }
+
+    /**
+     * Parses a {@link Card#getKonamiId()} string into an {@link Integer}, or {@code null} if it's
+     * absent or not a valid number — a card resolved via {@link #findByPassCode} or
+     * {@link #findByName} isn't guaranteed to have one (e.g. not yet completed in
+     * {@link CardDatabaseManager}), and {@link #resolveKonamiId} treats that the same as "no
+     * Konami ID" rather than throwing.
+     */
+    private static Integer parseKonamiId(String rawKonamiId) {
+        if (rawKonamiId == null) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(rawKonamiId);
+        } catch (NumberFormatException numberFormatException) {
+            return null;
+        }
+    }
+
+    /**
+     * Best-effort language extraction from a print code string, e.g. {@code "LOB-EN001"} to
+     * {@code "EN"} — the letters immediately after the last hyphen and before the trailing digit
+     * run. {@link CardNameIndex} merges every language into one name lookup with no language tag
+     * of its own to reuse instead, so this parses it straight out of the print code's shape rather
+     * than tracking which language the OCR side actually saw (deferred to a later unit — see the
+     * class javadoc).
+     *
+     * @param printCode the print code to parse, exactly as stored (e.g. from
+     *                  {@link PrintCodeToKonamiId#getKonamiIdToPrintCodes()})
+     * @return the parsed language segment, uppercased, or {@code null} if the print code's shape
+     * didn't match (no hyphen, or no letters before a digit run after it)
+     */
+    private static String parseLanguageFromPrintCode(String printCode) {
+        if (printCode == null) {
+            return null;
+        }
+        int lastHyphenIndex = printCode.lastIndexOf('-');
+        if (lastHyphenIndex < 0 || lastHyphenIndex == printCode.length() - 1) {
+            return null;
+        }
+        Matcher languageMatcher = PRINT_CODE_LANGUAGE_PATTERN.matcher(printCode.substring(lastHyphenIndex + 1));
+        return languageMatcher.find() ? languageMatcher.group(1).toUpperCase(Locale.ROOT) : null;
+    }
+
+    /**
      * Looks up a card by exact pass code among all loaded cards.
      * <p>
      * {@link Database#getAllCardsList()} is keyed by card-image id, not by
      * pass code, so this is a linear scan rather than a map lookup — the same
      * cost {@code Controller.CardFilterMatcher} already pays scanning the
      * same ~22,000-card list on every filter keystroke.
+     * </p>
+     * <p>
+     * A pass code is shared across every reprint and artwork of a card, so the returned
+     * {@link Card} is just whichever one this scan hits first — never hand it straight back to a
+     * caller; every current caller routes it through {@link #resolveKonamiId} instead.
      * </p>
      *
      * @param normalizedPassCode the candidate pass code, digits only
@@ -355,6 +505,12 @@ public final class CardTextMatcher {
      * fuzzy fallback tier is where {@link Model.Database.CardNameIndex}
      * actually gets used, precisely because it doesn't need that.
      * </p>
+     * <p>
+     * {@link Database#getAllCardsList()} holds one entry per artwork sharing the same name, so
+     * the returned {@link Card} is just whichever artwork this scan hits first — never hand it
+     * straight back to a caller; every current caller routes it through {@link #resolveKonamiId}
+     * instead.
+     * </p>
      *
      * @param rawName the candidate name, not yet normalized
      * @return the matching card, or empty if no card has this name
@@ -414,7 +570,11 @@ public final class CardTextMatcher {
     }
 
     /**
-     * Which field a {@link MatchResult} was resolved through.
+     * Which field a {@link Resolution} — either a {@link MatchResult} or a
+     * {@link CardCandidates} — was resolved through. {@link #PRINT_CODE} and
+     * {@link #NAME_AND_PRINT_CODE} are always unambiguous and so never appear on a
+     * {@link CardCandidates}; {@link #PASS_CODE} and {@link #NAME} can go either way, depending
+     * on how many print codes {@link #resolveKonamiId} finds for the underlying Konami ID.
      */
     public enum MatchField {
         PASS_CODE,
@@ -429,9 +589,23 @@ public final class CardTextMatcher {
     }
 
     /**
-     * A successful text-to-card resolution.
+     * A resolved detection: either a confident {@link MatchResult}, or — when an exact pass-code
+     * or name match narrows a card down to a Konami ID with more than one valid printing — a
+     * {@link CardCandidates} for the caller to choose among instead of guessing. See the class
+     * javadoc's "Unit 7" note and {@link #resolveKonamiId} for why this split exists.
      */
-    public static final class MatchResult {
+    public sealed interface Resolution {
+        /**
+         * @return which recognized field (pass code, print code, or name) produced this
+         * resolution
+         */
+        MatchField getMatchedField();
+    }
+
+    /**
+     * A successful, unambiguous text-to-card resolution.
+     */
+    public static final class MatchResult implements Resolution {
         private final Card card;
         private final MatchField matchedField;
 
@@ -447,11 +621,104 @@ public final class CardTextMatcher {
             return card;
         }
 
-        /**
-         * @return which field (pass code, print code, or name) produced the match
-         */
+        @Override
         public MatchField getMatchedField() {
             return matchedField;
+        }
+    }
+
+    /**
+     * Every print code and artwork variant valid for a Konami ID that an exact pass-code or name
+     * match narrowed down to, when more than one exists and neither {@link #matchText} nor
+     * {@link #matchCandidates} can narrow it any further on their own. A future unit's UI can
+     * render {@link #getPrintCodeOptions()} and {@link #getArtworkOptions()} as buttons for the
+     * user to pick between; until then, a caller can treat receiving one of these as "ambiguous,
+     * needs a person" and report accordingly rather than inserting anything.
+     */
+    public static final class CardCandidates implements Resolution {
+        private final int konamiId;
+        private final MatchField matchedField;
+        private final List<PrintCodeOption> printCodeOptions;
+        private final List<Card> artworkOptions;
+
+        CardCandidates(int konamiId, MatchField matchedField,
+                       List<PrintCodeOption> printCodeOptions, List<Card> artworkOptions) {
+            this.konamiId = konamiId;
+            this.matchedField = matchedField;
+            this.printCodeOptions = List.copyOf(printCodeOptions);
+            this.artworkOptions = List.copyOf(artworkOptions);
+        }
+
+        /**
+         * @return the Konami ID every candidate below belongs to
+         */
+        public int getKonamiId() {
+            return konamiId;
+        }
+
+        @Override
+        public MatchField getMatchedField() {
+            return matchedField;
+        }
+
+        /**
+         * @return every print code valid for {@link #getKonamiId()}, each tagged with a
+         * best-effort parsed language (see {@link #parseLanguageFromPrintCode}); never empty,
+         * since {@link #resolveKonamiId} only builds a {@link CardCandidates} when there are at
+         * least two
+         */
+        public List<PrintCodeOption> getPrintCodeOptions() {
+            return printCodeOptions;
+        }
+
+        /**
+         * @return every artwork variant for {@link #getKonamiId()}, via
+         * {@link CardDatabaseManager#getAliasCards(int)}; possibly empty if the Konami ID
+         * couldn't be resolved back to a pass code
+         */
+        public List<Card> getArtworkOptions() {
+            return artworkOptions;
+        }
+
+        /**
+         * A display name for feedback or logging, taken from the first artwork option — {@code
+         * null} only if {@link #getArtworkOptions()} came back empty, which would itself point to
+         * a deeper database inconsistency worth investigating separately.
+         *
+         * @return a display name for these candidates, or {@code null}
+         */
+        public String getDisplayName() {
+            return artworkOptions.isEmpty() ? null : artworkOptions.get(0).getNameOrNumber();
+        }
+
+        /**
+         * One print code valid for a {@link CardCandidates}' Konami ID, tagged with a
+         * best-effort parsed language.
+         */
+        public static final class PrintCodeOption {
+            private final String printCode;
+            private final String language;
+
+            PrintCodeOption(String printCode, String language) {
+                this.printCode = printCode;
+                this.language = language;
+            }
+
+            /**
+             * @return the print code, exactly as stored — usable directly as a key into
+             * {@link Database#getAllPrintedCardsList()}
+             */
+            public String getPrintCode() {
+                return printCode;
+            }
+
+            /**
+             * @return the best-effort parsed language (e.g. {@code "EN"}), or {@code null} if
+             * {@link #parseLanguageFromPrintCode} couldn't parse one from this print code's shape
+             */
+            public String getLanguage() {
+                return language;
+            }
         }
     }
 }

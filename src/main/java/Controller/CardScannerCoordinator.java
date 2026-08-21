@@ -260,13 +260,20 @@ public class CardScannerCoordinator {
     }
 
     /**
-     * Unit 6's detection handling: resolves one detection cycle's OCR candidates to a
-     * {@link Card} via {@link CardTextMatcher#matchCandidates}, feeds the result into
+     * Unit 6's detection handling: resolves one detection cycle's OCR candidates via
+     * {@link CardTextMatcher#matchCandidates}, feeds whether anything matched into
      * {@link #debouncer}, and — only on the specific call that transitions the debouncer from
      * released to locked, i.e. exactly once per "a card was shown" rather than once per frame
-     * it stays in view — inserts the card via
+     * it stays in view — either inserts the card via
      * {@link MiddleSelectionActionHandler#insertCardsAtQuickAddTarget} if the active tab allows
      * it, or reports why not otherwise.
+     *
+     * <p>As of Unit 7, {@link CardTextMatcher#matchCandidates} can resolve to a
+     * {@link CardTextMatcher.CardCandidates} instead of a confident
+     * {@link CardTextMatcher.MatchResult}, when the candidates narrow to a Konami ID with more
+     * than one valid printing. Choosing among those is a later unit's UI (Units 8/9); for now
+     * this just reports that multiple printings were detected and skips the insert, the same as
+     * the pre-Unit-7 behavior would have looked like if it hadn't been silently guessing.
      *
      * <p>Called on the JavaFX application thread (see {@link PythonCardScannerBridge}'s own
      * listener contract), so no synchronization is needed against {@link #debouncer} or
@@ -283,8 +290,8 @@ public class CardScannerCoordinator {
             return; // a stray event arrived after the session already ended; ignore it
         }
         try {
-            Optional<CardTextMatcher.MatchResult> match = CardTextMatcher.matchCandidates(recognizedCandidates);
-            if (match.isEmpty()) {
+            Optional<CardTextMatcher.Resolution> resolution = CardTextMatcher.matchCandidates(recognizedCandidates);
+            if (resolution.isEmpty()) {
                 debouncer.onNoConfidentDetection();
                 return;
             }
@@ -294,7 +301,18 @@ public class CardScannerCoordinator {
                 return; // still locked onto an earlier detection; this is a continuation, not a new add
             }
 
-            Card matchedCard = match.get().getCard();
+            if (resolution.get() instanceof CardTextMatcher.CardCandidates multiplePrintings) {
+                String cardLabel = multiplePrintings.getDisplayName();
+                sharedCardScannerPane.setDetectionFeedbackText(
+                        "Multiple printings detected" + (cardLabel != null ? " for " + cardLabel : "")
+                                + " \u2014 picking a specific one isn't wired up yet");
+                return;
+            }
+
+            if (!(resolution.get() instanceof CardTextMatcher.MatchResult matchResult)) {
+                return; // unreachable: Resolution has exactly two subtypes and CardCandidates already returned above
+            }
+            Card matchedCard = matchResult.getCard();
             int activeTabIndex = mainTabPane.getSelectionModel().getSelectedIndex();
             if (activeTabIndex != INSERT_ALLOWED_TAB_INDEX) {
                 sharedCardScannerPane.setDetectionFeedbackText(

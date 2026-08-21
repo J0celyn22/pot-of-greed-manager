@@ -106,18 +106,23 @@ class CardTextMatcherTest {
     void matchText_realPassCode_resolvesViaPassCodeTier() {
         Card sampleCard = findAnyCardWithPassCode();
 
-        Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchText(sampleCard.getPassCode());
+        Optional<CardTextMatcher.Resolution> result = CardTextMatcher.matchText(sampleCard.getPassCode());
 
         assertTrue(result.isPresent(), "a real pass code should resolve to a card");
         assertEquals(CardTextMatcher.MatchField.PASS_CODE, result.get().getMatchedField());
-        assertEquals(sampleCard.getPassCode(), result.get().getCard().getPassCode());
+        // A confident single-print card matches by pass code directly; a card whose Konami ID
+        // has more than one valid print code correctly defers to CardCandidates instead (Unit 7)
+        // rather than silently picking one, so only assert the passCode equality in that case.
+        if (result.get() instanceof CardTextMatcher.MatchResult matchResult) {
+            assertEquals(sampleCard.getPassCode(), matchResult.getCard().getPassCode());
+        }
     }
 
     @Test
     void matchText_realPassCode_withSurroundingWhitespace_stillResolves() {
         Card sampleCard = findAnyCardWithPassCode();
 
-        Optional<CardTextMatcher.MatchResult> result =
+        Optional<CardTextMatcher.Resolution> result =
                 CardTextMatcher.matchText("  " + sampleCard.getPassCode() + "  ");
 
         assertTrue(result.isPresent(), "whitespace around a real pass code should still resolve");
@@ -130,7 +135,7 @@ class CardTextMatcherTest {
     void matchText_realPrintCode_resolvesViaPrintCodeTier() throws Exception {
         Map.Entry<String, Card> samplePrintedCard = findAnyPrintedCard();
 
-        Optional<CardTextMatcher.MatchResult> result =
+        Optional<CardTextMatcher.Resolution> result =
                 CardTextMatcher.matchText(samplePrintedCard.getKey());
 
         assertTrue(result.isPresent(), "a real print code should resolve to a card");
@@ -141,7 +146,7 @@ class CardTextMatcherTest {
     void matchText_realPrintCode_lowercased_stillResolvesCaseInsensitively() throws Exception {
         Map.Entry<String, Card> samplePrintedCard = findAnyPrintedCard();
 
-        Optional<CardTextMatcher.MatchResult> result =
+        Optional<CardTextMatcher.Resolution> result =
                 CardTextMatcher.matchText(samplePrintedCard.getKey().toLowerCase());
 
         assertTrue(result.isPresent(), "print code matching should be case-insensitive");
@@ -152,7 +157,7 @@ class CardTextMatcherTest {
     void matchText_realEnglishName_resolvesViaNameTier() {
         Card sampleCard = findAnyCardWithEnglishName();
 
-        Optional<CardTextMatcher.MatchResult> result =
+        Optional<CardTextMatcher.Resolution> result =
                 CardTextMatcher.matchText(sampleCard.getName_EN());
 
         assertTrue(result.isPresent(), "a real English card name should resolve to a card");
@@ -165,7 +170,7 @@ class CardTextMatcherTest {
     void matchText_realEnglishName_differentCase_stillResolves() {
         Card sampleCard = findAnyCardWithEnglishName();
 
-        Optional<CardTextMatcher.MatchResult> result =
+        Optional<CardTextMatcher.Resolution> result =
                 CardTextMatcher.matchText(sampleCard.getName_EN().toUpperCase());
 
         assertTrue(result.isPresent(), "name matching should be case-insensitive");
@@ -189,7 +194,7 @@ class CardTextMatcherTest {
         try {
             String nameWithoutAccent = "Nombre Espanol de Prueba Zzyx";
 
-            Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchText(nameWithoutAccent);
+            Optional<CardTextMatcher.Resolution> result = CardTextMatcher.matchText(nameWithoutAccent);
 
             assertTrue(result.isPresent(), "a de-accented Spanish name should still resolve");
             assertEquals(CardTextMatcher.MatchField.NAME, result.get().getMatchedField());
@@ -219,10 +224,14 @@ class CardTextMatcherTest {
                     syntheticCard.getName_CN(), syntheticCard.getName_KR(), syntheticCard.getName_PT()
             };
             for (String name : namesToTry) {
-                Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchText(name);
+                Optional<CardTextMatcher.Resolution> result = CardTextMatcher.matchText(name);
                 assertTrue(result.isPresent(), "expected a match for name \"" + name + "\"");
                 assertEquals(CardTextMatcher.MatchField.NAME, result.get().getMatchedField());
-                assertEquals(syntheticCard.getPassCode(), result.get().getCard().getPassCode());
+                // The synthetic fixture has no Konami ID, so resolveKonamiId always falls back to
+                // wrapping the same card unchanged rather than ever returning CardCandidates.
+                CardTextMatcher.MatchResult matchResult =
+                        assertInstanceOf(CardTextMatcher.MatchResult.class, result.get());
+                assertEquals(syntheticCard.getPassCode(), matchResult.getCard().getPassCode());
             }
         } finally {
             Database.getAllCardsList().remove(syntheticKey);
@@ -236,7 +245,7 @@ class CardTextMatcherTest {
         // "0000000" is very unlikely to be any card's pass code or name; this
         // just confirms the digit-shaped routing doesn't throw or misbehave
         // when the pass-code tier finds nothing.
-        Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchText("0000000");
+        Optional<CardTextMatcher.Resolution> result = CardTextMatcher.matchText("0000000");
 
         assertFalse(result.isPresent());
     }
@@ -253,7 +262,7 @@ class CardTextMatcherTest {
 
     @Test
     void matchCandidates_allGarbageCandidates_returnsEmpty() {
-        Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchCandidates(
+        Optional<CardTextMatcher.Resolution> result = CardTextMatcher.matchCandidates(
                 List.of("zzqxv nonsense", "not a card either", "0000000"));
 
         assertFalse(result.isPresent());
@@ -263,19 +272,21 @@ class CardTextMatcherTest {
     void matchCandidates_realPassCodeAmongGarbage_resolvesRegardlessOfPosition() {
         Card sampleCard = findAnyCardWithPassCode();
 
-        Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchCandidates(
+        Optional<CardTextMatcher.Resolution> result = CardTextMatcher.matchCandidates(
                 List.of("some flavor text noise", sampleCard.getPassCode(), "ATK/2500 DEF/2100"));
 
         assertTrue(result.isPresent(), "a real pass code among other candidates should still resolve");
         assertEquals(CardTextMatcher.MatchField.PASS_CODE, result.get().getMatchedField());
-        assertEquals(sampleCard.getPassCode(), result.get().getCard().getPassCode());
+        if (result.get() instanceof CardTextMatcher.MatchResult matchResult) {
+            assertEquals(sampleCard.getPassCode(), matchResult.getCard().getPassCode());
+        }
     }
 
     @Test
     void matchCandidates_realPrintCodeAsFirstCandidate_resolvesViaPrintCodeTier() throws Exception {
         Map.Entry<String, Card> samplePrintedCard = findAnyPrintedCard();
 
-        Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchCandidates(
+        Optional<CardTextMatcher.Resolution> result = CardTextMatcher.matchCandidates(
                 List.of(samplePrintedCard.getKey(), "some other noisy line"));
 
         assertTrue(result.isPresent(), "a real print code should resolve via the exact-code tier");
@@ -291,7 +302,7 @@ class CardTextMatcherTest {
         Map.Entry<String, Card> samplePrintedCard = findAnyPrintedCard();
         Card unrelatedNamedCard = findAnyCardWithEnglishName();
 
-        Optional<CardTextMatcher.MatchResult> result = CardTextMatcher.matchCandidates(
+        Optional<CardTextMatcher.Resolution> result = CardTextMatcher.matchCandidates(
                 List.of(unrelatedNamedCard.getName_EN(), samplePrintedCard.getKey()));
 
         assertTrue(result.isPresent());
@@ -303,11 +314,16 @@ class CardTextMatcherTest {
     void matchCandidates_nameCandidateAlone_resolvesViaNameFallback() {
         Card sampleCard = findAnyCardWithEnglishName();
 
-        Optional<CardTextMatcher.MatchResult> result =
+        Optional<CardTextMatcher.Resolution> result =
                 CardTextMatcher.matchCandidates(List.of("unrelated noise line", sampleCard.getName_EN()));
 
         assertTrue(result.isPresent(), "a real name with no accompanying print code should still resolve");
-        assertEquals(sampleCard.getPassCode(), result.get().getCard().getPassCode());
+        if (result.get() instanceof CardTextMatcher.MatchResult matchResult) {
+            assertEquals(sampleCard.getPassCode(), matchResult.getCard().getPassCode());
+        } else if (result.get() instanceof CardTextMatcher.CardCandidates candidates
+                && sampleCard.getKonamiId() != null) {
+            assertEquals(Integer.parseInt(sampleCard.getKonamiId()), candidates.getKonamiId());
+        }
     }
 
     @Test
@@ -323,7 +339,7 @@ class CardTextMatcherTest {
         }
         String noisyPrintCode = corruptOneCharacter(samplePrintedCard.getKey());
 
-        Optional<CardTextMatcher.MatchResult> result =
+        Optional<CardTextMatcher.Resolution> result =
                 CardTextMatcher.matchCandidates(List.of(realName, noisyPrintCode));
 
         assertTrue(result.isPresent(), "a real name plus a one-character-off print code should still resolve");
