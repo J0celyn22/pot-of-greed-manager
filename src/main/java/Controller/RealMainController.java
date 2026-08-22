@@ -221,7 +221,12 @@ public class RealMainController {
                 this::updateTabDirtyIndicators);
 
         // ── 3c. Camera scanner pane lifecycle + detection-to-insert handling ───
-        cardScannerCoordinator = new CardScannerCoordinator(mainTabPane, this::getActiveMiddleTreeView);
+        cardScannerCoordinator = new CardScannerCoordinator(
+                mainTabPane,
+                this::getActiveMiddleTreeView,
+                this::getActiveRightContentPane,
+                cardWidthProperty,
+                cardHeightProperty);
 
         // ── 4. Wire CardDetailPane action buttons ─────────────────────────────
         for (SharedCollectionTab tab : java.util.List.of(myCollectionTab, decksTab, ouicheListTab)) {
@@ -941,6 +946,27 @@ public class RealMainController {
             case 1 -> decksAndCollectionsTreeView;
             case 2 -> ouicheListTreeView;
             case 3 -> archetypesTreeView;
+            default -> null;
+        };
+    }
+
+    /**
+     * @return the active tab's {@code rightContentPane} — the same tab-index-to-tab mapping as
+     * {@link #getActiveMiddleTreeView()}, for {@link CardScannerCoordinator}'s Unit 9 artwork
+     * gallery to mount into. Friends and Shops don't have a card-scanner-eligible tree view
+     * mapped above either, so this stays consistent with that rather than adding tabs the
+     * scanner's {@code CAMERA_AVAILABLE_TABS} restriction already excludes.
+     */
+    private AnchorPane getActiveRightContentPane() {
+        if (mainTabPane == null) {
+            return null;
+        }
+        int activeTabIndex = mainTabPane.getSelectionModel().getSelectedIndex();
+        return switch (activeTabIndex) {
+            case 0 -> myCollectionTab.getRightContentPane();
+            case 1 -> decksTab.getRightContentPane();
+            case 2 -> ouicheListTab.getRightContentPane();
+            case 3 -> archetypesTab.getRightContentPane();
             default -> null;
         };
     }

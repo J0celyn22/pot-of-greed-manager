@@ -5,9 +5,11 @@ import Model.CardScanner.ScanLockDebouncer;
 import Model.CardsLists.Card;
 import Model.Database.Database;
 import Utils.CardTextMatcher;
+import View.CardScannerArtworkGallery;
 import View.CardScannerPane;
 import View.FilterPane;
 import View.SharedCollectionTab;
+import javafx.beans.property.DoubleProperty;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TreeView;
 import javafx.scene.layout.AnchorPane;
@@ -40,6 +42,16 @@ import java.util.function.Supplier;
  * events unrelated to the scanner. Wherever this class needs to swap the scanner pane in for the
  * filter pane (or back), the caller passes the current {@link FilterPane} instance in rather
  * than this class holding its own reference to it.
+ *
+ * <p>Unit 9 adds a second pane this class swaps into an active tab: {@link #sharedArtworkGallery}
+ * claims the active tab's {@code rightContentPane} (via {@link #activeRightContentPaneSupplier})
+ * whenever a printCode candidate has more than one artwork, the same way
+ * {@link #sharedCardScannerPane} claims the right-header pane — see
+ * {@link #showArtworkGalleryInRightContentPane} and {@link #hideArtworkGallery} for the
+ * show/hide pair mirroring {@link #showCardScannerPaneInHeader}/{@link #showFilterPaneInHeader}.
+ * Unlike the header swap, this never replaces the tab's own content — the gallery is added as a
+ * sibling node and only its visibility toggles, so hiding it never needs to reconstruct whatever
+ * the tab was already showing in that pane.
  */
 public class CardScannerCoordinator {
 
@@ -83,8 +95,29 @@ public class CardScannerCoordinator {
 
     private final TabPane mainTabPane;
     private final Supplier<TreeView<String>> activeMiddleTreeViewSupplier;
+    /**
+     * Supplies the active tab's {@code rightContentPane} — {@link #sharedArtworkGallery} is
+     * mounted into whichever one this returns at the moment artwork disambiguation is needed,
+     * mirroring how {@link #activeMiddleTreeViewSupplier} already supplies the active tab's
+     * middle tree for insertion. Consulted fresh on every artwork render rather than cached,
+     * since which tab is active can change between detections (though in practice a tab switch
+     * already closes the scanner entirely — see {@link #closeIfOpenIn} — before this would ever
+     * observe a stale pane).
+     */
+    private final Supplier<AnchorPane> activeRightContentPaneSupplier;
+    private final DoubleProperty cardWidthProperty;
+    private final DoubleProperty cardHeightProperty;
 
     private CardScannerPane sharedCardScannerPane;
+    /**
+     * The Unit 9 artwork picker, lazily created the first time it's needed (mirroring
+     * {@link #sharedCardScannerPane}'s own lazy creation) and reused across every scanner session
+     * and every tab it's mounted into — {@link #showArtworkGalleryInRightContentPane} re-parents
+     * it into whichever {@code rightContentPane} {@link #activeRightContentPaneSupplier} returns
+     * rather than building a new instance per tab, the same "one shared instance moved around"
+     * pattern {@code RealMainController} already uses for {@code cardsDisplayContainer}.
+     */
+    private CardScannerArtworkGallery sharedArtworkGallery;
     /**
      * The Python camera-scanner sidecar for whichever scanner session is currently open, or
      * {@code null} when the scanner pane isn't showing. Deliberately not reused across opens —
@@ -100,9 +133,37 @@ public class CardScannerCoordinator {
      */
     private ScanLockDebouncer debouncer;
 
-    public CardScannerCoordinator(TabPane mainTabPane, Supplier<TreeView<String>> activeMiddleTreeViewSupplier) {
+    /**
+     * The active tab index and middle tree as of the detection cycle currently being handled —
+     * captured in {@link #handleDetectionEvent} and read back by
+     * {@link #completeArtworkDisambiguationAdd}, since {@link CardScannerPane#setOnCandidateAdd}
+     * only reports {@code (printCode, artworkId)}, not the insertion target. Both fields are only
+     * meaningful between an artwork gallery being shown and either an add completing or the
+     * debounce lock releasing (see {@link #resetCandidateSelectionState}) — the tab can't change
+     * out from under a pending selection in practice, since switching tabs already closes the
+     * scanner entirely (see {@link #closeIfOpenIn}) before either field would be read stale.
+     */
+    private int activeTabIndex;
+    private TreeView<String> activeTreeView;
+    /**
+     * The candidates currently offering artwork disambiguation — set by
+     * {@link #handleCandidateResolution} right before the artwork gallery renders, and read back
+     * by {@link #completeArtworkDisambiguationAdd} to resolve an artwork identifier (an artNumber
+     * string — see {@link #buildArtworkOptions}) back to the specific {@link Card} it names.
+     */
+    private CardTextMatcher.CardCandidates activeCardCandidates;
+
+    public CardScannerCoordinator(
+            TabPane mainTabPane,
+            Supplier<TreeView<String>> activeMiddleTreeViewSupplier,
+            Supplier<AnchorPane> activeRightContentPaneSupplier,
+            DoubleProperty cardWidthProperty,
+            DoubleProperty cardHeightProperty) {
         this.mainTabPane = mainTabPane;
         this.activeMiddleTreeViewSupplier = activeMiddleTreeViewSupplier;
+        this.activeRightContentPaneSupplier = activeRightContentPaneSupplier;
+        this.cardWidthProperty = cardWidthProperty;
+        this.cardHeightProperty = cardHeightProperty;
     }
 
     /**
@@ -184,6 +245,7 @@ public class CardScannerCoordinator {
 
     private void showFilterPaneInHeader(AnchorPane headerPane, FilterPane filterPane) {
         stopCardScanner();
+        hideArtworkGallery();
         headerPane.getChildren().clear();
         headerPane.getChildren().add(filterPane);
         AnchorPane.setTopAnchor(filterPane, 0.0);
@@ -219,6 +281,11 @@ public class CardScannerCoordinator {
     private void startCardScanner() {
         sharedCardScannerPane.resetPreview();
         sharedCardScannerPane.setPreviewStatusText("Starting camera\u2026");
+        // Re-registered on every open (harmless — always the same method reference) purely for
+        // symmetry with resetPreview()/the frame and error listeners just below being reset per
+        // session; completeArtworkDisambiguationAdd itself reads activeTabIndex/activeTreeView
+        // fresh from this instance's fields at call time, not from anything captured here.
+        sharedCardScannerPane.setOnCandidateAdd(this::completeArtworkDisambiguationAdd);
         debouncer = new ScanLockDebouncer(DEBOUNCE_RELEASE_MILLIS);
 
         activeCardScannerBridge = new PythonCardScannerBridge(
@@ -283,7 +350,15 @@ public class CardScannerCoordinator {
         try {
             Optional<CardTextMatcher.Resolution> resolution = CardTextMatcher.matchCandidates(recognizedCandidates);
             if (resolution.isEmpty()) {
+                boolean wasLocked = debouncer.isLocked();
                 debouncer.onNoConfidentDetection();
+                if (wasLocked && !debouncer.isLocked()) {
+                    // The lock just released — "Unit 1 — decided"'s continuous-miss debounce, the
+                    // same moment "Unit 9 — decided" ties a fresh start to: the very next
+                    // confident detection after this point must not inherit stale printCode/
+                    // artwork selection state from whatever was in frame before.
+                    resetCandidateSelectionState();
+                }
                 return;
             }
 
@@ -292,8 +367,8 @@ public class CardScannerCoordinator {
                 return; // still locked onto an earlier detection; this is a continuation, not a new add
             }
 
-            int activeTabIndex = mainTabPane.getSelectionModel().getSelectedIndex();
-            TreeView<String> activeTreeView = activeMiddleTreeViewSupplier.get();
+            activeTabIndex = mainTabPane.getSelectionModel().getSelectedIndex();
+            activeTreeView = activeMiddleTreeViewSupplier.get();
 
             if (resolution.get() instanceof CardTextMatcher.CardCandidates cardCandidates) {
                 handleCandidateResolution(cardCandidates, activeTabIndex, activeTreeView);
@@ -313,6 +388,20 @@ public class CardScannerCoordinator {
     }
 
     /**
+     * Clears both halves of the printCode/artwork selection matrix and hides the artwork gallery
+     * — used when the debounce lock releases (see {@link #handleDetectionEvent}) and whenever a
+     * successful add completes (see {@link #completeArtworkDisambiguationAdd} and
+     * {@link #insertResolvedCard}), so a fresh detection cycle never inherits selection state
+     * from whichever card was in frame before.
+     */
+    private void resetCandidateSelectionState() {
+        if (sharedCardScannerPane != null) {
+            sharedCardScannerPane.clearPrintCodeCandidates();
+        }
+        hideArtworkGallery();
+    }
+
+    /**
      * A pass code, print code, or unambiguous name match — inserts via
      * {@link MiddleSelectionActionHandler#insertCardsAtQuickAddTarget} if the active tab allows
      * it, same as Unit 6 always did, or reports why not otherwise. Clears any printCode
@@ -321,7 +410,7 @@ public class CardScannerCoordinator {
      */
     private void handleUnambiguousResolution(
             CardTextMatcher.MatchResult matchResult, int activeTabIndex, TreeView<String> activeTreeView) {
-        sharedCardScannerPane.clearPrintCodeCandidates();
+        resetCandidateSelectionState();
         Card matchedCard = matchResult.getCard();
         if (activeTabIndex != INSERT_ALLOWED_TAB_INDEX) {
             sharedCardScannerPane.setDetectionFeedbackText(
@@ -342,9 +431,9 @@ public class CardScannerCoordinator {
      * {@link CardTextMatcher.CardCandidates#getArtworkOptions()} are two independent axes, not
      * one artwork list per printCode — every printCode button in a given candidates set shares
      * the same artwork-ambiguity question, so whether a click adds immediately or only selects is
-     * decided once for the whole set (see {@link #buildPaneCandidates}), not per button.
-     * Artwork disambiguation itself ({@code getArtworkOptions().size() > 1}) is Unit 9's concern;
-     * this unit only ever offers printCode buttons.
+     * decided once for the whole set (see {@link #buildPaneCandidates}), not per button. When
+     * {@code getArtworkOptions().size() > 1}, this also renders the artwork gallery via
+     * {@link #showArtworkGalleryInRightContentPane} alongside the printCode buttons.
      *
      * <p>Same tab restriction as the unambiguous case: rendering clickable buttons that could
      * only ever fail to insert isn't useful, so a disallowed tab gets the same kind of "not
@@ -356,7 +445,7 @@ public class CardScannerCoordinator {
         String forCardName = cardLabel != null ? " for " + cardLabel : "";
 
         if (activeTabIndex != INSERT_ALLOWED_TAB_INDEX) {
-            sharedCardScannerPane.clearPrintCodeCandidates();
+            resetCandidateSelectionState();
             sharedCardScannerPane.setDetectionFeedbackText(
                     "Multiple printings detected" + forCardName
                             + " \u2014 scanning to add isn't wired up for this tab yet");
@@ -364,12 +453,134 @@ public class CardScannerCoordinator {
         }
 
         boolean singleArtwork = cardCandidates.getArtworkOptions().size() <= 1;
+        activeCardCandidates = singleArtwork ? null : cardCandidates;
         sharedCardScannerPane.showPrintCodeCandidates(
                 buildPaneCandidates(cardCandidates, singleArtwork, activeTabIndex, activeTreeView));
+        if (singleArtwork) {
+            hideArtworkGallery();
+        } else {
+            showArtworkGalleryInRightContentPane(cardCandidates);
+        }
         sharedCardScannerPane.setDetectionFeedbackText(
                 "Multiple printings detected" + forCardName + (singleArtwork
                         ? " \u2014 choose a printCode to add"
-                        : " \u2014 choose a printCode (artwork selection isn't wired up yet)"));
+                        : " \u2014 choose a printCode and an artwork to add"));
+    }
+
+    /**
+     * Mounts {@link #sharedArtworkGallery} (creating it the first time) into whichever
+     * {@code rightContentPane} {@link #activeRightContentPaneSupplier} currently returns, as a
+     * sibling of that pane's existing content rather than replacing it, and renders one tile per
+     * {@link CardTextMatcher.CardCandidates#getArtworkOptions()} entry.
+     */
+    private void showArtworkGalleryInRightContentPane(CardTextMatcher.CardCandidates cardCandidates) {
+        AnchorPane rightContentPane = activeRightContentPaneSupplier.get();
+        if (rightContentPane == null) {
+            logger.warn("No active rightContentPane available to show the artwork gallery in; "
+                    + "printCode buttons will still render, but artwork disambiguation is unavailable "
+                    + "for this detection.");
+            return;
+        }
+        if (sharedArtworkGallery == null) {
+            sharedArtworkGallery = new CardScannerArtworkGallery(cardWidthProperty, cardHeightProperty);
+        }
+        if (!rightContentPane.getChildren().contains(sharedArtworkGallery)) {
+            rightContentPane.getChildren().add(sharedArtworkGallery);
+            AnchorPane.setTopAnchor(sharedArtworkGallery, 0.0);
+            AnchorPane.setBottomAnchor(sharedArtworkGallery, 0.0);
+            AnchorPane.setLeftAnchor(sharedArtworkGallery, 0.0);
+            AnchorPane.setRightAnchor(sharedArtworkGallery, 0.0);
+        }
+        sharedArtworkGallery.showArtworkOptions(
+                buildArtworkOptions(cardCandidates), this::onArtworkTileClicked);
+        sharedCardScannerPane.getSelectedArtworkId().ifPresent(sharedArtworkGallery::setSelectedArtwork);
+    }
+
+    /**
+     * Hides {@link #sharedArtworkGallery} if it's currently showing, restoring whichever tab's
+     * normal card-grid content it was covering — a no-op if the gallery was never created or
+     * isn't currently mounted anywhere. Never removes the gallery node from its parent; only
+     * {@link CardScannerArtworkGallery#clearArtworkOptions()}'s own visibility toggle controls
+     * whether it's seen, so re-showing it later doesn't need to re-parent it.
+     */
+    private void hideArtworkGallery() {
+        activeCardCandidates = null;
+        if (sharedArtworkGallery != null) {
+            sharedArtworkGallery.clearArtworkOptions();
+        }
+    }
+
+    /**
+     * Translates {@code cardCandidates}' artwork options into the view-model list
+     * {@link CardScannerArtworkGallery#showArtworkOptions} renders, keying each option by its
+     * {@link Card#getArtNumber()} — stable and unique within one Konami ID's artwork list per
+     * {@code CardDatabaseManager.getAliasCards}'s own javadoc, and already the identifier this
+     * class needs back in {@link #completeArtworkDisambiguationAdd} to resolve a click to a
+     * specific {@link Card}.
+     */
+    private List<CardScannerArtworkGallery.ArtworkOption> buildArtworkOptions(
+            CardTextMatcher.CardCandidates cardCandidates) {
+        List<CardScannerArtworkGallery.ArtworkOption> artworkOptions = new ArrayList<>();
+        for (Card artworkCard : cardCandidates.getArtworkOptions()) {
+            artworkOptions.add(new CardScannerArtworkGallery.ArtworkOption(
+                    artworkCard, artworkCard.getArtNumber()));
+        }
+        return artworkOptions;
+    }
+
+    /**
+     * Click handler for one artwork tile, wired via {@link #showArtworkGalleryInRightContentPane}.
+     * Reports the click to {@link #sharedCardScannerPane} via
+     * {@link CardScannerPane#onArtworkSelected(String)} — which owns the actual click-matrix
+     * decision (add now vs. just select, see its own javadoc) — then reflects whatever the pane
+     * decided back onto the gallery's visuals: a completed add clears the gallery the same way
+     * {@link #resetCandidateSelectionState} does elsewhere, while a plain selection just restyles
+     * the clicked tile.
+     */
+    private void onArtworkTileClicked(String artworkId) {
+        CardScannerPane.ClickOutcome outcome = sharedCardScannerPane.onArtworkSelected(artworkId);
+        if (outcome == CardScannerPane.ClickOutcome.ADDED) {
+            hideArtworkGallery();
+        } else if (sharedArtworkGallery != null) {
+            sharedArtworkGallery.setSelectedArtwork(artworkId);
+        }
+    }
+
+    /**
+     * Completes a printCode+artwork add reported by {@link CardScannerPane}'s click matrix (see
+     * {@link CardScannerPane#setOnCandidateAdd}) — the counterpart to
+     * {@link #insertPrintCode}/{@link #insertResolvedCard} for the artwork-disambiguation path.
+     * Resolves {@code artworkId} back to its {@link Card} via {@link #activeCardCandidates}
+     * (set by {@link #handleCandidateResolution} for exactly this purpose), copies
+     * {@code printCode} onto that artwork-specific card, and inserts it — see this class's own
+     * javadoc note on why an artwork option's {@link Card} and a printCode option are two
+     * independent axes with no existing combined lookup: the artwork card already carries the
+     * correct identity/image for the artwork half, and setting its printCode field is how
+     * {@link Model.CardsLists.CardElement#toCollectionString()} persists the printCode half
+     * alongside it, without this class needing a new database lookup for the combined pair.
+     */
+    private void completeArtworkDisambiguationAdd(String printCode, String artworkId) {
+        if (activeCardCandidates == null) {
+            logger.warn("Received a printCode+artwork add callback with no active candidates set; ignoring "
+                    + "(printCode={}, artworkId={})", printCode, artworkId);
+            return;
+        }
+        Card artworkCard = null;
+        for (Card candidateArtworkCard : activeCardCandidates.getArtworkOptions()) {
+            if (artworkId != null && artworkId.equals(candidateArtworkCard.getArtNumber())) {
+                artworkCard = candidateArtworkCard;
+                break;
+            }
+        }
+        if (artworkCard == null) {
+            logger.warn("Could not resolve artwork identifier \"{}\" back to a Card among the active "
+                    + "candidates; ignoring click", artworkId);
+            sharedCardScannerPane.setDetectionFeedbackText(
+                    "Couldn't find that artwork. See the application log for details.");
+            return;
+        }
+        artworkCard.setPrintCode(printCode);
+        insertResolvedCard(artworkCard, activeTabIndex, activeTreeView);
     }
 
     /**
@@ -381,8 +592,11 @@ public class CardScannerCoordinator {
      *                      (see {@link #handleCandidateResolution}) — when {@code true}, every
      *                      button here gets an {@code onAdd} callback that looks the specific
      *                      printed card up and inserts it immediately; when {@code false}, every
-     *                      button gets a {@code null} callback, since Unit 8 only lets those be
-     *                      visually selected (Unit 9 wires up completing the add from there)
+     *                      button gets a {@code null} callback, since a multi-artwork candidate's
+     *                      printCode buttons only ever complete an add via
+     *                      {@link CardScannerPane#toggleMultiArtworkSelection} (an artwork already
+     *                      selected) or the artwork gallery's own click (see
+     *                      {@link #onArtworkTileClicked}), never directly
      */
     private List<CardScannerPane.PrintCodeCandidate> buildPaneCandidates(
             CardTextMatcher.CardCandidates cardCandidates, boolean singleArtwork,
@@ -433,13 +647,15 @@ public class CardScannerCoordinator {
     }
 
     /**
-     * Shared by the unambiguous auto-add path and a single-artwork printCode button click:
-     * inserts {@code card} via {@link MiddleSelectionActionHandler#insertCardsAtQuickAddTarget},
-     * clears any printCode candidates left showing, and reports what was added.
+     * Shared by the unambiguous auto-add path, a single-artwork printCode button click, and a
+     * completed printCode+artwork add: inserts {@code card} via
+     * {@link MiddleSelectionActionHandler#insertCardsAtQuickAddTarget}, clears any printCode
+     * candidates and artwork gallery left showing, and reports what was added — "a successful add
+     * clears all printCode/artwork selection state" per "Unit 9 — decided".
      */
     private void insertResolvedCard(Card card, int activeTabIndex, TreeView<String> activeTreeView) {
         MiddleSelectionActionHandler.insertCardsAtQuickAddTarget(List.of(card), activeTabIndex, activeTreeView);
-        sharedCardScannerPane.clearPrintCodeCandidates();
+        resetCandidateSelectionState();
         sharedCardScannerPane.setDetectionFeedbackText("Added: " + card.getNameOrNumber());
     }
 }
