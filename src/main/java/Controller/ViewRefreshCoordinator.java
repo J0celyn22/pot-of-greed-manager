@@ -252,14 +252,22 @@ public class ViewRefreshCoordinator {
         runOnFxThreadOrDefer(ViewRefreshCoordinator::doRefreshOwnedCollectionView);
     }
 
-    // Core implementation: tries explicit refreshers first, then falls back to scanning all windows.
+    // Core implementation: tries explicit refreshers first, then falls back to scanning all
+    // windows — but only when nothing is explicitly registered. In normal operation
+    // MyCollectionController always has a refresher registered, so this full scene-graph walk
+    // (across every open window, on every single card add) is a safety net for that one absent
+    // registration case, not a step to run unconditionally alongside the explicit refresher.
     private static void doRefreshOwnedCollectionView() {
         try {
             // 1) Call any explicit registered refreshers first (preferred)
             explicitRefreshers.runAll();
-            // We still continue to scan and refresh controls to be safe.
 
-            // 2) Walk all open windows and refresh TreeView/ListView controls found
+            if (!explicitRefreshers.isEmpty()) {
+                return;
+            }
+
+            // 2) No explicit refresher registered — fall back to walking all open windows and
+            // refreshing whatever TreeView/ListView controls are found.
             boolean refreshedAny = false;
             for (Window window : Window.getWindows()) {
                 try {

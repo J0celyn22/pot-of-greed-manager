@@ -273,6 +273,144 @@ public final class MyCollectionNavigationPopulator {
                 emptyAreaContextMenu.show(menuVBox, event.getScreenX(), event.getScreenY()));
     }
 
+    // ── Incremental highlight refresh ─────────────────────────────────────────
+    //
+    // Used by MyCollectionController's registerOwnedCollectionRefresher lambda
+    // (wired to every card add, including scanner adds) so a single-card add
+    // doesn't have to clear and rebuild the whole nav menu just to recompute
+    // one CardsGroup's glow. Falls back to signalling false whenever anything
+    // can't be resolved, so the caller can fall back to populateMenu.
+
+    /**
+     * Updates just the highlight state (colour and tooltip) of {@code addedGroup}'s nav item and
+     * its ancestor box nav item(s), without rebuilding the nav menu.
+     *
+     * <p>Recomputes each level fresh via {@link MyCollectionQualityChecks} — scoped to only the
+     * box/sub-box that actually received the card, not every box in the collection — and
+     * propagates a child's highlight reason up to its parent exactly like {@link #populateMenu}
+     * does, so the result matches what a full rebuild would have produced.
+     *
+     * @param menuVBox   the currently displayed nav menu (assumed already built by a prior
+     *                   {@link #populateMenu} call)
+     * @param collection the live OwnedCardsCollection
+     * @param addedGroup the group a card was just added to
+     * @return {@code true} if every affected nav item was found and updated in place;
+     * {@code false} if the caller should fall back to {@link #populateMenu} instead
+     * (e.g. the group has no nav item yet, or its box can't be located)
+     */
+    public static boolean refreshHighlightsForAddedGroup(VBox menuVBox,
+                                                         OwnedCardsCollection collection,
+                                                         CardsGroup addedGroup) {
+        if (menuVBox == null || collection == null || collection.getOwnedCollection() == null
+                || addedGroup == null) {
+            return false;
+        }
+
+        NavigationItem groupNavItem = NavigationHelper.findNavItemInMenuVBox(menuVBox, addedGroup);
+        if (groupNavItem == null) {
+            return false;
+        }
+        Box immediateBox = NavigationDragDrop.findCategoryParent(addedGroup, collection);
+        if (immediateBox == null) {
+            return false;
+        }
+        NavigationItem immediateBoxNavItem =
+                NavigationHelper.findNavItemInMenuVBox(menuVBox, immediateBox);
+        if (immediateBoxNavItem == null) {
+            return false;
+        }
+
+        String groupName = OwnedCardsCollection.extractName(
+                addedGroup.getName() == null ? "" : addedGroup.getName(), '-');
+        HighlightResult groupResult = computeGroupHighlight(addedGroup, groupName);
+        NavigationHelper.applyNavigationItemHighlight(
+                groupNavItem, groupResult.highlighted, groupResult.message);
+
+        String immediateBoxName = OwnedCardsCollection.extractName(
+                immediateBox.getName() == null ? "" : immediateBox.getName(), '=');
+        HighlightResult immediateBoxResult = computeBoxHighlight(immediateBox, immediateBoxName);
+        if (groupResult.highlighted && !immediateBoxResult.highlighted) {
+            immediateBoxResult = groupResult;
+        }
+        NavigationHelper.applyNavigationItemHighlight(
+                immediateBoxNavItem, immediateBoxResult.highlighted, immediateBoxResult.message);
+
+        Box topLevelBox = NavigationDragDrop.findTopLevelBoxContaining(immediateBox, collection);
+        if (topLevelBox == null) {
+            return false;
+        }
+        if (topLevelBox != immediateBox) {
+            NavigationItem topBoxNavItem =
+                    NavigationHelper.findNavItemInMenuVBox(menuVBox, topLevelBox);
+            if (topBoxNavItem == null) {
+                return false;
+            }
+            String topBoxName = OwnedCardsCollection.extractName(
+                    topLevelBox.getName() == null ? "" : topLevelBox.getName(), '=');
+            HighlightResult topBoxResult = computeBoxHighlight(topLevelBox, topBoxName);
+            if (immediateBoxResult.highlighted && !topBoxResult.highlighted) {
+                topBoxResult = immediateBoxResult;
+            }
+            NavigationHelper.applyNavigationItemHighlight(
+                    topBoxNavItem, topBoxResult.highlighted, topBoxResult.message);
+        }
+
+        return true;
+    }
+
+    /**
+     * Mirrors the group-level highlight branch inside {@link #populateMenu}: missing print code,
+     * then incomplete cards, then unsorted cards.
+     */
+    private static HighlightResult computeGroupHighlight(CardsGroup group, String groupName) {
+        if (CardTreeCell.isIncompleteMarkingEnabled()
+                && MyCollectionQualityChecks.groupHasMissingPrintCode(group)) {
+            return new HighlightResult(true, "This category contains cards without a print code.");
+        }
+        if (CardTreeCell.isIncompleteMarkingEnabled()
+                && MyCollectionQualityChecks.groupHasIncompleteCards(group)) {
+            return new HighlightResult(
+                    true, "This category contains cards with no condition or rarity set.");
+        }
+        boolean unsorted = MyCollectionQualityChecks.groupHasUnsortedCards(group, groupName);
+        return new HighlightResult(unsorted, "This category contains unsorted cards.");
+    }
+
+    /**
+     * Mirrors the box-level highlight branch inside {@link #populateMenu} (shared by both
+     * top-level boxes and sub-boxes): missing print code, then incomplete cards, then unsorted
+     * cards. Each check recurses through the box's own content and sub-boxes.
+     */
+    private static HighlightResult computeBoxHighlight(Box box, String boxName) {
+        if (CardTreeCell.isIncompleteMarkingEnabled()
+                && MyCollectionQualityChecks.boxHasMissingPrintCode(box)) {
+            return new HighlightResult(true, "This box contains cards without a print code.");
+        }
+        if (CardTreeCell.isIncompleteMarkingEnabled()
+                && MyCollectionQualityChecks.boxHasIncompleteCards(box)) {
+            return new HighlightResult(
+                    true, "This box contains cards with no condition or rarity set.");
+        }
+        boolean unsorted = MyCollectionQualityChecks.boxHasUnsortedCards(box, boxName);
+        return new HighlightResult(unsorted, "This box contains unsorted cards.");
+    }
+
+    /**
+     * Whether a nav item should be highlighted and, if so, which tooltip message to show.
+     * Returned by {@link #computeGroupHighlight} and {@link #computeBoxHighlight} so
+     * {@link #refreshHighlightsForAddedGroup} can propagate a child's highlight reason up to its
+     * parent, matching {@link #populateMenu}'s own propagation logic.
+     */
+    private static final class HighlightResult {
+        private final boolean highlighted;
+        private final String message;
+
+        private HighlightResult(boolean highlighted, String message) {
+            this.highlighted = highlighted;
+            this.message = message;
+        }
+    }
+
     // ── Nav drag-and-drop ─────────────────────────────────────────────────────
 
     /**

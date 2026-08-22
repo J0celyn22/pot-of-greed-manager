@@ -96,7 +96,26 @@ public class MyCollectionController {
             try {
                 String addedTarget = MenuActionHandler.getAndClearLastAddedTarget();
                 CardsGroup addedGroupTarget = MenuActionHandler.getAndClearLastAddedGroupTarget();
-                populateMyCollectionMenu();
+
+                // A card add always lands in exactly one group (see
+                // MiddleSelectionActionHandler's single-anchor paste methods), so when we know
+                // which one, update just that group's and its ancestor box(es)' highlight state
+                // in place instead of clearing and rebuilding the whole nav menu. Falls back to
+                // the full rebuild whenever anything can't be resolved (menu not built yet,
+                // structural mismatch, etc.).
+                boolean highlightsUpdatedInPlace = false;
+                if (addedGroupTarget != null) {
+                    OwnedCardsCollection collection = loadOwnedCollection();
+                    if (collection != null) {
+                        highlightsUpdatedInPlace = MyCollectionNavigationPopulator
+                                .refreshHighlightsForAddedGroup(
+                                        myCollectionTab.getMenuVBox(), collection, addedGroupTarget);
+                    }
+                }
+                if (!highlightsUpdatedInPlace) {
+                    populateMyCollectionMenu();
+                }
+
                 if (myCollectionTreeView != null) {
                     myCollectionTreeView.refresh();
                 }
