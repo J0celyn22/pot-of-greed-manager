@@ -28,6 +28,20 @@ Because the main thread's time is spent in the camera-capture loop, not in a blo
 stdin, a dedicated background thread listens for stdin commands throughout this process's life;
 it does not read every camera frame itself (see listen_for_commands()/main() below).
 
+Which camera to open is set once at startup via a `--camera-index N` argument (default 0), not a
+command this long-lived process listens for — Unit 10 added a "choose camera" button on the Java
+side, but switching cameras restarts the whole sidecar on a new index rather than reopening the
+device mid-session (see Controller.CardScannerCoordinator's own comments for why).
+
+A separate, short-lived invocation with a `--list-cameras` argument skips the whole camera-open/
+streaming flow above entirely: it probes a handful of device indices, reports which ones opened
+successfully as a single `{"type": "camera_list", "cameras": [...]}` line, and exits. This is
+deliberately its own process rather than a command sent to an already-running instance of this
+script — that instance's process only exists at all if its own camera already opened
+successfully (see main() below), so a command-based approach couldn't discover a working camera
+in the case that actually matters most: the default camera failing to open at all. See
+list_available_cameras() for the probe itself.
+
 Same stdout-fd-corruption fix as cardmarket_bridge.py, and for the same category of reason:
 opencv-python (and, as of Unit 6, rapidocr/onnxruntime) is exactly the kind of native-backed
 library (camera-backend init banners, codec warnings, ONNX Runtime session-creation logging) that
@@ -57,9 +71,15 @@ import time  # noqa: E402
 import cv2  # noqa: E402
 from rapidocr import RapidOCR  # noqa: E402
 
-# Which OS camera device to open. Hardcoded to the default webcam for this unit — picking a
-# specific camera among several is out of scope until it's an actual problem.
-CAMERA_INDEX = 0
+# Which OS camera device to open when --camera-index isn't given on the command line — see
+# parse_camera_index_arg(). Kept as a named default rather than an inline literal so main() and
+# this comment stay in one place.
+DEFAULT_CAMERA_INDEX = 0
+
+# How many camera indices list_available_cameras() probes (0 up to, but not including, this
+# value). Starting point covering "built-in webcam plus one or two USB cameras" — a machine with
+# more than this many cameras attached is an edge case not worth a configurable option for yet.
+MAX_CAMERAS_TO_PROBE = 5
 
 # Preview frame rate sent to Java, independent of the detection rate below. Starting point per
 # the project's plan doc; tune once this is actually running against real hardware.
@@ -175,6 +195,43 @@ def run_detection(frame):
     return scored_lines[:MAX_DETECTION_CANDIDATES]
 
 
+def parse_camera_index_arg():
+    """Reads a `--camera-index N` argument from sys.argv, defaulting to DEFAULT_CAMERA_INDEX if
+    it's absent or its value isn't a plain integer. A malformed value is logged and treated the
+    same as an absent one rather than crashing the sidecar over a bad argument.
+    """
+    for argument_index, argument in enumerate(sys.argv):
+        if argument == "--camera-index" and argument_index + 1 < len(sys.argv):
+            raw_value = sys.argv[argument_index + 1]
+            try:
+                return int(raw_value)
+            except ValueError:
+                log(f"Ignoring malformed --camera-index value {raw_value!r}; using "
+                    f"{DEFAULT_CAMERA_INDEX}.")
+                return DEFAULT_CAMERA_INDEX
+    return DEFAULT_CAMERA_INDEX
+
+
+def list_available_cameras():
+    """Probes camera indices 0 through MAX_CAMERAS_TO_PROBE - 1 by attempting to open, then
+    immediately releasing, each one, and returns whichever indices actually opened. Runs to
+    completion and returns rather than streaming anything — called once from main()'s
+    `--list-cameras` branch, not from the ordinary frame-streaming path.
+
+    Deliberately synchronous and blocking: this only ever runs from the short-lived
+    `--list-cameras` invocation (see this script's module docstring), which has nothing else to
+    do while probing, unlike the main streaming loop where a slow blocking call would stall live
+    preview frames.
+    """
+    available_camera_indices = []
+    for camera_index in range(MAX_CAMERAS_TO_PROBE):
+        probe_capture = cv2.VideoCapture(camera_index)
+        if probe_capture.isOpened():
+            available_camera_indices.append(camera_index)
+        probe_capture.release()
+    return available_camera_indices
+
+
 def listen_for_commands():
     """Runs on its own thread for this process's whole life, reading one-way commands from
     stdin. Has to be a separate thread rather than a periodic non-blocking check on the main
@@ -258,17 +315,26 @@ def stream_preview_frames(capture):
 
 
 def main():
+    if "--list-cameras" in sys.argv:
+        log("Probing for available cameras...")
+        available_camera_indices = list_available_cameras()
+        send_response({"type": "camera_list", "cameras": available_camera_indices})
+        log(f"Camera probe found {len(available_camera_indices)} camera(s): "
+            f"{available_camera_indices}")
+        return
+
+    camera_index = parse_camera_index_arg()
     log("Card scanner bridge starting...")
 
     command_thread = threading.Thread(
         target=listen_for_commands, name="stdin-command-listener", daemon=True)
     command_thread.start()
 
-    capture = cv2.VideoCapture(CAMERA_INDEX)
+    capture = cv2.VideoCapture(camera_index)
     if not capture.isOpened():
         send_response({
             "type": "error",
-            "message": f"Could not open the webcam at index {CAMERA_INDEX}.",
+            "message": f"Could not open the webcam at index {camera_index}.",
         })
         log("Failed to open the webcam; exiting.")
         return

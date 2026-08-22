@@ -53,10 +53,16 @@ import java.util.function.BiConsumer;
  * artwork images are rendered, and {@link #toggleMultiArtworkSelection} now completes an add
  * (instead of only selecting) when an artwork is already reported selected — see
  * {@link ClickOutcome} for the result a click can produce.
+ *
+ * <p>Unit 10 adds {@link #getChooseCameraButton()} next to the close button — like every other
+ * button this class exposes, it only renders the control; {@code CardScannerCoordinator} owns
+ * what clicking it actually does (probing for cameras and restarting the sidecar on whichever
+ * one gets picked).
  */
 public class CardScannerPane extends VBox {
 
     private final Button closeButton;
+    private final Button chooseCameraButton;
     private final Label previewStatusLabel;
     private final StackPane previewContainer;
     private final Label detectionFeedbackLabel;
@@ -120,10 +126,13 @@ public class CardScannerPane extends VBox {
         titleLabel.setStyle("-fx-text-fill: #cdfc04; -fx-font-size: 14; -fx-font-weight: bold;");
         HBox.setHgrow(titleLabel, Priority.ALWAYS);
 
+        chooseCameraButton = new Button("Camera");
+        chooseCameraButton.setPrefWidth(80);
+
         closeButton = new Button("Close");
         closeButton.setPrefWidth(80);
 
-        HBox topBar = new HBox(10, titleLabel, closeButton);
+        HBox topBar = new HBox(10, titleLabel, chooseCameraButton, closeButton);
         topBar.setAlignment(Pos.CENTER_LEFT);
 
         previewStatusLabel = new Label("Camera preview will appear here.");
@@ -207,6 +216,15 @@ public class CardScannerPane extends VBox {
 
     public Button getCloseButton() {
         return closeButton;
+    }
+
+    /**
+     * The button that lets the person pick which camera device to scan from. Clicking it has no
+     * behavior of its own here — {@code CardScannerCoordinator} wires the click, the same way it
+     * wires {@link #getCloseButton()}.
+     */
+    public Button getChooseCameraButton() {
+        return chooseCameraButton;
     }
 
     /**

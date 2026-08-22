@@ -44,6 +44,15 @@ import java.util.function.Consumer;
  * fetches in one run. A fresh subprocess per open keeps "opening the pane starts the camera,
  * closing it stops the camera" a simple, always-true invariant, with no shared-instance state
  * to reset between opens.
+ * <p>
+ * Unit 10 adds {@link #listAvailableCameras()} — a static, blocking helper backing the "choose
+ * camera" button, unrelated to any particular instance of this class. It runs the sidecar
+ * script as a separate, short-lived {@code --list-cameras} invocation rather than a command sent
+ * to an already-running instance, since an instance's subprocess only exists at all once its own
+ * camera has already opened successfully; a command-based probe couldn't discover a working
+ * camera in the case that matters most, the configured one failing to open. See
+ * {@code Controller.CardScannerCoordinator#chooseCameraRequested()} for how it's called and how
+ * a selection feeds back into {@link #start(int)}.
  */
 public class PythonCardScannerBridge implements AutoCloseable {
 
@@ -59,6 +68,15 @@ public class PythonCardScannerBridge implements AutoCloseable {
     private static final Path BRIDGE_SCRIPT_PATH = Paths.get("python", "card_scanner_bridge.py");
 
     private static final int SHUTDOWN_WAIT_SECONDS = 10;
+
+    /**
+     * How long {@link #listAvailableCameras()} waits for the {@code --list-cameras} probe
+     * process to exit on its own before forcing it. Probing up to
+     * {@code MAX_CAMERAS_TO_PROBE} indices (5, as of this script) can take a few seconds if
+     * several don't exist and the OS backend is slow to fail each one — this is a generous
+     * upper bound above that, not a tuned value.
+     */
+    private static final int CAMERA_PROBE_WAIT_SECONDS = 15;
 
     private final Consumer<Image> frameListener;
     private final Consumer<String> errorMessageListener;
@@ -94,32 +112,55 @@ public class PythonCardScannerBridge implements AutoCloseable {
     }
 
     /**
-     * Starts the Python sidecar and its background reader threads. Throws if the process can't
-     * be started at all (Python not found, script missing) — same caveat as
-     * {@link Model.CardMarket.PythonCardMarketBridge#start()}: anything that goes wrong past
-     * that point (webcam missing, opencv-python not installed) is only discoverable once the
-     * sidecar reports it as an {@code "error"} event, since starting the process successfully
-     * doesn't mean the webcam it's about to try opening is actually available.
+     * Probes for available cameras by running {@code python/card_scanner_bridge.py
+     * --list-cameras} as a fresh, short-lived process — see this class's own javadoc and the
+     * script's module docstring for why that's a separate invocation rather than a command sent
+     * to an already-running instance. Blocks the calling thread until the probe process reports
+     * its result or the wait times out; callers on the JavaFX application thread must invoke
+     * this from a background thread (see
+     * {@code Controller.CardScannerCoordinator#chooseCameraRequested()}).
+     * <p>
+     * The probe process's stderr is discarded rather than drained — unlike
+     * {@link #drainStderr}, which feeds a long-lived session's diagnostics into {@link #logger}
+     * for the whole time it runs, this is a one-shot blocking call whose only meaningful result
+     * is the camera list itself; a probe that finds zero cameras is a normal, non-exceptional
+     * outcome, not something stderr context would explain further.
+     *
+     * @return the camera indices that opened successfully, in ascending order (possibly empty,
+     * never {@code null})
+     * @throws IOException if the probe process itself could not be started (Python not found,
+     *                     script missing) — distinct from "no cameras found," which is this
+     *                     method returning an empty list normally
      */
-    public void start() throws IOException {
+    public static List<Integer> listAvailableCameras() throws IOException {
         List<String> command = new ArrayList<>(PYTHON_EXECUTABLE_ARGS);
         command.add(BRIDGE_SCRIPT_PATH.toString());
+        command.add("--list-cameras");
 
         ProcessBuilder processBuilder = new ProcessBuilder(command);
-        process = processBuilder.start();
+        processBuilder.redirectError(ProcessBuilder.Redirect.DISCARD);
+        Process probeProcess = processBuilder.start();
 
-        processInput = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
-        processOutput = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
+        List<Integer> availableCameraIndices;
+        try (BufferedReader probeOutput = new BufferedReader(
+                new InputStreamReader(probeProcess.getInputStream(), StandardCharsets.UTF_8))) {
+            String line = probeOutput.readLine();
+            availableCameraIndices = line == null ? List.of() : parseCameraListEvent(line);
+        }
 
-        stderrDrainThread = new Thread(() -> drainStderr(process), "card-scanner-bridge-stderr");
-        stderrDrainThread.setDaemon(true);
-        stderrDrainThread.start();
+        try {
+            boolean exitedCleanly = probeProcess.waitFor(CAMERA_PROBE_WAIT_SECONDS, TimeUnit.SECONDS);
+            if (!exitedCleanly) {
+                logger.warn("Camera probe process did not exit within {} seconds; forcing termination.",
+                        CAMERA_PROBE_WAIT_SECONDS);
+                probeProcess.destroyForcibly();
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            probeProcess.destroyForcibly();
+        }
 
-        stdoutReaderThread = new Thread(this::readEventsUntilStreamCloses, "card-scanner-bridge-stdout");
-        stdoutReaderThread.setDaemon(true);
-        stdoutReaderThread.start();
-
-        logger.info("Started the card-scanner Python bridge (pid {}).", process.pid());
+        return availableCameraIndices;
     }
 
     private void drainStderr(Process childProcess) {
@@ -228,6 +269,73 @@ public class PythonCardScannerBridge implements AutoCloseable {
         if (errorMessageListener != null) {
             Platform.runLater(() -> errorMessageListener.accept(message));
         }
+    }
+
+    /**
+     * Parses a {@code "camera_list"} event's {@code cameras} array (see this class's javadoc)
+     * into a plain {@code List<Integer>}. A missing or malformed array, or a line that isn't the
+     * expected event type at all, is treated as "no cameras found" rather than a fatal error —
+     * mirroring {@link #handleDetectionEvent}'s tolerance of one bad line from the sidecar.
+     */
+    private static List<Integer> parseCameraListEvent(String line) {
+        JSONObject event;
+        try {
+            event = new JSONObject(line);
+        } catch (JSONException jsonException) {
+            logger.warn("Camera probe sent a non-JSON line, ignoring: {}", line);
+            return List.of();
+        }
+        if (!"camera_list".equals(event.optString("type", ""))) {
+            logger.warn("Camera probe's first line wasn't a \"camera_list\" event, ignoring: {}", line);
+            return List.of();
+        }
+
+        List<Integer> cameraIndices = new ArrayList<>();
+        JSONArray camerasArray = event.optJSONArray("cameras");
+        if (camerasArray != null) {
+            for (int index = 0; index < camerasArray.length(); index++) {
+                int cameraIndex = camerasArray.optInt(index, -1);
+                if (cameraIndex >= 0) {
+                    cameraIndices.add(cameraIndex);
+                }
+            }
+        }
+        return cameraIndices;
+    }
+
+    /**
+     * Starts the Python sidecar and its background reader threads. Throws if the process can't
+     * be started at all (Python not found, script missing) — same caveat as
+     * {@link Model.CardMarket.PythonCardMarketBridge#start()}: anything that goes wrong past
+     * that point (webcam missing, opencv-python not installed) is only discoverable once the
+     * sidecar reports it as an {@code "error"} event, since starting the process successfully
+     * doesn't mean the webcam it's about to try opening is actually available.
+     *
+     * @param cameraIndex which OS camera device the sidecar should open, passed through as
+     *                    {@code --camera-index}. See {@link #listAvailableCameras()} for how a
+     *                    caller discovers which indices are actually available to pass here.
+     */
+    public void start(int cameraIndex) throws IOException {
+        List<String> command = new ArrayList<>(PYTHON_EXECUTABLE_ARGS);
+        command.add(BRIDGE_SCRIPT_PATH.toString());
+        command.add("--camera-index");
+        command.add(String.valueOf(cameraIndex));
+
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+        process = processBuilder.start();
+
+        processInput = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
+        processOutput = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
+
+        stderrDrainThread = new Thread(() -> drainStderr(process), "card-scanner-bridge-stderr");
+        stderrDrainThread.setDaemon(true);
+        stderrDrainThread.start();
+
+        stdoutReaderThread = new Thread(this::readEventsUntilStreamCloses, "card-scanner-bridge-stdout");
+        stdoutReaderThread.setDaemon(true);
+        stdoutReaderThread.start();
+
+        logger.info("Started the card-scanner Python bridge (pid {}).", process.pid());
     }
 
     /**

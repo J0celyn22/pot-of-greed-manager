@@ -9,9 +9,10 @@ import View.CardScannerArtworkGallery;
 import View.CardScannerPane;
 import View.FilterPane;
 import View.SharedCollectionTab;
+import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
-import javafx.scene.control.TabPane;
-import javafx.scene.control.TreeView;
+import javafx.geometry.Side;
+import javafx.scene.control.*;
 import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.HBox;
 import org.slf4j.Logger;
@@ -134,6 +135,14 @@ public class CardScannerCoordinator {
     private ScanLockDebouncer debouncer;
 
     /**
+     * Which camera device {@link #startCardScanner()} opens, set via {@link #selectCamera(int)}
+     * (Unit 10's "choose camera" button). Unlike {@link #debouncer}, this deliberately survives
+     * across close/reopen — once someone picks a non-default camera there's no reason to forget
+     * it just because they closed the pane, so it only resets on application restart.
+     */
+    private int selectedCameraIndex = 0;
+
+    /**
      * The active tab index and middle tree as of the detection cycle currently being handled —
      * captured in {@link #handleDetectionEvent} and read back by
      * {@link #completeArtworkDisambiguationAdd}, since {@link CardScannerPane#setOnCandidateAdd}
@@ -232,6 +241,7 @@ public class CardScannerCoordinator {
                     showFilterPaneInHeader(currentHeaderPane, filterPane);
                 }
             });
+            sharedCardScannerPane.getChooseCameraButton().setOnAction(event -> chooseCameraRequested());
         }
         headerPane.getChildren().clear();
         headerPane.getChildren().add(sharedCardScannerPane);
@@ -276,7 +286,9 @@ public class CardScannerCoordinator {
      * and resets {@link #debouncer} for the new session. Called every time the scanner pane is
      * shown (not just the first time), matching Unit 4's "opening the pane starts the camera"
      * rule — see {@link #activeCardScannerBridge}'s own comment for why a fresh subprocess per
-     * open, rather than one reused across opens, keeps that rule simple to guarantee.
+     * open, rather than one reused across opens, keeps that rule simple to guarantee. Opens on
+     * whichever camera {@link #selectedCameraIndex} currently holds — also called by
+     * {@link #selectCamera(int)} to restart an already-running session on a newly picked camera.
      */
     private void startCardScanner() {
         sharedCardScannerPane.resetPreview();
@@ -293,7 +305,7 @@ public class CardScannerCoordinator {
                 sharedCardScannerPane::setPreviewStatusText,
                 this::handleDetectionEvent);
         try {
-            activeCardScannerBridge.start();
+            activeCardScannerBridge.start(selectedCameraIndex);
         } catch (IOException startupIoException) {
             logger.error("Could not start the Python card-scanner bridge \u2014 check that Python is on "
                             + "PATH with the packages in python/requirements.txt installed, and that "
@@ -323,6 +335,77 @@ public class CardScannerCoordinator {
         Thread shutdownThread = new Thread(bridgeToClose::close, "card-scanner-bridge-shutdown");
         shutdownThread.setDaemon(true);
         shutdownThread.start();
+    }
+
+    /**
+     * Handles a click on {@link CardScannerPane#getChooseCameraButton()}. Disables the button
+     * and probes for available cameras on a background thread — see
+     * {@link PythonCardScannerBridge#listAvailableCameras()}'s own javadoc for why this can't
+     * just be a command sent to whatever session may already be running — then hands the result
+     * to {@link #presentCameraChoices} back on the JavaFX application thread.
+     */
+    private void chooseCameraRequested() {
+        Button chooseCameraButton = sharedCardScannerPane.getChooseCameraButton();
+        chooseCameraButton.setDisable(true);
+        sharedCardScannerPane.setPreviewStatusText("Looking for cameras\u2026");
+
+        Thread probeThread = new Thread(() -> {
+            List<Integer> foundCameraIndices;
+            try {
+                foundCameraIndices = PythonCardScannerBridge.listAvailableCameras();
+            } catch (IOException probeIoException) {
+                logger.error("Could not run the camera probe \u2014 check that Python is on PATH "
+                                + "and python/card_scanner_bridge.py is present relative to the "
+                                + "working directory.",
+                        probeIoException);
+                foundCameraIndices = List.of();
+            }
+            List<Integer> availableCameraIndices = foundCameraIndices;
+            Platform.runLater(() -> presentCameraChoices(chooseCameraButton, availableCameraIndices));
+        }, "card-scanner-camera-probe");
+        probeThread.setDaemon(true);
+        probeThread.start();
+    }
+
+    /**
+     * Re-enables {@code chooseCameraButton} and shows a {@link ContextMenu} listing
+     * {@code availableCameraIndices}, anchored below the button. Guards against the scanner pane
+     * having been closed while the probe was still running — {@code chooseCameraButton} would no
+     * longer be attached to a window in that case, and showing a context menu against a detached
+     * node isn't meaningful.
+     */
+    private void presentCameraChoices(Button chooseCameraButton, List<Integer> availableCameraIndices) {
+        chooseCameraButton.setDisable(false);
+        if (chooseCameraButton.getScene() == null || chooseCameraButton.getScene().getWindow() == null) {
+            return;
+        }
+
+        if (availableCameraIndices.isEmpty()) {
+            sharedCardScannerPane.setPreviewStatusText("No cameras were found.");
+            return;
+        }
+        sharedCardScannerPane.setPreviewStatusText(" ");
+
+        ContextMenu cameraMenu = new ContextMenu();
+        for (int cameraIndex : availableCameraIndices) {
+            MenuItem menuItem = new MenuItem("Camera " + cameraIndex);
+            menuItem.setOnAction(event -> selectCamera(cameraIndex));
+            cameraMenu.getItems().add(menuItem);
+        }
+        cameraMenu.show(chooseCameraButton, Side.BOTTOM, 0, 0);
+    }
+
+    /**
+     * Records {@code cameraIndex} as {@link #selectedCameraIndex} and restarts the scanner
+     * session on it. Always restarts rather than checking whether a session is currently live —
+     * {@link CardScannerPane#getChooseCameraButton()} is only reachable while the scanner pane is
+     * showing, so a restart is always what picking a camera from that pane should do, including
+     * when the previous session's camera failed to open in the first place.
+     */
+    private void selectCamera(int cameraIndex) {
+        selectedCameraIndex = cameraIndex;
+        stopCardScanner();
+        startCardScanner();
     }
 
     /**
