@@ -158,7 +158,8 @@ public class CardScannerCoordinator {
      * The candidates currently offering artwork disambiguation — set by
      * {@link #handleCandidateResolution} right before the artwork gallery renders, and read back
      * by {@link #completeArtworkDisambiguationAdd} to resolve an artwork identifier (an artNumber
-     * string — see {@link #buildArtworkOptions}) back to the specific {@link Card} it names.
+     * string — see {@link CardScannerArtworkResolver#buildArtworkOptions}) back to the specific
+     * {@link Card} it names.
      */
     private CardTextMatcher.CardCandidates activeCardCandidates;
 
@@ -575,7 +576,8 @@ public class CardScannerCoordinator {
             AnchorPane.setRightAnchor(sharedArtworkGallery, 0.0);
         }
         sharedArtworkGallery.showArtworkOptions(
-                buildArtworkOptions(cardCandidates), this::onArtworkTileClicked);
+                CardScannerArtworkResolver.buildArtworkOptions(cardCandidates.getArtworkOptions()),
+                this::onArtworkTileClicked);
         sharedCardScannerPane.getSelectedArtworkId().ifPresent(sharedArtworkGallery::setSelectedArtwork);
     }
 
@@ -591,24 +593,6 @@ public class CardScannerCoordinator {
         if (sharedArtworkGallery != null) {
             sharedArtworkGallery.clearArtworkOptions();
         }
-    }
-
-    /**
-     * Translates {@code cardCandidates}' artwork options into the view-model list
-     * {@link CardScannerArtworkGallery#showArtworkOptions} renders, keying each option by its
-     * {@link Card#getArtNumber()} — stable and unique within one Konami ID's artwork list per
-     * {@code CardDatabaseManager.getAliasCards}'s own javadoc, and already the identifier this
-     * class needs back in {@link #completeArtworkDisambiguationAdd} to resolve a click to a
-     * specific {@link Card}.
-     */
-    private List<CardScannerArtworkGallery.ArtworkOption> buildArtworkOptions(
-            CardTextMatcher.CardCandidates cardCandidates) {
-        List<CardScannerArtworkGallery.ArtworkOption> artworkOptions = new ArrayList<>();
-        for (Card artworkCard : cardCandidates.getArtworkOptions()) {
-            artworkOptions.add(new CardScannerArtworkGallery.ArtworkOption(
-                    artworkCard, artworkCard.getArtNumber()));
-        }
-        return artworkOptions;
     }
 
     /**
@@ -633,7 +617,8 @@ public class CardScannerCoordinator {
      * Completes a printCode+artwork add reported by {@link CardScannerPane}'s click matrix (see
      * {@link CardScannerPane#setOnCandidateAdd}) — the counterpart to
      * {@link #insertPrintCode}/{@link #insertResolvedCard} for the artwork-disambiguation path.
-     * Resolves {@code artworkId} back to its {@link Card} via {@link #activeCardCandidates}
+     * Resolves {@code artworkId} back to its {@link Card} via
+     * {@link CardScannerArtworkResolver#resolveArtworkCard}, against {@link #activeCardCandidates}
      * (set by {@link #handleCandidateResolution} for exactly this purpose), copies
      * {@code printCode} onto that artwork-specific card, and inserts it — see this class's own
      * javadoc note on why an artwork option's {@link Card} and a printCode option are two
@@ -648,13 +633,8 @@ public class CardScannerCoordinator {
                     + "(printCode={}, artworkId={})", printCode, artworkId);
             return;
         }
-        Card artworkCard = null;
-        for (Card candidateArtworkCard : activeCardCandidates.getArtworkOptions()) {
-            if (artworkId != null && artworkId.equals(candidateArtworkCard.getArtNumber())) {
-                artworkCard = candidateArtworkCard;
-                break;
-            }
-        }
+        Card artworkCard = CardScannerArtworkResolver.resolveArtworkCard(
+                activeCardCandidates.getArtworkOptions(), artworkId);
         if (artworkCard == null) {
             logger.warn("Could not resolve artwork identifier \"{}\" back to a Card among the active "
                     + "candidates; ignoring click", artworkId);
