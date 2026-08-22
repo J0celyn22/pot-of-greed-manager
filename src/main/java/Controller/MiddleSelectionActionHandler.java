@@ -46,23 +46,8 @@ final class MiddleSelectionActionHandler {
             return null;
         }
         if (activeTabIndex == 0) {
-            // My Collection: search CardsGroups inside every Box.
-            OwnedCardsCollection ownedCollection = Model.CardsLists.OuicheList.getMyCardsCollection();
-            if (ownedCollection == null) {
-                return null;
-            }
-            for (Box box : ownedCollection.getOwnedCollection()) {
-                List<CardsGroup> groups = box.getContent();
-                if (groups == null) {
-                    continue;
-                }
-                for (CardsGroup group : groups) {
-                    List<CardElement> cardList = group.getCardList();
-                    if (cardList != null && cardList.contains(element)) {
-                        return cardList;
-                    }
-                }
-            }
+            CardsGroup group = findDirectContainerGroup(element);
+            return group != null ? group.getCardList() : null;
         } else if (activeTabIndex == 1) {
             DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
             if (decksList == null) {
@@ -113,6 +98,39 @@ final class MiddleSelectionActionHandler {
                             return deck.getSideDeck();
                         }
                     }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Finds the {@link CardsGroup} inside {@link OwnedCardsCollection} (tab 0 / My Collection
+     * only — {@link CardsGroup} isn't a concept on tab 1) that directly contains {@code element}.
+     * Extracted out of {@link #findDirectContainer}'s tab-0 branch, which now just calls this
+     * and returns {@code .getCardList()}, so callers that need the group itself — e.g.
+     * {@link #pasteCardsAfterElement} recording where to scroll after an insert — don't have to
+     * re-walk {@link Box}es and their groups a second time.
+     *
+     * @return the containing group, or {@code null} if not found
+     */
+    static CardsGroup findDirectContainerGroup(CardElement element) {
+        if (element == null) {
+            return null;
+        }
+        OwnedCardsCollection ownedCollection = Model.CardsLists.OuicheList.getMyCardsCollection();
+        if (ownedCollection == null) {
+            return null;
+        }
+        for (Box box : ownedCollection.getOwnedCollection()) {
+            List<CardsGroup> groups = box.getContent();
+            if (groups == null) {
+                continue;
+            }
+            for (CardsGroup group : groups) {
+                List<CardElement> cardList = group.getCardList();
+                if (cardList != null && cardList.contains(element)) {
+                    return group;
                 }
             }
         }
@@ -289,6 +307,7 @@ final class MiddleSelectionActionHandler {
             return false;
         }
         if (activeTabIndex == 0) {
+            MenuActionHandler.setLastAddedGroupTarget(findDirectContainerGroup(anchor));
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
@@ -319,6 +338,7 @@ final class MiddleSelectionActionHandler {
             return false;
         }
         if (activeTabIndex == 0) {
+            MenuActionHandler.setLastAddedGroupTarget(findDirectContainerGroup(anchor));
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
@@ -366,6 +386,7 @@ final class MiddleSelectionActionHandler {
             CardGroupRegistry.triggerHeightAdjustment(defaultGroup);
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            MenuActionHandler.setLastAddedGroupTarget(defaultGroup);
             UserInterfaceFunctions.refreshOwnedCollectionView();
             for (CardElement added : addedElements) {
                 try {
@@ -392,6 +413,7 @@ final class MiddleSelectionActionHandler {
             CardGroupRegistry.triggerHeightAdjustment(group);
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            MenuActionHandler.setLastAddedGroupTarget(group);
             UserInterfaceFunctions.refreshOwnedCollectionView();
             for (CardElement added : addedElements) {
                 try {
@@ -446,6 +468,7 @@ final class MiddleSelectionActionHandler {
             CardGroupRegistry.triggerHeightAdjustment(defaultGroup);
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            MenuActionHandler.setLastAddedGroupTarget(defaultGroup);
             UserInterfaceFunctions.refreshOwnedCollectionView();
 
         } else if (modelObj instanceof CardsGroup group) {
@@ -459,6 +482,7 @@ final class MiddleSelectionActionHandler {
             CardGroupRegistry.triggerHeightAdjustment(group);
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            MenuActionHandler.setLastAddedGroupTarget(group);
             UserInterfaceFunctions.refreshOwnedCollectionView();
 
         } else if (modelObj instanceof Deck deck) {
@@ -753,6 +777,7 @@ final class MiddleSelectionActionHandler {
 
         CardElement lastElement = selectedInOrder.get(selectedInOrder.size() - 1);
         if (activeTabIndex == 0) {
+            MenuActionHandler.setLastAddedGroupTarget(findDirectContainerGroup(lastElement));
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
@@ -849,6 +874,8 @@ final class MiddleSelectionActionHandler {
         }
 
         if (activeTabIndex == 0) {
+            CardElement lastElement = selectedInOrder.get(selectedInOrder.size() - 1);
+            MenuActionHandler.setLastAddedGroupTarget(findDirectContainerGroup(lastElement));
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();

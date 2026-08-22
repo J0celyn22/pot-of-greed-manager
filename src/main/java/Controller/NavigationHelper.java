@@ -1,5 +1,6 @@
 package Controller;
 
+import View.DataTreeItem;
 import View.NavigationItem;
 import View.NavigationMenu;
 import View.SharedCollectionTab;
@@ -309,6 +310,35 @@ public final class NavigationHelper {
             TreeItem<String> result = findTreeItemByPath(child, path, index + 1);
             if (result != null) {
                 return result;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Recursively searches for the first {@link DataTreeItem} in the tree rooted at
+     * {@code node} whose {@link DataTreeItem#getData()} is the same object as {@code data}.
+     *
+     * <p>Companion to {@link #findTreeItemByPath}, for callers that already hold the live model
+     * object (a {@link Model.CardsLists.CardsGroup}, {@link Model.CardsLists.Box}, etc.) rather
+     * than a name path built for display — identity search can't be fooled by two nodes that
+     * happen to share a display name the way a path lookup can.
+     *
+     * @param node the current tree item to test (and recurse from)
+     * @param data the model object to search for (identity comparison, not {@code equals})
+     * @return the matching {@link TreeItem}, or {@code null} if not found
+     */
+    public static TreeItem<String> findTreeItemByData(TreeItem<String> node, Object data) {
+        if (node == null || data == null) {
+            return null;
+        }
+        if (node instanceof DataTreeItem && ((DataTreeItem<?>) node).getData() == data) {
+            return node;
+        }
+        for (TreeItem<String> child : node.getChildren()) {
+            TreeItem<String> found = findTreeItemByData(child, data);
+            if (found != null) {
+                return found;
             }
         }
         return null;

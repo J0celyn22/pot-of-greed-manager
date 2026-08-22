@@ -53,6 +53,15 @@ import java.util.function.Supplier;
  * Unlike the header swap, this never replaces the tab's own content — the gallery is added as a
  * sibling node and only its visibility toggles, so hiding it never needs to reconstruct whatever
  * the tab was already showing in that pane.
+ *
+ * <p>Unit 10 changes when {@link #resetCandidateSelectionState} gets called. It used to run both
+ * on every successful add and the instant the debounce lock released (the card leaving frame) —
+ * real-world use showed that made it impossible to add several copies of a card, or to add it
+ * once it was no longer in frame. Now it only runs from {@link #handleCandidateResolution} and
+ * {@link #handleUnambiguousResolution}, i.e. only when a genuinely new detection cycle begins
+ * (see {@link #handleDetectionEvent}'s {@code addEligible} check) — a card being shown, whether
+ * it's the same one again or a different one. Between detections, the printCode buttons and
+ * artwork gallery from the last one stay exactly as they were, fully clickable.
  */
 public class CardScannerCoordinator {
 
@@ -146,11 +155,12 @@ public class CardScannerCoordinator {
      * The active tab index and middle tree as of the detection cycle currently being handled —
      * captured in {@link #handleDetectionEvent} and read back by
      * {@link #completeArtworkDisambiguationAdd}, since {@link CardScannerPane#setOnCandidateAdd}
-     * only reports {@code (printCode, artworkId)}, not the insertion target. Both fields are only
-     * meaningful between an artwork gallery being shown and either an add completing or the
-     * debounce lock releasing (see {@link #resetCandidateSelectionState}) — the tab can't change
-     * out from under a pending selection in practice, since switching tabs already closes the
-     * scanner entirely (see {@link #closeIfOpenIn}) before either field would be read stale.
+     * only reports {@code (printCode, artworkId)}, not the insertion target. Both fields stay
+     * meaningful for as long as the artwork gallery they were captured for stays showing — which,
+     * as of Unit 10, can span several adds and the card leaving frame, not just one — until the
+     * next detection cycle overwrites them (see {@link #handleDetectionEvent}). The tab can't
+     * change out from under a pending selection in practice, since switching tabs already closes
+     * the scanner entirely (see {@link #closeIfOpenIn}) before either field would be read stale.
      */
     private int activeTabIndex;
     private TreeView<String> activeTreeView;
@@ -434,15 +444,13 @@ public class CardScannerCoordinator {
         try {
             Optional<CardTextMatcher.Resolution> resolution = CardTextMatcher.matchCandidates(recognizedCandidates);
             if (resolution.isEmpty()) {
-                boolean wasLocked = debouncer.isLocked();
+                // The debounce lock releasing here (the card leaving frame for a continuous
+                // 0.5s+) deliberately does *not* clear any printCode buttons or artwork gallery
+                // still showing from the last detection — see this class's own Unit 10 javadoc
+                // note. They stay clickable so a card can still be added, or added again, once
+                // it's no longer in frame; they're only replaced once a new detection actually
+                // resolves, in handleCandidateResolution/handleUnambiguousResolution below.
                 debouncer.onNoConfidentDetection();
-                if (wasLocked && !debouncer.isLocked()) {
-                    // The lock just released — "Unit 1 — decided"'s continuous-miss debounce, the
-                    // same moment "Unit 9 — decided" ties a fresh start to: the very next
-                    // confident detection after this point must not inherit stale printCode/
-                    // artwork selection state from whatever was in frame before.
-                    resetCandidateSelectionState();
-                }
                 return;
             }
 
@@ -473,10 +481,11 @@ public class CardScannerCoordinator {
 
     /**
      * Clears both halves of the printCode/artwork selection matrix and hides the artwork gallery
-     * — used when the debounce lock releases (see {@link #handleDetectionEvent}) and whenever a
-     * successful add completes (see {@link #completeArtworkDisambiguationAdd} and
-     * {@link #insertResolvedCard}), so a fresh detection cycle never inherits selection state
-     * from whichever card was in frame before.
+     * — called from {@link #handleCandidateResolution} and {@link #handleUnambiguousResolution}
+     * at the start of a genuinely new detection cycle (see {@link #handleDetectionEvent}'s
+     * {@code addEligible} check), so it never inherits stale selection state from whichever card
+     * was in frame before. As of Unit 10, this deliberately does <em>not</em> run just because the
+     * debounce lock releases or an add completes — see this class's own javadoc note.
      */
     private void resetCandidateSelectionState() {
         if (sharedCardScannerPane != null) {
@@ -598,17 +607,19 @@ public class CardScannerCoordinator {
     /**
      * Click handler for one artwork tile, wired via {@link #showArtworkGalleryInRightContentPane}.
      * Reports the click to {@link #sharedCardScannerPane} via
-     * {@link CardScannerPane#onArtworkSelected(String)} — which owns the actual click-matrix
-     * decision (add now vs. just select, see its own javadoc) — then reflects whatever the pane
-     * decided back onto the gallery's visuals: a completed add clears the gallery the same way
-     * {@link #resetCandidateSelectionState} does elsewhere, while a plain selection just restyles
-     * the clicked tile.
+     * {@link CardScannerPane#onArtworkSelected(String, boolean)} — which owns the actual
+     * click-matrix decision (add now vs. just select, see its own javadoc) — then restyles the
+     * clicked tile as selected regardless of which outcome came back. As of Unit 10 the gallery
+     * stays showing either way: a completed add no longer clears it (see this class's own javadoc
+     * note), so the clicked tile simply stays highlighted, ready for another add.
+     *
+     * @param artworkId  the clicked tile's identifier
+     * @param selectOnly whether the click was CTRL/Cmd-held, forwarded to
+     *                   {@link CardScannerPane#onArtworkSelected(String, boolean)} unchanged
      */
-    private void onArtworkTileClicked(String artworkId) {
-        CardScannerPane.ClickOutcome outcome = sharedCardScannerPane.onArtworkSelected(artworkId);
-        if (outcome == CardScannerPane.ClickOutcome.ADDED) {
-            hideArtworkGallery();
-        } else if (sharedArtworkGallery != null) {
+    private void onArtworkTileClicked(String artworkId, boolean selectOnly) {
+        sharedCardScannerPane.onArtworkSelected(artworkId, selectOnly);
+        if (sharedArtworkGallery != null) {
             sharedArtworkGallery.setSelectedArtwork(artworkId);
         }
     }
@@ -619,13 +630,20 @@ public class CardScannerCoordinator {
      * {@link #insertPrintCode}/{@link #insertResolvedCard} for the artwork-disambiguation path.
      * Resolves {@code artworkId} back to its {@link Card} via
      * {@link CardScannerArtworkResolver#resolveArtworkCard}, against {@link #activeCardCandidates}
-     * (set by {@link #handleCandidateResolution} for exactly this purpose), copies
-     * {@code printCode} onto that artwork-specific card, and inserts it — see this class's own
+     * (set by {@link #handleCandidateResolution} for exactly this purpose) — see this class's own
      * javadoc note on why an artwork option's {@link Card} and a printCode option are two
      * independent axes with no existing combined lookup: the artwork card already carries the
      * correct identity/image for the artwork half, and setting its printCode field is how
      * {@link Model.CardsLists.CardElement#toCollectionString()} persists the printCode half
      * alongside it, without this class needing a new database lookup for the combined pair.
+     *
+     * <p>Copies the resolved card via {@link Card#Card(Card)} before setting its printCode and
+     * inserting it — {@link #activeCardCandidates} (and the {@link Card} this resolves to inside
+     * it) can now, as of Unit 10, be reused across several adds from the same detection, so
+     * mutating the resolved card in place would corrupt whichever previous add already inserted a
+     * {@link Model.CardsLists.CardElement} pointing at that same instance (see the copy
+     * constructor's own javadoc for exactly how). The copy is what actually gets inserted;
+     * {@link #activeCardCandidates}'s own artwork list is never mutated by this method.
      */
     private void completeArtworkDisambiguationAdd(String printCode, String artworkId) {
         if (activeCardCandidates == null) {
@@ -642,8 +660,9 @@ public class CardScannerCoordinator {
                     "Couldn't find that artwork. See the application log for details.");
             return;
         }
-        artworkCard.setPrintCode(printCode);
-        insertResolvedCard(artworkCard, activeTabIndex, activeTreeView);
+        Card cardToInsert = new Card(artworkCard);
+        cardToInsert.setPrintCode(printCode);
+        insertResolvedCard(cardToInsert, activeTabIndex, activeTreeView);
     }
 
     /**
@@ -712,13 +731,13 @@ public class CardScannerCoordinator {
     /**
      * Shared by the unambiguous auto-add path, a single-artwork printCode button click, and a
      * completed printCode+artwork add: inserts {@code card} via
-     * {@link MiddleSelectionActionHandler#insertCardsAtQuickAddTarget}, clears any printCode
-     * candidates and artwork gallery left showing, and reports what was added — "a successful add
-     * clears all printCode/artwork selection state" per "Unit 9 — decided".
+     * {@link MiddleSelectionActionHandler#insertCardsAtQuickAddTarget} and reports what was
+     * added. As of Unit 10, this no longer clears any printCode candidates or artwork gallery
+     * left showing — see this class's own javadoc note — so the same buttons stay available to
+     * add another copy of the same card, or a different candidate from the same detection.
      */
     private void insertResolvedCard(Card card, int activeTabIndex, TreeView<String> activeTreeView) {
         MiddleSelectionActionHandler.insertCardsAtQuickAddTarget(List.of(card), activeTabIndex, activeTreeView);
-        resetCandidateSelectionState();
         sharedCardScannerPane.setDetectionFeedbackText("Added: " + card.getNameOrNumber());
     }
 }

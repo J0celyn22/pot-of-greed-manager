@@ -14,7 +14,7 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 
 import java.util.List;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 
 /**
  * Unit 9's artwork picker for candidates with multiple artworks — the third region the plan
@@ -31,8 +31,10 @@ import java.util.function.Consumer;
  * ({@link CardImageLoader}, sized from whichever {@code cardWidthProperty}/
  * {@code cardHeightProperty} the caller passes in — see {@code RealMainController}'s shared
  * 100x146 defaults). This class only renders images and reports clicks; it has no opinion on
- * what a click should do — that's {@link CardScannerPane#onArtworkSelected(String)}'s job, via
- * the {@code onArtworkClicked} callback passed to {@link #showArtworkOptions}.
+ * what a click should do — that's {@link CardScannerPane#onArtworkSelected(String, boolean)}'s
+ * job, via the {@code onArtworkClicked} callback passed to {@link #showArtworkOptions}, which
+ * also reports whether the click was CTRL-held so that decision can tell a select-only click
+ * from an ordinary one.
  */
 public class CardScannerArtworkGallery extends VBox {
 
@@ -73,12 +75,13 @@ public class CardScannerArtworkGallery extends VBox {
      * {@link #clearArtworkOptions()}.
      *
      * @param artworkOptions   the artwork variants to render, each paired with the opaque
-     *                         identifier {@link CardScannerPane#onArtworkSelected(String)} should
-     *                         be called with when it's clicked
-     * @param onArtworkClicked invoked with an option's identifier when its tile is clicked
+     *                         identifier {@link CardScannerPane#onArtworkSelected(String, boolean)}
+     *                         should be called with when it's clicked
+     * @param onArtworkClicked invoked with an option's identifier and whether CTRL was held when
+     *                         its tile is clicked
      */
     public void showArtworkOptions(
-            List<ArtworkOption> artworkOptions, Consumer<String> onArtworkClicked) {
+            List<ArtworkOption> artworkOptions, BiConsumer<String, Boolean> onArtworkClicked) {
         clearArtworkOptions();
         if (artworkOptions == null || artworkOptions.isEmpty()) {
             return;
@@ -128,7 +131,7 @@ public class CardScannerArtworkGallery extends VBox {
         }
     }
 
-    private StackPane buildArtworkTile(ArtworkOption option, Consumer<String> onArtworkClicked) {
+    private StackPane buildArtworkTile(ArtworkOption option, BiConsumer<String, Boolean> onArtworkClicked) {
         ImageView imageView = new ImageView();
         imageView.setFitWidth(100);
         imageView.setFitHeight(146);
@@ -142,7 +145,7 @@ public class CardScannerArtworkGallery extends VBox {
         tile.setAlignment(Pos.CENTER);
         tile.setOnMouseClicked(event -> {
             if (onArtworkClicked != null) {
-                onArtworkClicked.accept(option.artworkId());
+                onArtworkClicked.accept(option.artworkId(), event.isShortcutDown());
             }
         });
         tile.setStyle(tile.getStyle() + "-fx-cursor: hand;");
@@ -161,8 +164,9 @@ public class CardScannerArtworkGallery extends VBox {
      *
      * @param card      the artwork-specific {@link Card} whose image this tile shows
      * @param artworkId opaque identifier round-tripped through
-     *                  {@link CardScannerPane#onArtworkSelected(String)} unchanged — this class
-     *                  and {@link CardScannerPane} never inspect it, only compare it for equality
+     *                  {@link CardScannerPane#onArtworkSelected(String, boolean)} unchanged — this
+     *                  class and {@link CardScannerPane} never inspect it, only compare it for
+     *                  equality
      */
     public record ArtworkOption(Card card, String artworkId) {
     }

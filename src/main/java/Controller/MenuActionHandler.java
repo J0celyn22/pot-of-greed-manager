@@ -36,6 +36,16 @@ public final class MenuActionHandler {
     /** Stores the last target path used by {@link #handleAddToDeck} so the UI can scroll to it. */
     private static volatile String lastDecksAddedTarget = null;
 
+    /**
+     * Stores the {@link CardsGroup} an insertion just landed in, by object identity rather than
+     * by name path — set by {@link MiddleSelectionActionHandler}'s shared paste/insert methods
+     * (used by the scanner, keyboard quick-add, clipboard paste, and complete-to-three), all of
+     * which already hold the live {@code CardsGroup} they're inserting into rather than a name
+     * string built for a menu. A name path can't distinguish two groups that happen to share a
+     * name; identity always resolves to the exact group the cards actually landed in.
+     */
+    private static volatile CardsGroup lastAddedGroupTarget = null;
+
     private MenuActionHandler() { /* static utility */ }
 
     // ── Last-target accessors ─────────────────────────────────────────────────
@@ -82,6 +92,30 @@ public final class MenuActionHandler {
      */
     static void setLastAddedTarget(String target) {
         lastAddedTarget = target;
+    }
+
+    /**
+     * Sets the {@link CardsGroup} an insertion just landed in (used by the scroll-to-new-card
+     * logic after a My Collection view refresh, in preference to {@link #lastAddedTarget} when
+     * both happen to be set — see {@link #lastAddedGroupTarget}'s own javadoc for why identity
+     * is preferred over a name path). Package-private: set by
+     * {@link MiddleSelectionActionHandler}'s shared paste/insert methods.
+     *
+     * @param group the group the cards were just inserted into
+     */
+    static void setLastAddedGroupTarget(CardsGroup group) {
+        lastAddedGroupTarget = group;
+    }
+
+    /**
+     * Returns and atomically clears the last {@link CardsGroup} an insertion landed in.
+     *
+     * @return the last target group, or {@code null} if none was recorded
+     */
+    public static CardsGroup getAndClearLastAddedGroupTarget() {
+        CardsGroup group = lastAddedGroupTarget;
+        lastAddedGroupTarget = null;
+        return group;
     }
 
     // ── Move ──────────────────────────────────────────────────────────────────

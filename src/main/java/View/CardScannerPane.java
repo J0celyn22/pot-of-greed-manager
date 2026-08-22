@@ -8,6 +8,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.*;
 import javafx.scene.text.TextAlignment;
 
@@ -48,8 +49,8 @@ import java.util.function.BiConsumer;
  * wrapping rows inside the active tab's {@code rightContentPane}, owned and swapped in/out by
  * {@code Controller.CardScannerCoordinator}. This class's own share of Unit 9 is the selection
  * state and the click matrix: {@link #getSelectedPrintCode()} already existed for Unit 8;
- * {@link #onArtworkSelected(String)} lets the coordinator report an artwork click into this
- * class's own selection bookkeeping without this class needing to know anything about how
+ * {@link #onArtworkSelected(String, boolean)} lets the coordinator report an artwork click into
+ * this class's own selection bookkeeping without this class needing to know anything about how
  * artwork images are rendered, and {@link #toggleMultiArtworkSelection} now completes an add
  * (instead of only selecting) when an artwork is already reported selected — see
  * {@link ClickOutcome} for the result a click can produce.
@@ -58,6 +59,21 @@ import java.util.function.BiConsumer;
  * button this class exposes, it only renders the control; {@code CardScannerCoordinator} owns
  * what clicking it actually does (probing for cameras and restarting the sidecar on whichever
  * one gets picked).
+ *
+ * <p>Unit 10 also changes when candidates get torn down. Previously a successful add, or the
+ * debounce lock releasing (the card leaving frame), both cleared the printCode buttons and
+ * artwork gallery immediately. Real-world use made that a problem: it's common to want several
+ * copies of the same card, or to add it after it's no longer in frame. {@code
+ * CardScannerCoordinator} no longer clears candidates on either of those events — only a
+ * genuinely new detection (a different card, or the same card shown again) does, via
+ * {@link #showPrintCodeCandidates(List)}'s own {@link #clearPrintCodeCandidates()} call before it
+ * rebuilds. A completed add also leaves the printCode/artwork selection itself highlighted (see
+ * {@link #toggleMultiArtworkSelection} and {@link #onArtworkSelected(String, boolean)}), so a
+ * plain click on either button immediately adds another copy of the same pair. To change one
+ * side of the pair without adding — e.g. keep the artwork but pick a different printCode — CTRL
+ * (or Cmd on macOS, i.e. {@link MouseEvent#isShortcutDown()}) held during the click makes it
+ * select-only, even if the other side already has a selection that would otherwise trigger an
+ * add.
  */
 public class CardScannerPane extends VBox {
 
@@ -95,7 +111,7 @@ public class CardScannerPane extends VBox {
     private String selectedPrintCode;
 
     /**
-     * The artwork identifier last reported via {@link #onArtworkSelected(String)}, or
+     * The artwork identifier last reported via {@link #onArtworkSelected(String, boolean)}, or
      * {@code null} once cleared via {@link #clearPrintCodeCandidates()}. This class has no
      * opinion on what the identifier actually is or how the artwork it names gets rendered —
      * {@code CardScannerCoordinator} owns both — it only tracks whether one is currently
@@ -104,11 +120,11 @@ public class CardScannerPane extends VBox {
     private String selectedArtworkId;
 
     /**
-     * Invoked once per successful add completed by the artwork half of Unit 9's click matrix: a
+     * Invoked once per successful add completed by the artwork half of the click matrix: a
      * multi-artwork printCode button clicked while an artwork was already selected (see
      * {@link #toggleMultiArtworkSelection}), or an artwork click reported via
-     * {@link #onArtworkSelected(String)} while a printCode was already selected. Receives the
-     * {@code (printCode, artworkId)} pair that was just completed. Not invoked for a
+     * {@link #onArtworkSelected(String, boolean)} while a printCode was already selected.
+     * Receives the {@code (printCode, artworkId)} pair that was just completed. Not invoked for a
      * single-artwork printCode button click — that path still calls
      * {@link PrintCodeCandidate#onAdd()} directly, the same as Unit 8, since there's no artwork
      * identifier to report in that case. {@code CardScannerCoordinator} wires this to complete
@@ -336,7 +352,8 @@ public class CardScannerPane extends VBox {
      * @param onCandidateAdd receives {@code (printCode, artworkId)} for a completed
      *                       printCode+artwork add; {@code artworkId} is whatever opaque string
      *                       {@code CardScannerCoordinator} passed to
-     *                       {@link #onArtworkSelected(String)} for the artwork half of the pair
+     *                       {@link #onArtworkSelected(String, boolean)} for the artwork half of
+     *                       the pair
      */
     public void setOnCandidateAdd(BiConsumer<String, String> onCandidateAdd) {
         this.onCandidateAdd = onCandidateAdd;
@@ -365,9 +382,12 @@ public class CardScannerPane extends VBox {
     /**
      * Removes every printCode candidate button, clears any multi-artwork and artwork selection,
      * and hides the candidates column so the preview reclaims the full row width. Called before
-     * rendering a fresh set of candidates, and whenever the pane needs to return to "just the
-     * preview" (a new scanning session starting, or a successful add) — see "Unit 9 — decided"'s
-     * reset-on-lock-release rule, which {@code CardScannerCoordinator} ties to this same call.
+     * rendering a fresh set of candidates (see {@link #showPrintCodeCandidates(List)}) and when a
+     * new scanning session starts (see {@link #resetPreview()}) — i.e. only when the pane is
+     * about to show a genuinely new detection's candidates or go back to just the preview. As of
+     * Unit 10, a successful add no longer calls this: the buttons and any printCode/artwork
+     * selection stay exactly as they were so the same candidates remain clickable for adding more
+     * copies, until the next real detection replaces them.
      *
      * <p>Only clears this class's own printCode/artwork-selection bookkeeping — the artwork
      * images themselves live in {@code rightContentPane}, owned by
@@ -393,8 +413,8 @@ public class CardScannerPane extends VBox {
     }
 
     /**
-     * @return the artwork identifier last reported via {@link #onArtworkSelected(String)}, or
-     * empty if none is currently selected. Mirrors {@link #getSelectedPrintCode()}'s role for the
+     * @return the artwork identifier last reported via {@link #onArtworkSelected(String, boolean)},
+     * or empty if none is currently selected. Mirrors {@link #getSelectedPrintCode()}'s role for the
      * other half of the click matrix — {@code CardScannerCoordinator} can read this before
      * rendering a fresh artwork gallery to restyle whichever image was already selected as still
      * selected, without this class needing to know how artwork images are drawn.
@@ -405,28 +425,35 @@ public class CardScannerPane extends VBox {
 
     /**
      * Reports that {@code artworkId} was just clicked in the (externally rendered) artwork
-     * gallery. Implements the artwork half of Unit 9's click matrix:
+     * gallery. Implements the artwork half of the click matrix:
      * <ul>
-     *   <li>a printCode is already selected — completes the add via {@link #onCandidateAdd} for
-     *       {@code (selectedPrintCode, artworkId)}, then clears all selection state via
-     *       {@link #clearPrintCodeCandidates()} (the "successful add clears everything" rule);</li>
-     *   <li>no printCode selected yet — just records {@code artworkId} as selected, matching
+     *   <li>{@code selectOnly} — always just records {@code artworkId} as selected (replacing
+     *       any previous artwork selection), even if a printCode is already selected. This is
+     *       the CTRL/Cmd-held case: it lets the artwork side of the pair be changed without
+     *       immediately completing an add against whatever printCode is currently selected;</li>
+     *   <li>otherwise, a printCode is already selected — completes the add via
+     *       {@link #onCandidateAdd} for {@code (selectedPrintCode, artworkId)}. Selection state
+     *       (both the printCode and the artwork) is deliberately left as-is afterward — see
+     *       {@link #clearPrintCodeCandidates()}'s Unit 10 note — so the pair stays highlighted
+     *       and a follow-up plain click on either button adds another copy immediately;</li>
+     *   <li>otherwise — just records {@code artworkId} as selected, matching
      *       {@link #toggleMultiArtworkSelection}'s "select and wait" behavior for a printCode
      *       button click with nothing selected on the other axis yet.</li>
      * </ul>
      *
-     * @param artworkId opaque identifier for the clicked artwork, round-tripped back to the
-     *                  caller unchanged via {@link #onCandidateAdd} — this class never inspects it
+     * @param artworkId  opaque identifier for the clicked artwork, round-tripped back to the
+     *                   caller unchanged via {@link #onCandidateAdd} — this class never inspects it
+     * @param selectOnly whether the click should always just select {@code artworkId} rather than
+     *                   possibly completing an add — {@code true} when the click was CTRL/Cmd-held
      * @return which outcome this click produced, so the caller (which owns the artwork gallery's
-     * visuals) knows whether to mark {@code artworkId} selected or clear the whole gallery
+     * visuals) knows whether to mark {@code artworkId} selected or that an add just completed
      */
-    public ClickOutcome onArtworkSelected(String artworkId) {
-        if (selectedPrintCode != null) {
-            String printCodeToAdd = selectedPrintCode;
+    public ClickOutcome onArtworkSelected(String artworkId, boolean selectOnly) {
+        if (!selectOnly && selectedPrintCode != null) {
             if (onCandidateAdd != null) {
-                onCandidateAdd.accept(printCodeToAdd, artworkId);
+                onCandidateAdd.accept(selectedPrintCode, artworkId);
             }
-            clearPrintCodeCandidates();
+            selectedArtworkId = artworkId;
             return ClickOutcome.ADDED;
         }
         selectedArtworkId = artworkId;
@@ -440,50 +467,71 @@ public class CardScannerPane extends VBox {
         button.setPrefHeight(28);
         if (candidate.hasSingleArtwork()) {
             applyAddableButtonStyle(button);
-            button.setOnAction(event -> candidate.onAdd().run());
+            button.setOnMouseClicked(event -> candidate.onAdd().run());
         } else {
             applyMultiArtworkButtonStyle(button, false);
-            button.setOnAction(event -> toggleMultiArtworkSelection(button, candidate.printCode()));
+            button.setOnMouseClicked(
+                    event -> toggleMultiArtworkSelection(button, candidate.printCode(), event.isShortcutDown()));
         }
         return button;
     }
 
     /**
-     * Click handler for a multi-artwork printCode button — the printCode half of Unit 9's click
+     * Click handler for a multi-artwork printCode button — the printCode half of the click
      * matrix:
      * <ul>
-     *   <li>an artwork is already selected — completes the add via {@link #onCandidateAdd} for
-     *       {@code (printCode, selectedArtworkId)}, then clears all selection state (the
-     *       "successful add clears everything" rule);</li>
-     *   <li>no artwork selected yet, and this button wasn't already selected — selects it,
-     *       replacing any other selected printCode button (single-select, not multi);</li>
-     *   <li>no artwork selected yet, and this button was already the selected one — deselects it,
-     *       since a multi-artwork candidate never adds on its own with nothing on the artwork
-     *       side chosen.</li>
+     *   <li>{@code selectOnly} — always just selects/deselects {@code clickedButton} (see below),
+     *       even if an artwork is already selected. This is the CTRL/Cmd-held case: it lets the
+     *       printCode side of the pair be changed without immediately completing an add against
+     *       whatever artwork is currently selected;</li>
+     *   <li>otherwise, an artwork is already selected — completes the add via
+     *       {@link #onCandidateAdd} for {@code (printCode, selectedArtworkId)}, then marks
+     *       {@code clickedButton} as the selected printCode button (see
+     *       {@link #selectPrintCodeButton}). Selection state is deliberately left highlighted
+     *       afterward — see {@link #clearPrintCodeCandidates()}'s Unit 10 note — so a follow-up
+     *       plain click on either button adds another copy immediately;</li>
+     *   <li>otherwise, this button wasn't already selected — selects it, replacing any other
+     *       selected printCode button (single-select, not multi);</li>
+     *   <li>otherwise, this button was already the selected one — deselects it, since a
+     *       multi-artwork candidate never adds on its own with nothing on the artwork side
+     *       chosen.</li>
      * </ul>
+     *
+     * @param selectOnly whether the click should always just select/deselect rather than
+     *                   possibly completing an add — {@code true} when the click was CTRL/Cmd-held
      */
-    private void toggleMultiArtworkSelection(Button clickedButton, String printCode) {
-        if (selectedArtworkId != null) {
-            String artworkIdToAdd = selectedArtworkId;
+    private void toggleMultiArtworkSelection(Button clickedButton, String printCode, boolean selectOnly) {
+        if (!selectOnly && selectedArtworkId != null) {
             if (onCandidateAdd != null) {
-                onCandidateAdd.accept(printCode, artworkIdToAdd);
+                onCandidateAdd.accept(printCode, selectedArtworkId);
             }
-            clearPrintCodeCandidates();
+            selectPrintCodeButton(clickedButton, printCode);
             return;
         }
 
-        boolean wasAlreadySelected = clickedButton.equals(selectedMultiArtworkButton);
-        if (selectedMultiArtworkButton != null) {
-            applyMultiArtworkButtonStyle(selectedMultiArtworkButton, false);
-        }
-        if (wasAlreadySelected) {
+        if (clickedButton.equals(selectedMultiArtworkButton)) {
+            applyMultiArtworkButtonStyle(clickedButton, false);
             selectedMultiArtworkButton = null;
             selectedPrintCode = null;
         } else {
-            applyMultiArtworkButtonStyle(clickedButton, true);
-            selectedMultiArtworkButton = clickedButton;
-            selectedPrintCode = printCode;
+            selectPrintCodeButton(clickedButton, printCode);
         }
+    }
+
+    /**
+     * Marks {@code clickedButton} as the selected printCode button, restyling whichever button
+     * was selected before (if any and if different) back to unselected first — single-select, not
+     * multi. Shared by both branches of {@link #toggleMultiArtworkSelection} that end in this
+     * button being the selected one: a plain select click, and a click that also completed an add
+     * against a different printCode than was previously selected.
+     */
+    private void selectPrintCodeButton(Button clickedButton, String printCode) {
+        if (selectedMultiArtworkButton != null && !selectedMultiArtworkButton.equals(clickedButton)) {
+            applyMultiArtworkButtonStyle(selectedMultiArtworkButton, false);
+        }
+        applyMultiArtworkButtonStyle(clickedButton, true);
+        selectedMultiArtworkButton = clickedButton;
+        selectedPrintCode = printCode;
     }
 
     /**
@@ -528,18 +576,20 @@ public class CardScannerPane extends VBox {
 
     /**
      * What a click in the printCode/artwork selection matrix produced — returned by
-     * {@link #onArtworkSelected(String)} so a caller that owns the artwork gallery's visuals
-     * (which this class never renders itself) knows whether to mark the clicked artwork
-     * "selected" or clear the whole gallery because an add just completed. The printCode half of
-     * the matrix ({@link #toggleMultiArtworkSelection}) has no equivalent need — its own button
-     * already lives inside this class, so it restyles itself directly instead of reporting a
-     * result the caller would have to act on.
+     * {@link #onArtworkSelected(String, boolean)} so a caller that owns the artwork gallery's
+     * visuals (which this class never renders itself) knows whether an add just completed. Either
+     * way the clicked artwork ends up marked "selected" — see {@link #onArtworkSelected(String,
+     * boolean)} — so the caller restyles the same way for both outcomes; {@code ADDED} exists so
+     * the caller can also report the add (e.g. update the detection feedback text). The printCode
+     * half of the matrix ({@link #toggleMultiArtworkSelection}) has no equivalent need — its own
+     * button already lives inside this class, so it restyles itself directly instead of reporting
+     * a result the caller would have to act on.
      */
     public enum ClickOutcome {
         /**
-         * The click completed a printCode+artwork add; {@link #onCandidateAdd} was already
-         * invoked and all selection state was already cleared via
-         * {@link #clearPrintCodeCandidates()}.
+         * The click completed a printCode+artwork add via {@link #onCandidateAdd}. Selection
+         * state was left highlighted (see {@link #clearPrintCodeCandidates()}'s Unit 10 note), so
+         * the caller should still mark the clicked artwork selected, same as {@link #SELECTED}.
          */
         ADDED,
         /**
@@ -557,12 +607,13 @@ public class CardScannerPane extends VBox {
      * @param displayLabel     the text shown on the button (e.g. printCode plus a parsed
      *                         language tag)
      * @param hasSingleArtwork whether this printCode has exactly one artwork. When {@code true},
-     *                         clicking the button invokes {@link #onAdd()} immediately. When
-     *                         {@code false}, clicking only marks the button "selected" unless an
-     *                         artwork is already selected (see {@link #getSelectedArtworkId()}),
-     *                         in which case it completes the add instead — the printCode half of
-     *                         Unit 9's click matrix, implemented in
-     *                         {@link #toggleMultiArtworkSelection}.
+     *                         clicking the button invokes {@link #onAdd()} immediately, regardless
+     *                         of CTRL/Cmd (there's nothing to select-only for a single-artwork
+     *                         candidate). When {@code false}, clicking only marks the button
+     *                         "selected" unless an artwork is already selected and the click
+     *                         wasn't CTRL/Cmd-held (see {@link #getSelectedArtworkId()}), in which
+     *                         case it completes the add instead — the printCode half of the click
+     *                         matrix, implemented in {@link #toggleMultiArtworkSelection}.
      * @param onAdd            invoked when the button is clicked and {@code hasSingleArtwork} is
      *                         {@code true}; must be non-null in that case, ignored otherwise
      */
