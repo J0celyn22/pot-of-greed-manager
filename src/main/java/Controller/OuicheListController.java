@@ -215,6 +215,85 @@ public class OuicheListController {
         logger.info("OuicheList unified view displayed.");
     }
 
+    /**
+     * Refreshes the OuicheList tab's content in place when possible, instead of paying
+     * for {@link #displayOuicheListUnified()}'s full pane/tree rebuild (which recreates
+     * every collection/deck's {@link View.DataTreeItem}s, {@code GridView}s, and
+     * card-image nodes from scratch, and rescans the whole card database for missing
+     * artwork). Falls back to the full rebuild whenever it can't safely skip it:
+     *
+     * <ul>
+     *   <li>the tree isn't currently being shown (first display, or the tab is on the
+     *       "Nothing missing!" label),</li>
+     *   <li>the OuicheList hasn't been generated yet, or</li>
+     *   <li>the set of collections/decks with at least one missing card changed —
+     *       one became fully satisfied and must disappear, or a previously-satisfied
+     *       one now has a missing card and must appear.</li>
+     * </ul>
+     *
+     * <p>Otherwise, every currently-shown collection/deck's underlying data already
+     * reflects the change (the model-level {@code OuicheList.onDeckCardAdded}/etc.
+     * updates run before this is called), so a plain {@code TreeView.refresh()} plus
+     * {@link CardGroupRegistry#refreshAllGridViews()} is enough to make it visible.
+     *
+     * @throws Exception if the model cannot be loaded
+     */
+    public void refreshOuicheListContentInPlace() throws Exception {
+        AnchorPane contentPane = ouicheListTab.getContentPane();
+        if (ouicheListTreeView == null || ouicheListTreeView.getRoot() == null
+                || !contentPane.getChildren().contains(ouicheListTreeView)) {
+            displayOuicheListUnified();
+            return;
+        }
+
+        DecksAndCollectionsList detailedOuicheList = OuicheList.getDetailedOuicheList();
+        if (detailedOuicheList == null) {
+            displayOuicheListUnified();
+            return;
+        }
+
+        List<Object> currentlyShown = new java.util.ArrayList<>();
+        for (javafx.scene.control.TreeItem<String> child : ouicheListTreeView.getRoot().getChildren()) {
+            if (child instanceof DataTreeItem<?> dataItem) {
+                currentlyShown.add(dataItem.getData());
+            }
+        }
+
+        List<Object> shouldBeShown = new java.util.ArrayList<>();
+        if (detailedOuicheList.getCollections() != null) {
+            for (ThemeCollection collection : detailedOuicheList.getCollections()) {
+                if (collectionHasMissingCards(collection)) {
+                    shouldBeShown.add(collection);
+                }
+            }
+        }
+        if (detailedOuicheList.getDecks() != null) {
+            for (Deck deck : detailedOuicheList.getDecks()) {
+                if (deckHasMissingCards(deck)) {
+                    shouldBeShown.add(deck);
+                }
+            }
+        }
+
+        boolean sameMembership = currentlyShown.size() == shouldBeShown.size();
+        if (sameMembership) {
+            for (int index = 0; index < currentlyShown.size(); index++) {
+                if (currentlyShown.get(index) != shouldBeShown.get(index)) {
+                    sameMembership = false;
+                    break;
+                }
+            }
+        }
+
+        if (!sameMembership) {
+            displayOuicheListUnified();
+            return;
+        }
+
+        ouicheListTreeView.refresh();
+        CardGroupRegistry.refreshAllGridViews();
+    }
+
     // ── Navigation menu ───────────────────────────────────────────────────────
 
     /**

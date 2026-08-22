@@ -747,7 +747,8 @@ public final class CardGroupRegistry {
      */
     public static void notifyOuicheListOfGroupAdditions(
             CardsGroup targetGroup, List<CardElement> addedElements) {
-        if (targetGroup == null || addedElements == null || addedElements.isEmpty()) {
+        if (targetGroup == null || addedElements == null || addedElements.isEmpty()
+                || !OuicheList.isGenerated()) {
             return;
         }
 
@@ -841,7 +842,8 @@ public final class CardGroupRegistry {
     public static void notifyOuicheListOfGroupRemovals(
             CardsGroup sourceGroup, List<CardElement> removedElements,
             Map<CardElement, Integer> originalIndices) {
-        if (sourceGroup == null || removedElements == null || removedElements.isEmpty()) {
+        if (sourceGroup == null || removedElements == null || removedElements.isEmpty()
+                || !OuicheList.isGenerated()) {
             return;
         }
 
@@ -919,7 +921,8 @@ public final class CardGroupRegistry {
      */
     public static void notifyOuicheListOfGroupReorder(
             CardsGroup group, List<CardElement> movedElements, Map<CardElement, Integer> originalIndices) {
-        if (group == null || movedElements == null || movedElements.isEmpty()) {
+        if (group == null || movedElements == null || movedElements.isEmpty()
+                || !OuicheList.isGenerated()) {
             return;
         }
 

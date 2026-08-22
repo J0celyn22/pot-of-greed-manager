@@ -77,12 +77,14 @@ final class CardCopyHandler {
 
         MenuActionHandler.setLastAddedTarget(handlerTarget);
 
-        try {
-            OuicheList.onOwnedCardAdded(newElement);
-            UserInterfaceFunctions.refreshOuicheListView();
-        } catch (Throwable throwable) {
-            logger.error("OuicheList update failed after adding owned card '{}'",
-                    card.getName_EN(), throwable);
+        if (OuicheList.isGenerated()) {
+            try {
+                OuicheList.onOwnedCardAdded(newElement);
+                UserInterfaceFunctions.refreshOuicheListView();
+            } catch (Throwable throwable) {
+                logger.error("OuicheList update failed after adding owned card '{}'",
+                        card.getName_EN(), throwable);
+            }
         }
 
         UserInterfaceFunctions.markMyCollectionDirty();

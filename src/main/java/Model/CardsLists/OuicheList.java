@@ -174,6 +174,23 @@ public class OuicheList {
     }
 
     /**
+     * Whether the detailed OuicheList has been generated at least once this session.
+     *
+     * <p>Callers that update the OuicheList in response to a card add/remove/move
+     * elsewhere in the app (My Collection, Decks and Collections) should check this
+     * first and skip that work entirely when it is {@code false} — there is nothing
+     * to keep in sync until the OuicheList tab has actually been opened once and
+     * {@link #detailedOuicheList} populated. Skipping early avoids per-card owner
+     * resolution, index lookups, and view-refresh scheduling that would otherwise
+     * run for every card while the OuicheList is never even being displayed.
+     *
+     * @return {@code true} if {@link #getDetailedOuicheList()} is non-{@code null}
+     */
+    public static boolean isGenerated() {
+        return detailedOuicheList != null;
+    }
+
+    /**
      * Gets the list of cards in the third-party list.
      * <p>
      * @return the list of cards in the third-party list

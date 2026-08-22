@@ -70,8 +70,10 @@ final class CardBulkRemoveFromOwnedHandler {
                 continue;
             }
             if (removeElementFromBox(targetElement, box)) {
-                OuicheList.onOwnedCardRemoved(targetElement);
-                UserInterfaceFunctions.refreshOuicheListView();
+                if (OuicheList.isGenerated()) {
+                    OuicheList.onOwnedCardRemoved(targetElement);
+                    UserInterfaceFunctions.refreshOuicheListView();
+                }
                 return;
             }
         }

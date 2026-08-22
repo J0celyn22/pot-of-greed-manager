@@ -172,7 +172,7 @@ public class TabSwitchCoordinator {
                 return;
             }
             try {
-                ouicheListController.displayOuicheListUnified();
+                ouicheListController.refreshOuicheListContentInPlace();
                 ouicheListController.populateOuicheListMenu();
                 coordinator.refreshOuicheListCompactViewIfVisible();
             } catch (Exception exception) {

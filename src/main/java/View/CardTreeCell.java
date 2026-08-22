@@ -67,6 +67,20 @@ public class CardTreeCell extends TreeCell<String> {
     private Label customTriangleLabel;
     private GridView<CardElement> cardGridView;
 
+    /**
+     * The {@link CardsGroup} (and, for archetype cells, the missing-card set) that
+     * was rendered into this cell the last time {@link #updateItem} actually rebuilt
+     * it. Used to detect a re-render of the exact same group — e.g. triggered by a
+     * {@code TreeView.refresh()} after a card was added elsewhere — so {@link
+     * #createCardsGroupCell} can be skipped instead of tearing down and rebuilding
+     * the whole {@link GridView} and every card's image cell from scratch. The
+     * existing {@code GridView} is already bound to the group's live {@link
+     * CardGroupRegistry#observableListFor}, so it reflects additions/removals on its
+     * own without any rebuild.
+     */
+    private CardsGroup lastRenderedGroup;
+    private Set<String> lastRenderedMissingSet;
+
     private static final String ARCHETYPE_MARKER = "[ARCHETYPE]";
 
     /**
@@ -649,91 +663,119 @@ public class CardTreeCell extends TreeCell<String> {
     @Override
     protected void updateItem(String itemName, boolean empty) {
         super.updateItem(itemName, empty);
-        setText(null);
-        setGraphic(null);
-        getStyleClass().setAll("card-tree-cell");
 
         if (empty || itemName == null) {
+            setText(null);
+            setGraphic(null);
+            getStyleClass().setAll("card-tree-cell");
+            lastRenderedGroup = null;
+            lastRenderedMissingSet = null;
             return;
-        } else {
-            TreeItem<String> treeItem = getTreeItem();
-            if (treeItem instanceof DataTreeItem) {
-                Object dataObject = ((DataTreeItem<?>) treeItem).getData();
+        }
 
-                // Two possible data shapes:
-                // 1) CardsGroup (normal)
-                // 2) Map<String,Object> with "group" and "missing" keys (archetype group)
-                CardsGroup group = null;
-                Set<String> missingForThisGroup = null;
+        TreeItem<String> treeItem = getTreeItem();
+        if (treeItem instanceof DataTreeItem) {
+            Object dataObject = ((DataTreeItem<?>) treeItem).getData();
 
-                if (dataObject instanceof CardsGroup) {
-                    group = (CardsGroup) dataObject;
-                } else if (dataObject instanceof Map) {
-                    try {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> map = (Map<String, Object>) dataObject;
-                        Object groupValue = map.get("group");
-                        Object missingValue = map.get("missing");
-                        if (groupValue instanceof CardsGroup) {
-                            group = (CardsGroup) groupValue;
-                        }
-                        if (missingValue instanceof Set) {
-                            @SuppressWarnings("unchecked")
-                            Set<String> castMissingSet = (Set<String>) missingValue;
-                            missingForThisGroup = castMissingSet;
-                        } else if (missingValue instanceof Collection) {
-                            Set<String> collectedSet = new HashSet<>();
-                            for (Object entry : (Collection<?>) missingValue) {
-                                if (entry != null) {
-                                    collectedSet.add(entry.toString());
-                                }
-                            }
-                            missingForThisGroup = collectedSet;
-                        }
-                    } catch (Exception e) {
-                        logger.debug("Failed to extract archetype map data", e);
+            // Two possible data shapes:
+            // 1) CardsGroup (normal)
+            // 2) Map<String,Object> with "group" and "missing" keys (archetype group)
+            CardsGroup group = null;
+            Set<String> missingForThisGroup = null;
+
+            if (dataObject instanceof CardsGroup) {
+                group = (CardsGroup) dataObject;
+            } else if (dataObject instanceof Map) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> map = (Map<String, Object>) dataObject;
+                    Object groupValue = map.get("group");
+                    Object missingValue = map.get("missing");
+                    if (groupValue instanceof CardsGroup) {
+                        group = (CardsGroup) groupValue;
                     }
+                    if (missingValue instanceof Set) {
+                        @SuppressWarnings("unchecked")
+                        Set<String> castMissingSet = (Set<String>) missingValue;
+                        missingForThisGroup = castMissingSet;
+                    } else if (missingValue instanceof Collection) {
+                        Set<String> collectedSet = new HashSet<>();
+                        for (Object entry : (Collection<?>) missingValue) {
+                            if (entry != null) {
+                                collectedSet.add(entry.toString());
+                            }
+                        }
+                        missingForThisGroup = collectedSet;
+                    }
+                } catch (Exception e) {
+                    logger.debug("Failed to extract archetype map data", e);
                 }
+            }
 
-                if (group != null) {
-                    createCardsGroupCell(itemName, group, missingForThisGroup);
-                } else if (dataObject instanceof CardElement) {
-                    buildCardElementCell((CardElement) dataObject);
-                } else if (dataObject instanceof String && dataObject.equals("ROOT")) {
-                    Label label = new Label(itemName);
-                    label.getStyleClass().add("tree-root-label");
-                    setGraphic(label);
-
-                } else if (dataObject instanceof Model.CardsLists.ThemeCollection) {
-                    // ── Collection header row ──────────────────────────────────
-                    // Shown in the Decks & Collections and OuicheList tree.
-                    // Right-click: "Add Deck" + "Add Archetype"
-                    buildCollectionHeaderCell(itemName, (Model.CardsLists.ThemeCollection) dataObject);
-
-                } else if (dataObject instanceof Model.CardsLists.Box) {
-                    // ── Box header — My Collection tab ────────────────────────
-                    buildBoxHeaderCell(itemName, (Model.CardsLists.Box) dataObject);
-
-                } else if (dataObject instanceof Model.CardsLists.Deck) {
-                    // ── Deck header — Decks & Collections tab ─────────────────
-                    buildDeckHeaderCell(itemName, (Model.CardsLists.Deck) dataObject);
-
-                } else if ("ARCHETYPES_SECTION".equals(dataObject)) {
-                    // ── "Archetypes" section header ────────────────────────────
-                    // Right-click: "Add" (add a new archetype to this collection)
-                    buildArchetypesSectionHeaderCell(itemName);
-
-                } else {
-                    // Default: plain label (section headers like "Decks", deck names, etc.)
-                    Label label = new Label(itemName);
-                    label.getStyleClass().add("tree-item-label");
-                    setGraphic(label);
+            if (group != null) {
+                if (group == lastRenderedGroup && Objects.equals(missingForThisGroup, lastRenderedMissingSet)) {
+                    // Same group, same missing-set as last time this cell was actually
+                    // rebuilt: the GridView already showing here is bound to this
+                    // group's live ObservableList, so it already reflects whatever
+                    // triggered this refresh. Nothing to rebuild.
+                    return;
                 }
+                setText(null);
+                setGraphic(null);
+                getStyleClass().setAll("card-tree-cell");
+                createCardsGroupCell(itemName, group, missingForThisGroup);
+                lastRenderedGroup = group;
+                lastRenderedMissingSet = missingForThisGroup;
+                return;
+            }
+
+            lastRenderedGroup = null;
+            lastRenderedMissingSet = null;
+            setText(null);
+            setGraphic(null);
+            getStyleClass().setAll("card-tree-cell");
+
+            if (dataObject instanceof CardElement) {
+                buildCardElementCell((CardElement) dataObject);
+            } else if (dataObject instanceof String && dataObject.equals("ROOT")) {
+                Label label = new Label(itemName);
+                label.getStyleClass().add("tree-root-label");
+                setGraphic(label);
+
+            } else if (dataObject instanceof Model.CardsLists.ThemeCollection) {
+                // ── Collection header row ──────────────────────────────────
+                // Shown in the Decks & Collections and OuicheList tree.
+                // Right-click: "Add Deck" + "Add Archetype"
+                buildCollectionHeaderCell(itemName, (Model.CardsLists.ThemeCollection) dataObject);
+
+            } else if (dataObject instanceof Model.CardsLists.Box) {
+                // ── Box header — My Collection tab ────────────────────────
+                buildBoxHeaderCell(itemName, (Model.CardsLists.Box) dataObject);
+
+            } else if (dataObject instanceof Model.CardsLists.Deck) {
+                // ── Deck header — Decks & Collections tab ─────────────────
+                buildDeckHeaderCell(itemName, (Model.CardsLists.Deck) dataObject);
+
+            } else if ("ARCHETYPES_SECTION".equals(dataObject)) {
+                // ── "Archetypes" section header ────────────────────────────
+                // Right-click: "Add" (add a new archetype to this collection)
+                buildArchetypesSectionHeaderCell(itemName);
+
             } else {
+                // Default: plain label (section headers like "Decks", deck names, etc.)
                 Label label = new Label(itemName);
                 label.getStyleClass().add("tree-item-label");
                 setGraphic(label);
             }
+        } else {
+            lastRenderedGroup = null;
+            lastRenderedMissingSet = null;
+            setText(null);
+            setGraphic(null);
+            getStyleClass().setAll("card-tree-cell");
+            Label label = new Label(itemName);
+            label.getStyleClass().add("tree-item-label");
+            setGraphic(label);
         }
     }
 

@@ -396,14 +396,14 @@ final class MiddleSelectionActionHandler {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             MenuActionHandler.setLastAddedGroupTarget(defaultGroup);
             UserInterfaceFunctions.refreshOwnedCollectionView();
-            for (CardElement added : addedElements) {
-                try {
-                    OuicheList.onOwnedCardAdded(added);
-                } catch (Throwable throwable) {
-                    logger.error("OuicheList update failed after paste into box", throwable);
+            if (!addedElements.isEmpty() && OuicheList.isGenerated()) {
+                for (CardElement added : addedElements) {
+                    try {
+                        OuicheList.onOwnedCardAdded(added);
+                    } catch (Throwable throwable) {
+                        logger.error("OuicheList update failed after paste into box", throwable);
+                    }
                 }
-            }
-            if (!addedElements.isEmpty()) {
                 UserInterfaceFunctions.refreshOuicheListView();
             }
 
@@ -423,14 +423,14 @@ final class MiddleSelectionActionHandler {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             MenuActionHandler.setLastAddedGroupTarget(group);
             UserInterfaceFunctions.refreshOwnedCollectionView();
-            for (CardElement added : addedElements) {
-                try {
-                    OuicheList.onOwnedCardAdded(added);
-                } catch (Throwable throwable) {
-                    logger.error("OuicheList update failed after paste into group", throwable);
+            if (!addedElements.isEmpty() && OuicheList.isGenerated()) {
+                for (CardElement added : addedElements) {
+                    try {
+                        OuicheList.onOwnedCardAdded(added);
+                    } catch (Throwable throwable) {
+                        logger.error("OuicheList update failed after paste into group", throwable);
+                    }
                 }
-            }
-            if (!addedElements.isEmpty()) {
                 UserInterfaceFunctions.refreshOuicheListView();
             }
 
@@ -563,18 +563,18 @@ final class MiddleSelectionActionHandler {
             UserInterfaceFunctions.markDirty(deck);
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
 
-            for (CardElement addedElement : addedElements) {
-                String sectionName = Utils.DeckCompatibility.isExtraDeckCard(addedElement.getCard())
-                        ? "extra" : "main";
-                try {
-                    OuicheList.onDeckCardAdded(addedElement, deck.getName(), sectionName,
-                            parentCollectionName);
-                } catch (Throwable throwable) {
-                    logger.error("OuicheList update failed after paste into deck '{}'",
-                            deck.getName(), throwable);
+            if (!addedElements.isEmpty() && OuicheList.isGenerated()) {
+                for (CardElement addedElement : addedElements) {
+                    String sectionName = Utils.DeckCompatibility.isExtraDeckCard(addedElement.getCard())
+                            ? "extra" : "main";
+                    try {
+                        OuicheList.onDeckCardAdded(addedElement, deck.getName(), sectionName,
+                                parentCollectionName);
+                    } catch (Throwable throwable) {
+                        logger.error("OuicheList update failed after paste into deck '{}'",
+                                deck.getName(), throwable);
+                    }
                 }
-            }
-            if (!addedElements.isEmpty()) {
                 UserInterfaceFunctions.refreshOuicheListView();
             }
 
@@ -608,15 +608,15 @@ final class MiddleSelectionActionHandler {
             }
             UserInterfaceFunctions.markDirty(collection);
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-            for (CardElement addedElement : addedElements) {
-                try {
-                    OuicheList.onDeckCardAdded(addedElement, null, null, collection.getName());
-                } catch (Throwable throwable) {
-                    logger.error("OuicheList update failed after paste into collection '{}'",
-                            collection.getName(), throwable);
+            if (!addedElements.isEmpty() && OuicheList.isGenerated()) {
+                for (CardElement addedElement : addedElements) {
+                    try {
+                        OuicheList.onDeckCardAdded(addedElement, null, null, collection.getName());
+                    } catch (Throwable throwable) {
+                        logger.error("OuicheList update failed after paste into collection '{}'",
+                                collection.getName(), throwable);
+                    }
                 }
-            }
-            if (!addedElements.isEmpty()) {
                 UserInterfaceFunctions.refreshOuicheListView();
             }
         }

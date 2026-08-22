@@ -138,13 +138,15 @@ final class CardAddToListHandler {
         }
         logger.debug("doAddToDeck: added '{}' to '{}'", card.getName_EN(), handlerTarget);
 
-        try {
-            String parentCollectionName = findCollectionNameForDeck(targetDeck, decksAndCollections);
-            OuicheList.onDeckCardAdded(newElement, targetDeck.getName(), sectionName, parentCollectionName);
-            UserInterfaceFunctions.refreshOuicheListView();
-        } catch (Throwable throwable) {
-            logger.error("OuicheList update failed after adding '{}' to deck '{}'",
-                    card.getName_EN(), handlerTarget, throwable);
+        if (OuicheList.isGenerated()) {
+            try {
+                String parentCollectionName = findCollectionNameForDeck(targetDeck, decksAndCollections);
+                OuicheList.onDeckCardAdded(newElement, targetDeck.getName(), sectionName, parentCollectionName);
+                UserInterfaceFunctions.refreshOuicheListView();
+            } catch (Throwable throwable) {
+                logger.error("OuicheList update failed after adding '{}' to deck '{}'",
+                        card.getName_EN(), handlerTarget, throwable);
+            }
         }
 
         UserInterfaceFunctions.markDirty(targetDeck);
@@ -287,12 +289,14 @@ final class CardAddToListHandler {
         logger.debug("handleAddToCollectionCards: added '{}' to collection '{}'",
                 card.getName_EN(), collectionName);
 
-        try {
-            OuicheList.onDeckCardAdded(newElement, null, null, foundCollection.getName());
-            UserInterfaceFunctions.refreshOuicheListView();
-        } catch (Throwable throwable) {
-            logger.error("OuicheList update failed after adding '{}' to collection '{}'",
-                    card.getName_EN(), collectionName, throwable);
+        if (OuicheList.isGenerated()) {
+            try {
+                OuicheList.onDeckCardAdded(newElement, null, null, foundCollection.getName());
+                UserInterfaceFunctions.refreshOuicheListView();
+            } catch (Throwable throwable) {
+                logger.error("OuicheList update failed after adding '{}' to collection '{}'",
+                        card.getName_EN(), collectionName, throwable);
+            }
         }
 
         UserInterfaceFunctions.markDirty(foundCollection);
