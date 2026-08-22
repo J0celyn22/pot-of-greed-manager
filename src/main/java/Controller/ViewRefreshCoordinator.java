@@ -258,13 +258,19 @@ public class ViewRefreshCoordinator {
     // (across every open window, on every single card add) is a safety net for that one absent
     // registration case, not a step to run unconditionally alongside the explicit refresher.
     private static void doRefreshOwnedCollectionView() {
+        long totalStartNanos = Utils.PerfLog.start();
         try {
             // 1) Call any explicit registered refreshers first (preferred)
             explicitRefreshers.runAll();
 
             if (!explicitRefreshers.isEmpty()) {
+                Utils.PerfLog.stage(logger, "doRefreshOwnedCollectionView: total (explicit refreshers)",
+                        totalStartNanos);
                 return;
             }
+
+            logger.warn("doRefreshOwnedCollectionView: no explicit refresher registered — "
+                    + "falling back to the legacy full-window BFS scan");
 
             // 2) No explicit refresher registered — fall back to walking all open windows and
             // refreshing whatever TreeView/ListView controls are found.
@@ -330,8 +336,11 @@ public class ViewRefreshCoordinator {
             } else {
                 logger.debug("refreshOwnedCollectionView: refreshed visible controls");
             }
+            Utils.PerfLog.stage(logger, "doRefreshOwnedCollectionView: total (legacy BFS fallback)",
+                    totalStartNanos);
         } catch (Throwable throwable) {
             logger.debug("refreshOwnedCollectionView failed", throwable);
+            Utils.PerfLog.stage(logger, "doRefreshOwnedCollectionView: total (failed)", totalStartNanos);
         }
     }
 

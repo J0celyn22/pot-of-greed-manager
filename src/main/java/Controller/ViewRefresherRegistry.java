@@ -66,12 +66,16 @@ final class ViewRefresherRegistry {
      * so one broken refresher cannot prevent the others from updating their view.
      */
     void runAll() {
+        int refresherIndex = 0;
         for (Runnable refresher : refreshers) {
+            long refresherStartNanos = Utils.PerfLog.start();
             try {
                 refresher.run();
             } catch (Throwable throwable) {
                 logger.debug("{}: a refresher threw", name, throwable);
             }
+            Utils.PerfLog.stage(logger, name + ": refresher #" + refresherIndex, refresherStartNanos);
+            refresherIndex++;
         }
     }
 }

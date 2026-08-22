@@ -801,6 +801,7 @@ public final class CardGroupRegistry {
 
         // Otherwise (a My Collection group, or a non-cardsList collection section):
         // treat as an owned-card addition.
+        long onOwnedCardAddedStartNanos = Utils.PerfLog.start();
         for (CardElement addedElement : addedElements) {
             try {
                 OuicheList.onOwnedCardAdded(addedElement);
@@ -808,7 +809,13 @@ public final class CardGroupRegistry {
                 logger.error("OuicheList update failed after adding to owned collection group", throwable);
             }
         }
+        Utils.PerfLog.stage(logger, "notifyOuicheListOfGroupAdditions: OuicheList.onOwnedCardAdded loop",
+                onOwnedCardAddedStartNanos);
+
+        long refreshOuicheListDispatchStartNanos = Utils.PerfLog.start();
         Controller.UserInterfaceFunctions.refreshOuicheListView();
+        Utils.PerfLog.stage(logger, "notifyOuicheListOfGroupAdditions: refreshOuicheListView dispatch",
+                refreshOuicheListDispatchStartNanos);
     }
 
     /**

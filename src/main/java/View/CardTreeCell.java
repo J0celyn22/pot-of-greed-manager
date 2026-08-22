@@ -1413,6 +1413,8 @@ public class CardTreeCell extends TreeCell<String> {
      * (cards that contain "Trap" in name_EN or "Piège" in name_FR) and set it as the GridView userData.
      */
     private void createCardsGroupCell(String itemName, CardsGroup group, Set<String> missingForThisGroup) {
+        long createCardsGroupCellStartNanos = Utils.PerfLog.start();
+        int cardCountForLogging = group.getCardList() == null ? 0 : group.getCardList().size();
         String rawGroupName = group.getName() == null ? "" : group.getName();
         boolean isArchetype;
         String displayName = rawGroupName;
@@ -1459,6 +1461,9 @@ public class CardTreeCell extends TreeCell<String> {
 
         // For Decks & Collections tab only; different menu per group type.
         wireGroupHeaderContextMenu(hbox, isArchetype);
+
+        Utils.PerfLog.stage(logger, "createCardsGroupCell: rebuilt group '" + rawGroupName
+                + "' (" + cardCountForLogging + " cards)", createCardsGroupCellStartNanos);
     }
 
     /**

@@ -103,6 +103,7 @@ public class MyCollectionController {
                 // in place instead of clearing and rebuilding the whole nav menu. Falls back to
                 // the full rebuild whenever anything can't be resolved (menu not built yet,
                 // structural mismatch, etc.).
+                long highlightStageStartNanos = Utils.PerfLog.start();
                 boolean highlightsUpdatedInPlace = false;
                 if (addedGroupTarget != null) {
                     OwnedCardsCollection collection = loadOwnedCollection();
@@ -113,11 +114,23 @@ public class MyCollectionController {
                     }
                 }
                 if (!highlightsUpdatedInPlace) {
+                    Utils.PerfLog.stage(logger,
+                            "content refresher: refreshHighlightsForAddedGroup (fell back)",
+                            highlightStageStartNanos);
+                    long populateMenuStartNanos = Utils.PerfLog.start();
                     populateMyCollectionMenu();
+                    Utils.PerfLog.stage(logger, "content refresher: populateMyCollectionMenu fallback",
+                            populateMenuStartNanos);
+                } else {
+                    Utils.PerfLog.stage(logger, "content refresher: refreshHighlightsForAddedGroup (in place)",
+                            highlightStageStartNanos);
                 }
 
                 if (myCollectionTreeView != null) {
+                    long treeRefreshStartNanos = Utils.PerfLog.start();
                     myCollectionTreeView.refresh();
+                    Utils.PerfLog.stage(logger, "content refresher: myCollectionTreeView.refresh()",
+                            treeRefreshStartNanos);
                 }
                 if (addedGroupTarget != null) {
                     scrollToNewCardInGroup(addedGroupTarget);

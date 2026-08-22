@@ -333,7 +333,11 @@ final class MiddleSelectionActionHandler {
         if (anchor == null || cards == null || cards.isEmpty()) {
             return false;
         }
+        long totalStartNanos = Utils.PerfLog.start();
+
+        long insertStartNanos = Utils.PerfLog.start();
         boolean inserted = MenuActionHandler.handleInsertCardsAfterElement(cards, anchor);
+        Utils.PerfLog.stage(logger, "pasteCardsAfterElement: model insert", insertStartNanos);
         if (!inserted) {
             return false;
         }
@@ -341,7 +345,10 @@ final class MiddleSelectionActionHandler {
             MenuActionHandler.setLastAddedGroupTarget(findDirectContainerGroup(anchor));
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            long refreshStartNanos = Utils.PerfLog.start();
             UserInterfaceFunctions.refreshOwnedCollectionView();
+            Utils.PerfLog.stage(logger, "pasteCardsAfterElement: refreshOwnedCollectionView dispatch",
+                    refreshStartNanos);
         } else if (activeTabIndex == 1) {
             Object owner = findDeckOrCollectionOwner(anchor);
             if (owner != null) {
@@ -350,6 +357,7 @@ final class MiddleSelectionActionHandler {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
         }
+        Utils.PerfLog.stage(logger, "pasteCardsAfterElement: total", totalStartNanos);
         return true;
     }
 
@@ -454,6 +462,7 @@ final class MiddleSelectionActionHandler {
         }
 
         if (modelObj instanceof Box box) {
+            long totalStartNanos = Utils.PerfLog.start();
             CardsGroup defaultGroup = MenuActionHandler.getOrCreateDefaultGroup(box);
             if (defaultGroup == null) {
                 return;
@@ -469,9 +478,14 @@ final class MiddleSelectionActionHandler {
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             MenuActionHandler.setLastAddedGroupTarget(defaultGroup);
+            long refreshStartNanos = Utils.PerfLog.start();
             UserInterfaceFunctions.refreshOwnedCollectionView();
+            Utils.PerfLog.stage(logger, "pasteCardsIntoNavigationItem(Box): refreshOwnedCollectionView dispatch",
+                    refreshStartNanos);
+            Utils.PerfLog.stage(logger, "pasteCardsIntoNavigationItem(Box): total", totalStartNanos);
 
         } else if (modelObj instanceof CardsGroup group) {
+            long totalStartNanos = Utils.PerfLog.start();
             javafx.collections.ObservableList<CardElement> observableList =
                     CardGroupRegistry.observableListFor(group);
             for (Card card : cards) {
@@ -483,7 +497,12 @@ final class MiddleSelectionActionHandler {
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             MenuActionHandler.setLastAddedGroupTarget(group);
+            long refreshStartNanos = Utils.PerfLog.start();
             UserInterfaceFunctions.refreshOwnedCollectionView();
+            Utils.PerfLog.stage(logger,
+                    "pasteCardsIntoNavigationItem(CardsGroup): refreshOwnedCollectionView dispatch",
+                    refreshStartNanos);
+            Utils.PerfLog.stage(logger, "pasteCardsIntoNavigationItem(CardsGroup): total", totalStartNanos);
 
         } else if (modelObj instanceof Deck deck) {
             if (deck.getMainDeck() == null) {
