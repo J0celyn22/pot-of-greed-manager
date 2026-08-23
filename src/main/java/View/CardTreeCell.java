@@ -99,6 +99,38 @@ public class CardTreeCell extends TreeCell<String> {
     private javafx.beans.value.ChangeListener<Number> cardWidthRebuildListener;
     private javafx.beans.value.ChangeListener<Number> treeWidthRebuildListener;
 
+    /**
+     * TEMPORARY diagnostic aid (camera-scanner Unit 10 add-latency investigation, round 2) —
+     * counts how many times {@link #createCardsGroupCell} has run for a given group, across the
+     * whole application lifetime, and whether it reused an existing {@code FilteredList} from
+     * {@link CardGroupRegistry#GROUP_FILTERED_LISTS} or had to create a fresh one. With the
+     * FilteredList-reuse and width-listener-detach fixes now in place, this and {@link
+     * #DIAGNOSTIC_CELL_INSTANCE_IDS_SEEN} are here mainly to confirm those fixes are actually
+     * working at runtime rather than to re-chase the leaks themselves. Remove this, the two maps
+     * below, and the related logging call sites once the round-2 root cause is confirmed or
+     * ruled out — same disposition as {@link CardGroupRegistry#refreshAllGridViews}'s own
+     * temporary logging.
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<CardsGroup, java.util.concurrent.atomic.AtomicInteger>
+            DIAGNOSTIC_FILTERED_LIST_REBUILD_COUNTS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.ConcurrentHashMap<CardsGroup, java.util.Set<Integer>>
+            DIAGNOSTIC_CELL_INSTANCE_IDS_SEEN = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * TEMPORARY diagnostic aid — times every call to {@link #adjustGridViewHeight} and detects
+     * bursts: several calls (for the same or different groups) landing within {@link
+     * #DIAGNOSTIC_BURST_WINDOW_MILLIS} of each other. Complements {@link
+     * CardGroupRegistry#refreshAllGridViews}'s own sweep-level timing by showing whether *this*
+     * cell's own height-adjustment path is also contributing calls during the same window, or
+     * whether the sweep is the whole story. Remove this field and its logging call site (in
+     * {@link #adjustGridViewHeight}) once confirmed.
+     */
+    private static final java.util.concurrent.atomic.AtomicLong DIAGNOSTIC_LAST_HEIGHT_ADJUST_MILLIS =
+            new java.util.concurrent.atomic.AtomicLong(0);
+    private static final java.util.concurrent.atomic.AtomicInteger DIAGNOSTIC_HEIGHT_ADJUST_BURST_COUNT =
+            new java.util.concurrent.atomic.AtomicInteger(0);
+    private static final long DIAGNOSTIC_BURST_WINDOW_MILLIS = 300;
+
     private static final String ARCHETYPE_MARKER = "[ARCHETYPE]";
 
     /**
@@ -736,6 +768,9 @@ public class CardTreeCell extends TreeCell<String> {
                     // rebuilt: the GridView already showing here is bound to this
                     // group's live ObservableList, so it already reflects whatever
                     // triggered this refresh. Nothing to rebuild.
+                    logger.info("[PERF-DIAG] updateItem: skipped rebuild for group '{}' "
+                                    + "(group identity {}, cell instance {})",
+                            group.getName(), System.identityHashCode(group), System.identityHashCode(this));
                     return;
                 }
                 setText(null);
@@ -1514,6 +1549,23 @@ public class CardTreeCell extends TreeCell<String> {
             filteredItems = new javafx.collections.transformation.FilteredList<>(groupItems);
             CardGroupRegistry.GROUP_FILTERED_LISTS.put(group, new java.lang.ref.WeakReference<>(filteredItems));
         }
+
+        // TEMPORARY diagnostic (see DIAGNOSTIC_FILTERED_LIST_REBUILD_COUNTS javadoc): confirm
+        // the reuse path above is actually taken at runtime, and track cell-instance churn.
+        int rebuildCountForThisGroup = DIAGNOSTIC_FILTERED_LIST_REBUILD_COUNTS
+                .computeIfAbsent(group, ignoredGroup -> new java.util.concurrent.atomic.AtomicInteger(0))
+                .incrementAndGet();
+        java.util.Set<Integer> cellInstanceIdsForThisGroup = DIAGNOSTIC_CELL_INSTANCE_IDS_SEEN
+                .computeIfAbsent(group, ignoredGroup -> java.util.concurrent.ConcurrentHashMap.newKeySet());
+        boolean isNewCellInstanceForThisGroup =
+                cellInstanceIdsForThisGroup.add(System.identityHashCode(this));
+        logger.info("[PERF-DIAG] createCardsGroupCell: rebuild #{} for group '{}' "
+                        + "(group identity {}, cell instance {}, new cell instance for this group: {}, "
+                        + "distinct cell instances seen for this group: {}, reused existing FilteredList: {})",
+                rebuildCountForThisGroup, group.getName(), System.identityHashCode(group),
+                System.identityHashCode(this), isNewCellInstanceForThisGroup, cellInstanceIdsForThisGroup.size(),
+                existingFilteredListRef != null && existingFilteredListRef.get() == filteredItems);
+
         filteredItems.setPredicate(CardGroupRegistry.buildCombinedPredicate(CardGroupRegistry.activeMiddleFilter));
 
         boolean useListMode = isOuicheListTabSelected()
@@ -2011,6 +2063,17 @@ public class CardTreeCell extends TreeCell<String> {
 
     private void adjustGridViewHeight(CardsGroup group) {
         if (cardGridView == null) return;
+        // TEMPORARY diagnostic (see DIAGNOSTIC_LAST_HEIGHT_ADJUST_MILLIS javadoc): time this
+        // call and detect whether it's landing inside a burst of other nearby calls.
+        long adjustGridViewHeightStartNanos = Utils.PerfLog.start();
+        long nowMillis = System.currentTimeMillis();
+        long previousCallMillis = DIAGNOSTIC_LAST_HEIGHT_ADJUST_MILLIS.getAndSet(nowMillis);
+        int burstCount;
+        if (previousCallMillis != 0 && nowMillis - previousCallMillis <= DIAGNOSTIC_BURST_WINDOW_MILLIS) {
+            burstCount = DIAGNOSTIC_HEIGHT_ADJUST_BURST_COUNT.incrementAndGet();
+        } else {
+            burstCount = DIAGNOSTIC_HEIGHT_ADJUST_BURST_COUNT.updateAndGet(ignored -> 1);
+        }
         // Use the filtered count when a filter is active so the row height is correct.
         int numItems;
         java.lang.ref.WeakReference<javafx.collections.transformation.FilteredList<CardElement>> flRef =
@@ -2025,6 +2088,10 @@ public class CardTreeCell extends TreeCell<String> {
         GridViewSizer.adjustGridViewHeight(cardGridView, numItems);
         logger.debug("Adjusted grid view height to {} for {} items",
                 cardGridView.getPrefHeight(), numItems);
+        logger.info("[PERF-DIAG] adjustGridViewHeight: group '{}' burst position #{} "
+                        + "(gap since previous call: {} ms) — this call itself",
+                group.getName(), burstCount, previousCallMillis == 0 ? -1 : nowMillis - previousCallMillis);
+        Utils.PerfLog.stage(logger, "adjustGridViewHeight: total", adjustGridViewHeightStartNanos);
     }
     // CardGridCell is implemented in View/CardGridCell.java — instantiated via new CardGridCell(this)
 }
