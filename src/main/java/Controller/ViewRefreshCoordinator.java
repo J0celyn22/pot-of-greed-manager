@@ -13,6 +13,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Coordinates refreshing the JavaFX views (Owned Collection, Decks &amp;
@@ -52,6 +54,14 @@ public class ViewRefreshCoordinator {
     // ── OuicheList refreshers ──────────────────────────────────────────────────
     private static final ViewRefresherRegistry explicitOuicheListRefreshers =
             new ViewRefresherRegistry("refreshOuicheListView");
+
+    // Scoped counterpart to explicitOuicheListRefreshers: takes the affected owners so the
+    // controller can refresh just those groups' grids instead of sweeping every grid in the
+    // session. A plain Consumer rather than a ViewRefresherRegistry entry (which only supports
+    // parameterless Runnables) since it needs to carry that set through to the controller.
+    // Exactly one registrant exists in practice (OuicheListController, via
+    // TabSwitchCoordinator), same as explicitOuicheListRefreshers.
+    private static Consumer<Set<Object>> ouicheListAffectedGroupsRefresher = null;
 
     // ── Tab dirty-indicator callback ──────────────────────────────────────────────
     private static Runnable tabDirtyIndicatorUpdater = null;
@@ -149,6 +159,45 @@ public class ViewRefreshCoordinator {
 
     private static void doRefreshOuicheListView() {
         explicitOuicheListRefreshers.runAll();
+    }
+
+    /**
+     * Registers the callback invoked by {@link #refreshOuicheListViewForAffectedGroups}.
+     * Replaces any previously registered callback (unlike
+     * {@link #registerOuicheListRefresher}'s multi-registrant list) since there is exactly one
+     * registrant in practice and a {@link Consumer} carrying a mutable {@link Set} argument
+     * isn't a good fit for {@link ViewRefresherRegistry}'s parameterless-{@link Runnable}
+     * dedup-by-reference semantics.
+     *
+     * @param refresher the callback to register (ignored if {@code null})
+     */
+    public static void registerOuicheListAffectedGroupsRefresher(Consumer<Set<Object>> refresher) {
+        if (refresher != null) {
+            ouicheListAffectedGroupsRefresher = refresher;
+        }
+    }
+
+    /**
+     * Scoped counterpart to {@link #refreshOuicheListView()}: invokes the registered
+     * affected-groups callback (if any) with {@code affectedOwners} on the JavaFX Application
+     * Thread. Safe to call from any thread.
+     *
+     * @param affectedOwners the owners whose OuicheList slot was just filled; forwarded as-is,
+     *                       including when {@code null} or empty
+     */
+    public static void refreshOuicheListViewForAffectedGroups(Set<Object> affectedOwners) {
+        runOnFxThreadOrDefer(() -> doRefreshOuicheListViewForAffectedGroups(affectedOwners));
+    }
+
+    private static void doRefreshOuicheListViewForAffectedGroups(Set<Object> affectedOwners) {
+        if (ouicheListAffectedGroupsRefresher == null) {
+            return;
+        }
+        try {
+            ouicheListAffectedGroupsRefresher.accept(affectedOwners);
+        } catch (Throwable throwable) {
+            logger.debug("refreshOuicheListViewForAffectedGroups: refresher threw", throwable);
+        }
     }
 
     /**

@@ -12,6 +12,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Class containing all functions called by the user interface.
@@ -363,6 +365,25 @@ public class UserInterfaceFunctions {
 
     public static void refreshOuicheListView() {
         ViewRefreshCoordinator.refreshOuicheListView();
+    }
+
+    /**
+     * Scoped counterpart to {@link #refreshOuicheListView()}: refreshes only the OuicheList
+     * grids for the {@link Controller.CardGroupRegistry} owners in {@code affectedOwners},
+     * instead of rebuilding/sweeping the whole OuicheList tab. See
+     * {@link Controller.CardGroupRegistry#refreshGridViewsForAffectedGroups} for what counts as
+     * an owner and {@link Controller.OuicheListController#refreshOuicheListContentForAffectedGroups}
+     * for the fallback to a full refresh when tree membership changed.
+     *
+     * @param affectedOwners the owners whose OuicheList slot was just filled; {@code null} or
+     *                       empty means nothing was filled and this is a no-op
+     */
+    public static void refreshOuicheListViewForAffectedGroups(Set<Object> affectedOwners) {
+        ViewRefreshCoordinator.refreshOuicheListViewForAffectedGroups(affectedOwners);
+    }
+
+    public static void registerOuicheListAffectedGroupsRefresher(Consumer<Set<Object>> refresher) {
+        ViewRefreshCoordinator.registerOuicheListAffectedGroupsRefresher(refresher);
     }
 
     public static void triggerTabDirtyIndicatorUpdate() {

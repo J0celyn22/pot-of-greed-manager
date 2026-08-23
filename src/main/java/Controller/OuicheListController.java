@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * OuicheListController — manages all display and navigation logic for the
@@ -252,13 +253,50 @@ public class OuicheListController {
             return;
         }
 
+        if (ouicheListMembershipChanged(detailedOuicheList, currentlyShownOuicheListTopLevelItems())) {
+            displayOuicheListUnified();
+            return;
+        }
+
+        ouicheListTreeView.refresh();
+        CardGroupRegistry.refreshAllGridViews();
+    }
+
+    /**
+     * Reads the collections/decks currently rendered as top-level rows of
+     * {@link #ouicheListTreeView}, in display order. Caller must have already confirmed the
+     * tree is attached and has a root.
+     */
+    private List<Object> currentlyShownOuicheListTopLevelItems() {
         List<Object> currentlyShown = new java.util.ArrayList<>();
         for (javafx.scene.control.TreeItem<String> child : ouicheListTreeView.getRoot().getChildren()) {
             if (child instanceof DataTreeItem<?> dataItem) {
                 currentlyShown.add(dataItem.getData());
             }
         }
+        return currentlyShown;
+    }
 
+    /**
+     * Compares which collections/decks are currently shown in the OuicheList tree against
+     * which ones should be shown (have at least one missing card) given {@code
+     * detailedOuicheList}'s current state, in the same order both lists are built/iterated
+     * elsewhere in this class.
+     *
+     * <p>Shared by {@link #refreshOuicheListContentInPlace()} and
+     * {@link #refreshOuicheListContentForAffectedGroups(Set)} as the correctness backstop that
+     * decides between an in-place refresh and a full {@link #displayOuicheListUnified()}
+     * rebuild: a fill can satisfy a collection/deck's last missing slot (or, on removal, a
+     * previously-satisfied one can newly need a card), and either case must add or remove that
+     * collection/deck's row from the tree, not just refresh what's already there.
+     *
+     * @param detailedOuicheList the current detailed OuicheList (must be non-{@code null})
+     * @param currentlyShown     the collections/decks presently rendered as top-level tree rows
+     * @return {@code true} if the set (or order) of collections/decks that should be shown
+     * differs from what's currently shown
+     */
+    private boolean ouicheListMembershipChanged(
+            DecksAndCollectionsList detailedOuicheList, List<Object> currentlyShown) {
         List<Object> shouldBeShown = new java.util.ArrayList<>();
         if (detailedOuicheList.getCollections() != null) {
             for (ThemeCollection collection : detailedOuicheList.getCollections()) {
@@ -284,14 +322,53 @@ public class OuicheListController {
                 }
             }
         }
+        return !sameMembership;
+    }
 
-        if (!sameMembership) {
+    /**
+     * Scoped counterpart to {@link #refreshOuicheListContentInPlace()}, called after a My
+     * Collection addition instead of the blanket refresh: only the live grids for {@code
+     * affectedOwners} (the {@link Deck} sections / {@link ThemeCollection}s whose detailed-
+     * OuicheList slot was actually filled) get refreshed, instead of every grid in the session.
+     *
+     * <p>Falls back to the same conditions {@link #refreshOuicheListContentInPlace()} does — the
+     * tree isn't currently shown, the OuicheList hasn't been generated, or tree membership
+     * changed — by calling {@link #displayOuicheListUnified()}. The caller is responsible for
+     * also calling {@link #populateOuicheListMenu()} when this returns {@code true}, since the
+     * nav menu is driven by the same membership predicate and only needs rebuilding in that
+     * case; {@link Controller.TabSwitchCoordinator} orchestrates this alongside the compact-view
+     * refresh, which runs whenever {@code affectedOwners} is non-empty regardless of membership
+     * (its own counts always changed).
+     *
+     * @param affectedOwners the owners whose OuicheList slot was just filled; must be non-null
+     *                        and non-empty — callers should not invoke this otherwise, since
+     *                        membership cannot change when nothing was filled
+     * @return {@code true} if this fell back to a full {@link #displayOuicheListUnified()}
+     *         rebuild, {@code false} if the scoped grid refresh was used
+     * @throws Exception if the model cannot be loaded
+     */
+    public boolean refreshOuicheListContentForAffectedGroups(Set<Object> affectedOwners) throws Exception {
+        AnchorPane contentPane = ouicheListTab.getContentPane();
+        if (ouicheListTreeView == null || ouicheListTreeView.getRoot() == null
+                || !contentPane.getChildren().contains(ouicheListTreeView)) {
             displayOuicheListUnified();
-            return;
+            return true;
+        }
+
+        DecksAndCollectionsList detailedOuicheList = OuicheList.getDetailedOuicheList();
+        if (detailedOuicheList == null) {
+            displayOuicheListUnified();
+            return true;
+        }
+
+        if (ouicheListMembershipChanged(detailedOuicheList, currentlyShownOuicheListTopLevelItems())) {
+            displayOuicheListUnified();
+            return true;
         }
 
         ouicheListTreeView.refresh();
-        CardGroupRegistry.refreshAllGridViews();
+        CardGroupRegistry.refreshGridViewsForAffectedGroups(affectedOwners);
+        return false;
     }
 
     // ── Navigation menu ───────────────────────────────────────────────────────

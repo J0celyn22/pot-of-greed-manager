@@ -514,30 +514,112 @@ public final class CardGroupRegistry {
                     continue;
                 }
                 liveGridCount++;
-                long perGridStartNanos = Utils.PerfLog.start();
-                ObservableList<CardElement> items = grid.getItems();
-                try {
-                    grid.setItems(FXCollections.observableArrayList());
-                } catch (Exception exception) {
-                    logger.warn("refreshAllGridViews: temporary empty-items swap failed for a GridView; "
-                            + "still restoring its items", exception);
-                }
-                try {
-                    grid.setItems(items);
-                } catch (Exception exception) {
-                    logger.warn("refreshAllGridViews: restoring items failed for a GridView", exception);
-                }
-                long perGridElapsedMillis = (System.nanoTime() - perGridStartNanos) / 1_000_000;
-                if (perGridElapsedMillis >= 50) {
-                    logger.info("[PERF] refreshAllGridViews: one grid ({} items) took {} ms",
-                            items.size(), perGridElapsedMillis);
-                }
+                refreshOneGridView(grid, "refreshAllGridViews");
             }
             logger.info("[PERF] refreshAllGridViews: queued {} ms before running; swept {} live of {} "
                             + "registered grids",
                     queueDelayMillis, liveGridCount, registeredGroupCount);
             Utils.PerfLog.stage(logger, "refreshAllGridViews: full sweep", sweepStartNanos);
         });
+    }
+
+    /**
+     * Refreshes only the live {@link GridView}s registered for {@code affectedOwners} — the
+     * {@link Deck} sections ({@link DeckSectionOwner}) and/or {@link ThemeCollection}s whose
+     * detailed-OuicheList slot was just filled by {@link OuicheList#onOwnedCardAdded} — instead
+     * of every grid in {@link #GROUP_GRID_VIEWS}. Scoped counterpart to
+     * {@link #refreshAllGridViews()}, called from {@link OuicheListController} when the affected
+     * set is non-empty and no collection/deck's tree membership changed.
+     *
+     * <p>Resolution uses the existing {@link #getDeckSectionGroup(Deck, String)} /
+     * {@link #getCollectionCardsGroup(ThemeCollection)} lookups, which are read-only and never
+     * create a group, so resolving an owner with nothing currently rendered for it costs nothing
+     * beyond the map lookup. No-ops when {@code affectedOwners} is {@code null} or empty (the
+     * common case: most newly-scanned cards aren't needed by any deck or collection).
+     *
+     * @param affectedOwners the owner keys collected by
+     *                       {@link #notifyOuicheListOfGroupAdditions}'s My-Collection branch
+     */
+    static void refreshGridViewsForAffectedGroups(Set<Object> affectedOwners) {
+        if (affectedOwners == null || affectedOwners.isEmpty()) {
+            return;
+        }
+
+        Set<CardsGroup> affectedGroups = new LinkedHashSet<>();
+        for (Object owner : affectedOwners) {
+            CardsGroup group = resolveOwnerToGroup(owner);
+            if (group != null) {
+                affectedGroups.add(group);
+            }
+        }
+        if (affectedGroups.isEmpty()) {
+            return;
+        }
+
+        long scheduledAtNanos = System.nanoTime();
+        Platform.runLater(() -> {
+            long queueDelayMillis = (System.nanoTime() - scheduledAtNanos) / 1_000_000;
+            long sweepStartNanos = Utils.PerfLog.start();
+            int liveGridCount = 0;
+            for (CardsGroup group : affectedGroups) {
+                WeakReference<GridView<CardElement>> gridRef = GROUP_GRID_VIEWS.get(group);
+                GridView<CardElement> grid = gridRef == null ? null : gridRef.get();
+                if (grid == null) {
+                    continue;
+                }
+                liveGridCount++;
+                refreshOneGridView(grid, "refreshGridViewsForAffectedGroups");
+            }
+            logger.info("[PERF] refreshGridViewsForAffectedGroups: queued {} ms before running; "
+                            + "refreshed {} live of {} affected groups",
+                    queueDelayMillis, liveGridCount, affectedGroups.size());
+            Utils.PerfLog.stage(logger, "refreshGridViewsForAffectedGroups: scoped sweep", sweepStartNanos);
+        });
+    }
+
+    /**
+     * Resolves a single {@code affectedOwners} entry (see {@link #ownerKeyForSlotFill}) to its
+     * registered {@link CardsGroup}.
+     */
+    private static CardsGroup resolveOwnerToGroup(Object owner) {
+        if (owner instanceof ThemeCollection collection) {
+            return getCollectionCardsGroup(collection);
+        }
+        if (owner instanceof DeckSectionOwner deckSectionOwner) {
+            return getDeckSectionGroup(deckSectionOwner.deck(), deckSectionOwner.section());
+        }
+        return null;
+    }
+
+    /**
+     * Forces a single {@link GridView} to recompute by briefly swapping its items for a fresh
+     * empty list and back — see this class's {@link #refreshAllGridViews()} note on why an
+     * empty list is used instead of {@code null}. Shared by {@link #refreshAllGridViews()} and
+     * {@link #refreshGridViewsForAffectedGroups}. A failure on this grid is logged and does not
+     * prevent the caller's loop from continuing to the next grid.
+     *
+     * @param grid      the grid to refresh; must be non-{@code null} and still live
+     * @param logPrefix identifies the calling sweep in the warning/perf logs (e.g.
+     *                  {@code "refreshAllGridViews"})
+     */
+    private static void refreshOneGridView(GridView<CardElement> grid, String logPrefix) {
+        long perGridStartNanos = Utils.PerfLog.start();
+        ObservableList<CardElement> items = grid.getItems();
+        try {
+            grid.setItems(FXCollections.observableArrayList());
+        } catch (Exception exception) {
+            logger.warn("{}: temporary empty-items swap failed for a GridView; still restoring its items",
+                    logPrefix, exception);
+        }
+        try {
+            grid.setItems(items);
+        } catch (Exception exception) {
+            logger.warn("{}: restoring items failed for a GridView", logPrefix, exception);
+        }
+        long perGridElapsedMillis = (System.nanoTime() - perGridStartNanos) / 1_000_000;
+        if (perGridElapsedMillis >= 50) {
+            logger.info("[PERF] {}: one grid ({} items) took {} ms", logPrefix, items.size(), perGridElapsedMillis);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -823,11 +905,19 @@ public final class CardGroupRegistry {
         }
 
         // Otherwise (a My Collection group, or a non-cardsList collection section):
-        // treat as an owned-card addition.
+        // treat as an owned-card addition. Each fill reports which Deck section or
+        // ThemeCollection it actually touched (or null, the common case, when the new card
+        // isn't needed by any deck/collection), so only those groups' grids get refreshed
+        // instead of every live grid in the session.
         long onOwnedCardAddedStartNanos = Utils.PerfLog.start();
+        Set<Object> affectedOwners = new LinkedHashSet<>();
         for (CardElement addedElement : addedElements) {
             try {
-                OuicheList.onOwnedCardAdded(addedElement);
+                OuicheList.OuicheListSlotFill fill = OuicheList.onOwnedCardAdded(addedElement);
+                Object ownerKey = ownerKeyForSlotFill(fill);
+                if (ownerKey != null) {
+                    affectedOwners.add(ownerKey);
+                }
             } catch (Throwable throwable) {
                 logger.error("OuicheList update failed after adding to owned collection group", throwable);
             }
@@ -836,9 +926,43 @@ public final class CardGroupRegistry {
                 onOwnedCardAddedStartNanos);
 
         long refreshOuicheListDispatchStartNanos = Utils.PerfLog.start();
-        Controller.UserInterfaceFunctions.refreshOuicheListView();
-        Utils.PerfLog.stage(logger, "notifyOuicheListOfGroupAdditions: refreshOuicheListView dispatch",
+        Controller.UserInterfaceFunctions.refreshOuicheListViewForAffectedGroups(affectedOwners);
+        Utils.PerfLog.stage(logger,
+                "notifyOuicheListOfGroupAdditions: refreshOuicheListViewForAffectedGroups dispatch",
                 refreshOuicheListDispatchStartNanos);
+    }
+
+    /**
+     * Identifies the {@link Deck} section (wrapped in {@link DeckSectionOwner}) or
+     * {@link ThemeCollection} that a single {@link OuicheList.OuicheListSlotFill} touched, for
+     * collecting into the {@code affectedOwners} set passed to
+     * {@link Controller.UserInterfaceFunctions#refreshOuicheListViewForAffectedGroups}.
+     *
+     * @param fill the result of an {@link OuicheList#onOwnedCardAdded} call
+     * @return the owner key, or {@code null} if {@code fill} is {@code null} (nothing was
+     * filled — the common case for a scan session) or carries neither a collection nor
+     * a deck (should not happen in practice, but guarded defensively)
+     */
+    private static Object ownerKeyForSlotFill(OuicheList.OuicheListSlotFill fill) {
+        if (fill == null) {
+            return null;
+        }
+        if (fill.collection != null) {
+            return fill.collection;
+        }
+        if (fill.deck != null) {
+            return new DeckSectionOwner(fill.deck, fill.deckSection);
+        }
+        return null;
+    }
+
+    /**
+     * Identifies a single {@link Deck} section (main/extra/side) as an entry in the
+     * {@code affectedOwners} set built by {@link #notifyOuicheListOfGroupAdditions}. A bare
+     * {@link Deck} cannot be used by itself since each deck has three independently-registered
+     * {@link CardsGroup}s (one per section) in {@link #DECK_SECTION_GROUPS}.
+     */
+    private record DeckSectionOwner(Deck deck, String section) {
     }
 
     /**
