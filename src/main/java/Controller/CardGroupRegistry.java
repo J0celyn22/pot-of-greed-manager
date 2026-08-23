@@ -496,12 +496,25 @@ public final class CardGroupRegistry {
      * restore step always runs even if the temporary-swap step failed.
      */
     public static void refreshAllGridViews() {
+        // Unit 10 diagnostic instrumentation (camera-scanner real-world tuning pass): this method
+        // is the lead suspect for the multi-second post-add lag reported against the scanner,
+        // since it forces every currently-registered GridView across the whole session to fully
+        // recompute, and its own Platform.runLater dispatch means none of the existing [PERF]
+        // timers around the add pipeline ever measure it. These logs are temporary — remove once
+        // the bottleneck is confirmed and a scoped fix replaces this whole-registry sweep.
+        int registeredGroupCount = GROUP_GRID_VIEWS.size();
+        long scheduledAtNanos = System.nanoTime();
         Platform.runLater(() -> {
+            long queueDelayMillis = (System.nanoTime() - scheduledAtNanos) / 1_000_000;
+            long sweepStartNanos = Utils.PerfLog.start();
+            int liveGridCount = 0;
             for (WeakReference<GridView<CardElement>> gridRef : GROUP_GRID_VIEWS.values()) {
                 GridView<CardElement> grid = gridRef.get();
                 if (grid == null) {
                     continue;
                 }
+                liveGridCount++;
+                long perGridStartNanos = Utils.PerfLog.start();
                 ObservableList<CardElement> items = grid.getItems();
                 try {
                     grid.setItems(FXCollections.observableArrayList());
@@ -514,7 +527,16 @@ public final class CardGroupRegistry {
                 } catch (Exception exception) {
                     logger.warn("refreshAllGridViews: restoring items failed for a GridView", exception);
                 }
+                long perGridElapsedMillis = (System.nanoTime() - perGridStartNanos) / 1_000_000;
+                if (perGridElapsedMillis >= 50) {
+                    logger.info("[PERF] refreshAllGridViews: one grid ({} items) took {} ms",
+                            items.size(), perGridElapsedMillis);
+                }
             }
+            logger.info("[PERF] refreshAllGridViews: queued {} ms before running; swept {} live of {} "
+                            + "registered grids",
+                    queueDelayMillis, liveGridCount, registeredGroupCount);
+            Utils.PerfLog.stage(logger, "refreshAllGridViews: full sweep", sweepStartNanos);
         });
     }
 

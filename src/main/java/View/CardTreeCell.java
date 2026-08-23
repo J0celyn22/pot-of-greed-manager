@@ -1792,8 +1792,21 @@ public class CardTreeCell extends TreeCell<String> {
         if (treeWidthRebuildListener != null) {
             getTreeView().widthProperty().removeListener(treeWidthRebuildListener);
         }
-        cardWidthRebuildListener = (obs, oldVal, newVal) -> Platform.runLater(() -> adjustGridViewHeight(group));
-        treeWidthRebuildListener = (obs, oldVal, newVal) -> Platform.runLater(() -> adjustGridViewHeight(group));
+        // Unit 10 diagnostic instrumentation (camera-scanner real-world tuning pass): logs every
+        // time one of these fires, so a re-adjustment triggered by a width change after an add
+        // (e.g. a scrollbar toggling as this group's row count crosses a boundary) shows up
+        // distinctly from the initial, deliberate calls above. Temporary — remove alongside the
+        // other [PERF] instrumentation once the post-add lag's source is confirmed.
+        cardWidthRebuildListener = (obs, oldVal, newVal) -> {
+            logger.info("[PERF] cardWidthRebuildListener fired for group '{}': {} -> {}",
+                    displayName, oldVal, newVal);
+            Platform.runLater(() -> adjustGridViewHeight(group));
+        };
+        treeWidthRebuildListener = (obs, oldVal, newVal) -> {
+            logger.info("[PERF] treeWidthRebuildListener fired for group '{}': {} -> {}",
+                    displayName, oldVal, newVal);
+            Platform.runLater(() -> adjustGridViewHeight(group));
+        };
         cardWidthProperty.addListener(cardWidthRebuildListener);
         getTreeView().widthProperty().addListener(treeWidthRebuildListener);
 
