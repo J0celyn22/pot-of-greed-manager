@@ -344,7 +344,10 @@ final class MiddleSelectionActionHandler {
         if (activeTabIndex == 0) {
             MenuActionHandler.setLastAddedGroupTarget(findDirectContainerGroup(anchor));
             UserInterfaceFunctions.markMyCollectionDirty();
-            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            // My Collection add: archetype/collection glow states can't be affected
+            // (see ViewRefreshCoordinator.updateTabDirtyIndicatorOnly), so skip the
+            // archetype-refresh sweep and just update the tab dirty indicator.
+            UserInterfaceFunctions.updateTabDirtyIndicatorOnly();
             long refreshStartNanos = Utils.PerfLog.start();
             UserInterfaceFunctions.refreshOwnedCollectionView();
             Utils.PerfLog.stage(logger, "pasteCardsAfterElement: refreshOwnedCollectionView dispatch",
@@ -476,7 +479,8 @@ final class MiddleSelectionActionHandler {
             }
             CardGroupRegistry.triggerHeightAdjustment(defaultGroup);
             UserInterfaceFunctions.markMyCollectionDirty();
-            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            // My Collection add: see the matching comment in pasteCardsAfterElement.
+            UserInterfaceFunctions.updateTabDirtyIndicatorOnly();
             MenuActionHandler.setLastAddedGroupTarget(defaultGroup);
             long refreshStartNanos = Utils.PerfLog.start();
             UserInterfaceFunctions.refreshOwnedCollectionView();
@@ -495,7 +499,8 @@ final class MiddleSelectionActionHandler {
             }
             CardGroupRegistry.triggerHeightAdjustment(group);
             UserInterfaceFunctions.markMyCollectionDirty();
-            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            // My Collection add: see the matching comment in pasteCardsAfterElement.
+            UserInterfaceFunctions.updateTabDirtyIndicatorOnly();
             MenuActionHandler.setLastAddedGroupTarget(group);
             long refreshStartNanos = Utils.PerfLog.start();
             UserInterfaceFunctions.refreshOwnedCollectionView();

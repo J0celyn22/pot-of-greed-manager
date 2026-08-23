@@ -151,12 +151,33 @@ public class ViewRefreshCoordinator {
         explicitOuicheListRefreshers.runAll();
     }
 
-    public static void triggerTabDirtyIndicatorUpdate() {
+    /**
+     * Updates only the tab dirty-indicator (the unsaved-changes marker), without
+     * scheduling the archetype-glow refresh sweep that {@link
+     * #triggerTabDirtyIndicatorUpdate()} also performs. Safe to call from any thread.
+     * <p>
+     * Use this instead of {@link #triggerTabDirtyIndicatorUpdate()} for a
+     * modification that is confined to the owned collection (My Collection) and
+     * cannot affect archetype or collection-completion glow states. Those states
+     * are computed exclusively from a {@code ThemeCollection}'s own card list, its
+     * "exceptions to not add", and its linked {@code Deck}s (see {@code
+     * DeckCollectionQualityChecks.isKonamiIdPresentInCollection}/{@code
+     * isPassCodePresentInCollection}) — they never read from {@code
+     * OwnedCardsCollection}, so a plain My Collection add cannot change what any
+     * glow shows, and running the archetype sweep for it is unnecessary work.
+     * </p>
+     */
+    public static void updateTabDirtyIndicatorOnly() {
         if (tabDirtyIndicatorUpdater != null) {
             runOnFxThreadOrDefer(tabDirtyIndicatorUpdater);
         }
-        // Every model modification calls this method, making it the single correct
-        // place to keep the archetype markings (glow states) in sync.
+    }
+
+    public static void triggerTabDirtyIndicatorUpdate() {
+        updateTabDirtyIndicatorOnly();
+        // Every model modification that can affect deck/collection contents calls
+        // this method, making it the single correct place to keep the archetype
+        // markings (glow states) in sync.
         // We schedule via Platform.runLater so that multiple rapid modifications
         // (e.g. paste N cards) coalesce into one refresh at the end of the frame.
         if (!archetypeRefreshScheduled) {

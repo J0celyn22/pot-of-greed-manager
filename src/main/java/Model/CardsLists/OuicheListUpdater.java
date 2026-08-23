@@ -40,31 +40,35 @@ final class OuicheListUpdater {
      * {@link OuicheList#getUnusedCards()} (the "Available cards" list).
      *
      * @param addedCard the newly-owned {@link CardElement}
+     * @return the {@link Deck} section or {@link ThemeCollection} whose slot was
+     *         filled, or {@code null} if nothing was filled
      */
-    static void onOwnedCardAdded(CardElement addedCard) {
+    static OuicheList.OuicheListSlotFill onOwnedCardAdded(CardElement addedCard) {
         if (addedCard.getCard() == null || addedCard.getCard().getKonamiId() == null) {
             addToUnusedCards(addedCard);
-            return;
+            return null;
         }
 
         // Round 1: quality-respecting match → OWNED.
-        CardElement filledSlot = findFillableSlot(addedCard, true);
-        if (filledSlot != null) {
-            filledSlot.setOwnershipStatus(OwnershipStatus.OWNED);
-            moveSlotBetweenCompactMaps(filledSlot, OwnershipStatus.MISSING, OwnershipStatus.OWNED);
-            return;
+        OuicheList.OuicheListSlotFill filled = findFillableSlot(addedCard, true);
+        if (filled != null) {
+            filled.slot.setOwnershipStatus(OwnershipStatus.OWNED);
+            moveSlotBetweenCompactMaps(filled.slot, OwnershipStatus.MISSING, OwnershipStatus.OWNED);
+            return filled;
         }
 
         // Round 2: any match (ignores quality) → OWNED_SUBSTANDARD.
-        CardElement substandardSlot = findFillableSlot(addedCard, false);
-        if (substandardSlot != null) {
-            substandardSlot.setOwnershipStatus(OwnershipStatus.OWNED_SUBSTANDARD);
-            moveSlotBetweenCompactMaps(substandardSlot, OwnershipStatus.MISSING, OwnershipStatus.OWNED_SUBSTANDARD);
-            return;
+        OuicheList.OuicheListSlotFill substandardFilled = findFillableSlot(addedCard, false);
+        if (substandardFilled != null) {
+            substandardFilled.slot.setOwnershipStatus(OwnershipStatus.OWNED_SUBSTANDARD);
+            moveSlotBetweenCompactMaps(
+                    substandardFilled.slot, OwnershipStatus.MISSING, OwnershipStatus.OWNED_SUBSTANDARD);
+            return substandardFilled;
         }
 
         // Nothing to fill — the new copy becomes (or stays) available.
         addToUnusedCards(addedCard);
+        return null;
     }
 
     /**
@@ -85,9 +89,10 @@ final class OuicheListUpdater {
      * @param qualityRequired {@code true} to only accept slots whose quality requirement
      *                        {@code ownedCopy} satisfies (round 1); {@code false} to
      *                        accept any matching slot regardless of quality (round 2)
-     * @return the matching slot, or {@code null} if none was found
+     * @return the matching slot paired with its owning deck section or collection,
+     *         or {@code null} if none was found
      */
-    private static CardElement findFillableSlot(CardElement ownedCopy, boolean qualityRequired) {
+    private static OuicheList.OuicheListSlotFill findFillableSlot(CardElement ownedCopy, boolean qualityRequired) {
         DecksAndCollectionsList detailedOuicheList = OuicheList.getDetailedOuicheList();
 
         // (1) Non-loose collections: linked decks then cardsList.
@@ -96,7 +101,8 @@ final class OuicheListUpdater {
                 if (Boolean.TRUE.equals(collection.getConnectToWholeCollection())) {
                     continue;
                 }
-                CardElement found = findFillableSlotInCollection(collection, ownedCopy, qualityRequired);
+                OuicheList.OuicheListSlotFill found =
+                        findFillableSlotInCollection(collection, ownedCopy, qualityRequired);
                 if (found != null) {
                     return found;
                 }
@@ -106,7 +112,7 @@ final class OuicheListUpdater {
         // (2) Standalone decks.
         if (detailedOuicheList.getDecks() != null) {
             for (Deck deck : detailedOuicheList.getDecks()) {
-                CardElement found = findFillableSlotInDeck(deck, ownedCopy, qualityRequired);
+                OuicheList.OuicheListSlotFill found = findFillableSlotInDeck(deck, ownedCopy, qualityRequired);
                 if (found != null) {
                     return found;
                 }
@@ -119,7 +125,8 @@ final class OuicheListUpdater {
                 if (!Boolean.TRUE.equals(collection.getConnectToWholeCollection())) {
                     continue;
                 }
-                CardElement found = findFillableSlotInCollection(collection, ownedCopy, qualityRequired);
+                OuicheList.OuicheListSlotFill found =
+                        findFillableSlotInCollection(collection, ownedCopy, qualityRequired);
                 if (found != null) {
                     return found;
                 }
@@ -133,7 +140,7 @@ final class OuicheListUpdater {
      * Searches the linked-deck groups (in order) and then the cardsList of a single
      * collection for the first fillable MISSING slot.
      */
-    private static CardElement findFillableSlotInCollection(
+    private static OuicheList.OuicheListSlotFill findFillableSlotInCollection(
             ThemeCollection collection, CardElement ownedCopy, boolean qualityRequired) {
 
         if (collection.getLinkedDecks() != null) {
@@ -142,7 +149,7 @@ final class OuicheListUpdater {
                     continue;
                 }
                 for (Deck deck : deckGroup) {
-                    CardElement found = findFillableSlotInDeck(deck, ownedCopy, qualityRequired);
+                    OuicheList.OuicheListSlotFill found = findFillableSlotInDeck(deck, ownedCopy, qualityRequired);
                     if (found != null) {
                         return found;
                     }
@@ -150,27 +157,32 @@ final class OuicheListUpdater {
             }
         }
 
-        return findFillableSlotInSection(collection.getCardsList(), ownedCopy, qualityRequired);
+        CardElement found = findFillableSlotInSection(collection.getCardsList(), ownedCopy, qualityRequired);
+        return found == null ? null : new OuicheList.OuicheListSlotFill(found, null, null, collection);
     }
 
     /**
      * Searches the main, extra, then side sections of {@code deck} for the first
      * fillable MISSING slot.
      */
-    private static CardElement findFillableSlotInDeck(
+    private static OuicheList.OuicheListSlotFill findFillableSlotInDeck(
             Deck deck, CardElement ownedCopy, boolean qualityRequired) {
         if (deck == null) {
             return null;
         }
         CardElement found = findFillableSlotInSection(deck.getMainDeck(), ownedCopy, qualityRequired);
         if (found != null) {
-            return found;
+            return new OuicheList.OuicheListSlotFill(found, deck, "main", null);
         }
         found = findFillableSlotInSection(deck.getExtraDeck(), ownedCopy, qualityRequired);
         if (found != null) {
-            return found;
+            return new OuicheList.OuicheListSlotFill(found, deck, "extra", null);
         }
-        return findFillableSlotInSection(deck.getSideDeck(), ownedCopy, qualityRequired);
+        found = findFillableSlotInSection(deck.getSideDeck(), ownedCopy, qualityRequired);
+        if (found != null) {
+            return new OuicheList.OuicheListSlotFill(found, deck, "side", null);
+        }
+        return null;
     }
 
     /**

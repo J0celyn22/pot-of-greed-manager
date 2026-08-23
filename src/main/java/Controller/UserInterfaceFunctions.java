@@ -369,6 +369,15 @@ public class UserInterfaceFunctions {
         ViewRefreshCoordinator.triggerTabDirtyIndicatorUpdate();
     }
 
+    /**
+     * Updates only the tab dirty-indicator, skipping the archetype-glow refresh
+     * sweep. See {@link ViewRefreshCoordinator#updateTabDirtyIndicatorOnly()} for
+     * when this is safe to use instead of {@link #triggerTabDirtyIndicatorUpdate()}.
+     */
+    public static void updateTabDirtyIndicatorOnly() {
+        ViewRefreshCoordinator.updateTabDirtyIndicatorOnly();
+    }
+
     public static void registerDecksTreeRefresher(Runnable refresher) {
         ViewRefreshCoordinator.registerDecksTreeRefresher(refresher);
     }
