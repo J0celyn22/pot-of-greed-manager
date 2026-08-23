@@ -81,6 +81,24 @@ public class CardTreeCell extends TreeCell<String> {
     private CardsGroup lastRenderedGroup;
     private Set<String> lastRenderedMissingSet;
 
+    /**
+     * The listeners {@link #buildMosaicModeGroupContent} attaches to the shared
+     * {@link #cardWidthProperty} and to this cell's {@code TreeView}'s width property,
+     * so a later rebuild can detach them before attaching a fresh pair.
+     * <p>
+     * Both properties are shared across every {@code CardTreeCell} in the tree (the
+     * width property is handed to every cell's constructor; the TreeView is the same
+     * object for the cell's lifetime), so every rebuild that skipped removing its old
+     * listener left it permanently attached — each card add that forced a rebuild of a
+     * visible group therefore leaked one more listener onto each property. Once enough
+     * had piled up, the next actual width change (e.g. layout settling at startup) fired
+     * all of them at once, each scheduling its own {@code Platform.runLater}, producing
+     * a burst of redundant height-adjustment work several seconds after the add that
+     * triggered it.
+     */
+    private javafx.beans.value.ChangeListener<Number> cardWidthRebuildListener;
+    private javafx.beans.value.ChangeListener<Number> treeWidthRebuildListener;
+
     private static final String ARCHETYPE_MARKER = "[ARCHETYPE]";
 
     /**
@@ -1476,10 +1494,27 @@ public class CardTreeCell extends TreeCell<String> {
 
         // ── Card items: shared setup for both display modes ──────────────────────
         javafx.collections.ObservableList<CardElement> groupItems = CardGroupRegistry.observableListFor(group);
-        javafx.collections.transformation.FilteredList<CardElement> filteredItems =
-                new javafx.collections.transformation.FilteredList<>(groupItems);
+        javafx.collections.transformation.FilteredList<CardElement> filteredItems = null;
+        java.lang.ref.WeakReference<javafx.collections.transformation.FilteredList<CardElement>> existingFilteredListRef =
+                CardGroupRegistry.GROUP_FILTERED_LISTS.get(group);
+        if (existingFilteredListRef != null) {
+            javafx.collections.transformation.FilteredList<CardElement> existingFilteredList =
+                    existingFilteredListRef.get();
+            if (existingFilteredList != null && existingFilteredList.getSource() == groupItems) {
+                filteredItems = existingFilteredList;
+            }
+        }
+        if (filteredItems == null) {
+            // No live FilteredList for this group yet — create one. A FilteredList
+            // registers itself as a permanent listener on its source list and has no way
+            // to detach itself, so creating a fresh one here on every rebuild (instead of
+            // reusing the one above) would leave every discarded one still listening —
+            // still paying its own predicate cost on every future add/remove to this
+            // group — for as long as the group itself is reachable.
+            filteredItems = new javafx.collections.transformation.FilteredList<>(groupItems);
+            CardGroupRegistry.GROUP_FILTERED_LISTS.put(group, new java.lang.ref.WeakReference<>(filteredItems));
+        }
         filteredItems.setPredicate(CardGroupRegistry.buildCombinedPredicate(CardGroupRegistry.activeMiddleFilter));
-        CardGroupRegistry.GROUP_FILTERED_LISTS.put(group, new java.lang.ref.WeakReference<>(filteredItems));
 
         boolean useListMode = isOuicheListTabSelected()
                 && Controller.OuicheListController.isDetailedListMode();
@@ -1747,11 +1782,20 @@ public class CardTreeCell extends TreeCell<String> {
         // Deferred correction: re-runs after the first layout pass when grid.getWidth() is valid
         Platform.runLater(() -> adjustGridViewHeight(group));
 
-        // Listeners: deferred so grid.getWidth() reflects the new size after layout
-        cardWidthProperty.addListener((obs, oldVal, newVal) ->
-                Platform.runLater(() -> adjustGridViewHeight(group)));
-        getTreeView().widthProperty().addListener((obs, oldVal, newVal) ->
-                Platform.runLater(() -> adjustGridViewHeight(group)));
+        // Listeners: deferred so grid.getWidth() reflects the new size after layout.
+        // Detach the previous rebuild's pair first — both properties are shared across
+        // this cell's whole lifetime, so leaving the old ones attached here would leak
+        // one more pair of listeners onto them every time this group gets rebuilt.
+        if (cardWidthRebuildListener != null) {
+            cardWidthProperty.removeListener(cardWidthRebuildListener);
+        }
+        if (treeWidthRebuildListener != null) {
+            getTreeView().widthProperty().removeListener(treeWidthRebuildListener);
+        }
+        cardWidthRebuildListener = (obs, oldVal, newVal) -> Platform.runLater(() -> adjustGridViewHeight(group));
+        treeWidthRebuildListener = (obs, oldVal, newVal) -> Platform.runLater(() -> adjustGridViewHeight(group));
+        cardWidthProperty.addListener(cardWidthRebuildListener);
+        getTreeView().widthProperty().addListener(treeWidthRebuildListener);
 
         customTriangleLabel.setOnMouseClicked(event -> {
             boolean isExpanded = !grid.isVisible();

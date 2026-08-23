@@ -40,6 +40,22 @@ public final class NavigationHelper {
     private NavigationHelper() {
     }
 
+    /**
+     * Describes a nav item's userData for debug logging without calling its
+     * {@code toString()}. Model objects such as {@code OwnedCardsCollection}, {@code Box},
+     * and {@code CardsGroup} override {@code toString()} to recursively print their entire
+     * contents (every box/group/card, down to print codes) — calling it once per node
+     * visited during a tree search turns a single debug line into a dump of the whole
+     * collection, and does real, unbounded string-building work on the FX thread every
+     * time regardless of whether the log line is actually written anywhere.
+     */
+    private static String describeUserData(Object userData) {
+        if (userData == null) {
+            return "null";
+        }
+        return userData.getClass().getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(userData));
+    }
+
     // ── Navigation-item lookup by userData identity ───────────────────────────
 
     /**
@@ -60,7 +76,7 @@ public final class NavigationHelper {
                 return found;
             }
         }
-        logger.debug("findNavItemInMenuVBox: no item found for target={}", target);
+        logger.debug("findNavItemInMenuVBox: no item found for target={}", describeUserData(target));
         return null;
     }
 
@@ -92,7 +108,7 @@ public final class NavigationHelper {
         }
         logger.debug("findNavItemByUserDataInItem: checking '{}' userData={}",
                 item.getLabel() != null ? item.getLabel().getText() : "?",
-                item.getUserData());
+                describeUserData(item.getUserData()));
         if (item.getUserData() == target) {
             return item;
         }

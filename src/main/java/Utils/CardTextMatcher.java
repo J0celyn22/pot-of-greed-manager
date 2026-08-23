@@ -154,105 +154,32 @@ public final class CardTextMatcher {
     }
 
     /**
-     * Resolves a whole detection cycle's worth of OCR candidate lines into a {@link Card} —
-     * Unit 6's entry point, used instead of {@link #matchText(String)} when the caller has
-     * several recognized lines from one frame (name, print code, pass code may each land as a
-     * separate line) rather than a single known-field string.
-     *
-     * <p>Priority order, across *all* candidates at each tier before moving to the next — not
-     * per-candidate in isolation, which matters: a name candidate that already resolves to some
-     * card must not win before a print-code candidate elsewhere in the same cycle gets a chance
-     * to narrow that name down to the specific artwork actually in frame.
-     * <ol>
-     *   <li>{@link #matchExactCode} on every candidate — a real, exact pass code or print code
-     *       needs no narrowing, so this wins outright wherever it's found.</li>
-     *   <li>{@link #matchByFuzzyNameAndPrintCode} — an exact name match (via
-     *       {@link CardNameIndex}, covering languages {@link #findByName} still can't) narrowed
-     *       by an edit-distance-tolerant print-code read from another candidate in the same
-     *       cycle, falling back to a representative card (or {@link #findByName}'s own linear
-     *       scan) only once no candidate narrows it.</li>
-     * </ol>
-     *
-     * @param recognizedCandidates OCR candidate lines for one detection cycle, ideally ordered
-     *                             highest-confidence first (though this method doesn't require
-     *                             that ordering — every candidate is tried at each tier); may be
-     *                             {@code null} or empty
-     * @return the matched card and how it was resolved, a {@link CardCandidates} if it narrows
-     * to a Konami ID with more than one valid printing, or {@link Optional#empty()} if nothing
-     * in the database matches any candidate
+     * Maps a normalized name (see {@link #normalizeForNameCompare}) to every {@link Card} whose
+     * name in any of the nine declared language fields normalizes to it. Built once from
+     * {@link Database#getAllCardsList()} instead of re-scanning and re-normalizing that list on
+     * every {@link #findByName} call — the OCR detection loop calls {@link #findByName} several
+     * times per second, and a fresh scan on every call was measurably freezing the JavaFX
+     * Application Thread.
+     * <p>
+     * Rebuilt whenever {@link Database#getAllCardsList()}'s size no longer matches
+     * {@link #normalizedNameIndexSize}, the size this index was last built from. A card being
+     * added to or removed from that live map (as this class's own tests do, to exercise language
+     * fields no real data source populates yet) changes its size, so the next lookup rebuilds
+     * against the current data instead of serving a stale index.
+     * </p>
+     * <p>
+     * Not synchronized — every current caller (the camera-scanner detection loop, always on the
+     * JavaFX Application Thread; this class's own single-threaded tests) reads and writes it from
+     * one thread at a time, the same assumption {@link Model.Database.CardNameIndex} already
+     * makes for its own cache.
+     * </p>
      */
-    public static Optional<Resolution> matchCandidates(List<String> recognizedCandidates) {
-        if (recognizedCandidates == null || recognizedCandidates.isEmpty()) {
-            return Optional.empty();
-        }
-
-        for (String candidate : recognizedCandidates) {
-            if (candidate == null) {
-                continue;
-            }
-            String trimmed = candidate.trim();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            Optional<Resolution> codeMatch = matchExactCode(trimmed);
-            if (codeMatch.isPresent()) {
-                return codeMatch;
-            }
-        }
-
-        return matchByFuzzyNameAndPrintCode(recognizedCandidates);
-    }
-
+    private static Map<String, List<Card>> normalizedNameToCardsIndex;
     /**
-     * The name-based fallback tier for {@link #matchCandidates}, reached only once no candidate
-     * in the cycle resolved via {@link #matchExactCode}. Tries each candidate as a name via
-     * {@link CardNameIndex#getKonamiIdsForName(String)}, skipping any candidate that resolves to
-     * zero or more-than-one Konami ID — an empty result means it just isn't a name, and more
-     * than one means a genuine cross-language collision that {@link CardNameIndex}'s own javadoc
-     * says needs manual confirmation rather than a silent guess, which this method has no way to
-     * ask for, so it moves on to the next candidate instead of picking one.
-     *
-     * <p>Once exactly one Konami ID is found, tries to narrow it to a specific print/artwork via
-     * {@link #tryNarrowByPrintCode} using every other candidate from the same cycle, before
-     * falling back to a representative card for that Konami ID via
-     * {@link #findRepresentativeCard} — the same "pick the card the primary artwork's pass code
-     * points to" resolution {@link Database} itself already uses when building
-     * {@link Database#getAllPrintedCardsList()}. Only once no candidate resolves a Konami ID at
-     * all does this fall further back to {@link #findByName}'s own linear scan, as a last resort
-     * for a name that exists as a live {@link Card} object but isn't reachable via
-     * {@link CardNameIndex} (e.g. a gap between its data source and {@link Database}'s).
+     * The {@link Database#getAllCardsList()} size {@link #normalizedNameToCardsIndex} was last
+     * built from — see that field's javadoc for how this drives cache invalidation.
      */
-    private static Optional<Resolution> matchByFuzzyNameAndPrintCode(List<String> recognizedCandidates) {
-        for (String nameCandidate : recognizedCandidates) {
-            Set<Integer> konamiIds = CardNameIndex.getKonamiIdsForName(nameCandidate);
-            if (konamiIds.size() != 1) {
-                continue;
-            }
-            Integer konamiId = konamiIds.iterator().next();
-
-            Optional<MatchResult> printCodeNarrowed =
-                    tryNarrowByPrintCode(konamiId, nameCandidate, recognizedCandidates);
-            if (printCodeNarrowed.isPresent()) {
-                Resolution resolution = printCodeNarrowed.get();
-                return Optional.of(resolution);
-            }
-
-            Optional<Card> representativeCard = findRepresentativeCard(konamiId);
-            if (representativeCard.isPresent()) {
-                return resolveKonamiId(konamiId, representativeCard.get(), MatchField.NAME, nameCandidate);
-            }
-        }
-
-        for (String nameCandidate : recognizedCandidates) {
-            Optional<Card> nameMatch = findByName(nameCandidate);
-            if (nameMatch.isPresent()) {
-                Card matchedCard = nameMatch.get();
-                return resolveKonamiId(
-                        parseKonamiId(matchedCard.getKonamiId()), matchedCard, MatchField.NAME, nameCandidate);
-            }
-        }
-        return Optional.empty();
-    }
+    private static int normalizedNameIndexSize = -1;
 
     /**
      * Tries to narrow {@code konamiId} to one specific print code by running every candidate
@@ -655,26 +582,126 @@ public final class CardTextMatcher {
     }
 
     /**
+     * Resolves a whole detection cycle's worth of OCR candidate lines into a {@link Card} —
+     * Unit 6's entry point, used instead of {@link #matchText(String)} when the caller has
+     * several recognized lines from one frame (name, print code, pass code may each land as a
+     * separate line) rather than a single known-field string.
+     *
+     * <p>Priority order, across *all* candidates at each tier before moving to the next — not
+     * per-candidate in isolation, which matters: a name candidate that already resolves to some
+     * card must not win before a print-code candidate elsewhere in the same cycle gets a chance
+     * to narrow that name down to the specific artwork actually in frame.
+     * <ol>
+     *   <li>{@link #matchExactCode} on every candidate — a real, exact pass code or print code
+     *       needs no narrowing, so this wins outright wherever it's found.</li>
+     *   <li>{@link #matchByFuzzyNameAndPrintCode} — an exact name match (via
+     *       {@link CardNameIndex}, covering languages {@link #findByName} still can't) narrowed
+     *       by an edit-distance-tolerant print-code read from another candidate in the same
+     *       cycle, falling back to a representative card (or {@link #findByName}'s own indexed
+     *       lookup) only once no candidate narrows it.</li>
+     * </ol>
+     *
+     * @param recognizedCandidates OCR candidate lines for one detection cycle, ideally ordered
+     *                             highest-confidence first (though this method doesn't require
+     *                             that ordering — every candidate is tried at each tier); may be
+     *                             {@code null} or empty
+     * @return the matched card and how it was resolved, a {@link CardCandidates} if it narrows
+     * to a Konami ID with more than one valid printing, or {@link Optional#empty()} if nothing
+     * in the database matches any candidate
+     */
+    public static Optional<Resolution> matchCandidates(List<String> recognizedCandidates) {
+        if (recognizedCandidates == null || recognizedCandidates.isEmpty()) {
+            return Optional.empty();
+        }
+
+        for (String candidate : recognizedCandidates) {
+            if (candidate == null) {
+                continue;
+            }
+            String trimmed = candidate.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            Optional<Resolution> codeMatch = matchExactCode(trimmed);
+            if (codeMatch.isPresent()) {
+                return codeMatch;
+            }
+        }
+
+        return matchByFuzzyNameAndPrintCode(recognizedCandidates);
+    }
+
+    /**
+     * The name-based fallback tier for {@link #matchCandidates}, reached only once no candidate
+     * in the cycle resolved via {@link #matchExactCode}. Tries each candidate as a name via
+     * {@link CardNameIndex#getKonamiIdsForName(String)}, skipping any candidate that resolves to
+     * zero or more-than-one Konami ID — an empty result means it just isn't a name, and more
+     * than one means a genuine cross-language collision that {@link CardNameIndex}'s own javadoc
+     * says needs manual confirmation rather than a silent guess, which this method has no way to
+     * ask for, so it moves on to the next candidate instead of picking one.
+     *
+     * <p>Once exactly one Konami ID is found, tries to narrow it to a specific print/artwork via
+     * {@link #tryNarrowByPrintCode} using every other candidate from the same cycle, before
+     * falling back to a representative card for that Konami ID via
+     * {@link #findRepresentativeCard} — the same "pick the card the primary artwork's pass code
+     * points to" resolution {@link Database} itself already uses when building
+     * {@link Database#getAllPrintedCardsList()}. Only once no candidate resolves a Konami ID at
+     * all does this fall further back to {@link #findByName}'s own indexed lookup, as a last
+     * resort for a name that exists as a live {@link Card} object but isn't reachable via
+     * {@link CardNameIndex} (e.g. a gap between its data source and {@link Database}'s).
+     */
+    private static Optional<Resolution> matchByFuzzyNameAndPrintCode(List<String> recognizedCandidates) {
+        for (String nameCandidate : recognizedCandidates) {
+            Set<Integer> konamiIds = CardNameIndex.getKonamiIdsForName(nameCandidate);
+            if (konamiIds.size() != 1) {
+                continue;
+            }
+            Integer konamiId = konamiIds.iterator().next();
+
+            Optional<MatchResult> printCodeNarrowed =
+                    tryNarrowByPrintCode(konamiId, nameCandidate, recognizedCandidates);
+            if (printCodeNarrowed.isPresent()) {
+                Resolution resolution = printCodeNarrowed.get();
+                return Optional.of(resolution);
+            }
+
+            Optional<Card> representativeCard = findRepresentativeCard(konamiId);
+            if (representativeCard.isPresent()) {
+                return resolveKonamiId(konamiId, representativeCard.get(), MatchField.NAME, nameCandidate);
+            }
+        }
+
+        for (String nameCandidate : recognizedCandidates) {
+            Optional<Card> nameMatch = findByName(nameCandidate);
+            if (nameMatch.isPresent()) {
+                Card matchedCard = nameMatch.get();
+                return resolveKonamiId(
+                        parseKonamiId(matchedCard.getKonamiId()), matchedCard, MatchField.NAME, nameCandidate);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
      * Looks up a card by exact name (case-insensitive, diacritic-insensitive)
-     * against every language name field {@link Card} declares, via a linear
-     * scan over {@link Database#getAllCardsList()}.
+     * against every language name field {@link Card} declares, via
+     * {@link #getNormalizedNameToCardsIndex()}.
      * <p>
      * {@code name_CN} has no data source in this project yet (nothing populates
      * it in {@link Database#createAllCardsList}) so that branch stays inert;
-     * the other eight are all populated today. This method intentionally stays
-     * a linear scan over live {@link Card} objects rather than switching to
-     * {@link Model.Database.CardNameIndex}'s faster Konami-ID-keyed lookup,
-     * so it keeps resolving cards that only exist as live objects in
-     * {@link Database#getAllCardsList()} (as opposed to a Konami ID in
-     * {@link Model.Database.KonamiIdToNames}) — {@link #matchCandidates}'s
-     * fuzzy fallback tier is where {@link Model.Database.CardNameIndex}
-     * actually gets used, precisely because it doesn't need that.
+     * the other eight are all populated today. This method intentionally indexes live
+     * {@link Card} objects out of {@link Database#getAllCardsList()} rather than switching to
+     * {@link Model.Database.CardNameIndex}'s Konami-ID-keyed lookup, so it keeps resolving cards
+     * that only exist as live objects in {@link Database#getAllCardsList()} (as opposed to a
+     * Konami ID in {@link Model.Database.KonamiIdToNames}) — {@link #matchCandidates}'s fuzzy
+     * fallback tier is where {@link Model.Database.CardNameIndex} actually gets used, precisely
+     * because it doesn't need that.
      * </p>
      * <p>
      * {@link Database#getAllCardsList()} holds one entry per artwork sharing the same name, so
-     * the returned {@link Card} is just whichever artwork this scan hits first — never hand it
-     * straight back to a caller; every current caller routes it through {@link #resolveKonamiId}
-     * instead.
+     * the returned {@link Card} is just whichever artwork happened to be indexed first for that
+     * name — never hand it straight back to a caller; every current caller routes it through
+     * {@link #resolveKonamiId} instead.
      * </p>
      *
      * @param rawName the candidate name, not yet normalized
@@ -685,32 +712,68 @@ public final class CardTextMatcher {
         if (normalizedTarget.isEmpty()) {
             return Optional.empty();
         }
-        for (Card card : Database.getAllCardsList().values()) {
-            if (matchesAnyLanguageName(card, normalizedTarget)) {
-                return Optional.of(card);
-            }
+        List<Card> matchingCards = getNormalizedNameToCardsIndex().get(normalizedTarget);
+        if (matchingCards == null || matchingCards.isEmpty()) {
+            return Optional.empty();
         }
-        return Optional.empty();
+        return Optional.of(matchingCards.get(0));
     }
 
     /**
-     * Checks whether {@code card}'s name in any declared language normalizes
-     * to {@code normalizedTarget}.
-     *
-     * @param card             the card whose name fields to check
-     * @param normalizedTarget the already-normalized name being searched for
-     * @return {@code true} if any language's name matches
+     * Returns {@link #normalizedNameToCardsIndex}, rebuilding it first if
+     * {@link Database#getAllCardsList()}'s size has changed since the index was last built.
      */
-    private static boolean matchesAnyLanguageName(Card card, String normalizedTarget) {
-        return normalizedTarget.equals(normalizeForNameCompare(card.getName_EN()))
-                || normalizedTarget.equals(normalizeForNameCompare(card.getName_FR()))
-                || normalizedTarget.equals(normalizeForNameCompare(card.getName_JA()))
-                || normalizedTarget.equals(normalizeForNameCompare(card.getName_ES()))
-                || normalizedTarget.equals(normalizeForNameCompare(card.getName_DE()))
-                || normalizedTarget.equals(normalizeForNameCompare(card.getName_IT()))
-                || normalizedTarget.equals(normalizeForNameCompare(card.getName_CN()))
-                || normalizedTarget.equals(normalizeForNameCompare(card.getName_KR()))
-                || normalizedTarget.equals(normalizeForNameCompare(card.getName_PT()));
+    private static Map<String, List<Card>> getNormalizedNameToCardsIndex() {
+        Map<Integer, Card> allCards = Database.getAllCardsList();
+        if (normalizedNameToCardsIndex == null || normalizedNameIndexSize != allCards.size()) {
+            normalizedNameToCardsIndex = buildNormalizedNameToCardsIndex(allCards);
+            normalizedNameIndexSize = allCards.size();
+        }
+        return normalizedNameToCardsIndex;
+    }
+
+    /**
+     * Builds the normalized-name-to-cards index from every language name field on every card in
+     * {@code allCards}, normalizing each field once here rather than on every {@link #findByName}
+     * call.
+     *
+     * @param allCards the live card map to index, as returned by {@link Database#getAllCardsList()}
+     */
+    private static Map<String, List<Card>> buildNormalizedNameToCardsIndex(Map<Integer, Card> allCards) {
+        Map<String, List<Card>> index = new HashMap<>();
+        for (Card card : allCards.values()) {
+            indexCardName(index, card, card.getName_EN());
+            indexCardName(index, card, card.getName_FR());
+            indexCardName(index, card, card.getName_JA());
+            indexCardName(index, card, card.getName_ES());
+            indexCardName(index, card, card.getName_DE());
+            indexCardName(index, card, card.getName_IT());
+            indexCardName(index, card, card.getName_CN());
+            indexCardName(index, card, card.getName_KR());
+            indexCardName(index, card, card.getName_PT());
+        }
+        return index;
+    }
+
+    /**
+     * Adds {@code card} under {@code rawName}'s normalized form in {@code index}, skipping blank
+     * names and a duplicate entry for the same card under the same normalized name (a card whose
+     * name is identical across two of its language fields would otherwise be indexed twice under
+     * that one key).
+     *
+     * @param index   the index being built, mutated in place
+     * @param card    the card {@code rawName} belongs to
+     * @param rawName one of {@code card}'s language name fields, not yet normalized
+     */
+    private static void indexCardName(Map<String, List<Card>> index, Card card, String rawName) {
+        String normalizedName = normalizeForNameCompare(rawName);
+        if (normalizedName.isEmpty()) {
+            return;
+        }
+        List<Card> cardsForName = index.computeIfAbsent(normalizedName, unusedKey -> new ArrayList<>());
+        if (!cardsForName.contains(card)) {
+            cardsForName.add(card);
+        }
     }
 
     /**

@@ -62,6 +62,18 @@ import java.util.function.Supplier;
  * (see {@link #handleDetectionEvent}'s {@code addEligible} check) — a card being shown, whether
  * it's the same one again or a different one. Between detections, the printCode buttons and
  * artwork gallery from the last one stay exactly as they were, fully clickable.
+ *
+ * <p>Unit 10 also throttles matching itself, not just the buttons: {@link #handleDetectionEvent}
+ * used to call {@link CardTextMatcher#matchCandidates} on every detection cycle regardless of
+ * {@link #debouncer}'s state, including the ~4 cycles/second it kept re-running while already
+ * locked onto an already-resolved card — real, wasted work competing against
+ * {@link PythonCardScannerBridge}'s own preview-frame updates on the same JavaFX application
+ * thread. Now a lock skips full matching for {@link #MATCH_PAUSE_AFTER_LOCK_MILLIS} at a time
+ * (see {@link #matchResumeAtMillis}), falling back to {@link #feedDebouncerWithoutMatching} to
+ * keep {@link #debouncer}'s release timing accurate without paying matching's cost. Deliberately
+ * does not apply while released — a card that hasn't resolved yet still gets a full match
+ * attempt every cycle, since throttling that case would make the scanner less effective exactly
+ * when it's trying hardest to find a match.
  */
 public class CardScannerCoordinator {
 
@@ -81,6 +93,16 @@ public class CardScannerCoordinator {
      * {@link ScanLockDebouncer} itself once this is running against real hardware (Unit 7).
      */
     private static final long DEBOUNCE_RELEASE_MILLIS = 500;
+
+    /**
+     * How long {@link #handleDetectionEvent} skips a full {@link CardTextMatcher#matchCandidates}
+     * call after a real match attempt leaves {@link #debouncer} locked — Unit 10's fix for the
+     * plan doc's "gate matchCandidates behind the debounce state" tuning item. Applies whether
+     * this is the detection that just locked the debouncer or a later resume tick reconfirming
+     * the same card; never applies while released, since an unresolved card in frame still needs
+     * a full attempt every cycle. See {@link #matchResumeAtMillis} for how this is tracked.
+     */
+    private static final long MATCH_PAUSE_AFTER_LOCK_MILLIS = 1000;
 
     /**
      * Which tabs the camera button is even clickable on. My Collection, Decks and Collections,
@@ -142,6 +164,17 @@ public class CardScannerCoordinator {
      * first detection just because the debouncer thinks it's still locked from before.
      */
     private ScanLockDebouncer debouncer;
+    /**
+     * The wall-clock time before which {@link #handleDetectionEvent} should skip a full
+     * {@link CardTextMatcher#matchCandidates} call and use the cheap presence check in
+     * {@link #feedDebouncerWithoutMatching} instead. Set to {@link #MATCH_PAUSE_AFTER_LOCK_MILLIS}
+     * past "now" every time a real match attempt ends with {@link #debouncer} locked; left alone
+     * (and therefore already in the past, so matching runs normally) while released. Reset to 0
+     * in {@link #startCardScanner()} for the same reason {@link #debouncer} is reassigned fresh —
+     * a leftover timestamp from a previous session must not pause the very next session's first
+     * detection.
+     */
+    private long matchResumeAtMillis = 0;
 
     /**
      * Which camera device {@link #startCardScanner()} opens, set via {@link #selectCamera(int)}
@@ -310,6 +343,7 @@ public class CardScannerCoordinator {
         // fresh from this instance's fields at call time, not from anything captured here.
         sharedCardScannerPane.setOnCandidateAdd(this::completeArtworkDisambiguationAdd);
         debouncer = new ScanLockDebouncer(DEBOUNCE_RELEASE_MILLIS);
+        matchResumeAtMillis = 0;
 
         activeCardScannerBridge = new PythonCardScannerBridge(
                 sharedCardScannerPane::showPreviewFrame,
@@ -442,6 +476,11 @@ public class CardScannerCoordinator {
             return; // a stray event arrived after the session already ended; ignore it
         }
         try {
+            if (debouncer.isLocked() && System.currentTimeMillis() < matchResumeAtMillis) {
+                feedDebouncerWithoutMatching(recognizedCandidates);
+                return;
+            }
+
             Optional<CardTextMatcher.Resolution> resolution = CardTextMatcher.matchCandidates(recognizedCandidates);
             if (resolution.isEmpty()) {
                 // The debounce lock releasing here (the card leaving frame for a continuous
@@ -455,6 +494,14 @@ public class CardScannerCoordinator {
             }
 
             boolean addEligible = debouncer.onConfidentDetection();
+            if (debouncer.isLocked()) {
+                // A real match attempt just ran and ended up locked, whether this is the
+                // detection that just locked it or a later resume tick reconfirming the same
+                // card — either way, the next MATCH_PAUSE_AFTER_LOCK_MILLIS worth of detections
+                // can skip full matching again. Left unset while released, so an unresolved card
+                // still gets a full attempt on every following cycle.
+                matchResumeAtMillis = System.currentTimeMillis() + MATCH_PAUSE_AFTER_LOCK_MILLIS;
+            }
             if (!addEligible) {
                 return; // still locked onto an earlier detection; this is a continuation, not a new add
             }
@@ -476,6 +523,28 @@ public class CardScannerCoordinator {
                 sharedCardScannerPane.setDetectionFeedbackText(
                         "Something went wrong resolving that card. See the application log for details.");
             }
+        }
+    }
+
+    /**
+     * The cheap substitute for a full {@link CardTextMatcher#matchCandidates} call while
+     * {@link #handleDetectionEvent} is inside {@link #matchResumeAtMillis}'s pause window —
+     * feeds {@link #debouncer} the same confident/not-confident signal a real match attempt would
+     * have, using only whether OCR read anything at all this cycle. {@link ScanLockDebouncer}'s
+     * release timing is wall-clock-based, not cycle-count-based (see its own javadoc), so this
+     * keeps the lock/release behavior identical to running a full match every cycle — a genuine
+     * match attempt still happens as soon as the pause elapses, so nothing here can leave the
+     * debouncer locked forever on stale state. Never touches {@link #sharedCardScannerPane},
+     * {@link #activeCardCandidates}, or any insertion.
+     *
+     * @param recognizedCandidates this cycle's OCR candidate lines, as passed to
+     *                             {@link #handleDetectionEvent}
+     */
+    private void feedDebouncerWithoutMatching(List<String> recognizedCandidates) {
+        if (recognizedCandidates == null || recognizedCandidates.isEmpty()) {
+            debouncer.onNoConfidentDetection();
+        } else {
+            debouncer.onConfidentDetection();
         }
     }
 
