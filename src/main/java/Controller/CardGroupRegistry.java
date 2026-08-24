@@ -496,6 +496,21 @@ public final class CardGroupRegistry {
      * restore step always runs even if the temporary-swap step failed.
      */
     public static void refreshAllGridViews() {
+        refreshAllGridViews("refreshAllGridViews[untagged]");
+    }
+
+    /**
+     * Same as {@link #refreshAllGridViews()}, but {@code callerTag} is threaded through every
+     * log line this sweep produces (queue delay, per-grid timing, and the final summary), so a
+     * slow sweep in the logs is traceable straight back to the call site that scheduled it
+     * instead of requiring manual code archaeology to work out which of several
+     * {@code Platform.runLater}-deferred callers was responsible. Prefer this overload at every
+     * call site; the no-arg version exists only so nothing silently goes untagged.
+     *
+     * @param callerTag short, log-friendly label identifying the call site (e.g.
+     *                  {@code "refreshAllGridViews[decksTreeRefresher]"})
+     */
+    public static void refreshAllGridViews(String callerTag) {
         // Unit 10 diagnostic instrumentation (camera-scanner real-world tuning pass): this method
         // is the lead suspect for the multi-second post-add lag reported against the scanner,
         // since it forces every currently-registered GridView across the whole session to fully
@@ -514,12 +529,12 @@ public final class CardGroupRegistry {
                     continue;
                 }
                 liveGridCount++;
-                refreshOneGridView(grid, "refreshAllGridViews");
+                refreshOneGridView(grid, callerTag);
             }
-            logger.info("[PERF] refreshAllGridViews: queued {} ms before running; swept {} live of {} "
+            logger.info("[PERF] {}: queued {} ms before running; swept {} live of {} "
                             + "registered grids",
-                    queueDelayMillis, liveGridCount, registeredGroupCount);
-            Utils.PerfLog.stage(logger, "refreshAllGridViews: full sweep", sweepStartNanos);
+                    callerTag, queueDelayMillis, liveGridCount, registeredGroupCount);
+            Utils.PerfLog.stage(logger, callerTag + ": full sweep", sweepStartNanos);
         });
     }
 
@@ -552,7 +567,38 @@ public final class CardGroupRegistry {
                 affectedGroups.add(group);
             }
         }
-        if (affectedGroups.isEmpty()) {
+        scheduleGroupsSweep(affectedGroups, "refreshGridViewsForAffectedGroups");
+    }
+
+    /**
+     * Refreshes only the live {@link GridView}s registered for {@code groups} directly, with
+     * no owner-key resolution step. Scoped counterpart to {@link #refreshAllGridViews()} for
+     * callers that already know exactly which {@link CardsGroup}s need refreshing — currently
+     * the MIDDLE-pane selection-change listener in {@code RealMainController}, which only needs
+     * to refresh the group(s) whose selection highlight actually changed instead of sweeping
+     * every registered grid on every click.
+     *
+     * <p>No-ops when {@code groups} is {@code null} or empty.
+     *
+     * @param groups the groups whose live grids should be refreshed
+     */
+    public static void refreshGridViewsForGroups(Set<CardsGroup> groups) {
+        scheduleGroupsSweep(groups, "refreshGridViewsForGroups");
+    }
+
+    /**
+     * Shared scoped-sweep body for {@link #refreshGridViewsForAffectedGroups(Set)} and
+     * {@link #refreshGridViewsForGroups(Set)}: refreshes the live grid for each of
+     * {@code groups} via {@link #refreshOneGridView}, deferred through
+     * {@link Platform#runLater} the same way {@link #refreshAllGridViews()} is. No-ops when
+     * {@code groups} is {@code null} or empty.
+     *
+     * @param groups    the groups whose live grids should be refreshed
+     * @param logPrefix identifies the calling sweep in the info/warning/perf logs (e.g.
+     *                  {@code "refreshGridViewsForGroups"})
+     */
+    private static void scheduleGroupsSweep(Set<CardsGroup> groups, String logPrefix) {
+        if (groups == null || groups.isEmpty()) {
             return;
         }
 
@@ -561,19 +607,18 @@ public final class CardGroupRegistry {
             long queueDelayMillis = (System.nanoTime() - scheduledAtNanos) / 1_000_000;
             long sweepStartNanos = Utils.PerfLog.start();
             int liveGridCount = 0;
-            for (CardsGroup group : affectedGroups) {
+            for (CardsGroup group : groups) {
                 WeakReference<GridView<CardElement>> gridRef = GROUP_GRID_VIEWS.get(group);
                 GridView<CardElement> grid = gridRef == null ? null : gridRef.get();
                 if (grid == null) {
                     continue;
                 }
                 liveGridCount++;
-                refreshOneGridView(grid, "refreshGridViewsForAffectedGroups");
+                refreshOneGridView(grid, logPrefix);
             }
-            logger.info("[PERF] refreshGridViewsForAffectedGroups: queued {} ms before running; "
-                            + "refreshed {} live of {} affected groups",
-                    queueDelayMillis, liveGridCount, affectedGroups.size());
-            Utils.PerfLog.stage(logger, "refreshGridViewsForAffectedGroups: scoped sweep", sweepStartNanos);
+            logger.info("[PERF] {}: queued {} ms before running; refreshed {} live of {} groups",
+                    logPrefix, queueDelayMillis, liveGridCount, groups.size());
+            Utils.PerfLog.stage(logger, logPrefix + ": scoped sweep", sweepStartNanos);
         });
     }
 

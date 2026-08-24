@@ -2,6 +2,7 @@ package Controller;
 
 import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
+import Model.CardsLists.CardsGroup;
 import Model.CardsLists.SubListCreator;
 import View.*;
 import View.SharedCollectionTab.TabType;
@@ -96,6 +97,16 @@ public class RealMainController {
                     + "-fx-pref-width: 36px; "
                     + "-fx-max-width: 36px;";
     private final java.util.Set<FilterPane> wiredEnterPanes = new java.util.HashSet<>();
+
+    /**
+     * The {@link CardsGroup}s whose grid was refreshed for MIDDLE-pane selection highlighting
+     * the last time the {@link SelectionManager} listener ran (see {@link #initialize()}).
+     * Diffed against the live selection on each run so that a group losing the selection (the
+     * user selected a different card, or switched to the RIGHT pane) gets its stale highlight
+     * cleared, without re-sweeping every registered grid in the session to find it.
+     */
+    private final java.util.Set<CardsGroup> previouslySelectedMiddleGroups = new java.util.LinkedHashSet<>();
+
     private Tab myCollectionTabHandle;
 
     // ── Sub-controllers ───────────────────────────────────────────────────────
@@ -261,7 +272,7 @@ public class RealMainController {
         UserInterfaceFunctions.registerDecksTreeRefresher(() -> {
             if (decksAndCollectionsTreeView != null) {
                 decksAndCollectionsTreeView.refresh();
-                Controller.CardGroupRegistry.refreshAllGridViews();
+                Controller.CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[decksTreeRefresher]");
             }
         });
 
@@ -269,7 +280,7 @@ public class RealMainController {
         UserInterfaceFunctions.registerArchetypesRefresher(() -> {
             if (archetypesTreeView != null) {
                 archetypesTreeView.refresh();
-                Controller.CardGroupRegistry.refreshAllGridViews();
+                Controller.CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[archetypesRefresher]");
             }
         });
 
@@ -444,7 +455,22 @@ public class RealMainController {
             if (archetypesTreeView != null) {
                 archetypesTreeView.refresh();
             }
-            CardGroupRegistry.refreshAllGridViews();
+            java.util.Set<CardsGroup> currentlySelectedMiddleGroups = new java.util.LinkedHashSet<>();
+            for (CardElement selectedElement : SelectionManager.getSelectedMiddleElements()) {
+                CardsGroup group = CardGroupRegistry.findGroupForCardElement(selectedElement);
+                if (group != null) {
+                    currentlySelectedMiddleGroups.add(group);
+                }
+            }
+            // Union with the previous run's groups too, so a group that just lost the
+            // selection (different card selected, or switched to the RIGHT pane) still gets
+            // refreshed to clear its now-stale highlight.
+            java.util.Set<CardsGroup> groupsNeedingHighlightRefresh =
+                    new java.util.LinkedHashSet<>(previouslySelectedMiddleGroups);
+            groupsNeedingHighlightRefresh.addAll(currentlySelectedMiddleGroups);
+            CardGroupRegistry.refreshGridViewsForGroups(groupsNeedingHighlightRefresh);
+            previouslySelectedMiddleGroups.clear();
+            previouslySelectedMiddleGroups.addAll(currentlySelectedMiddleGroups);
             if (cardsDisplayContainer != null) {
                 for (Node node : cardsDisplayContainer.getChildren()) {
                     if (node instanceof ListView) {
@@ -898,7 +924,7 @@ public class RealMainController {
                     for (int index = startIndex; index < targetElements.size(); index++) {
                         SelectionManager.toggleElementSelection(targetElements.get(index));
                     }
-                    CardGroupRegistry.refreshAllGridViews();
+                    CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[numpadQuickSelect]");
                 });
             }
         }
@@ -925,7 +951,7 @@ public class RealMainController {
     void refreshDecksAndCollectionsTreeView() {
         if (decksAndCollectionsTreeView != null) {
             decksAndCollectionsTreeView.refresh();
-            CardGroupRegistry.refreshAllGridViews();
+            CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[refreshDecksAndCollectionsTreeView]");
         }
     }
 
@@ -1013,7 +1039,7 @@ public class RealMainController {
                 }
                 if (myCollectionTreeView != null) {
                     myCollectionTreeView.refresh();
-                    CardGroupRegistry.refreshAllGridViews();
+                    CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[incompleteMarkToggle]");
                 }
             });
         }
@@ -1112,7 +1138,7 @@ public class RealMainController {
                     if (ouicheListTreeView != null) {
                         ouicheListTreeView.refresh();
                     }
-                    CardGroupRegistry.refreshAllGridViews();
+                    CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[conditionRarityOverlayToggle]");
                 };
 
         if (myCollectionTab.getShowConditionRarityButton() != null) {
@@ -1155,8 +1181,15 @@ public class RealMainController {
     // =========================================================================
 
     /**
-     * Generic reflection-based model refresh. Tries known method names first, then
-     * falls back to refreshing all live TreeViews and ListViews found on this controller.
+     * Generic owned-collection refresh: re-renders the four main tree views in place.
+     *
+     * <p>Registered via {@code registerOwnedCollectionRefresher} alongside
+     * {@link MyCollectionController}'s own dedicated refresher, so this runs on every
+     * owned-collection change too. It used to also call {@link CardGroupRegistry#refreshAllGridViews()}
+     * here, but that duplicated the grid-highlight refresh {@link MyCollectionController}'s
+     * refresher already does in a scoped way, and was the second of two full unscoped sweeps
+     * firing on every scanner add (Unit 10 latency fix; see the selection-change listener in
+     * {@link #initialize()} for the first). Only the cheap tree-level refresh remains here.
      */
     public void refreshFromModel() {
         if (!Platform.isFxApplicationThread()) {
@@ -1175,7 +1208,6 @@ public class RealMainController {
         if (archetypesTreeView != null) {
             archetypesTreeView.refresh();
         }
-        CardGroupRegistry.refreshAllGridViews();
     }
 
     // =========================================================================

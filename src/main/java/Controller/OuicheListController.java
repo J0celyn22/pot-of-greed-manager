@@ -259,7 +259,7 @@ public class OuicheListController {
         }
 
         ouicheListTreeView.refresh();
-        CardGroupRegistry.refreshAllGridViews();
+        CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[refreshOuicheListContentInPlace]");
     }
 
     /**
