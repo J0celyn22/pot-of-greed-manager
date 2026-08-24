@@ -174,6 +174,23 @@ public class OuicheList {
     }
 
     /**
+     * Whether the detailed OuicheList has been generated at least once this session.
+     *
+     * <p>Callers that update the OuicheList in response to a card add/remove/move
+     * elsewhere in the app (My Collection, Decks and Collections) should check this
+     * first and skip that work entirely when it is {@code false} — there is nothing
+     * to keep in sync until the OuicheList tab has actually been opened once and
+     * {@link #detailedOuicheList} populated. Skipping early avoids per-card owner
+     * resolution, index lookups, and view-refresh scheduling that would otherwise
+     * run for every card while the OuicheList is never even being displayed.
+     *
+     * @return {@code true} if {@link #getDetailedOuicheList()} is non-{@code null}
+     */
+    public static boolean isGenerated() {
+        return detailedOuicheList != null;
+    }
+
+    /**
      * Gets the list of cards in the third-party list.
      * <p>
      * @return the list of cards in the third-party list
@@ -375,12 +392,40 @@ public class OuicheList {
      * added to {@link #unusedCards} (the "Available cards" list).
      *
      * @param addedCard the {@link CardElement} that was just added to My Collection
+     * @return the {@link Deck} section or {@link ThemeCollection} whose slot was
+     *         filled, so the caller can refresh just that one grid, or {@code null}
+     *         if nothing was filled (the card became/stayed an "Available card" —
+     *         no OuicheList-visible grid changed)
      */
-    public static void onOwnedCardAdded(CardElement addedCard) {
+    public static OuicheListSlotFill onOwnedCardAdded(CardElement addedCard) {
         if (detailedOuicheList == null || addedCard == null) {
-            return;
+            return null;
         }
-        OuicheListUpdater.onOwnedCardAdded(addedCard);
+        return OuicheListUpdater.onOwnedCardAdded(addedCard);
+    }
+
+    /**
+     * Identifies which {@link Deck} section or {@link ThemeCollection} an
+     * {@link #onOwnedCardAdded}/removal call actually changed in the detailed
+     * OuicheList, so callers can refresh just that one grid instead of every grid
+     * in the session.
+     *
+     * <p>Exactly one of ({@link #deck} + {@link #deckSection}) or {@link #collection}
+     * is non-{@code null}, matching whichever the filled/unmarked {@link #slot}
+     * belongs to.
+     */
+    public static final class OuicheListSlotFill {
+        public final CardElement slot;
+        public final Deck deck;
+        public final String deckSection;
+        public final ThemeCollection collection;
+
+        public OuicheListSlotFill(CardElement slot, Deck deck, String deckSection, ThemeCollection collection) {
+            this.slot = slot;
+            this.deck = deck;
+            this.deckSection = deckSection;
+            this.collection = collection;
+        }
     }
 
     /**

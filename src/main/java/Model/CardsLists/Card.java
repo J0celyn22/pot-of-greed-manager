@@ -1,5 +1,6 @@
 package Model.CardsLists;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -61,6 +62,61 @@ public class Card {
 
     public Card() {
 
+    }
+
+    /**
+     * Copies every field of {@code source} into a new, independent {@link Card} instance —
+     * unlike {@link #Card(String)} or {@link #Card(String, String)}, this never goes through
+     * {@link CardFactory} or a database lookup, so it can't lose or fail to resolve any
+     * already-in-memory data {@code source} carries (in particular, artwork-specific fields
+     * like {@link #imagePath} that a fresh {@code CardFactory} lookup by ID/artNumber may not
+     * fully populate). Use this whenever a caller already holds a fully-resolved {@link Card} —
+     * e.g. one artwork option among several a person is choosing between — and needs to mutate
+     * one field (typically {@link #printCode}) before handing it off to be inserted into a
+     * collection, without mutating the original the caller may still be holding onto or handing
+     * out to something else. Skipping this step and mutating a shared {@link Card} in place is
+     * exactly the bug this constructor exists to prevent: {@link Model.CardsLists.CardElement}
+     * stores whatever {@link Card} it's given by reference, never copies it (see
+     * {@link CardElement#getCard()}), so every {@code CardElement} built from the same
+     * unmutated-then-mutated instance ends up reading back whichever value was set on it most
+     * recently, not the value it was actually inserted with.
+     *
+     * <p>List fields are deep-copied into fresh {@link ArrayList}s (or left {@code null} if
+     * {@code source}'s own field is {@code null}) rather than shared by reference, so mutating
+     * the copy's list later (if any future caller ever does) can't retroactively affect
+     * {@code source}'s — the same reasoning that already applies to {@link #availableRarities}
+     * in {@link #Card(String)}, just extended here to every list field rather than just one.
+     */
+    public Card(Card source) {
+        this.konamiId = source.konamiId;
+        this.passCode = source.passCode;
+        this.printCode = source.printCode;
+        this.imagePath = source.imagePath;
+        this.cardType = source.cardType;
+        this.cardProperties = source.cardProperties != null ? new ArrayList<>(source.cardProperties) : null;
+        this.description = source.description;
+        this.monsterType = source.monsterType;
+        this.atk = source.atk;
+        this.def = source.def;
+        this.level = source.level;
+        this.rank = source.rank;
+        this.attribute = source.attribute;
+        this.linkVal = source.linkVal;
+        this.linkMarker = source.linkMarker != null ? new ArrayList<>(source.linkMarker) : null;
+        this.scale = source.scale;
+        this.name_FR = source.name_FR;
+        this.name_EN = source.name_EN;
+        this.name_JA = source.name_JA;
+        this.name_ES = source.name_ES;
+        this.name_DE = source.name_DE;
+        this.name_IT = source.name_IT;
+        this.name_CN = source.name_CN;
+        this.name_KR = source.name_KR;
+        this.name_PT = source.name_PT;
+        this.price = source.price;
+        this.archetypes = source.archetypes != null ? new ArrayList<>(source.archetypes) : null;
+        this.artNumber = source.artNumber;
+        this.availableRarities = source.availableRarities != null ? new ArrayList<>(source.availableRarities) : null;
     }
 
     public Card(String id) throws Exception {

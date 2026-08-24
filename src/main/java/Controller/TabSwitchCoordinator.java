@@ -172,11 +172,30 @@ public class TabSwitchCoordinator {
                 return;
             }
             try {
-                ouicheListController.displayOuicheListUnified();
+                ouicheListController.refreshOuicheListContentInPlace();
                 ouicheListController.populateOuicheListMenu();
                 coordinator.refreshOuicheListCompactViewIfVisible();
             } catch (Exception exception) {
                 logger.warn("OuicheList refresher failed", exception);
+            }
+        });
+
+        UserInterfaceFunctions.registerOuicheListAffectedGroupsRefresher(affectedOwners -> {
+            if (!ouicheListLoaded || affectedOwners == null || affectedOwners.isEmpty()) {
+                return;
+            }
+            try {
+                boolean membershipChanged =
+                        ouicheListController.refreshOuicheListContentForAffectedGroups(affectedOwners);
+                if (membershipChanged) {
+                    ouicheListController.populateOuicheListMenu();
+                }
+                // The compact view's counts (maOuicheList/maOuicheListCounts) changed whenever a
+                // slot was filled, independent of whether tree membership did — its own
+                // visibility check keeps this a no-op unless it's actually on-screen.
+                coordinator.refreshOuicheListCompactViewIfVisible();
+            } catch (Exception exception) {
+                logger.warn("OuicheList affected-groups refresher failed", exception);
             }
         });
     }

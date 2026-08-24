@@ -131,4 +131,66 @@ class CardNameUtilsTest {
     void rebuildDecoratedName_entirelyDecoratorCharacters_treatedAsBothLeadingAndTrailing() {
         assertEquals("==NewName==", CardNameUtils.rebuildDecoratedName("==", "NewName", '='));
     }
+
+    // ── normalizeForCompare ──────────────────────────────────────────────────
+
+    @Test
+    void normalizeForCompare_null_returnsEmptyString() {
+        assertEquals("", CardNameUtils.normalizeForCompare(null));
+    }
+
+    @Test
+    void normalizeForCompare_alreadyNormalized_returnsUnchanged() {
+        assertEquals("dark magician", CardNameUtils.normalizeForCompare("dark magician"));
+    }
+
+    @Test
+    void normalizeForCompare_upperCase_lowercased() {
+        assertEquals("dark magician", CardNameUtils.normalizeForCompare("DARK MAGICIAN"));
+    }
+
+    @Test
+    void normalizeForCompare_diacritics_stripped() {
+        assertEquals("epee de la destruction",
+                CardNameUtils.normalizeForCompare("Épée de la Destruction"));
+    }
+
+    @Test
+    void normalizeForCompare_punctuation_removedNotJustHyphens() {
+        assertEquals("mask of the accursed",
+                CardNameUtils.normalizeForCompare("Mask of the Accursed!"));
+    }
+
+    @Test
+    void normalizeForCompare_hyphen_removedEntirelyNotCollapsedToSpace() {
+        // Confirms a hyphen doesn't survive as a space either -- "Red-Eyes"
+        // normalizes to "redeyes", not "red eyes".
+        assertEquals("redeyes", CardNameUtils.normalizeForCompare("Red-Eyes"));
+    }
+
+    @Test
+    void normalizeForCompare_extraInternalWhitespace_collapsedToSingleSpace() {
+        assertEquals("dark magician", CardNameUtils.normalizeForCompare("Dark   Magician"));
+    }
+
+    @Test
+    void normalizeForCompare_leadingAndTrailingWhitespace_trimmed() {
+        assertEquals("dark magician", CardNameUtils.normalizeForCompare("  Dark Magician  "));
+    }
+
+    @Test
+    void normalizeForCompare_emptyString_returnsEmptyString() {
+        assertEquals("", CardNameUtils.normalizeForCompare(""));
+    }
+
+    @Test
+    void normalizeForCompare_punctuationOnly_returnsEmptyString() {
+        assertEquals("", CardNameUtils.normalizeForCompare("!!!"));
+    }
+
+    @Test
+    void normalizeForCompare_digitsPreserved() {
+        assertEquals("vwxyzdragon catapult cannon",
+                CardNameUtils.normalizeForCompare("VWXYZ-Dragon Catapult Cannon"));
+    }
 }

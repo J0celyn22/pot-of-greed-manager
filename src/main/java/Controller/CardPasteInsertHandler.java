@@ -458,6 +458,7 @@ final class CardPasteInsertHandler {
             insertionIndex = observableList.size() - 1;
         }
         List<CardElement> addedToGroup = new ArrayList<>();
+        long observableListAddStartNanos = Utils.PerfLog.start();
         for (int i = 0; i < cardsToInsert.size(); i++) {
             Card card = cardsToInsert.get(i);
             if (card == null) {
@@ -471,8 +472,19 @@ final class CardPasteInsertHandler {
             observableList.add(targetIndex, newElement);
             addedToGroup.add(newElement);
         }
+        Utils.PerfLog.stage(logger, "handleInsertCardsAfterElement: observableList.add loop",
+                observableListAddStartNanos);
+
+        long heightAdjustmentStartNanos = Utils.PerfLog.start();
         CardGroupRegistry.triggerHeightAdjustment(hostGroup);
+        Utils.PerfLog.stage(logger, "handleInsertCardsAfterElement: triggerHeightAdjustment dispatch",
+                heightAdjustmentStartNanos);
+
+        long ouicheNotifyStartNanos = Utils.PerfLog.start();
         CardGroupRegistry.notifyOuicheListOfGroupAdditions(hostGroup, addedToGroup);
+        Utils.PerfLog.stage(logger, "handleInsertCardsAfterElement: notifyOuicheListOfGroupAdditions",
+                ouicheNotifyStartNanos);
+
         return !addedToGroup.isEmpty();
     }
 }

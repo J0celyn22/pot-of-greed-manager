@@ -13,6 +13,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Coordinates refreshing the JavaFX views (Owned Collection, Decks &amp;
@@ -52,6 +54,14 @@ public class ViewRefreshCoordinator {
     // ── OuicheList refreshers ──────────────────────────────────────────────────
     private static final ViewRefresherRegistry explicitOuicheListRefreshers =
             new ViewRefresherRegistry("refreshOuicheListView");
+
+    // Scoped counterpart to explicitOuicheListRefreshers: takes the affected owners so the
+    // controller can refresh just those groups' grids instead of sweeping every grid in the
+    // session. A plain Consumer rather than a ViewRefresherRegistry entry (which only supports
+    // parameterless Runnables) since it needs to carry that set through to the controller.
+    // Exactly one registrant exists in practice (OuicheListController, via
+    // TabSwitchCoordinator), same as explicitOuicheListRefreshers.
+    private static Consumer<Set<Object>> ouicheListAffectedGroupsRefresher = null;
 
     // ── Tab dirty-indicator callback ──────────────────────────────────────────────
     private static Runnable tabDirtyIndicatorUpdater = null;
@@ -151,12 +161,72 @@ public class ViewRefreshCoordinator {
         explicitOuicheListRefreshers.runAll();
     }
 
-    public static void triggerTabDirtyIndicatorUpdate() {
+    /**
+     * Registers the callback invoked by {@link #refreshOuicheListViewForAffectedGroups}.
+     * Replaces any previously registered callback (unlike
+     * {@link #registerOuicheListRefresher}'s multi-registrant list) since there is exactly one
+     * registrant in practice and a {@link Consumer} carrying a mutable {@link Set} argument
+     * isn't a good fit for {@link ViewRefresherRegistry}'s parameterless-{@link Runnable}
+     * dedup-by-reference semantics.
+     *
+     * @param refresher the callback to register (ignored if {@code null})
+     */
+    public static void registerOuicheListAffectedGroupsRefresher(Consumer<Set<Object>> refresher) {
+        if (refresher != null) {
+            ouicheListAffectedGroupsRefresher = refresher;
+        }
+    }
+
+    /**
+     * Scoped counterpart to {@link #refreshOuicheListView()}: invokes the registered
+     * affected-groups callback (if any) with {@code affectedOwners} on the JavaFX Application
+     * Thread. Safe to call from any thread.
+     *
+     * @param affectedOwners the owners whose OuicheList slot was just filled; forwarded as-is,
+     *                       including when {@code null} or empty
+     */
+    public static void refreshOuicheListViewForAffectedGroups(Set<Object> affectedOwners) {
+        runOnFxThreadOrDefer(() -> doRefreshOuicheListViewForAffectedGroups(affectedOwners));
+    }
+
+    private static void doRefreshOuicheListViewForAffectedGroups(Set<Object> affectedOwners) {
+        if (ouicheListAffectedGroupsRefresher == null) {
+            return;
+        }
+        try {
+            ouicheListAffectedGroupsRefresher.accept(affectedOwners);
+        } catch (Throwable throwable) {
+            logger.debug("refreshOuicheListViewForAffectedGroups: refresher threw", throwable);
+        }
+    }
+
+    /**
+     * Updates only the tab dirty-indicator (the unsaved-changes marker), without
+     * scheduling the archetype-glow refresh sweep that {@link
+     * #triggerTabDirtyIndicatorUpdate()} also performs. Safe to call from any thread.
+     * <p>
+     * Use this instead of {@link #triggerTabDirtyIndicatorUpdate()} for a
+     * modification that is confined to the owned collection (My Collection) and
+     * cannot affect archetype or collection-completion glow states. Those states
+     * are computed exclusively from a {@code ThemeCollection}'s own card list, its
+     * "exceptions to not add", and its linked {@code Deck}s (see {@code
+     * DeckCollectionQualityChecks.isKonamiIdPresentInCollection}/{@code
+     * isPassCodePresentInCollection}) — they never read from {@code
+     * OwnedCardsCollection}, so a plain My Collection add cannot change what any
+     * glow shows, and running the archetype sweep for it is unnecessary work.
+     * </p>
+     */
+    public static void updateTabDirtyIndicatorOnly() {
         if (tabDirtyIndicatorUpdater != null) {
             runOnFxThreadOrDefer(tabDirtyIndicatorUpdater);
         }
-        // Every model modification calls this method, making it the single correct
-        // place to keep the archetype markings (glow states) in sync.
+    }
+
+    public static void triggerTabDirtyIndicatorUpdate() {
+        updateTabDirtyIndicatorOnly();
+        // Every model modification that can affect deck/collection contents calls
+        // this method, making it the single correct place to keep the archetype
+        // markings (glow states) in sync.
         // We schedule via Platform.runLater so that multiple rapid modifications
         // (e.g. paste N cards) coalesce into one refresh at the end of the frame.
         if (!archetypeRefreshScheduled) {
@@ -252,14 +322,28 @@ public class ViewRefreshCoordinator {
         runOnFxThreadOrDefer(ViewRefreshCoordinator::doRefreshOwnedCollectionView);
     }
 
-    // Core implementation: tries explicit refreshers first, then falls back to scanning all windows.
+    // Core implementation: tries explicit refreshers first, then falls back to scanning all
+    // windows — but only when nothing is explicitly registered. In normal operation
+    // MyCollectionController always has a refresher registered, so this full scene-graph walk
+    // (across every open window, on every single card add) is a safety net for that one absent
+    // registration case, not a step to run unconditionally alongside the explicit refresher.
     private static void doRefreshOwnedCollectionView() {
+        long totalStartNanos = Utils.PerfLog.start();
         try {
             // 1) Call any explicit registered refreshers first (preferred)
             explicitRefreshers.runAll();
-            // We still continue to scan and refresh controls to be safe.
 
-            // 2) Walk all open windows and refresh TreeView/ListView controls found
+            if (!explicitRefreshers.isEmpty()) {
+                Utils.PerfLog.stage(logger, "doRefreshOwnedCollectionView: total (explicit refreshers)",
+                        totalStartNanos);
+                return;
+            }
+
+            logger.warn("doRefreshOwnedCollectionView: no explicit refresher registered — "
+                    + "falling back to the legacy full-window BFS scan");
+
+            // 2) No explicit refresher registered — fall back to walking all open windows and
+            // refreshing whatever TreeView/ListView controls are found.
             boolean refreshedAny = false;
             for (Window window : Window.getWindows()) {
                 try {
@@ -322,8 +406,11 @@ public class ViewRefreshCoordinator {
             } else {
                 logger.debug("refreshOwnedCollectionView: refreshed visible controls");
             }
+            Utils.PerfLog.stage(logger, "doRefreshOwnedCollectionView: total (legacy BFS fallback)",
+                    totalStartNanos);
         } catch (Throwable throwable) {
             logger.debug("refreshOwnedCollectionView failed", throwable);
+            Utils.PerfLog.stage(logger, "doRefreshOwnedCollectionView: total (failed)", totalStartNanos);
         }
     }
 

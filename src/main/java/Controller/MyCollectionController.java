@@ -95,11 +95,46 @@ public class MyCollectionController {
         UserInterfaceFunctions.registerOwnedCollectionRefresher(() -> {
             try {
                 String addedTarget = MenuActionHandler.getAndClearLastAddedTarget();
-                populateMyCollectionMenu();
-                if (myCollectionTreeView != null) {
-                    myCollectionTreeView.refresh();
+                CardsGroup addedGroupTarget = MenuActionHandler.getAndClearLastAddedGroupTarget();
+
+                // A card add always lands in exactly one group (see
+                // MiddleSelectionActionHandler's single-anchor paste methods), so when we know
+                // which one, update just that group's and its ancestor box(es)' highlight state
+                // in place instead of clearing and rebuilding the whole nav menu. Falls back to
+                // the full rebuild whenever anything can't be resolved (menu not built yet,
+                // structural mismatch, etc.).
+                long highlightStageStartNanos = Utils.PerfLog.start();
+                boolean highlightsUpdatedInPlace = false;
+                if (addedGroupTarget != null) {
+                    OwnedCardsCollection collection = loadOwnedCollection();
+                    if (collection != null) {
+                        highlightsUpdatedInPlace = MyCollectionNavigationPopulator
+                                .refreshHighlightsForAddedGroup(
+                                        myCollectionTab.getMenuVBox(), collection, addedGroupTarget);
+                    }
                 }
-                if (addedTarget != null) {
+                if (!highlightsUpdatedInPlace) {
+                    Utils.PerfLog.stage(logger,
+                            "content refresher: refreshHighlightsForAddedGroup (fell back)",
+                            highlightStageStartNanos);
+                    long populateMenuStartNanos = Utils.PerfLog.start();
+                    populateMyCollectionMenu();
+                    Utils.PerfLog.stage(logger, "content refresher: populateMyCollectionMenu fallback",
+                            populateMenuStartNanos);
+                } else {
+                    Utils.PerfLog.stage(logger, "content refresher: refreshHighlightsForAddedGroup (in place)",
+                            highlightStageStartNanos);
+                }
+
+                if (myCollectionTreeView != null) {
+                    long treeRefreshStartNanos = Utils.PerfLog.start();
+                    myCollectionTreeView.refresh();
+                    Utils.PerfLog.stage(logger, "content refresher: myCollectionTreeView.refresh()",
+                            treeRefreshStartNanos);
+                }
+                if (addedGroupTarget != null) {
+                    scrollToNewCardInGroup(addedGroupTarget);
+                } else if (addedTarget != null) {
                     scrollToNewCardInGroup(addedTarget);
                 }
                 coordinator.updateTabDirtyIndicators();
@@ -378,35 +413,88 @@ public class MyCollectionController {
                 }
             }
 
-            for (TreeItem<String> ancestor = target.getParent();
-                 ancestor != null;
-                 ancestor = ancestor.getParent()) {
-                ancestor.setExpanded(true);
-            }
+            scrollTreeViewToShowGroupNodeBottom(target);
+        });
+    }
 
-            final int targetRow = myCollectionTreeView.getRow(target);
-            if (targetRow < 0) {
+    /**
+     * Same as {@link #scrollToNewCardInGroup(String)} but finds the target row by object
+     * identity against {@link DataTreeItem#getData()} (via
+     * {@link NavigationHelper#findTreeItemByData}) rather than by name path — used by callers
+     * that already hold the live {@link CardsGroup} they just inserted into (see
+     * {@code Controller.MiddleSelectionActionHandler}'s paste/insert methods, all of which set
+     * {@link MenuActionHandler#setLastAddedGroupTarget} rather than the older string-based
+     * {@link MenuActionHandler#setLastAddedTarget}). Unlike the name-path version, there's no
+     * "drill into the first CardsGroup child" fallback needed here — searching by identity for
+     * the group itself always lands directly on that group's own node, never a Box ancestor's.
+     *
+     * @param group the CardsGroup that was just inserted into
+     */
+    public void scrollToNewCardInGroup(CardsGroup group) {
+        if (myCollectionTreeView == null || group == null) {
+            return;
+        }
+
+        Platform.runLater(() -> {
+            if (myCollectionTreeView == null) {
+                return;
+            }
+            TreeItem<String> root = myCollectionTreeView.getRoot();
+            if (root == null) {
                 return;
             }
 
-            javafx.scene.control.skin.VirtualFlow<?> virtualFlow = getVirtualFlow();
-            boolean rowInView = false;
-            if (virtualFlow != null) {
-                int firstVisible = virtualFlow.getFirstVisibleCell() != null
-                        ? virtualFlow.getFirstVisibleCell().getIndex() : -1;
-                int lastVisible = virtualFlow.getLastVisibleCell() != null
-                        ? virtualFlow.getLastVisibleCell().getIndex() : -1;
-                rowInView = firstVisible >= 0
-                        && targetRow >= firstVisible
-                        && targetRow <= lastVisible;
+            TreeItem<String> target = NavigationHelper.findTreeItemByData(root, group);
+            if (target == null) {
+                // Most likely a brand-new group created by this same insert, that the tree
+                // hasn't structurally rebuilt to include yet — this refresher only calls
+                // TreeView.refresh() (re-render), not displayMyCollection() (rebuild). Nothing
+                // to scroll to until the next structural refresh; not worth forcing one just for
+                // this, since the String-path version has the same limitation for the same
+                // reason and it's not been an issue in practice.
+                return;
             }
 
-            if (!rowInView) {
-                myCollectionTreeView.scrollTo(targetRow);
-            }
-
-            Platform.runLater(() -> adjustScrollToShowCellBottom(targetRow));
+            scrollTreeViewToShowGroupNodeBottom(target);
         });
+    }
+
+    /**
+     * Shared tail of both {@link #scrollToNewCardInGroup} overloads once they've each resolved
+     * {@code target} to the group's own tree node: expands every ancestor so the node is
+     * reachable, then scrolls just enough to reveal the bottom of its rendered cell (= the last
+     * card in the group) — jumping straight there if it's off-screen, or nudging by the exact
+     * pixel amount needed if it's merely cut off at the bottom of the viewport.
+     */
+    private void scrollTreeViewToShowGroupNodeBottom(TreeItem<String> target) {
+        for (TreeItem<String> ancestor = target.getParent();
+             ancestor != null;
+             ancestor = ancestor.getParent()) {
+            ancestor.setExpanded(true);
+        }
+
+        final int targetRow = myCollectionTreeView.getRow(target);
+        if (targetRow < 0) {
+            return;
+        }
+
+        javafx.scene.control.skin.VirtualFlow<?> virtualFlow = getVirtualFlow();
+        boolean rowInView = false;
+        if (virtualFlow != null) {
+            int firstVisible = virtualFlow.getFirstVisibleCell() != null
+                    ? virtualFlow.getFirstVisibleCell().getIndex() : -1;
+            int lastVisible = virtualFlow.getLastVisibleCell() != null
+                    ? virtualFlow.getLastVisibleCell().getIndex() : -1;
+            rowInView = firstVisible >= 0
+                    && targetRow >= firstVisible
+                    && targetRow <= lastVisible;
+        }
+
+        if (!rowInView) {
+            myCollectionTreeView.scrollTo(targetRow);
+        }
+
+        Platform.runLater(() -> adjustScrollToShowCellBottom(targetRow));
     }
 
     /**

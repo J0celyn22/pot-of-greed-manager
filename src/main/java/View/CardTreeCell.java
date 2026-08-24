@@ -67,6 +67,70 @@ public class CardTreeCell extends TreeCell<String> {
     private Label customTriangleLabel;
     private GridView<CardElement> cardGridView;
 
+    /**
+     * The {@link CardsGroup} (and, for archetype cells, the missing-card set) that
+     * was rendered into this cell the last time {@link #updateItem} actually rebuilt
+     * it. Used to detect a re-render of the exact same group — e.g. triggered by a
+     * {@code TreeView.refresh()} after a card was added elsewhere — so {@link
+     * #createCardsGroupCell} can be skipped instead of tearing down and rebuilding
+     * the whole {@link GridView} and every card's image cell from scratch. The
+     * existing {@code GridView} is already bound to the group's live {@link
+     * CardGroupRegistry#observableListFor}, so it reflects additions/removals on its
+     * own without any rebuild.
+     */
+    private CardsGroup lastRenderedGroup;
+    private Set<String> lastRenderedMissingSet;
+
+    /**
+     * The listeners {@link #buildMosaicModeGroupContent} attaches to the shared
+     * {@link #cardWidthProperty} and to this cell's {@code TreeView}'s width property,
+     * so a later rebuild can detach them before attaching a fresh pair.
+     * <p>
+     * Both properties are shared across every {@code CardTreeCell} in the tree (the
+     * width property is handed to every cell's constructor; the TreeView is the same
+     * object for the cell's lifetime), so every rebuild that skipped removing its old
+     * listener left it permanently attached — each card add that forced a rebuild of a
+     * visible group therefore leaked one more listener onto each property. Once enough
+     * had piled up, the next actual width change (e.g. layout settling at startup) fired
+     * all of them at once, each scheduling its own {@code Platform.runLater}, producing
+     * a burst of redundant height-adjustment work several seconds after the add that
+     * triggered it.
+     */
+    private javafx.beans.value.ChangeListener<Number> cardWidthRebuildListener;
+    private javafx.beans.value.ChangeListener<Number> treeWidthRebuildListener;
+
+    /**
+     * TEMPORARY diagnostic aid (camera-scanner Unit 10 add-latency investigation, round 2) —
+     * counts how many times {@link #createCardsGroupCell} has run for a given group, across the
+     * whole application lifetime, and whether it reused an existing {@code FilteredList} from
+     * {@link CardGroupRegistry#GROUP_FILTERED_LISTS} or had to create a fresh one. With the
+     * FilteredList-reuse and width-listener-detach fixes now in place, this and {@link
+     * #DIAGNOSTIC_CELL_INSTANCE_IDS_SEEN} are here mainly to confirm those fixes are actually
+     * working at runtime rather than to re-chase the leaks themselves. Remove this, the two maps
+     * below, and the related logging call sites once the round-2 root cause is confirmed or
+     * ruled out — same disposition as {@link CardGroupRegistry#refreshAllGridViews}'s own
+     * temporary logging.
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<CardsGroup, java.util.concurrent.atomic.AtomicInteger>
+            DIAGNOSTIC_FILTERED_LIST_REBUILD_COUNTS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.ConcurrentHashMap<CardsGroup, java.util.Set<Integer>>
+            DIAGNOSTIC_CELL_INSTANCE_IDS_SEEN = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * TEMPORARY diagnostic aid — times every call to {@link #adjustGridViewHeight} and detects
+     * bursts: several calls (for the same or different groups) landing within {@link
+     * #DIAGNOSTIC_BURST_WINDOW_MILLIS} of each other. Complements {@link
+     * CardGroupRegistry#refreshAllGridViews}'s own sweep-level timing by showing whether *this*
+     * cell's own height-adjustment path is also contributing calls during the same window, or
+     * whether the sweep is the whole story. Remove this field and its logging call site (in
+     * {@link #adjustGridViewHeight}) once confirmed.
+     */
+    private static final java.util.concurrent.atomic.AtomicLong DIAGNOSTIC_LAST_HEIGHT_ADJUST_MILLIS =
+            new java.util.concurrent.atomic.AtomicLong(0);
+    private static final java.util.concurrent.atomic.AtomicInteger DIAGNOSTIC_HEIGHT_ADJUST_BURST_COUNT =
+            new java.util.concurrent.atomic.AtomicInteger(0);
+    private static final long DIAGNOSTIC_BURST_WINDOW_MILLIS = 300;
+
     private static final String ARCHETYPE_MARKER = "[ARCHETYPE]";
 
     /**
@@ -649,91 +713,122 @@ public class CardTreeCell extends TreeCell<String> {
     @Override
     protected void updateItem(String itemName, boolean empty) {
         super.updateItem(itemName, empty);
-        setText(null);
-        setGraphic(null);
-        getStyleClass().setAll("card-tree-cell");
 
         if (empty || itemName == null) {
+            setText(null);
+            setGraphic(null);
+            getStyleClass().setAll("card-tree-cell");
+            lastRenderedGroup = null;
+            lastRenderedMissingSet = null;
             return;
-        } else {
-            TreeItem<String> treeItem = getTreeItem();
-            if (treeItem instanceof DataTreeItem) {
-                Object dataObject = ((DataTreeItem<?>) treeItem).getData();
+        }
 
-                // Two possible data shapes:
-                // 1) CardsGroup (normal)
-                // 2) Map<String,Object> with "group" and "missing" keys (archetype group)
-                CardsGroup group = null;
-                Set<String> missingForThisGroup = null;
+        TreeItem<String> treeItem = getTreeItem();
+        if (treeItem instanceof DataTreeItem) {
+            Object dataObject = ((DataTreeItem<?>) treeItem).getData();
 
-                if (dataObject instanceof CardsGroup) {
-                    group = (CardsGroup) dataObject;
-                } else if (dataObject instanceof Map) {
-                    try {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> map = (Map<String, Object>) dataObject;
-                        Object groupValue = map.get("group");
-                        Object missingValue = map.get("missing");
-                        if (groupValue instanceof CardsGroup) {
-                            group = (CardsGroup) groupValue;
-                        }
-                        if (missingValue instanceof Set) {
-                            @SuppressWarnings("unchecked")
-                            Set<String> castMissingSet = (Set<String>) missingValue;
-                            missingForThisGroup = castMissingSet;
-                        } else if (missingValue instanceof Collection) {
-                            Set<String> collectedSet = new HashSet<>();
-                            for (Object entry : (Collection<?>) missingValue) {
-                                if (entry != null) {
-                                    collectedSet.add(entry.toString());
-                                }
-                            }
-                            missingForThisGroup = collectedSet;
-                        }
-                    } catch (Exception e) {
-                        logger.debug("Failed to extract archetype map data", e);
+            // Two possible data shapes:
+            // 1) CardsGroup (normal)
+            // 2) Map<String,Object> with "group" and "missing" keys (archetype group)
+            CardsGroup group = null;
+            Set<String> missingForThisGroup = null;
+
+            if (dataObject instanceof CardsGroup) {
+                group = (CardsGroup) dataObject;
+            } else if (dataObject instanceof Map) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> map = (Map<String, Object>) dataObject;
+                    Object groupValue = map.get("group");
+                    Object missingValue = map.get("missing");
+                    if (groupValue instanceof CardsGroup) {
+                        group = (CardsGroup) groupValue;
                     }
+                    if (missingValue instanceof Set) {
+                        @SuppressWarnings("unchecked")
+                        Set<String> castMissingSet = (Set<String>) missingValue;
+                        missingForThisGroup = castMissingSet;
+                    } else if (missingValue instanceof Collection) {
+                        Set<String> collectedSet = new HashSet<>();
+                        for (Object entry : (Collection<?>) missingValue) {
+                            if (entry != null) {
+                                collectedSet.add(entry.toString());
+                            }
+                        }
+                        missingForThisGroup = collectedSet;
+                    }
+                } catch (Exception e) {
+                    logger.debug("Failed to extract archetype map data", e);
                 }
+            }
 
-                if (group != null) {
-                    createCardsGroupCell(itemName, group, missingForThisGroup);
-                } else if (dataObject instanceof CardElement) {
-                    buildCardElementCell((CardElement) dataObject);
-                } else if (dataObject instanceof String && dataObject.equals("ROOT")) {
-                    Label label = new Label(itemName);
-                    label.getStyleClass().add("tree-root-label");
-                    setGraphic(label);
-
-                } else if (dataObject instanceof Model.CardsLists.ThemeCollection) {
-                    // ── Collection header row ──────────────────────────────────
-                    // Shown in the Decks & Collections and OuicheList tree.
-                    // Right-click: "Add Deck" + "Add Archetype"
-                    buildCollectionHeaderCell(itemName, (Model.CardsLists.ThemeCollection) dataObject);
-
-                } else if (dataObject instanceof Model.CardsLists.Box) {
-                    // ── Box header — My Collection tab ────────────────────────
-                    buildBoxHeaderCell(itemName, (Model.CardsLists.Box) dataObject);
-
-                } else if (dataObject instanceof Model.CardsLists.Deck) {
-                    // ── Deck header — Decks & Collections tab ─────────────────
-                    buildDeckHeaderCell(itemName, (Model.CardsLists.Deck) dataObject);
-
-                } else if ("ARCHETYPES_SECTION".equals(dataObject)) {
-                    // ── "Archetypes" section header ────────────────────────────
-                    // Right-click: "Add" (add a new archetype to this collection)
-                    buildArchetypesSectionHeaderCell(itemName);
-
-                } else {
-                    // Default: plain label (section headers like "Decks", deck names, etc.)
-                    Label label = new Label(itemName);
-                    label.getStyleClass().add("tree-item-label");
-                    setGraphic(label);
+            if (group != null) {
+                if (group == lastRenderedGroup && Objects.equals(missingForThisGroup, lastRenderedMissingSet)) {
+                    // Same group, same missing-set as last time this cell was actually
+                    // rebuilt: the GridView already showing here is bound to this
+                    // group's live ObservableList, so it already reflects whatever
+                    // triggered this refresh. Nothing to rebuild.
+                    logger.info("[PERF-DIAG] updateItem: skipped rebuild for group '{}' "
+                                    + "(group identity {}, cell instance {})",
+                            group.getName(), System.identityHashCode(group), System.identityHashCode(this));
+                    return;
                 }
+                setText(null);
+                setGraphic(null);
+                getStyleClass().setAll("card-tree-cell");
+                createCardsGroupCell(itemName, group, missingForThisGroup);
+                lastRenderedGroup = group;
+                lastRenderedMissingSet = missingForThisGroup;
+                return;
+            }
+
+            lastRenderedGroup = null;
+            lastRenderedMissingSet = null;
+            setText(null);
+            setGraphic(null);
+            getStyleClass().setAll("card-tree-cell");
+
+            if (dataObject instanceof CardElement) {
+                buildCardElementCell((CardElement) dataObject);
+            } else if (dataObject instanceof String && dataObject.equals("ROOT")) {
+                Label label = new Label(itemName);
+                label.getStyleClass().add("tree-root-label");
+                setGraphic(label);
+
+            } else if (dataObject instanceof Model.CardsLists.ThemeCollection) {
+                // ── Collection header row ──────────────────────────────────
+                // Shown in the Decks & Collections and OuicheList tree.
+                // Right-click: "Add Deck" + "Add Archetype"
+                buildCollectionHeaderCell(itemName, (Model.CardsLists.ThemeCollection) dataObject);
+
+            } else if (dataObject instanceof Model.CardsLists.Box) {
+                // ── Box header — My Collection tab ────────────────────────
+                buildBoxHeaderCell(itemName, (Model.CardsLists.Box) dataObject);
+
+            } else if (dataObject instanceof Model.CardsLists.Deck) {
+                // ── Deck header — Decks & Collections tab ─────────────────
+                buildDeckHeaderCell(itemName, (Model.CardsLists.Deck) dataObject);
+
+            } else if ("ARCHETYPES_SECTION".equals(dataObject)) {
+                // ── "Archetypes" section header ────────────────────────────
+                // Right-click: "Add" (add a new archetype to this collection)
+                buildArchetypesSectionHeaderCell(itemName);
+
             } else {
+                // Default: plain label (section headers like "Decks", deck names, etc.)
                 Label label = new Label(itemName);
                 label.getStyleClass().add("tree-item-label");
                 setGraphic(label);
             }
+        } else {
+            lastRenderedGroup = null;
+            lastRenderedMissingSet = null;
+            setText(null);
+            setGraphic(null);
+            getStyleClass().setAll("card-tree-cell");
+            Label label = new Label(itemName);
+            label.getStyleClass().add("tree-item-label");
+            setGraphic(label);
         }
     }
 
@@ -1413,6 +1508,8 @@ public class CardTreeCell extends TreeCell<String> {
      * (cards that contain "Trap" in name_EN or "Piège" in name_FR) and set it as the GridView userData.
      */
     private void createCardsGroupCell(String itemName, CardsGroup group, Set<String> missingForThisGroup) {
+        long createCardsGroupCellStartNanos = Utils.PerfLog.start();
+        int cardCountForLogging = group.getCardList() == null ? 0 : group.getCardList().size();
         String rawGroupName = group.getName() == null ? "" : group.getName();
         boolean isArchetype;
         String displayName = rawGroupName;
@@ -1432,10 +1529,44 @@ public class CardTreeCell extends TreeCell<String> {
 
         // ── Card items: shared setup for both display modes ──────────────────────
         javafx.collections.ObservableList<CardElement> groupItems = CardGroupRegistry.observableListFor(group);
-        javafx.collections.transformation.FilteredList<CardElement> filteredItems =
-                new javafx.collections.transformation.FilteredList<>(groupItems);
+        javafx.collections.transformation.FilteredList<CardElement> filteredItems = null;
+        java.lang.ref.WeakReference<javafx.collections.transformation.FilteredList<CardElement>> existingFilteredListRef =
+                CardGroupRegistry.GROUP_FILTERED_LISTS.get(group);
+        if (existingFilteredListRef != null) {
+            javafx.collections.transformation.FilteredList<CardElement> existingFilteredList =
+                    existingFilteredListRef.get();
+            if (existingFilteredList != null && existingFilteredList.getSource() == groupItems) {
+                filteredItems = existingFilteredList;
+            }
+        }
+        if (filteredItems == null) {
+            // No live FilteredList for this group yet — create one. A FilteredList
+            // registers itself as a permanent listener on its source list and has no way
+            // to detach itself, so creating a fresh one here on every rebuild (instead of
+            // reusing the one above) would leave every discarded one still listening —
+            // still paying its own predicate cost on every future add/remove to this
+            // group — for as long as the group itself is reachable.
+            filteredItems = new javafx.collections.transformation.FilteredList<>(groupItems);
+            CardGroupRegistry.GROUP_FILTERED_LISTS.put(group, new java.lang.ref.WeakReference<>(filteredItems));
+        }
+
+        // TEMPORARY diagnostic (see DIAGNOSTIC_FILTERED_LIST_REBUILD_COUNTS javadoc): confirm
+        // the reuse path above is actually taken at runtime, and track cell-instance churn.
+        int rebuildCountForThisGroup = DIAGNOSTIC_FILTERED_LIST_REBUILD_COUNTS
+                .computeIfAbsent(group, ignoredGroup -> new java.util.concurrent.atomic.AtomicInteger(0))
+                .incrementAndGet();
+        java.util.Set<Integer> cellInstanceIdsForThisGroup = DIAGNOSTIC_CELL_INSTANCE_IDS_SEEN
+                .computeIfAbsent(group, ignoredGroup -> java.util.concurrent.ConcurrentHashMap.newKeySet());
+        boolean isNewCellInstanceForThisGroup =
+                cellInstanceIdsForThisGroup.add(System.identityHashCode(this));
+        logger.info("[PERF-DIAG] createCardsGroupCell: rebuild #{} for group '{}' "
+                        + "(group identity {}, cell instance {}, new cell instance for this group: {}, "
+                        + "distinct cell instances seen for this group: {}, reused existing FilteredList: {})",
+                rebuildCountForThisGroup, group.getName(), System.identityHashCode(group),
+                System.identityHashCode(this), isNewCellInstanceForThisGroup, cellInstanceIdsForThisGroup.size(),
+                existingFilteredListRef != null && existingFilteredListRef.get() == filteredItems);
+
         filteredItems.setPredicate(CardGroupRegistry.buildCombinedPredicate(CardGroupRegistry.activeMiddleFilter));
-        CardGroupRegistry.GROUP_FILTERED_LISTS.put(group, new java.lang.ref.WeakReference<>(filteredItems));
 
         boolean useListMode = isOuicheListTabSelected()
                 && Controller.OuicheListController.isDetailedListMode();
@@ -1459,6 +1590,9 @@ public class CardTreeCell extends TreeCell<String> {
 
         // For Decks & Collections tab only; different menu per group type.
         wireGroupHeaderContextMenu(hbox, isArchetype);
+
+        Utils.PerfLog.stage(logger, "createCardsGroupCell: rebuilt group '" + rawGroupName
+                + "' (" + cardCountForLogging + " cards)", createCardsGroupCellStartNanos);
     }
 
     /**
@@ -1700,11 +1834,33 @@ public class CardTreeCell extends TreeCell<String> {
         // Deferred correction: re-runs after the first layout pass when grid.getWidth() is valid
         Platform.runLater(() -> adjustGridViewHeight(group));
 
-        // Listeners: deferred so grid.getWidth() reflects the new size after layout
-        cardWidthProperty.addListener((obs, oldVal, newVal) ->
-                Platform.runLater(() -> adjustGridViewHeight(group)));
-        getTreeView().widthProperty().addListener((obs, oldVal, newVal) ->
-                Platform.runLater(() -> adjustGridViewHeight(group)));
+        // Listeners: deferred so grid.getWidth() reflects the new size after layout.
+        // Detach the previous rebuild's pair first — both properties are shared across
+        // this cell's whole lifetime, so leaving the old ones attached here would leak
+        // one more pair of listeners onto them every time this group gets rebuilt.
+        if (cardWidthRebuildListener != null) {
+            cardWidthProperty.removeListener(cardWidthRebuildListener);
+        }
+        if (treeWidthRebuildListener != null) {
+            getTreeView().widthProperty().removeListener(treeWidthRebuildListener);
+        }
+        // Unit 10 diagnostic instrumentation (camera-scanner real-world tuning pass): logs every
+        // time one of these fires, so a re-adjustment triggered by a width change after an add
+        // (e.g. a scrollbar toggling as this group's row count crosses a boundary) shows up
+        // distinctly from the initial, deliberate calls above. Temporary — remove alongside the
+        // other [PERF] instrumentation once the post-add lag's source is confirmed.
+        cardWidthRebuildListener = (obs, oldVal, newVal) -> {
+            logger.info("[PERF] cardWidthRebuildListener fired for group '{}': {} -> {}",
+                    displayName, oldVal, newVal);
+            Platform.runLater(() -> adjustGridViewHeight(group));
+        };
+        treeWidthRebuildListener = (obs, oldVal, newVal) -> {
+            logger.info("[PERF] treeWidthRebuildListener fired for group '{}': {} -> {}",
+                    displayName, oldVal, newVal);
+            Platform.runLater(() -> adjustGridViewHeight(group));
+        };
+        cardWidthProperty.addListener(cardWidthRebuildListener);
+        getTreeView().widthProperty().addListener(treeWidthRebuildListener);
 
         customTriangleLabel.setOnMouseClicked(event -> {
             boolean isExpanded = !grid.isVisible();
@@ -1907,6 +2063,17 @@ public class CardTreeCell extends TreeCell<String> {
 
     private void adjustGridViewHeight(CardsGroup group) {
         if (cardGridView == null) return;
+        // TEMPORARY diagnostic (see DIAGNOSTIC_LAST_HEIGHT_ADJUST_MILLIS javadoc): time this
+        // call and detect whether it's landing inside a burst of other nearby calls.
+        long adjustGridViewHeightStartNanos = Utils.PerfLog.start();
+        long nowMillis = System.currentTimeMillis();
+        long previousCallMillis = DIAGNOSTIC_LAST_HEIGHT_ADJUST_MILLIS.getAndSet(nowMillis);
+        int burstCount;
+        if (previousCallMillis != 0 && nowMillis - previousCallMillis <= DIAGNOSTIC_BURST_WINDOW_MILLIS) {
+            burstCount = DIAGNOSTIC_HEIGHT_ADJUST_BURST_COUNT.incrementAndGet();
+        } else {
+            burstCount = DIAGNOSTIC_HEIGHT_ADJUST_BURST_COUNT.updateAndGet(ignored -> 1);
+        }
         // Use the filtered count when a filter is active so the row height is correct.
         int numItems;
         java.lang.ref.WeakReference<javafx.collections.transformation.FilteredList<CardElement>> flRef =
@@ -1921,6 +2088,10 @@ public class CardTreeCell extends TreeCell<String> {
         GridViewSizer.adjustGridViewHeight(cardGridView, numItems);
         logger.debug("Adjusted grid view height to {} for {} items",
                 cardGridView.getPrefHeight(), numItems);
+        logger.info("[PERF-DIAG] adjustGridViewHeight: group '{}' burst position #{} "
+                        + "(gap since previous call: {} ms) — this call itself",
+                group.getName(), burstCount, previousCallMillis == 0 ? -1 : nowMillis - previousCallMillis);
+        Utils.PerfLog.stage(logger, "adjustGridViewHeight: total", adjustGridViewHeightStartNanos);
     }
     // CardGridCell is implemented in View/CardGridCell.java — instantiated via new CardGridCell(this)
 }

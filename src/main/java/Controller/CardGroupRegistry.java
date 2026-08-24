@@ -496,26 +496,175 @@ public final class CardGroupRegistry {
      * restore step always runs even if the temporary-swap step failed.
      */
     public static void refreshAllGridViews() {
+        refreshAllGridViews("refreshAllGridViews[untagged]");
+    }
+
+    /**
+     * Same as {@link #refreshAllGridViews()}, but {@code callerTag} is threaded through every
+     * log line this sweep produces (queue delay, per-grid timing, and the final summary), so a
+     * slow sweep in the logs is traceable straight back to the call site that scheduled it
+     * instead of requiring manual code archaeology to work out which of several
+     * {@code Platform.runLater}-deferred callers was responsible. Prefer this overload at every
+     * call site; the no-arg version exists only so nothing silently goes untagged.
+     *
+     * @param callerTag short, log-friendly label identifying the call site (e.g.
+     *                  {@code "refreshAllGridViews[decksTreeRefresher]"})
+     */
+    public static void refreshAllGridViews(String callerTag) {
+        // Unit 10 diagnostic instrumentation (camera-scanner real-world tuning pass): this method
+        // is the lead suspect for the multi-second post-add lag reported against the scanner,
+        // since it forces every currently-registered GridView across the whole session to fully
+        // recompute, and its own Platform.runLater dispatch means none of the existing [PERF]
+        // timers around the add pipeline ever measure it. These logs are temporary — remove once
+        // the bottleneck is confirmed and a scoped fix replaces this whole-registry sweep.
+        int registeredGroupCount = GROUP_GRID_VIEWS.size();
+        long scheduledAtNanos = System.nanoTime();
         Platform.runLater(() -> {
+            long queueDelayMillis = (System.nanoTime() - scheduledAtNanos) / 1_000_000;
+            long sweepStartNanos = Utils.PerfLog.start();
+            int liveGridCount = 0;
             for (WeakReference<GridView<CardElement>> gridRef : GROUP_GRID_VIEWS.values()) {
                 GridView<CardElement> grid = gridRef.get();
                 if (grid == null) {
                     continue;
                 }
-                ObservableList<CardElement> items = grid.getItems();
-                try {
-                    grid.setItems(FXCollections.observableArrayList());
-                } catch (Exception exception) {
-                    logger.warn("refreshAllGridViews: temporary empty-items swap failed for a GridView; "
-                            + "still restoring its items", exception);
-                }
-                try {
-                    grid.setItems(items);
-                } catch (Exception exception) {
-                    logger.warn("refreshAllGridViews: restoring items failed for a GridView", exception);
-                }
+                liveGridCount++;
+                refreshOneGridView(grid, callerTag);
             }
+            logger.info("[PERF] {}: queued {} ms before running; swept {} live of {} "
+                            + "registered grids",
+                    callerTag, queueDelayMillis, liveGridCount, registeredGroupCount);
+            Utils.PerfLog.stage(logger, callerTag + ": full sweep", sweepStartNanos);
         });
+    }
+
+    /**
+     * Refreshes only the live {@link GridView}s registered for {@code affectedOwners} — the
+     * {@link Deck} sections ({@link DeckSectionOwner}) and/or {@link ThemeCollection}s whose
+     * detailed-OuicheList slot was just filled by {@link OuicheList#onOwnedCardAdded} — instead
+     * of every grid in {@link #GROUP_GRID_VIEWS}. Scoped counterpart to
+     * {@link #refreshAllGridViews()}, called from {@link OuicheListController} when the affected
+     * set is non-empty and no collection/deck's tree membership changed.
+     *
+     * <p>Resolution uses the existing {@link #getDeckSectionGroup(Deck, String)} /
+     * {@link #getCollectionCardsGroup(ThemeCollection)} lookups, which are read-only and never
+     * create a group, so resolving an owner with nothing currently rendered for it costs nothing
+     * beyond the map lookup. No-ops when {@code affectedOwners} is {@code null} or empty (the
+     * common case: most newly-scanned cards aren't needed by any deck or collection).
+     *
+     * @param affectedOwners the owner keys collected by
+     *                       {@link #notifyOuicheListOfGroupAdditions}'s My-Collection branch
+     */
+    static void refreshGridViewsForAffectedGroups(Set<Object> affectedOwners) {
+        if (affectedOwners == null || affectedOwners.isEmpty()) {
+            return;
+        }
+
+        Set<CardsGroup> affectedGroups = new LinkedHashSet<>();
+        for (Object owner : affectedOwners) {
+            CardsGroup group = resolveOwnerToGroup(owner);
+            if (group != null) {
+                affectedGroups.add(group);
+            }
+        }
+        scheduleGroupsSweep(affectedGroups, "refreshGridViewsForAffectedGroups");
+    }
+
+    /**
+     * Refreshes only the live {@link GridView}s registered for {@code groups} directly, with
+     * no owner-key resolution step. Scoped counterpart to {@link #refreshAllGridViews()} for
+     * callers that already know exactly which {@link CardsGroup}s need refreshing — currently
+     * the MIDDLE-pane selection-change listener in {@code RealMainController}, which only needs
+     * to refresh the group(s) whose selection highlight actually changed instead of sweeping
+     * every registered grid on every click.
+     *
+     * <p>No-ops when {@code groups} is {@code null} or empty.
+     *
+     * @param groups the groups whose live grids should be refreshed
+     */
+    public static void refreshGridViewsForGroups(Set<CardsGroup> groups) {
+        scheduleGroupsSweep(groups, "refreshGridViewsForGroups");
+    }
+
+    /**
+     * Shared scoped-sweep body for {@link #refreshGridViewsForAffectedGroups(Set)} and
+     * {@link #refreshGridViewsForGroups(Set)}: refreshes the live grid for each of
+     * {@code groups} via {@link #refreshOneGridView}, deferred through
+     * {@link Platform#runLater} the same way {@link #refreshAllGridViews()} is. No-ops when
+     * {@code groups} is {@code null} or empty.
+     *
+     * @param groups    the groups whose live grids should be refreshed
+     * @param logPrefix identifies the calling sweep in the info/warning/perf logs (e.g.
+     *                  {@code "refreshGridViewsForGroups"})
+     */
+    private static void scheduleGroupsSweep(Set<CardsGroup> groups, String logPrefix) {
+        if (groups == null || groups.isEmpty()) {
+            return;
+        }
+
+        long scheduledAtNanos = System.nanoTime();
+        Platform.runLater(() -> {
+            long queueDelayMillis = (System.nanoTime() - scheduledAtNanos) / 1_000_000;
+            long sweepStartNanos = Utils.PerfLog.start();
+            int liveGridCount = 0;
+            for (CardsGroup group : groups) {
+                WeakReference<GridView<CardElement>> gridRef = GROUP_GRID_VIEWS.get(group);
+                GridView<CardElement> grid = gridRef == null ? null : gridRef.get();
+                if (grid == null) {
+                    continue;
+                }
+                liveGridCount++;
+                refreshOneGridView(grid, logPrefix);
+            }
+            logger.info("[PERF] {}: queued {} ms before running; refreshed {} live of {} groups",
+                    logPrefix, queueDelayMillis, liveGridCount, groups.size());
+            Utils.PerfLog.stage(logger, logPrefix + ": scoped sweep", sweepStartNanos);
+        });
+    }
+
+    /**
+     * Resolves a single {@code affectedOwners} entry (see {@link #ownerKeyForSlotFill}) to its
+     * registered {@link CardsGroup}.
+     */
+    private static CardsGroup resolveOwnerToGroup(Object owner) {
+        if (owner instanceof ThemeCollection collection) {
+            return getCollectionCardsGroup(collection);
+        }
+        if (owner instanceof DeckSectionOwner deckSectionOwner) {
+            return getDeckSectionGroup(deckSectionOwner.deck(), deckSectionOwner.section());
+        }
+        return null;
+    }
+
+    /**
+     * Forces a single {@link GridView} to recompute by briefly swapping its items for a fresh
+     * empty list and back — see this class's {@link #refreshAllGridViews()} note on why an
+     * empty list is used instead of {@code null}. Shared by {@link #refreshAllGridViews()} and
+     * {@link #refreshGridViewsForAffectedGroups}. A failure on this grid is logged and does not
+     * prevent the caller's loop from continuing to the next grid.
+     *
+     * @param grid      the grid to refresh; must be non-{@code null} and still live
+     * @param logPrefix identifies the calling sweep in the warning/perf logs (e.g.
+     *                  {@code "refreshAllGridViews"})
+     */
+    private static void refreshOneGridView(GridView<CardElement> grid, String logPrefix) {
+        long perGridStartNanos = Utils.PerfLog.start();
+        ObservableList<CardElement> items = grid.getItems();
+        try {
+            grid.setItems(FXCollections.observableArrayList());
+        } catch (Exception exception) {
+            logger.warn("{}: temporary empty-items swap failed for a GridView; still restoring its items",
+                    logPrefix, exception);
+        }
+        try {
+            grid.setItems(items);
+        } catch (Exception exception) {
+            logger.warn("{}: restoring items failed for a GridView", logPrefix, exception);
+        }
+        long perGridElapsedMillis = (System.nanoTime() - perGridStartNanos) / 1_000_000;
+        if (perGridElapsedMillis >= 50) {
+            logger.info("[PERF] {}: one grid ({} items) took {} ms", logPrefix, items.size(), perGridElapsedMillis);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -747,7 +896,8 @@ public final class CardGroupRegistry {
      */
     public static void notifyOuicheListOfGroupAdditions(
             CardsGroup targetGroup, List<CardElement> addedElements) {
-        if (targetGroup == null || addedElements == null || addedElements.isEmpty()) {
+        if (targetGroup == null || addedElements == null || addedElements.isEmpty()
+                || !OuicheList.isGenerated()) {
             return;
         }
 
@@ -800,15 +950,64 @@ public final class CardGroupRegistry {
         }
 
         // Otherwise (a My Collection group, or a non-cardsList collection section):
-        // treat as an owned-card addition.
+        // treat as an owned-card addition. Each fill reports which Deck section or
+        // ThemeCollection it actually touched (or null, the common case, when the new card
+        // isn't needed by any deck/collection), so only those groups' grids get refreshed
+        // instead of every live grid in the session.
+        long onOwnedCardAddedStartNanos = Utils.PerfLog.start();
+        Set<Object> affectedOwners = new LinkedHashSet<>();
         for (CardElement addedElement : addedElements) {
             try {
-                OuicheList.onOwnedCardAdded(addedElement);
+                OuicheList.OuicheListSlotFill fill = OuicheList.onOwnedCardAdded(addedElement);
+                Object ownerKey = ownerKeyForSlotFill(fill);
+                if (ownerKey != null) {
+                    affectedOwners.add(ownerKey);
+                }
             } catch (Throwable throwable) {
                 logger.error("OuicheList update failed after adding to owned collection group", throwable);
             }
         }
-        Controller.UserInterfaceFunctions.refreshOuicheListView();
+        Utils.PerfLog.stage(logger, "notifyOuicheListOfGroupAdditions: OuicheList.onOwnedCardAdded loop",
+                onOwnedCardAddedStartNanos);
+
+        long refreshOuicheListDispatchStartNanos = Utils.PerfLog.start();
+        Controller.UserInterfaceFunctions.refreshOuicheListViewForAffectedGroups(affectedOwners);
+        Utils.PerfLog.stage(logger,
+                "notifyOuicheListOfGroupAdditions: refreshOuicheListViewForAffectedGroups dispatch",
+                refreshOuicheListDispatchStartNanos);
+    }
+
+    /**
+     * Identifies the {@link Deck} section (wrapped in {@link DeckSectionOwner}) or
+     * {@link ThemeCollection} that a single {@link OuicheList.OuicheListSlotFill} touched, for
+     * collecting into the {@code affectedOwners} set passed to
+     * {@link Controller.UserInterfaceFunctions#refreshOuicheListViewForAffectedGroups}.
+     *
+     * @param fill the result of an {@link OuicheList#onOwnedCardAdded} call
+     * @return the owner key, or {@code null} if {@code fill} is {@code null} (nothing was
+     * filled — the common case for a scan session) or carries neither a collection nor
+     * a deck (should not happen in practice, but guarded defensively)
+     */
+    private static Object ownerKeyForSlotFill(OuicheList.OuicheListSlotFill fill) {
+        if (fill == null) {
+            return null;
+        }
+        if (fill.collection != null) {
+            return fill.collection;
+        }
+        if (fill.deck != null) {
+            return new DeckSectionOwner(fill.deck, fill.deckSection);
+        }
+        return null;
+    }
+
+    /**
+     * Identifies a single {@link Deck} section (main/extra/side) as an entry in the
+     * {@code affectedOwners} set built by {@link #notifyOuicheListOfGroupAdditions}. A bare
+     * {@link Deck} cannot be used by itself since each deck has three independently-registered
+     * {@link CardsGroup}s (one per section) in {@link #DECK_SECTION_GROUPS}.
+     */
+    private record DeckSectionOwner(Deck deck, String section) {
     }
 
     /**
@@ -834,7 +1033,8 @@ public final class CardGroupRegistry {
     public static void notifyOuicheListOfGroupRemovals(
             CardsGroup sourceGroup, List<CardElement> removedElements,
             Map<CardElement, Integer> originalIndices) {
-        if (sourceGroup == null || removedElements == null || removedElements.isEmpty()) {
+        if (sourceGroup == null || removedElements == null || removedElements.isEmpty()
+                || !OuicheList.isGenerated()) {
             return;
         }
 
@@ -912,7 +1112,8 @@ public final class CardGroupRegistry {
      */
     public static void notifyOuicheListOfGroupReorder(
             CardsGroup group, List<CardElement> movedElements, Map<CardElement, Integer> originalIndices) {
-        if (group == null || movedElements == null || movedElements.isEmpty()) {
+        if (group == null || movedElements == null || movedElements.isEmpty()
+                || !OuicheList.isGenerated()) {
             return;
         }
 

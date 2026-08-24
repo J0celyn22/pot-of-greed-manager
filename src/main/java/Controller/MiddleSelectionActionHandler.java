@@ -46,23 +46,8 @@ final class MiddleSelectionActionHandler {
             return null;
         }
         if (activeTabIndex == 0) {
-            // My Collection: search CardsGroups inside every Box.
-            OwnedCardsCollection ownedCollection = Model.CardsLists.OuicheList.getMyCardsCollection();
-            if (ownedCollection == null) {
-                return null;
-            }
-            for (Box box : ownedCollection.getOwnedCollection()) {
-                List<CardsGroup> groups = box.getContent();
-                if (groups == null) {
-                    continue;
-                }
-                for (CardsGroup group : groups) {
-                    List<CardElement> cardList = group.getCardList();
-                    if (cardList != null && cardList.contains(element)) {
-                        return cardList;
-                    }
-                }
-            }
+            CardsGroup group = findDirectContainerGroup(element);
+            return group != null ? group.getCardList() : null;
         } else if (activeTabIndex == 1) {
             DecksAndCollectionsList decksList = UserInterfaceFunctions.getDecksList();
             if (decksList == null) {
@@ -113,6 +98,39 @@ final class MiddleSelectionActionHandler {
                             return deck.getSideDeck();
                         }
                     }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Finds the {@link CardsGroup} inside {@link OwnedCardsCollection} (tab 0 / My Collection
+     * only — {@link CardsGroup} isn't a concept on tab 1) that directly contains {@code element}.
+     * Extracted out of {@link #findDirectContainer}'s tab-0 branch, which now just calls this
+     * and returns {@code .getCardList()}, so callers that need the group itself — e.g.
+     * {@link #pasteCardsAfterElement} recording where to scroll after an insert — don't have to
+     * re-walk {@link Box}es and their groups a second time.
+     *
+     * @return the containing group, or {@code null} if not found
+     */
+    static CardsGroup findDirectContainerGroup(CardElement element) {
+        if (element == null) {
+            return null;
+        }
+        OwnedCardsCollection ownedCollection = Model.CardsLists.OuicheList.getMyCardsCollection();
+        if (ownedCollection == null) {
+            return null;
+        }
+        for (Box box : ownedCollection.getOwnedCollection()) {
+            List<CardsGroup> groups = box.getContent();
+            if (groups == null) {
+                continue;
+            }
+            for (CardsGroup group : groups) {
+                List<CardElement> cardList = group.getCardList();
+                if (cardList != null && cardList.contains(element)) {
+                    return group;
                 }
             }
         }
@@ -289,6 +307,7 @@ final class MiddleSelectionActionHandler {
             return false;
         }
         if (activeTabIndex == 0) {
+            MenuActionHandler.setLastAddedGroupTarget(findDirectContainerGroup(anchor));
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
@@ -314,14 +333,25 @@ final class MiddleSelectionActionHandler {
         if (anchor == null || cards == null || cards.isEmpty()) {
             return false;
         }
+        long totalStartNanos = Utils.PerfLog.start();
+
+        long insertStartNanos = Utils.PerfLog.start();
         boolean inserted = MenuActionHandler.handleInsertCardsAfterElement(cards, anchor);
+        Utils.PerfLog.stage(logger, "pasteCardsAfterElement: model insert", insertStartNanos);
         if (!inserted) {
             return false;
         }
         if (activeTabIndex == 0) {
+            MenuActionHandler.setLastAddedGroupTarget(findDirectContainerGroup(anchor));
             UserInterfaceFunctions.markMyCollectionDirty();
-            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            // My Collection add: archetype/collection glow states can't be affected
+            // (see ViewRefreshCoordinator.updateTabDirtyIndicatorOnly), so skip the
+            // archetype-refresh sweep and just update the tab dirty indicator.
+            UserInterfaceFunctions.updateTabDirtyIndicatorOnly();
+            long refreshStartNanos = Utils.PerfLog.start();
             UserInterfaceFunctions.refreshOwnedCollectionView();
+            Utils.PerfLog.stage(logger, "pasteCardsAfterElement: refreshOwnedCollectionView dispatch",
+                    refreshStartNanos);
         } else if (activeTabIndex == 1) {
             Object owner = findDeckOrCollectionOwner(anchor);
             if (owner != null) {
@@ -330,6 +360,7 @@ final class MiddleSelectionActionHandler {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
         }
+        Utils.PerfLog.stage(logger, "pasteCardsAfterElement: total", totalStartNanos);
         return true;
     }
 
@@ -366,15 +397,16 @@ final class MiddleSelectionActionHandler {
             CardGroupRegistry.triggerHeightAdjustment(defaultGroup);
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            MenuActionHandler.setLastAddedGroupTarget(defaultGroup);
             UserInterfaceFunctions.refreshOwnedCollectionView();
-            for (CardElement added : addedElements) {
-                try {
-                    OuicheList.onOwnedCardAdded(added);
-                } catch (Throwable throwable) {
-                    logger.error("OuicheList update failed after paste into box", throwable);
+            if (!addedElements.isEmpty() && OuicheList.isGenerated()) {
+                for (CardElement added : addedElements) {
+                    try {
+                        OuicheList.onOwnedCardAdded(added);
+                    } catch (Throwable throwable) {
+                        logger.error("OuicheList update failed after paste into box", throwable);
+                    }
                 }
-            }
-            if (!addedElements.isEmpty()) {
                 UserInterfaceFunctions.refreshOuicheListView();
             }
 
@@ -392,15 +424,16 @@ final class MiddleSelectionActionHandler {
             CardGroupRegistry.triggerHeightAdjustment(group);
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            MenuActionHandler.setLastAddedGroupTarget(group);
             UserInterfaceFunctions.refreshOwnedCollectionView();
-            for (CardElement added : addedElements) {
-                try {
-                    OuicheList.onOwnedCardAdded(added);
-                } catch (Throwable throwable) {
-                    logger.error("OuicheList update failed after paste into group", throwable);
+            if (!addedElements.isEmpty() && OuicheList.isGenerated()) {
+                for (CardElement added : addedElements) {
+                    try {
+                        OuicheList.onOwnedCardAdded(added);
+                    } catch (Throwable throwable) {
+                        logger.error("OuicheList update failed after paste into group", throwable);
+                    }
                 }
-            }
-            if (!addedElements.isEmpty()) {
                 UserInterfaceFunctions.refreshOuicheListView();
             }
 
@@ -432,6 +465,7 @@ final class MiddleSelectionActionHandler {
         }
 
         if (modelObj instanceof Box box) {
+            long totalStartNanos = Utils.PerfLog.start();
             CardsGroup defaultGroup = MenuActionHandler.getOrCreateDefaultGroup(box);
             if (defaultGroup == null) {
                 return;
@@ -445,10 +479,17 @@ final class MiddleSelectionActionHandler {
             }
             CardGroupRegistry.triggerHeightAdjustment(defaultGroup);
             UserInterfaceFunctions.markMyCollectionDirty();
-            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            // My Collection add: see the matching comment in pasteCardsAfterElement.
+            UserInterfaceFunctions.updateTabDirtyIndicatorOnly();
+            MenuActionHandler.setLastAddedGroupTarget(defaultGroup);
+            long refreshStartNanos = Utils.PerfLog.start();
             UserInterfaceFunctions.refreshOwnedCollectionView();
+            Utils.PerfLog.stage(logger, "pasteCardsIntoNavigationItem(Box): refreshOwnedCollectionView dispatch",
+                    refreshStartNanos);
+            Utils.PerfLog.stage(logger, "pasteCardsIntoNavigationItem(Box): total", totalStartNanos);
 
         } else if (modelObj instanceof CardsGroup group) {
+            long totalStartNanos = Utils.PerfLog.start();
             javafx.collections.ObservableList<CardElement> observableList =
                     CardGroupRegistry.observableListFor(group);
             for (Card card : cards) {
@@ -458,8 +499,15 @@ final class MiddleSelectionActionHandler {
             }
             CardGroupRegistry.triggerHeightAdjustment(group);
             UserInterfaceFunctions.markMyCollectionDirty();
-            UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+            // My Collection add: see the matching comment in pasteCardsAfterElement.
+            UserInterfaceFunctions.updateTabDirtyIndicatorOnly();
+            MenuActionHandler.setLastAddedGroupTarget(group);
+            long refreshStartNanos = Utils.PerfLog.start();
             UserInterfaceFunctions.refreshOwnedCollectionView();
+            Utils.PerfLog.stage(logger,
+                    "pasteCardsIntoNavigationItem(CardsGroup): refreshOwnedCollectionView dispatch",
+                    refreshStartNanos);
+            Utils.PerfLog.stage(logger, "pasteCardsIntoNavigationItem(CardsGroup): total", totalStartNanos);
 
         } else if (modelObj instanceof Deck deck) {
             if (deck.getMainDeck() == null) {
@@ -520,18 +568,18 @@ final class MiddleSelectionActionHandler {
             UserInterfaceFunctions.markDirty(deck);
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
 
-            for (CardElement addedElement : addedElements) {
-                String sectionName = Utils.DeckCompatibility.isExtraDeckCard(addedElement.getCard())
-                        ? "extra" : "main";
-                try {
-                    OuicheList.onDeckCardAdded(addedElement, deck.getName(), sectionName,
-                            parentCollectionName);
-                } catch (Throwable throwable) {
-                    logger.error("OuicheList update failed after paste into deck '{}'",
-                            deck.getName(), throwable);
+            if (!addedElements.isEmpty() && OuicheList.isGenerated()) {
+                for (CardElement addedElement : addedElements) {
+                    String sectionName = Utils.DeckCompatibility.isExtraDeckCard(addedElement.getCard())
+                            ? "extra" : "main";
+                    try {
+                        OuicheList.onDeckCardAdded(addedElement, deck.getName(), sectionName,
+                                parentCollectionName);
+                    } catch (Throwable throwable) {
+                        logger.error("OuicheList update failed after paste into deck '{}'",
+                                deck.getName(), throwable);
+                    }
                 }
-            }
-            if (!addedElements.isEmpty()) {
                 UserInterfaceFunctions.refreshOuicheListView();
             }
 
@@ -565,15 +613,15 @@ final class MiddleSelectionActionHandler {
             }
             UserInterfaceFunctions.markDirty(collection);
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-            for (CardElement addedElement : addedElements) {
-                try {
-                    OuicheList.onDeckCardAdded(addedElement, null, null, collection.getName());
-                } catch (Throwable throwable) {
-                    logger.error("OuicheList update failed after paste into collection '{}'",
-                            collection.getName(), throwable);
+            if (!addedElements.isEmpty() && OuicheList.isGenerated()) {
+                for (CardElement addedElement : addedElements) {
+                    try {
+                        OuicheList.onDeckCardAdded(addedElement, null, null, collection.getName());
+                    } catch (Throwable throwable) {
+                        logger.error("OuicheList update failed after paste into collection '{}'",
+                                collection.getName(), throwable);
+                    }
                 }
-            }
-            if (!addedElements.isEmpty()) {
                 UserInterfaceFunctions.refreshOuicheListView();
             }
         }
@@ -753,6 +801,7 @@ final class MiddleSelectionActionHandler {
 
         CardElement lastElement = selectedInOrder.get(selectedInOrder.size() - 1);
         if (activeTabIndex == 0) {
+            MenuActionHandler.setLastAddedGroupTarget(findDirectContainerGroup(lastElement));
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();
@@ -849,6 +898,8 @@ final class MiddleSelectionActionHandler {
         }
 
         if (activeTabIndex == 0) {
+            CardElement lastElement = selectedInOrder.get(selectedInOrder.size() - 1);
+            MenuActionHandler.setLastAddedGroupTarget(findDirectContainerGroup(lastElement));
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshOwnedCollectionView();

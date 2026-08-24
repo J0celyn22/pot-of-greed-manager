@@ -1,5 +1,6 @@
 package Controller;
 
+import View.DataTreeItem;
 import View.NavigationItem;
 import View.NavigationMenu;
 import View.SharedCollectionTab;
@@ -39,6 +40,22 @@ public final class NavigationHelper {
     private NavigationHelper() {
     }
 
+    /**
+     * Describes a nav item's userData for debug logging without calling its
+     * {@code toString()}. Model objects such as {@code OwnedCardsCollection}, {@code Box},
+     * and {@code CardsGroup} override {@code toString()} to recursively print their entire
+     * contents (every box/group/card, down to print codes) — calling it once per node
+     * visited during a tree search turns a single debug line into a dump of the whole
+     * collection, and does real, unbounded string-building work on the FX thread every
+     * time regardless of whether the log line is actually written anywhere.
+     */
+    private static String describeUserData(Object userData) {
+        if (userData == null) {
+            return "null";
+        }
+        return userData.getClass().getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(userData));
+    }
+
     // ── Navigation-item lookup by userData identity ───────────────────────────
 
     /**
@@ -59,7 +76,7 @@ public final class NavigationHelper {
                 return found;
             }
         }
-        logger.debug("findNavItemInMenuVBox: no item found for target={}", target);
+        logger.debug("findNavItemInMenuVBox: no item found for target={}", describeUserData(target));
         return null;
     }
 
@@ -91,7 +108,7 @@ public final class NavigationHelper {
         }
         logger.debug("findNavItemByUserDataInItem: checking '{}' userData={}",
                 item.getLabel() != null ? item.getLabel().getText() : "?",
-                item.getUserData());
+                describeUserData(item.getUserData()));
         if (item.getUserData() == target) {
             return item;
         }
@@ -309,6 +326,35 @@ public final class NavigationHelper {
             TreeItem<String> result = findTreeItemByPath(child, path, index + 1);
             if (result != null) {
                 return result;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Recursively searches for the first {@link DataTreeItem} in the tree rooted at
+     * {@code node} whose {@link DataTreeItem#getData()} is the same object as {@code data}.
+     *
+     * <p>Companion to {@link #findTreeItemByPath}, for callers that already hold the live model
+     * object (a {@link Model.CardsLists.CardsGroup}, {@link Model.CardsLists.Box}, etc.) rather
+     * than a name path built for display — identity search can't be fooled by two nodes that
+     * happen to share a display name the way a path lookup can.
+     *
+     * @param node the current tree item to test (and recurse from)
+     * @param data the model object to search for (identity comparison, not {@code equals})
+     * @return the matching {@link TreeItem}, or {@code null} if not found
+     */
+    public static TreeItem<String> findTreeItemByData(TreeItem<String> node, Object data) {
+        if (node == null || data == null) {
+            return null;
+        }
+        if (node instanceof DataTreeItem && ((DataTreeItem<?>) node).getData() == data) {
+            return node;
+        }
+        for (TreeItem<String> child : node.getChildren()) {
+            TreeItem<String> found = findTreeItemByData(child, data);
+            if (found != null) {
+                return found;
             }
         }
         return null;

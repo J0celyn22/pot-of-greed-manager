@@ -264,6 +264,21 @@ public class Database {
                                 if (getKonamiIdToJaNames().get(cardIdInt) != null) {
                                     card.setName_JA(getKonamiIdToJaNames().get(cardIdInt));
                                 }
+                                if (getKonamiIdToEsNames().get(cardIdInt) != null) {
+                                    card.setName_ES(getKonamiIdToEsNames().get(cardIdInt));
+                                }
+                                if (getKonamiIdToDeNames().get(cardIdInt) != null) {
+                                    card.setName_DE(getKonamiIdToDeNames().get(cardIdInt));
+                                }
+                                if (getKonamiIdToItNames().get(cardIdInt) != null) {
+                                    card.setName_IT(getKonamiIdToItNames().get(cardIdInt));
+                                }
+                                if (getKonamiIdToPtNames().get(cardIdInt) != null) {
+                                    card.setName_PT(getKonamiIdToPtNames().get(cardIdInt));
+                                }
+                                if (getKonamiIdToKrNames().get(cardIdInt) != null) {
+                                    card.setName_KR(getKonamiIdToKrNames().get(cardIdInt));
+                                }
                             } else {
                                 String name = dataObject.optString("name", null);
                                 if (name != null) {

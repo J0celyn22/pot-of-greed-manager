@@ -208,6 +208,34 @@ public final class NavigationDragDrop {
     }
 
     /**
+     * Returns the top-level {@link Box} that contains {@code box}: {@code box} itself when it is
+     * already top-level, or the top-level box whose sub-box list holds it.
+     *
+     * <p>Used to walk a nav-item's highlight state up to its top-level ancestor without a full
+     * menu rebuild — see {@link MyCollectionNavigationPopulator#refreshHighlightsForAddedGroup}.
+     *
+     * @param box        a top-level box or sub-box to locate the top-level ancestor of
+     * @param collection the owned-cards collection to search within
+     * @return the top-level ancestor box, or {@code null} if {@code box} isn't found anywhere
+     */
+    public static Box findTopLevelBoxContaining(Box box, OwnedCardsCollection collection) {
+        List<Box> top = collection.getOwnedCollection();
+        if (top == null || box == null) {
+            return null;
+        }
+        if (top.contains(box)) {
+            return box;
+        }
+        for (Box topLevelBox : top) {
+            List<Box> subBoxes = topLevelBox.getSubBoxes();
+            if (subBoxes != null && subBoxes.contains(box)) {
+                return topLevelBox;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Moves {@code dragged} category BEFORE {@code target} (possibly into a different box).
      *
      * @param dragged    the category being dragged

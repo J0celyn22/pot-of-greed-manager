@@ -47,6 +47,7 @@ final class CardBulkRemoveFromDecksHandler {
                         && cardElement.getCard() != null
                         && MenuActionHandler.collectionContainsCard(cardsToRemove, cardElement.getCard());
 
+        boolean ouicheListGenerated = OuicheList.isGenerated();
         java.util.Set<Object> dirtyOwners = new java.util.LinkedHashSet<>();
 
         if (decksAndCollections.getCollections() != null) {
@@ -60,8 +61,10 @@ final class CardBulkRemoveFromDecksHandler {
                         removeMatchingAndCollect(themeCollection.getExceptionsToNotAdd(), matchesPredicate);
                 if (!removedFromCards.isEmpty() || !removedFromExceptions.isEmpty()) {
                     dirtyOwners.add(themeCollection);
-                    for (CardElement removed : removedFromCards) {
-                        OuicheList.onDeckCardRemoved(removed, null, null, themeCollection.getName(), -1);
+                    if (ouicheListGenerated) {
+                        for (CardElement removed : removedFromCards) {
+                            OuicheList.onDeckCardRemoved(removed, null, null, themeCollection.getName(), -1);
+                        }
                     }
                 }
                 if (themeCollection.getLinkedDecks() != null) {
@@ -81,17 +84,19 @@ final class CardBulkRemoveFromDecksHandler {
                                     removeMatchingAndCollect(deck.getSideDeck(), matchesPredicate);
                             if (!removedMain.isEmpty() || !removedExtra.isEmpty() || !removedSide.isEmpty()) {
                                 dirtyOwners.add(deck);
-                                for (CardElement removed : removedMain) {
-                                    OuicheList.onDeckCardRemoved(removed, deck.getName(), "main",
-                                            themeCollection.getName(), -1);
-                                }
-                                for (CardElement removed : removedExtra) {
-                                    OuicheList.onDeckCardRemoved(removed, deck.getName(), "extra",
-                                            themeCollection.getName(), -1);
-                                }
-                                for (CardElement removed : removedSide) {
-                                    OuicheList.onDeckCardRemoved(removed, deck.getName(), "side",
-                                            themeCollection.getName(), -1);
+                                if (ouicheListGenerated) {
+                                    for (CardElement removed : removedMain) {
+                                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "main",
+                                                themeCollection.getName(), -1);
+                                    }
+                                    for (CardElement removed : removedExtra) {
+                                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "extra",
+                                                themeCollection.getName(), -1);
+                                    }
+                                    for (CardElement removed : removedSide) {
+                                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "side",
+                                                themeCollection.getName(), -1);
+                                    }
                                 }
                             }
                         }
@@ -112,14 +117,16 @@ final class CardBulkRemoveFromDecksHandler {
                         removeMatchingAndCollect(deck.getSideDeck(), matchesPredicate);
                 if (!removedMain.isEmpty() || !removedExtra.isEmpty() || !removedSide.isEmpty()) {
                     dirtyOwners.add(deck);
-                    for (CardElement removed : removedMain) {
-                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "main", null, -1);
-                    }
-                    for (CardElement removed : removedExtra) {
-                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "extra", null, -1);
-                    }
-                    for (CardElement removed : removedSide) {
-                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "side", null, -1);
+                    if (ouicheListGenerated) {
+                        for (CardElement removed : removedMain) {
+                            OuicheList.onDeckCardRemoved(removed, deck.getName(), "main", null, -1);
+                        }
+                        for (CardElement removed : removedExtra) {
+                            OuicheList.onDeckCardRemoved(removed, deck.getName(), "extra", null, -1);
+                        }
+                        for (CardElement removed : removedSide) {
+                            OuicheList.onDeckCardRemoved(removed, deck.getName(), "side", null, -1);
+                        }
                     }
                 }
             }
@@ -131,7 +138,9 @@ final class CardBulkRemoveFromDecksHandler {
         if (!dirtyOwners.isEmpty()) {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
-            UserInterfaceFunctions.refreshOuicheListView();
+            if (ouicheListGenerated) {
+                UserInterfaceFunctions.refreshOuicheListView();
+            }
         }
     }
 
@@ -160,6 +169,7 @@ final class CardBulkRemoveFromDecksHandler {
         java.util.function.Predicate<CardElement> matchesPredicate =
                 cardElement -> cardElement != null && identitySet.contains(cardElement);
 
+        boolean ouicheListGenerated = OuicheList.isGenerated();
         java.util.Set<Object> dirtyOwners = new java.util.LinkedHashSet<>();
 
         if (decksAndCollections.getCollections() != null) {
@@ -173,8 +183,10 @@ final class CardBulkRemoveFromDecksHandler {
                         removeMatchingAndCollect(themeCollection.getExceptionsToNotAdd(), matchesPredicate);
                 if (!removedFromCards.isEmpty() || !removedFromExceptions.isEmpty()) {
                     dirtyOwners.add(themeCollection);
-                    for (CardElement removed : removedFromCards) {
-                        OuicheList.onDeckCardRemoved(removed, null, null, themeCollection.getName(), -1);
+                    if (ouicheListGenerated) {
+                        for (CardElement removed : removedFromCards) {
+                            OuicheList.onDeckCardRemoved(removed, null, null, themeCollection.getName(), -1);
+                        }
                     }
                 }
                 if (themeCollection.getLinkedDecks() != null) {
@@ -194,17 +206,19 @@ final class CardBulkRemoveFromDecksHandler {
                                     removeMatchingAndCollect(deck.getSideDeck(), matchesPredicate);
                             if (!removedMain.isEmpty() || !removedExtra.isEmpty() || !removedSide.isEmpty()) {
                                 dirtyOwners.add(deck);
-                                for (CardElement removed : removedMain) {
-                                    OuicheList.onDeckCardRemoved(removed, deck.getName(), "main",
-                                            themeCollection.getName(), -1);
-                                }
-                                for (CardElement removed : removedExtra) {
-                                    OuicheList.onDeckCardRemoved(removed, deck.getName(), "extra",
-                                            themeCollection.getName(), -1);
-                                }
-                                for (CardElement removed : removedSide) {
-                                    OuicheList.onDeckCardRemoved(removed, deck.getName(), "side",
-                                            themeCollection.getName(), -1);
+                                if (ouicheListGenerated) {
+                                    for (CardElement removed : removedMain) {
+                                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "main",
+                                                themeCollection.getName(), -1);
+                                    }
+                                    for (CardElement removed : removedExtra) {
+                                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "extra",
+                                                themeCollection.getName(), -1);
+                                    }
+                                    for (CardElement removed : removedSide) {
+                                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "side",
+                                                themeCollection.getName(), -1);
+                                    }
                                 }
                             }
                         }
@@ -225,14 +239,16 @@ final class CardBulkRemoveFromDecksHandler {
                         removeMatchingAndCollect(deck.getSideDeck(), matchesPredicate);
                 if (!removedMain.isEmpty() || !removedExtra.isEmpty() || !removedSide.isEmpty()) {
                     dirtyOwners.add(deck);
-                    for (CardElement removed : removedMain) {
-                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "main", null, -1);
-                    }
-                    for (CardElement removed : removedExtra) {
-                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "extra", null, -1);
-                    }
-                    for (CardElement removed : removedSide) {
-                        OuicheList.onDeckCardRemoved(removed, deck.getName(), "side", null, -1);
+                    if (ouicheListGenerated) {
+                        for (CardElement removed : removedMain) {
+                            OuicheList.onDeckCardRemoved(removed, deck.getName(), "main", null, -1);
+                        }
+                        for (CardElement removed : removedExtra) {
+                            OuicheList.onDeckCardRemoved(removed, deck.getName(), "extra", null, -1);
+                        }
+                        for (CardElement removed : removedSide) {
+                            OuicheList.onDeckCardRemoved(removed, deck.getName(), "side", null, -1);
+                        }
                     }
                 }
             }
@@ -244,7 +260,9 @@ final class CardBulkRemoveFromDecksHandler {
         if (!dirtyOwners.isEmpty()) {
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
-            UserInterfaceFunctions.refreshOuicheListView();
+            if (ouicheListGenerated) {
+                UserInterfaceFunctions.refreshOuicheListView();
+            }
         }
     }
 

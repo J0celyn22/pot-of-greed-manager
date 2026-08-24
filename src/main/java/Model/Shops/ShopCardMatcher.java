@@ -2,8 +2,8 @@ package Model.Shops;
 
 import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
+import Utils.CardNameUtils;
 
-import java.text.Normalizer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,29 +45,26 @@ public final class ShopCardMatcher {
     /**
      * Normalizes a String for name comparison: lowercase, strip diacritics,
      * remove punctuation, collapse extra spaces.
+     *
+     * @deprecated moved to {@link CardNameUtils#normalizeForCompare(String)},
+     * which is shared with other name-matching code (e.g. OCR-based card
+     * recognition) instead of being shop-specific. This stub forwards there.
      */
+    @Deprecated
     public static String normalizeForCompare(String text) {
-        if (text == null) {
-            return "";
-        }
-        String normalized = text.toLowerCase().trim();
-        normalized = Normalizer.normalize(normalized, Normalizer.Form.NFD)
-                .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
-        normalized = normalized.replaceAll("[^\\p{Alnum}\\s]", "");
-        normalized = normalized.replaceAll("\\s+", " ").trim();
-        return normalized;
+        return CardNameUtils.normalizeForCompare(text);
     }
 
     /**
      * Finds a card in the OuicheList whose English or French name matches
-     * {@code normalizedName} once both sides are normalized (see {@link #normalizeForCompare}).
+     * {@code normalizedName} once both sides are normalized (see {@link CardNameUtils#normalizeForCompare}).
      */
     public static Card findCardByNormalizedName(List<CardElement> maOuicheList,
                                                 String normalizedName, String originalName) {
         for (CardElement cardElement : maOuicheList) {
             Card card = cardElement.getCard();
             if (card.getName_EN() != null) {
-                String normalizedEnglishName = normalizeForCompare(card.getName_EN());
+                String normalizedEnglishName = CardNameUtils.normalizeForCompare(card.getName_EN());
                 if (!normalizedEnglishName.isEmpty() && normalizedEnglishName.equals(normalizedName)) {
                     return card;
                 }
@@ -76,7 +73,7 @@ public final class ShopCardMatcher {
                 }
             }
             if (card.getName_FR() != null) {
-                String normalizedFrenchName = normalizeForCompare(card.getName_FR());
+                String normalizedFrenchName = CardNameUtils.normalizeForCompare(card.getName_FR());
                 if (!normalizedFrenchName.isEmpty() && normalizedFrenchName.equals(normalizedName)) {
                     return card;
                 }

@@ -1019,6 +1019,15 @@ public class SharedCollectionTab extends HBox {
         return rightContentPane;
     }
 
+    /**
+     * @return which tab this instance was constructed for. Used by callers that need to make a
+     * per-tab decision (e.g. whether the camera scanner is available) without resorting to
+     * identity comparisons against {@code Controller.RealMainController}'s own tab fields.
+     */
+    public TabType getTabType() {
+        return tabType;
+    }
+
     public AnchorPane getHeaderPane() {
         return headerPane;
     }
