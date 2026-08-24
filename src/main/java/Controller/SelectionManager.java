@@ -208,6 +208,7 @@ public class SelectionManager {
      * @param element the element to select, or {@code null} to clear
      */
     public static void selectElement(CardElement element) {
+        Set<CardElement> previousMiddleSelection = new LinkedHashSet<>(selectedMiddleElements);
         if ("MIDDLE".equals(activePart) && !selectedMiddleElements.isEmpty()) {
             lastMiddleSelectedCard = getLastCardInElementSet(selectedMiddleElements);
         }
@@ -219,6 +220,7 @@ public class SelectionManager {
         }
         activePart = element != null ? "MIDDLE" : null;
         rangeAnchorMiddleElement = element;
+        updateHighlightRegistry(previousMiddleSelection, selectedMiddleElements);
         notifySelectionChanged();
     }
 
@@ -243,6 +245,7 @@ public class SelectionManager {
             selectElement(null);
             return;
         }
+        Set<CardElement> previousMiddleSelection = new LinkedHashSet<>(selectedMiddleElements);
         if ("MIDDLE".equals(activePart) && !selectedMiddleElements.isEmpty()) {
             lastMiddleSelectedCard = getLastCardInElementSet(selectedMiddleElements);
         }
@@ -258,6 +261,7 @@ public class SelectionManager {
         activePart = lastElement != null ? "MIDDLE" : null;
         lastMiddleElement = lastElement;
         rangeAnchorMiddleElement = lastElement;
+        updateHighlightRegistry(previousMiddleSelection, selectedMiddleElements);
         notifySelectionChanged();
     }
 
@@ -275,6 +279,7 @@ public class SelectionManager {
         if (element == null) {
             return;
         }
+        Set<CardElement> previousMiddleSelection = new LinkedHashSet<>(selectedMiddleElements);
         if (!"MIDDLE".equals(activePart)) {
             if ("RIGHT".equals(activePart)) {
                 lastMiddleSelectedCard = getLastCardInElementSet(selectedMiddleElements);
@@ -295,6 +300,7 @@ public class SelectionManager {
             rangeAnchorMiddleElement = element;
             lastMiddleElement = element;
         }
+        updateHighlightRegistry(previousMiddleSelection, selectedMiddleElements);
         notifySelectionChanged();
     }
 
@@ -322,6 +328,7 @@ public class SelectionManager {
             selectElement(clickedElement);
             return;
         }
+        Set<CardElement> previousMiddleSelection = new LinkedHashSet<>(selectedMiddleElements);
         if (!"MIDDLE".equals(activePart)) {
             selectedRightCards.clear();
             selectedMiddleElements.clear();
@@ -336,6 +343,7 @@ public class SelectionManager {
             selectedMiddleElements.add(clickedElement);
             rangeAnchorMiddleElement = clickedElement;
             lastMiddleElement = clickedElement;
+            updateHighlightRegistry(previousMiddleSelection, selectedMiddleElements);
             notifySelectionChanged();
             return;
         }
@@ -347,6 +355,7 @@ public class SelectionManager {
             selectedMiddleElements.add(clickedElement);
             rangeAnchorMiddleElement = clickedElement;
             lastMiddleElement = clickedElement;
+            updateHighlightRegistry(previousMiddleSelection, selectedMiddleElements);
             notifySelectionChanged();
             return;
         }
@@ -359,6 +368,7 @@ public class SelectionManager {
         }
         lastMiddleElement = clickedElement;
         // Keep rangeAnchorMiddleElement for further SHIFT+clicks from the same anchor
+        updateHighlightRegistry(previousMiddleSelection, selectedMiddleElements);
         notifySelectionChanged();
     }
 
@@ -375,6 +385,7 @@ public class SelectionManager {
      * @param part the pane identifier, e.g. {@code "RIGHT"}
      */
     public static void selectCard(Card card, String part) {
+        Set<CardElement> previousMiddleSelection = new LinkedHashSet<>(selectedMiddleElements);
         if ("RIGHT".equals(part) && "MIDDLE".equals(activePart)) {
             lastMiddleSelectedCard = getLastCardInElementSet(selectedMiddleElements);
         }
@@ -385,6 +396,7 @@ public class SelectionManager {
         }
         activePart = card != null ? part : null;
         rangeAnchorRightCard = card;
+        updateHighlightRegistry(previousMiddleSelection, selectedMiddleElements);
         notifySelectionChanged();
     }
 
@@ -403,6 +415,7 @@ public class SelectionManager {
         if (card == null) {
             return;
         }
+        Set<CardElement> previousMiddleSelection = new LinkedHashSet<>(selectedMiddleElements);
         if (activePart != null && !activePart.equals(part)) {
             if ("RIGHT".equals(part) && "MIDDLE".equals(activePart)) {
                 lastMiddleSelectedCard = getLastCardInElementSet(selectedMiddleElements);
@@ -414,6 +427,7 @@ public class SelectionManager {
         } else {
             activePart = part;
         }
+        updateHighlightRegistry(previousMiddleSelection, selectedMiddleElements);
         if (selectedRightCards.contains(card)) {
             selectedRightCards.remove(card);
             if (selectedRightCards.isEmpty()) {
@@ -449,6 +463,7 @@ public class SelectionManager {
             selectCard(clickedCard, part);
             return;
         }
+        Set<CardElement> previousMiddleSelection = new LinkedHashSet<>(selectedMiddleElements);
         if (activePart != null && !activePart.equals(part)) {
             if ("RIGHT".equals(part) && "MIDDLE".equals(activePart)) {
                 lastMiddleSelectedCard = getLastCardInElementSet(selectedMiddleElements);
@@ -459,6 +474,7 @@ public class SelectionManager {
             rangeAnchorRightCard = null;
         }
         activePart = part;
+        updateHighlightRegistry(previousMiddleSelection, selectedMiddleElements);
 
         Card anchor = rangeAnchorRightCard;
         if (anchor == null || !orderedCards.contains(anchor)) {
@@ -500,11 +516,13 @@ public class SelectionManager {
      * </p>
      */
     public static void clearSelection() {
+        Set<CardElement> previousMiddleSelection = new LinkedHashSet<>(selectedMiddleElements);
         selectedMiddleElements.clear();
         selectedRightCards.clear();
         activePart = null;
         rangeAnchorMiddleElement = null;
         rangeAnchorRightCard = null;
+        updateHighlightRegistry(previousMiddleSelection, selectedMiddleElements);
         notifySelectionChanged();
     }
 
@@ -516,5 +534,34 @@ public class SelectionManager {
             last = element;
         }
         return last != null ? last.getCard() : null;
+    }
+
+    /**
+     * Diffs {@code previousMiddleSelection} against the current {@code currentMiddleSelection}
+     * and flips exactly the {@link SelectionHighlightRegistry} properties that changed —
+     * elements dropped from the selection go {@code false}, elements newly added go
+     * {@code true}, and everything else in {@code currentMiddleSelection} is left untouched.
+     * <p>
+     * This is additive to the existing {@link #notifySelectionChanged()} broadcast, not a
+     * replacement for it: nothing observes these properties yet (the {@code View} layer is
+     * wired up in a later step), so this call has no visible effect on its own.
+     * </p>
+     *
+     * @param previousMiddleSelection a snapshot of the MIDDLE-pane selection taken before this
+     *                                mutation
+     * @param currentMiddleSelection  the MIDDLE-pane selection after this mutation
+     */
+    private static void updateHighlightRegistry(Set<CardElement> previousMiddleSelection,
+                                                Set<CardElement> currentMiddleSelection) {
+        for (CardElement element : previousMiddleSelection) {
+            if (!currentMiddleSelection.contains(element)) {
+                SelectionHighlightRegistry.getOrCreateSelectedProperty(element).set(false);
+            }
+        }
+        for (CardElement element : currentMiddleSelection) {
+            if (!previousMiddleSelection.contains(element)) {
+                SelectionHighlightRegistry.getOrCreateSelectedProperty(element).set(true);
+            }
+        }
     }
 }
