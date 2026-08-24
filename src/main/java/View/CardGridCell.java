@@ -5,6 +5,7 @@ import Model.CardsLists.*;
 import Utils.CardNameUtils;
 import Utils.LruImageCache;
 import javafx.application.Platform;
+import javafx.beans.value.ChangeListener;
 import javafx.geometry.Insets;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
@@ -50,6 +51,23 @@ class CardGridCell extends GridCell<CardElement> {
      * informative regardless of whether the glow overlay is active.
      */
     private java.util.List<String[]> currentTooltips = new java.util.ArrayList<>();
+    /**
+     * Repaints only this cell's selection border when {@link Controller.SelectionHighlightRegistry}
+     * flips the subscribed element's property — the reactive counterpart to the
+     * broadcast-driven border check {@link #updateItem} still performs. Both paths stay active
+     * side by side for now; see the reactive-selection-highlight plan for why.
+     */
+    private final ChangeListener<Boolean> selectionHighlightListener =
+            (observable, wasSelected, isSelectedNow) -> applySelectionBorder(Boolean.TRUE.equals(isSelectedNow));
+    /**
+     * The {@link CardElement} this cell's {@link #selectionHighlightListener} is currently
+     * subscribed to in {@link Controller.SelectionHighlightRegistry}, or {@code null} when
+     * this cell has no active subscription (an empty cell, or before the first
+     * {@link #updateItem}). Tracked so {@link #subscribeToSelectionHighlight} can tell when
+     * {@link GridView} has recycled this cell onto a different element and the old
+     * subscription needs tearing down first.
+     */
+    private CardElement subscribedSelectionElement;
 
     public CardGridCell(CardTreeCell outerCell) {
         this.outer = outerCell;
@@ -696,6 +714,7 @@ class CardGridCell extends GridCell<CardElement> {
 
         // Clear previous state for empty cells
         if (empty || cardElement == null) {
+            subscribeToSelectionHighlight(null);
             cardImageView.setImage(null);
             cardImageView.setEffect(null);
             wrapper.setEffect(null);
@@ -705,6 +724,8 @@ class CardGridCell extends GridCell<CardElement> {
             setGraphic(wrapper);
             return;
         }
+
+        subscribeToSelectionHighlight(cardElement);
 
         // --- Image loading (unchanged logic) ---
         outer.imageLoader.loadCardImage(cardElement, cardImageView);
@@ -720,17 +741,7 @@ class CardGridCell extends GridCell<CardElement> {
         boolean isSelectedInMiddlePane =
                 "MIDDLE".equals(Controller.SelectionManager.getActivePart())
                         && Controller.SelectionManager.getSelectedMiddleElements().contains(cardElement);
-
-        if (isSelectedInMiddlePane) {
-            wrapper.setStyle(
-                    "-fx-background-color: transparent; " +
-                            "-fx-border-color: #cdfc04; " +
-                            "-fx-border-width: 2; " +
-                            "-fx-border-radius: 6; " +
-                            "-fx-padding: 3;");
-        } else {
-            wrapper.setStyle("-fx-background-color: transparent;");
-        }
+        applySelectionBorder(isSelectedInMiddlePane);
 
         // Store for the hover handler
         currentGlowPriority = glowResult.glowPriority();
@@ -740,6 +751,49 @@ class CardGridCell extends GridCell<CardElement> {
 
         // Finalize graphic
         setGraphic(wrapper);
+    }
+
+    /**
+     * Subscribes {@link #selectionHighlightListener} to {@code cardElement}'s property in
+     * {@link Controller.SelectionHighlightRegistry}, first unsubscribing from whatever element
+     * this cell was previously bound to.
+     * <p>
+     * A no-op when {@code cardElement} is the same instance already subscribed to — the common
+     * case where {@link GridView} redraws a cell that keeps displaying the same item. Passing
+     * {@code null} only tears down the existing subscription, for empty cells.
+     * </p>
+     */
+    private void subscribeToSelectionHighlight(CardElement cardElement) {
+        if (subscribedSelectionElement == cardElement) {
+            return;
+        }
+        if (subscribedSelectionElement != null) {
+            Controller.SelectionHighlightRegistry.getOrCreateSelectedProperty(subscribedSelectionElement)
+                    .removeListener(selectionHighlightListener);
+        }
+        subscribedSelectionElement = cardElement;
+        if (cardElement != null) {
+            Controller.SelectionHighlightRegistry.getOrCreateSelectedProperty(cardElement)
+                    .addListener(selectionHighlightListener);
+        }
+    }
+
+    /**
+     * Paints or clears this cell's accent selection border. Shared by the reactive
+     * {@link #selectionHighlightListener} and the broadcast-driven check in {@link #updateItem},
+     * so both paths always produce the exact same visual.
+     */
+    private void applySelectionBorder(boolean isSelected) {
+        if (isSelected) {
+            wrapper.setStyle(
+                    "-fx-background-color: transparent; " +
+                            "-fx-border-color: #cdfc04; " +
+                            "-fx-border-width: 2; " +
+                            "-fx-border-radius: 6; " +
+                            "-fx-padding: 3;");
+        } else {
+            wrapper.setStyle("-fx-background-color: transparent;");
+        }
     }
 
     /**

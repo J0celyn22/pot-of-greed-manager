@@ -756,7 +756,8 @@ final class MiddleSelectionActionHandler {
 
     /**
      * Inserts one copy of each selected element immediately after itself, processing
-     * in tree order so earlier insertions don't shift later anchors.
+     * in tree order so earlier insertions don't shift later anchors, then moves the
+     * MIDDLE-pane selection onto the newly inserted duplicates.
      *
      * @param activeTreeView the active middle TreeView
      * @param activeTabIndex the currently selected main-tab index (0 = My Collection,
@@ -782,7 +783,11 @@ final class MiddleSelectionActionHandler {
 
         // Insert one copy of each selected element immediately after itself,
         // processing in tree order so earlier insertions don't shift later anchors.
+        // Anchors whose insertion actually succeeds are tracked separately so the
+        // selection can be moved onto their duplicates afterward without mistakenly
+        // selecting an unrelated neighbor for an anchor that failed to insert.
         boolean anyInserted = false;
+        List<CardElement> duplicatedAnchors = new java.util.ArrayList<>();
         for (CardElement selectedElement : selectedInOrder) {
             List<CardElement> singleCopy = new java.util.ArrayList<>();
             singleCopy.add(new CardElement(selectedElement));
@@ -790,6 +795,7 @@ final class MiddleSelectionActionHandler {
                     singleCopy, selectedElement);
             if (inserted) {
                 anyInserted = true;
+                duplicatedAnchors.add(selectedElement);
             } else {
                 logger.warn("handleDuplicateMiddleSelection: insertion failed for element");
             }
@@ -812,6 +818,40 @@ final class MiddleSelectionActionHandler {
             }
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
             UserInterfaceFunctions.refreshDecksAndCollectionsView();
+        }
+
+        selectDuplicatesOfAnchors(duplicatedAnchors, activeTreeView);
+    }
+
+    /**
+     * Moves the MIDDLE-pane selection onto the just-inserted duplicate of each
+     * element in {@code anchors} — the element immediately after the anchor in tree
+     * order, which is where {@link MenuActionHandler#handleInsertElementsAfterElement}
+     * places it. Anchors no longer found in the tree, or with nothing after them
+     * (should not normally happen, since the anchor's own duplicate was just inserted
+     * right after it), are skipped rather than selecting an unrelated neighbor.
+     *
+     * @param anchors        the elements whose duplicates should become the new
+     *                       selection, in tree order
+     * @param activeTreeView the active middle TreeView, re-walked here to see the
+     *                       insertions performed by the caller
+     */
+    private static void selectDuplicatesOfAnchors(List<CardElement> anchors,
+                                                  TreeView<String> activeTreeView) {
+        if (anchors.isEmpty()) {
+            return;
+        }
+        List<CardElement> updatedElementsInOrder =
+                CardTreeCell.collectAllElementsInTreeOrder(activeTreeView.getRoot());
+        java.util.Set<CardElement> newSelection = new java.util.LinkedHashSet<>();
+        for (CardElement anchor : anchors) {
+            int anchorIndex = updatedElementsInOrder.indexOf(anchor);
+            if (anchorIndex >= 0 && anchorIndex + 1 < updatedElementsInOrder.size()) {
+                newSelection.add(updatedElementsInOrder.get(anchorIndex + 1));
+            }
+        }
+        if (!newSelection.isEmpty()) {
+            SelectionManager.selectElements(newSelection);
         }
     }
 
