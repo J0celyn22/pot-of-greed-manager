@@ -7,16 +7,16 @@
     <!-- Left Pane: Navigation Menu -->
     <ScrollPane fx:id="menuScrollPane" fitToWidth="true" fitToHeight="true" prefWidth="375">
         <content>
-            <VBox fx:id="menuVBox" style="-fx-background-color: #100317; -fx-text-fill: white;"/>
+            <VBox fx:id="menuVBox" style="-fx-background-color: -bg; -fx-text-fill: -text;"/>
         </content>
     </ScrollPane>
     <!-- Middle Pane: Display Area -->
-    <VBox fx:id="displayVBox" spacing="10" style="-fx-background-color: #100317; -fx-text-fill: white;">
+    <VBox fx:id="displayVBox" spacing="10" style="-fx-background-color: -bg; -fx-text-fill: -text;" HBox.hgrow="ALWAYS">
         <!-- Header Pane (for controls that may vary per tab) -->
-        <AnchorPane fx:id="headerPane" prefHeight="200" style="-fx-background-color: #100317;"/>
+        <AnchorPane fx:id="headerPane" prefHeight="200" style="-fx-background-color: -bg;"/>
         <Separator/>
         <!-- Content Pane (collection view, etc.) -->
-        <AnchorPane fx:id="contentPane" style="-fx-background-color: #100317; -fx-text-fill: white;"
+        <AnchorPane fx:id="contentPane" style="-fx-background-color: -bg; -fx-text-fill: -text;"
                     VBox.vgrow="ALWAYS"/>
     </VBox>
 </fx:root>

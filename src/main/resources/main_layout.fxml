@@ -2,10 +2,10 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.HBox?>
 <HBox xmlns:fx="http://javafx.com/fxml" fx:controller="Controller.RealMainController" spacing="0"
-      style="-fx-background-color: #100317;">
+      style="-fx-background-color: -bg;">
     <children>
         <!-- Left: TabPane with the six tabs -->
-        <TabPane fx:id="mainTabPane" HBox.hgrow="ALWAYS" style="-fx-background-color: #100317;"
+        <TabPane fx:id="mainTabPane" HBox.hgrow="ALWAYS" style="-fx-background-color: -bg;"
                  tabClosingPolicy="UNAVAILABLE">
             <tabs>
                 <Tab text="My Collection"/>

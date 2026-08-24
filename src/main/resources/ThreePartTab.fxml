@@ -3,14 +3,14 @@
 <?import javafx.scene.layout.*?>
 <fx:root xmlns:fx="http://javafx.com/fxml" type="HBox" fx:controller="View.ThreePartTab" spacing="10">
     <!-- Left Pane -->
-    <VBox fx:id="leftPane" style="-fx-background-color: #100317;" prefWidth="375"/>
+    <VBox fx:id="leftPane" style="-fx-background-color: -bg;" prefWidth="375"/>
     <!-- Right Pane: Split vertically -->
-    <VBox fx:id="rightPane" spacing="10" style="-fx-background-color: #100317;" VBox.vgrow="ALWAYS">
+    <VBox fx:id="rightPane" spacing="10" style="-fx-background-color: -bg;" HBox.hgrow="ALWAYS">
         <!-- Top Right Pane -->
-        <AnchorPane fx:id="topRightPane" style="-fx-background-color: #100317; -fx-text-fill: white;"
+        <AnchorPane fx:id="topRightPane" style="-fx-background-color: -bg; -fx-text-fill: -text;"
                     VBox.vgrow="ALWAYS"/>
         <!-- Bottom Right Pane -->
-        <AnchorPane fx:id="bottomRightPane" style="-fx-background-color: #100317; -fx-text-fill: white;"
+        <AnchorPane fx:id="bottomRightPane" style="-fx-background-color: -bg; -fx-text-fill: -text;"
                     VBox.vgrow="ALWAYS"/>
     </VBox>
 </fx:root>
