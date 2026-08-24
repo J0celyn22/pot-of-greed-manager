@@ -213,7 +213,7 @@ public class MyCollectionController {
         myCollectionTreeView.setUserData("MY_COLLECTION");
         myCollectionTreeView.setCellFactory(
                 param -> new CardTreeCell(cardWidthProperty, cardHeightProperty));
-        myCollectionTreeView.setStyle("-fx-background-color: #100317;");
+        myCollectionTreeView.setStyle("-fx-background-color: #121216;");
         myCollectionTreeView.setShowRoot(false);
         myCollectionTreeView.addEventFilter(
                 javafx.scene.input.MouseEvent.MOUSE_CLICKED,

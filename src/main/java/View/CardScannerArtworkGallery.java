@@ -55,13 +55,13 @@ public class CardScannerArtworkGallery extends VBox {
         artworkFlowPane.setHgap(8);
         artworkFlowPane.setVgap(8);
         artworkFlowPane.setPadding(new Insets(8));
-        artworkFlowPane.setStyle("-fx-background-color: #100317;");
+        artworkFlowPane.setStyle("-fx-background-color: #121216;");
 
         scrollPane = new ScrollPane(artworkFlowPane);
         scrollPane.setFitToWidth(true);
         scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        scrollPane.setStyle("-fx-background: #100317; -fx-background-color: #100317;");
+        scrollPane.setStyle("-fx-background: #121216; -fx-background-color: #121216;");
 
         this.getChildren().add(scrollPane);
         VBox.setVgrow(scrollPane, Priority.ALWAYS);
@@ -154,8 +154,8 @@ public class CardScannerArtworkGallery extends VBox {
 
     private void applyTileSelectionStyle(StackPane tile, boolean selected) {
         tile.setStyle(selected
-                ? "-fx-background-color: #100317; -fx-border-color: #cdfc04; -fx-border-width: 3;"
-                : "-fx-background-color: #100317; -fx-border-color: #444444; -fx-border-width: 1;");
+                ? "-fx-background-color: #121216; -fx-border-color: #cdfc04; -fx-border-width: 3;"
+                : "-fx-background-color: #121216; -fx-border-color: #444444; -fx-border-width: 1;");
     }
 
     /**

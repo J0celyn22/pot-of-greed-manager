@@ -197,12 +197,12 @@ public class FilterPane extends VBox {
     private boolean suppressListeners = false;
 
     public FilterPane() {
-        this.setStyle("-fx-background-color: #100317;");
+        this.setStyle("-fx-background-color: #121216;");
         this.getStyleClass().add("filter-pane");
 
         HBox columnsBox = new HBox(10);
-        columnsBox.setPadding(new Insets(8, 8, 2, 8));
-        columnsBox.setStyle("-fx-background-color: #100317;");
+        columnsBox.setPadding(new Insets(8));
+        columnsBox.setStyle("-fx-background-color: #121216;");
 
         VBox col1 = buildColumn1();
         VBox col2 = buildColumn2();
@@ -287,24 +287,23 @@ public class FilterPane extends VBox {
     /** Col 4: [1..5] / Disable / Disable all / Clear / Active+All / Camera */
     private VBox buildColumn4() {
         VBox col = new VBox(6);
-        col.setStyle("-fx-background-color: #100317;");
+        col.setStyle("-fx-background-color: #121216;");
         col.setAlignment(Pos.TOP_LEFT);
-        col.setPadding(new Insets(0, 0, 0, 4));
 
         // Line 1 – number selectors [1][2][3][4][5]
         // Using Labels instead of Buttons: Labels have no ButtonSkin, so setStyle()
         // is never overridden by press/focus/hover CSS re-passes.
-        HBox numbersRow = new HBox(3);
+        HBox numbersRow = new HBox(6);
         numbersRow.setAlignment(Pos.CENTER_RIGHT);
         for (int i = 0; i < 5; i++) {
             final int idx = i;
             Label nb = new Label(String.valueOf(i + 1));
-            nb.setPrefWidth(20);
-            nb.setPrefHeight(20);
-            nb.setMinWidth(20);
-            nb.setMinHeight(20);
-            nb.setMaxWidth(20);
-            nb.setMaxHeight(20);
+            nb.setPrefWidth(22);
+            nb.setPrefHeight(22);
+            nb.setMinWidth(22);
+            nb.setMinHeight(22);
+            nb.setMaxWidth(22);
+            nb.setMaxHeight(22);
             nb.setAlignment(Pos.CENTER);
             nb.setFocusTraversable(false);
             nb.setOnMouseClicked(e -> selectPage(idx));
@@ -477,7 +476,7 @@ public class FilterPane extends VBox {
     /** Col 1: Category / Attribute / Type / Lv+[LinkMkr]+Scale / ATK+DEF */
     private VBox buildColumn1() {
         VBox col = new VBox(6);
-        col.setStyle("-fx-background-color: #100317;");
+        col.setStyle("-fx-background-color: #121216;");
 
         cardTypeCombo = FilterPaneWidgetFactory.makeCombo();
         cardTypeCombo.getItems().addAll("Monster", "Spell", "Trap");
@@ -577,7 +576,7 @@ public class FilterPane extends VBox {
                         arrowBtn.setStyle("-fx-background-color: transparent; -fx-border-color: transparent;");
                     javafx.scene.Node arrow = archetypeCombo.lookup(".arrow");
                     if (arrow != null)
-                        arrow.setStyle("-fx-background-color: #cdfc04;");
+                        arrow.setStyle("-fx-background-color: rgba(255,255,255,0.55);");
                 });
             }
         });
@@ -620,7 +619,7 @@ public class FilterPane extends VBox {
      */
     private VBox buildColumn2() {
         VBox col = new VBox(6);
-        col.setStyle("-fx-background-color: #100317;");
+        col.setStyle("-fx-background-color: #121216;");
 
         nameTextField = FilterPaneWidgetFactory.makeField(null);
         HBox line1 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeLabel("Name :"), nameTextField);
@@ -629,8 +628,8 @@ public class FilterPane extends VBox {
         printcodeTextField = FilterPaneWidgetFactory.makeField(null);
         printcodeAutoComplete = new ContextMenu();
         printcodeAutoComplete.setStyle(
-                "-fx-background-color: #100317;"
-                        + "-fx-border-color: #cdfc04;-fx-border-width: 1;");
+                "-fx-background-color: #2A2A30;"
+                        + "-fx-border-color: rgba(255,255,255,0.08);-fx-border-width: 1;");
         HBox line2 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeLabel("PrintCode :"), printcodeTextField);
         HBox.setHgrow(printcodeTextField, Priority.ALWAYS);
 
@@ -656,7 +655,7 @@ public class FilterPane extends VBox {
     /** Col 3: Year / Word Count / Pack / State / Rarity (combos right-aligned) */
     private VBox buildColumn3() {
         VBox col = new VBox(6);
-        col.setStyle("-fx-background-color: #100317;");
+        col.setStyle("-fx-background-color: #121216;");
 
         yearField = FilterPaneWidgetFactory.makeNarrowField(null, 70);
         HBox line1 = FilterPaneWidgetFactory.makeRow(FilterPaneWidgetFactory.makeFixedLabel("Year :", COL3_LABEL_WIDTH), yearField);
@@ -1060,11 +1059,11 @@ public class FilterPane extends VBox {
                     line.setMinHeight(1);
                     line.setMaxHeight(1);
                     line.setMaxWidth(Double.MAX_VALUE);
-                    line.setStyle("-fx-background-color: rgba(205,252,4,0.45);");
+                    line.setStyle("-fx-background-color: rgba(255,255,255,0.12);");
                     setGraphic(line);
                     setDisable(true);
                     setMouseTransparent(true);
-                    setStyle("-fx-padding: 3 4 3 4; -fx-background-color: #100317;");
+                    setStyle("-fx-padding: 3 4 3 4; -fx-background-color: #121216;");
                 } else if (subtypeMultiSelectMode) {
                     // ── Monster multi-select: show checkmark for selections ───
                     boolean isSelected = selectedSubtypes.isEmpty()
@@ -1072,7 +1071,7 @@ public class FilterPane extends VBox {
                             : selectedSubtypes.contains(item);
                     setText(isSelected ? "✔  " + item : item);
                     setStyle(isSelected
-                            ? "-fx-background-color: #393912; -fx-text-fill: #cdfc04;"
+                            ? "-fx-background-color: rgba(108,99,255,0.14);"
                             : "");
                 } else {
                     // ── Spell/Trap single-select: plain text, no checkmarks ───
@@ -1127,14 +1126,17 @@ public class FilterPane extends VBox {
 
         String bg, fg;
         if (enabled) {
-            bg = hovered ? "#b5d600" : "#9dc000";   // yellow-green; slightly darker on hover
-            fg = "black";
+            bg = hovered ? "#38383F" : "#2A2A30";   // raised, lifts further on hover
+            fg = "rgba(255,255,255,0.92)";
         } else {
-            bg = hovered ? "rgba(205,252,4,0.15)" : "black";
-            fg = "#cdfc04";                          // yellow-green text on black bg
+            bg = "#08080A";                          // sunken — this page slot is off
+            fg = "rgba(255,255,255,0.32)";
         }
 
-        String borderWidth = sel ? "2.5" : "1.5";
+        // Selected reads via the one accent on the border; everyone else gets the
+        // same quiet hairline rim used across the rest of the raised chrome.
+        String borderColor = sel ? "#6C63FF" : "rgba(255,255,255,0.08)";
+        String borderWidth = sel ? "2" : "1";
         String fontWeight  = sel ? "bold" : "normal";
 
         lbl.setStyle(
@@ -1142,10 +1144,10 @@ public class FilterPane extends VBox {
                         "-fx-text-fill: " + fg + ";" +
                         "-fx-font-size: 11px;" +
                         "-fx-font-weight: " + fontWeight + ";" +
-                        "-fx-border-color: #cdfc04;" +
+                        "-fx-border-color: " + borderColor + ";" +
                         "-fx-border-width: "     + borderWidth + ";" +
-                        "-fx-border-radius: 3;" +
-                        "-fx-background-radius: 3;" +
+                        "-fx-border-radius: 11;" +
+                        "-fx-background-radius: 11;" +
                         "-fx-padding: 0;" +
                         "-fx-alignment: center;" +
                         "-fx-cursor: hand;"
@@ -1238,16 +1240,24 @@ public class FilterPane extends VBox {
         }
         if (active) {
             multipleArtworksButton.setStyle(
-                    "-fx-background-color: #cdfc04;"
-                            + "-fx-text-fill: black;"
+                    "-fx-background-color: #2A2A30;"
+                            + "-fx-text-fill: rgba(255,255,255,0.92);"
+                            + "-fx-border-color: rgba(255,255,255,0.08);"
+                            + "-fx-border-width: 1;"
+                            + "-fx-border-radius: 8;"
+                            + "-fx-background-radius: 8;"
                             + "-fx-font-size: 11px;"
                             + "-fx-padding: 2 6 2 6;"
                             + "-fx-cursor: hand;"
             );
         } else {
             multipleArtworksButton.setStyle(
-                    "-fx-background-color: #1a1a1a;"
-                            + "-fx-text-fill: #cdfc04;"
+                    "-fx-background-color: #08080A;"
+                            + "-fx-text-fill: rgba(255,255,255,0.32);"
+                            + "-fx-border-color: rgba(255,255,255,0.08);"
+                            + "-fx-border-width: 1;"
+                            + "-fx-border-radius: 8;"
+                            + "-fx-background-radius: 8;"
                             + "-fx-font-size: 11px;"
                             + "-fx-padding: 2 6 2 6;"
                             + "-fx-cursor: hand;"
@@ -1349,8 +1359,8 @@ public class FilterPane extends VBox {
         for (String name : printcodeSetNames) {
             if (name.toUpperCase().startsWith(setPart)) {
                 MenuItem item = new MenuItem(name);
-                item.setStyle("-fx-text-fill: #cdfc04;-fx-font-size: 12px;"
-                        + "-fx-background-color: #100317;-fx-padding: 2 8 2 8;");
+                item.setStyle("-fx-text-fill: rgba(255,255,255,0.92);-fx-font-size: 12px;"
+                        + "-fx-background-color: #2A2A30;-fx-padding: 2 8 2 8;");
                 item.setOnAction(e -> {
                     String suffix = dashIdx >= 0 ? typedText.substring(dashIdx) : "-";
                     String replacement = name + suffix;

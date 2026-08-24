@@ -133,7 +133,7 @@ public class CardScannerPane extends VBox {
     private BiConsumer<String, String> onCandidateAdd;
 
     public CardScannerPane() {
-        this.setStyle("-fx-background-color: #100317;");
+        this.setStyle("-fx-background-color: #121216;");
         this.getStyleClass().add("camera-scanner-pane");
         this.setSpacing(8);
         this.setPadding(new Insets(8));
@@ -158,7 +158,7 @@ public class CardScannerPane extends VBox {
 
         previewContainer = new StackPane(previewStatusLabel);
         previewContainer.setStyle(
-                "-fx-background-color: #1a0a26; -fx-border-color: #cdfc04; -fx-border-width: 1;");
+                "-fx-background-color: #242429; -fx-border-color: #cdfc04; -fx-border-width: 1;");
         previewContainer.setPadding(new Insets(10));
         HBox.setHgrow(previewContainer, Priority.ALWAYS);
         // A StackPane's own preferred/min size is computed from its children by default, but
@@ -200,7 +200,7 @@ public class CardScannerPane extends VBox {
         tilePane.setVgap(6);
         tilePane.setPrefTileWidth(150);
         tilePane.setTileAlignment(Pos.CENTER_LEFT);
-        tilePane.setStyle("-fx-background-color: #100317;");
+        tilePane.setStyle("-fx-background-color: #121216;");
         return tilePane;
     }
 
@@ -217,7 +217,7 @@ public class CardScannerPane extends VBox {
         scrollPane.setFitToHeight(true);
         scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        scrollPane.setStyle("-fx-background: #100317; -fx-background-color: #100317;"
+        scrollPane.setStyle("-fx-background: #121216; -fx-background-color: #121216;"
                 + "-fx-border-color: #cdfc04; -fx-border-width: 1;");
         // Wide enough for at least two 150px tile columns (see buildCandidatesTilePane) plus
         // hgap and the pane's own border/scrollbar allowance — previously pinned to 170 (one
@@ -541,7 +541,7 @@ public class CardScannerPane extends VBox {
      */
     private void applyAddableButtonStyle(Button button) {
         button.setStyle(
-                "-fx-background-color: #1a0a26;"
+                "-fx-background-color: #242429;"
                         + "-fx-text-fill: #cdfc04;"
                         + "-fx-border-color: #cdfc04;"
                         + "-fx-border-width: 1;"

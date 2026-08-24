@@ -33,7 +33,7 @@ import java.util.List;
 public class CardEditPopup extends Stage {
 
     // ── Theme ────────────────────────────────────────────────────────────────
-    private static final String BG = "#100317";
+    private static final String BG = "#121216";
     private static final String ACCENT = "#cdfc04";
 
     // Label column: fixed width so all controls align on the same left edge.

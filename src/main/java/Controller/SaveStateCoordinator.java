@@ -154,13 +154,13 @@ public class SaveStateCoordinator {
 
         DialogPane dialogPane = alert.getDialogPane();
         dialogPane.setStyle(
-                "-fx-background-color: #100317; "
+                "-fx-background-color: #121216; "
                         + "-fx-border-color: #5a2a7a; "
                         + "-fx-border-width: 1;");
         dialogPane.applyCss();
         dialogPane.layout();
         dialogPane.lookupAll(".header-panel")
-                .forEach(node -> node.setStyle("-fx-background-color: #100317;"));
+                .forEach(node -> node.setStyle("-fx-background-color: #121216;"));
         dialogPane.lookupAll(".label")
                 .forEach(node -> node.setStyle("-fx-text-fill: white;"));
         dialogPane.lookupAll(".button")
@@ -198,7 +198,7 @@ public class SaveStateCoordinator {
                 errorAlert.setTitle("Save Error");
                 errorAlert.setHeaderText("Could not save all changes.");
                 errorAlert.setContentText(exception.getMessage());
-                errorAlert.getDialogPane().setStyle("-fx-background-color: #100317;");
+                errorAlert.getDialogPane().setStyle("-fx-background-color: #121216;");
                 errorAlert.getDialogPane().applyCss();
                 errorAlert.getDialogPane().layout();
                 errorAlert.getDialogPane().lookupAll(".label")

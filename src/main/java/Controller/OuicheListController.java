@@ -196,7 +196,7 @@ public class OuicheListController {
         ouicheListTreeView.setUserData("OUICHE_LIST");
         ouicheListTreeView.setCellFactory(
                 param -> new CardTreeCell(cardWidthProperty, cardHeightProperty));
-        ouicheListTreeView.setStyle("-fx-background-color: #100317;");
+        ouicheListTreeView.setStyle("-fx-background-color: #121216;");
         ouicheListTreeView.setShowRoot(false);
         ouicheListTreeView.addEventFilter(
                 javafx.scene.input.MouseEvent.MOUSE_CLICKED,
@@ -537,7 +537,7 @@ public class OuicheListController {
         }
 
         VBox combinedContent = new VBox(0);
-        combinedContent.setStyle("-fx-background-color: #100317;");
+        combinedContent.setStyle("-fx-background-color: #121216;");
 
         // ── MISSING section ────────────────────────────────────────────────────────
         if (!missingEmpty) {
@@ -558,7 +558,7 @@ public class OuicheListController {
 
         ScrollPane scrollPane = new ScrollPane(combinedContent);
         scrollPane.setFitToWidth(true);
-        scrollPane.setStyle("-fx-background-color: #100317; -fx-background: #100317;");
+        scrollPane.setStyle("-fx-background-color: #121216; -fx-background: #121216;");
         scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
 
@@ -620,7 +620,7 @@ public class OuicheListController {
 
         VBox listBox = new VBox(6);
         listBox.setPadding(new Insets(10));
-        listBox.setStyle("-fx-background-color: #100317;");
+        listBox.setStyle("-fx-background-color: #121216;");
 
         for (Map.Entry<String, CardElement> entry : uniqueCards.entrySet()) {
             CardElement cardElement = entry.getValue();
@@ -731,7 +731,7 @@ public class OuicheListController {
         flow.setHgap(5);
         flow.setVgap(5);
         flow.setPadding(new Insets(10));
-        flow.setStyle("-fx-background-color: #100317;");
+        flow.setStyle("-fx-background-color: #121216;");
 
         for (Map.Entry<String, CardElement> entry : uniqueCards.entrySet()) {
             Card card = entry.getValue().getCard();

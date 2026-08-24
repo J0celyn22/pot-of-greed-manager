@@ -138,7 +138,7 @@ public class ArchetypesController {
         archetypesTreeView = new TreeView<>(rootItem);
         archetypesTreeView.setCellFactory(
                 param -> new CardTreeCell(cardWidthProperty, cardHeightProperty));
-        archetypesTreeView.setStyle("-fx-background-color: #100317;");
+        archetypesTreeView.setStyle("-fx-background-color: #121216;");
         archetypesTreeView.setShowRoot(false);
         archetypesTreeView.addEventFilter(
                 javafx.scene.input.MouseEvent.MOUSE_CLICKED,

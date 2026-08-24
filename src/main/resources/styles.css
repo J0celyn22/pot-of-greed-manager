@@ -1,39 +1,68 @@
 /* styles.css (complete file) */
 
 /* ==========================================================================
-   Design tokens — placeholder palette (colors to be finalized later with a
-   proper brand charter; only the values below need to change, not the rest
-   of this file). JavaFX CSS supports variable lookup: declare on .root,
-   reference elsewhere by the same name.
+   Design tokens — monochrome system, volume from shadow rather than color.
+   -signal is the one accent: reserved for focus rings and live/active state,
+   never decoration. -bone is the one warm neutral: primary CTA fill only.
+   JavaFX CSS supports variable lookup: declare on .root, reference elsewhere
+   by the same name.
    ========================================================================== */
 .root {
-    -bg:            #17161c; /* app canvas */
-    -surface:       #201f27; /* control chrome: buttons, fields, tabs, popups */
-    -border-subtle: #33323c;
+    -bg:             #121216; /* app canvas, deepest — matches the value now hardcoded
+                                  across ~20 Java panel containers (was #100317, then #0D0D0F) */
+    -surface:        #18181C; /* base chrome: tracks, tab strips */
+    -surface-raised: #2A2A30; /* posed: cards, buttons, chips — wide jump from -surface
+                                  on purpose, dropshadow alone doesn't read at low luminance */
+    -surface-lift:   #38383F; /* surface-raised, hover — another clear step up */
+    -surface-sunken: #08080A; /* recessed: fields, dividers, pressed state */
+    -border-subtle:  rgba(255, 255, 255, 0.08);
+    -edge-highlight: rgba(255, 255, 255, 0.06); /* hairline rim on raised elements — shadow
+                                  alone is not reliably visible on a near-black canvas */
 
-    -text:          rgba(255, 255, 255, 0.87);
+    -text:       rgba(255, 255, 255, 0.92);
+    -text-muted: rgba(255, 255, 255, 0.55);
+    -text-faint: rgba(255, 255, 255, 0.32);
 
-    -accent:        #cdfc04; /* primary — main actions, selection, focus */
-    -accent-hover:  #a4c904;
-    -accent-glow:        rgba(205, 252, 4, 0.55); /* dropshadow glow, prompt text */
-    -accent-faint-08:     rgba(205, 252, 4, 0.08);
-    -accent-faint-12:     rgba(205, 252, 4, 0.12);
-    -accent-faint-25:     rgba(205, 252, 4, 0.25);
-    -accent-faint-35:     rgba(205, 252, 4, 0.35);
-    -selection-bg:        rgba(205, 252, 4, 0.18);
-    -accent-tint-hover:   #262114; /* accent-tinted list rows */
-    -accent-tint-selected:       #393912;
-    -accent-tint-selected-hover: #4a4a18;
+    -bone:     #EDEAE2; /* primary CTA fill — the one warm neutral, not a hue */
+    -bone-dim: #D8D5CC;
 
-    -accent-2:      #7dd3e8; /* secondary — utility actions (opt-in, .btn-secondary) */
-    -accent-2-hover: derive(-accent-2, -15%);
+    -signal:      #6C63FF; /* the one accent — active/live state and focus only */
+    -signal-glow: rgba(108, 99, 255, 0.45);
+    -signal-dim:  rgba(108, 99, 255, 0.14);
 
-    -accent-3:      #ff8a65; /* tertiary — disable / destructive (opt-in, .btn-tertiary) */
-    -accent-3-hover: derive(-accent-3, -15%);
+    /* Modena's own reserved properties, never overridden before now — their
+       defaults (#039ED3 focus turquoise, #0096C9 accent blue) were leaking
+       onto every focusable/selectable built-in control app-wide, tabs included. */
+    -fx-focus-color:       -signal;
+    -fx-faint-focus-color: -signal-dim;
+    -fx-accent:            -signal;
 
-    -hover-overlay: rgba(255, 255, 255, 0.06);
+    -danger:       #C4605A; /* semantic, not accent — destructive only */
+    -danger-hover: derive(-danger, -10%);
+
+    -hover-overlay:        rgba(255, 255, 255, 0.05);
+    -selection-bg:         rgba(108, 99, 255, 0.14);
+    -selection-bg-hover:   rgba(108, 99, 255, 0.22);
 
     -fx-background-color: -bg;
+}
+/* Radius scale is sm=10 / md=16 / lg=26 / pill=999, inlined at each call site —
+   JavaFX's corner-radii converter throws a ClassCastException when a
+   -fx-background-radius/-fx-border-radius value comes from a variable lookup
+   instead of a literal, so this token can't live on .root like the others. */
+
+/* Dividers: one hairline, one thickness, everywhere. Modena's .line paints a
+   3px+1px double border on vertical separators and 1px on horizontal ones —
+   flatten both to the same rim used on every other raised edge. */
+.separator:horizontal > .line {
+    -fx-border-color: -border-subtle transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-border-insets: 0;
+}
+.separator:vertical > .line {
+    -fx-border-color: transparent transparent transparent -border-subtle;
+    -fx-border-width: 0 0 0 1;
+    -fx-border-insets: 0;
 }
 
 /* Base background used across the app */
@@ -110,7 +139,7 @@
 
 /* Generic ScrollBar styling to integrate with app design.
    - Track and background use the app background color.
-   - Thumb and arrow indicators use the accent color.
+   - Thumb and arrow indicators use a muted gray, brightening on hover/press.
 */
 .scroll-bar {
     -fx-background-color: transparent;
@@ -126,7 +155,7 @@
 
 /* Thumb (the draggable part) */
 .scroll-bar .thumb {
-    -fx-background-color: -accent;
+    -fx-background-color: -text-faint;
     -fx-background-insets: 2;
     -fx-background-radius: 6;
     -fx-pref-width: 8;
@@ -136,10 +165,10 @@
 
 /* Thumb hover and pressed states for subtle feedback */
 .scroll-bar .thumb:hover {
-    -fx-background-color: derive(-accent, -8%);
+    -fx-background-color: -text-muted;
 }
 .scroll-bar .thumb:pressed {
-    -fx-background-color: derive(-accent, -16%);
+    -fx-background-color: -text;
 }
 
 /* Increment and decrement buttons (arrows) */
@@ -152,22 +181,14 @@
     -fx-min-height: 18;
 }
 
-/* Arrow shapes inside the buttons (color them with the accent) */
+/* Arrow shapes inside the buttons */
 .scroll-bar .increment-button .arrow,
 .scroll-bar .decrement-button .arrow {
-    -fx-background-color: -accent;
+    -fx-background-color: -text-muted;
     -fx-shape: "M0 0 L1 0 0.5 1 Z"; /* simple triangle shape; JavaFX will scale it */
     -fx-scale-x: 8;
     -fx-scale-y: 8;
     -fx-padding: 2;
-}
-
-/* Keyboard focus ring on scrollbar controls, in the accent color instead of Modena's default blue */
-.scroll-bar .increment-button:focused,
-.scroll-bar .decrement-button:focused,
-.scroll-bar .thumb:focused {
-    -fx-focus-color: -accent;
-    -fx-faint-focus-color: -accent-faint-25;
 }
 
 /* Make horizontal scrollbars consistent too */
@@ -205,12 +226,13 @@
 .display-vbox Button,
 .threepart-left-pane Button,
 .threepart-right-pane Button {
-    -fx-background-color: -surface;
-    -fx-text-fill: -accent;
-    -fx-border-color: -accent;
-    -fx-border-width: 1.5;
-    -fx-border-radius: 4;
-    -fx-background-radius: 4;
+    -fx-background-color: -surface-raised;
+    -fx-text-fill: -text;
+    -fx-background-radius: 10;
+    -fx-border-radius: 10;
+    -fx-border-color: -edge-highlight;
+    -fx-border-width: 1;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 12, 0.18, 0, 4);
 
     /* Height rules to match text field height and avoid growth on hover */
     -fx-font-size: 13px;
@@ -224,7 +246,7 @@
     /* Do not set min-width/pref-width here so other buttons keep their natural width */
 }
 
-/* Hover: invert colors — background becomes accent, text becomes black */
+/* Hover: surface lifts a notch, shadow deepens — no color change */
 .all-existing-cards-pane Button:hover,
 #allExistingCardsPane Button:hover,
 .filter-pane Button:hover,
@@ -232,17 +254,19 @@
 .display-vbox Button:hover,
 .threepart-left-pane Button:hover,
 .threepart-right-pane Button:hover {
-    -fx-background-color: -accent-hover;
-    -fx-text-fill: black;
-    -fx-border-color: -accent;
-    -fx-font-weight: bold;
+    -fx-background-color: -surface-lift;
+    -fx-text-fill: -text;
+    -fx-border-color: -edge-highlight;
+    -fx-border-width: 1;
+    -fx-border-radius: 10;
     -fx-cursor: hand;
     -fx-padding: 6 10 6 10;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.55), 16, 0.2, 0, 6);
 }
 
-/* Pressed: slightly darker accent */
+/* Pressed: sinks into the surface — innershadow instead of a color shift */
 .all-existing-cards-pane Button:pressed,
 #allExistingCardsPane Button:pressed,
 .filter-pane Button:pressed,
@@ -250,13 +274,13 @@
 .display-vbox Button:pressed,
 .threepart-left-pane Button:pressed,
 .threepart-right-pane Button:pressed {
-    -fx-background-color: derive(-accent, -12%);
-    -fx-text-fill: black;
-    -fx-border-color: -accent;
+    -fx-background-color: -surface-sunken;
+    -fx-text-fill: -text-muted;
     -fx-font-weight: normal;
     -fx-padding: 6 10 6 10;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.6), 8, 0.2, 0, 2);
 }
 
 /* Make sure buttons remain visually consistent when disabled */
@@ -267,9 +291,8 @@
 .display-vbox Button:disabled,
 .threepart-left-pane Button:disabled,
 .threepart-right-pane Button:disabled {
-    -fx-opacity: 0.5;
-    -fx-text-fill: -accent;
-    -fx-border-color: -accent;
+    -fx-opacity: 0.4;
+    -fx-text-fill: -text-faint;
 }
 
 /* ---------------------------
@@ -287,41 +310,50 @@
    is meant to layer on top of.
    --------------------------- */
 .btn-secondary.btn-secondary {
-    -fx-text-fill: -accent-2;
-    -fx-border-color: -accent-2;
+    -fx-background-color: -surface-raised;
+    -fx-text-fill: -text;
+    -fx-border-color: -edge-highlight;
+    -fx-border-width: 1;
+    -fx-border-radius: 10;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 12, 0.18, 0, 4);
 }
 .btn-secondary.btn-secondary:hover {
-    -fx-background-color: -accent-2-hover;
-    -fx-text-fill: black;
-    -fx-border-color: -accent-2;
+    -fx-background-color: -surface-lift;
+    -fx-text-fill: -text;
+    -fx-border-color: -edge-highlight;
+    -fx-border-width: 1;
+    -fx-border-radius: 10;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.55), 16, 0.2, 0, 6);
 }
 .btn-secondary.btn-secondary:pressed {
-    -fx-background-color: derive(-accent-2, -12%);
-    -fx-text-fill: black;
-    -fx-border-color: -accent-2;
+    -fx-background-color: -surface-sunken;
+    -fx-text-fill: -text-muted;
+    -fx-border-color: transparent;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.6), 8, 0.2, 0, 2);
 }
 .btn-secondary.btn-secondary:disabled {
-    -fx-text-fill: -accent-2;
-    -fx-border-color: -accent-2;
+    -fx-text-fill: -text-faint;
+    -fx-border-color: transparent;
 }
 
+/* Destructive tier — the only other color in the system, semantic rather than accent */
 .btn-tertiary.btn-tertiary {
-    -fx-text-fill: -accent-3;
-    -fx-border-color: -accent-3;
+    -fx-text-fill: -danger;
+    -fx-border-color: -danger;
 }
 .btn-tertiary.btn-tertiary:hover {
-    -fx-background-color: -accent-3-hover;
-    -fx-text-fill: black;
-    -fx-border-color: -accent-3;
+    -fx-background-color: rgba(196, 96, 90, 0.12);
+    -fx-text-fill: -danger;
+    -fx-border-color: -danger;
 }
 .btn-tertiary.btn-tertiary:pressed {
-    -fx-background-color: derive(-accent-3, -12%);
-    -fx-text-fill: black;
-    -fx-border-color: -accent-3;
+    -fx-background-color: rgba(196, 96, 90, 0.25);
+    -fx-text-fill: -danger;
+    -fx-border-color: -danger;
 }
 .btn-tertiary.btn-tertiary:disabled {
-    -fx-text-fill: -accent-3;
-    -fx-border-color: -accent-3;
+    -fx-text-fill: -danger;
+    -fx-border-color: -danger;
 }
 
 /* ---------------------------
@@ -332,27 +364,28 @@
    Replaces per-call-site hardcoded -fx-... strings that were previously
    duplicated across 8 call sites in 3 Java files.
    --------------------------- */
+/* Off = sunken (recedes), on = raised (lifted) — state read from relief, no color */
 .toggle-button-off.toggle-button-off {
-    -fx-background-color: -bg;
-    -fx-text-fill: -accent;
-    -fx-border-color: -accent;
-    -fx-border-width: 1;
-    -fx-border-radius: 4;
-    -fx-background-radius: 4;
+    -fx-background-color: -surface-sunken;
+    -fx-text-fill: -text-muted;
+    -fx-background-radius: 10;
     -fx-font-size: 12px;
     -fx-padding: 4 10 4 10;
     -fx-cursor: hand;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.6), 6, 0.2, 0, 2);
 }
 .toggle-button-on.toggle-button-on {
-    -fx-background-color: -accent;
-    -fx-text-fill: black;
-    -fx-border-color: -accent;
+    -fx-background-color: -surface-raised;
+    -fx-text-fill: -text;
+    -fx-background-radius: 10;
+    -fx-border-radius: 10;
+    -fx-border-color: -edge-highlight;
     -fx-border-width: 1;
-    -fx-border-radius: 4;
-    -fx-background-radius: 4;
     -fx-font-size: 12px;
+    -fx-font-weight: bold;
     -fx-padding: 4 10 4 10;
     -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 10, 0.18, 0, 3);
 }
 
 /* ---------------------------
@@ -362,8 +395,8 @@
 .inline-action-button {
     -fx-background-color: transparent;
     -fx-border-width: 1;
-    -fx-border-radius: 4;
-    -fx-background-radius: 4;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
     -fx-font-size: 11px;
     -fx-padding: 2 6 2 6;
     -fx-cursor: hand;
@@ -382,25 +415,25 @@
     -fx-pref-height: 30px;
 }
 .small-button:hover {
-    -fx-background-color: -accent-hover;
-    -fx-text-fill: black;
-    -fx-border-color: -accent;
+    -fx-background-color: -surface-lift;
+    -fx-text-fill: -text;
     -fx-min-width: 66px;
     -fx-pref-width: 78px;
     -fx-max-width: 96px;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
     -fx-font-weight: bold;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.55), 16, 0.2, 0, 6);
 }
 .small-button:pressed {
-    -fx-background-color: derive(-accent, -12%);
-    -fx-text-fill: black;
-    -fx-border-color: -accent;
+    -fx-background-color: -surface-sunken;
+    -fx-text-fill: -text-muted;
     -fx-min-width: 66px;
     -fx-pref-width: 78px;
     -fx-max-width: 96px;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.6), 8, 0.2, 0, 2);
 }
 
 /* ---------------------------
@@ -417,104 +450,106 @@
     -fx-font-size: 12px;
 }
 .sort-button:hover {
-    -fx-background-color: -accent-hover;
-    -fx-text-fill: black;
-    -fx-border-color: -accent;
+    -fx-background-color: -surface-lift;
+    -fx-text-fill: -text;
     -fx-min-width:  42px;
     -fx-pref-width: 42px;
     -fx-max-width:  42px;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
     -fx-font-weight: bold;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.55), 16, 0.2, 0, 6);
 }
 .sort-button:pressed {
-    -fx-background-color: derive(-accent, -12%);
-    -fx-text-fill: black;
-    -fx-border-color: -accent;
+    -fx-background-color: -surface-sunken;
+    -fx-text-fill: -text-muted;
     -fx-min-width:  42px;
     -fx-pref-width: 42px;
     -fx-max-width:  42px;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.6), 8, 0.2, 0, 2);
 }
 
 /* ---------------------------
    Large buttons (only for long labels)
    --------------------------- */
 
-/* Only buttons that have the large-button style class will be wider */
-.large-button {
+/* Only buttons that have the large-button style class will be wider — the app's
+   one full-pill CTA pattern, filled with -bone rather than a color, mirroring
+   the reference restake card's primary action. Class doubled to win specificity
+   over the pane-scoped base Button rule (see comment on .btn-secondary above). */
+.large-button.large-button {
+    -fx-background-color: -bone;
+    -fx-text-fill: #16161A;
+    -fx-background-radius: 999;
+    -fx-border-radius: 999;
+    -fx-border-color: transparent; /* -bone is already the brightest surface, no rim needed */
+    -fx-font-weight: 600;
     -fx-min-width: 300px;
     -fx-pref-width: 360px;
     -fx-max-width: 520px;
-    /* keep same height as other buttons */
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 12, 0.18, 0, 4);
 }
 
-.large-button:hover {
-    -fx-background-color: -accent-hover;
-    -fx-text-fill: black;
-    -fx-border-color: -accent;
+.large-button.large-button:hover {
+    -fx-background-color: -bone-dim;
+    -fx-text-fill: #16161A;
     -fx-min-width: 300px;
     -fx-pref-width: 360px;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
     -fx-font-weight: bold;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.55), 16, 0.2, 0, 6);
 }
-.large-button:pressed {
-    -fx-background-color: derive(-accent, -12%);
-    -fx-text-fill: black;
-    -fx-border-color: -accent;
+.large-button.large-button:pressed {
+    -fx-background-color: -bone-dim;
+    -fx-text-fill: #16161A;
     -fx-min-width: 300px;
     -fx-pref-width: 360px;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.4), 6, 0.15, 0, 1);
 }
 
 /* ---------------------------
    TextField styling requested
    --------------------------- */
 
-/* Accent textfield class (explicit) */
+/* Accent textfield class (explicit) — sunken well, no border */
 .accent-text-field {
-    -fx-background-color: -surface;
-    -fx-background-radius: 4;
-    -fx-border-radius: 4;
-    -fx-border-color: -accent;
-    -fx-border-width: 1.5;
-    -fx-text-fill: -accent;
-    -fx-prompt-text-fill: -accent-glow;
-    -fx-caret-color: -accent;
+    -fx-background-color: -surface-sunken;
+    -fx-background-radius: 16;
+    -fx-text-fill: -text;
+    -fx-prompt-text-fill: -text-faint;
+    -fx-caret-color: -text;
     -fx-padding: 2 4 2 4;
     -fx-font-size: 13px;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
     -fx-max-height: 30px;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.6), 8, 0.2, 0, 2);
 }
 
-/* Hover/focus: glow effect instead of border-width change or bold text
+/* Focus: the well lights up with the one accent instead of a border change,
    so the layout geometry stays exactly the same size. */
-.accent-text-field:hover,
 .accent-text-field:focused {
-    -fx-border-color: -accent;
-    -fx-border-width: 1.5;
-    -fx-effect: dropshadow(gaussian, -accent, 5, 0.55, 0, 0);
+    -fx-effect: dropshadow(gaussian, -signal-glow, 6, 0.5, 0, 0);
 }
 
-/* Fixed-size accent text fields (prevent growth on hover/focus) */
+/* Fixed-size accent text fields (prevent growth on hover/focus) — sunken well */
 .fixed-accent-text-field {
-    -fx-background-color: -surface;
-    -fx-background-radius: 4;
-    -fx-border-radius: 4;
-    -fx-border-color: -accent;
-    -fx-border-width: 1.5;
-    -fx-text-fill: -accent;
-    -fx-prompt-text-fill: -accent-glow;
-    -fx-caret-color: -accent;
+    -fx-background-color: -surface-sunken;
+    -fx-background-radius: 16;
+    -fx-text-fill: -text;
+    -fx-prompt-text-fill: -text-faint;
+    -fx-caret-color: -text;
     -fx-padding: 2 8 2 8;
     -fx-font-size: 13px;
     -fx-font-weight: normal;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.6), 8, 0.2, 0, 2);
 
     /* Size constraints to absorb bolding without layout shift (original fixed sizes) */
     -fx-min-width: 300px;
@@ -525,13 +560,10 @@
     -fx-max-height: 30px;
 }
 
-/* Keep hover/focus visual feedback but preserve geometry */
-.fixed-accent-text-field:hover,
+/* Keep focus feedback but preserve geometry */
 .fixed-accent-text-field:focused {
-    -fx-border-color: -accent;
-    -fx-border-width: 1.5; /* keep same border width so no reflow */
     -fx-font-weight: bold;
-    -fx-caret-color: -accent;
+    -fx-effect: dropshadow(gaussian, -signal-glow, 6, 0.5, 0, 0);
 }
 
 /* Apply to textfields in the right pane and header areas (fallback if style class not set) */
@@ -542,29 +574,20 @@
 .display-vbox TextField,
 .threepart-left-pane TextField,
 .threepart-right-pane TextField {
-    -fx-background-color: -surface;
-    -fx-background-radius: 4;
-    -fx-border-radius: 4;
-    -fx-border-color: -accent;
-    -fx-border-width: 1.5;
-    -fx-text-fill: -accent;
-    -fx-prompt-text-fill: -accent-glow;
-    -fx-caret-color: -accent;
+    -fx-background-color: -surface-sunken;
+    -fx-background-radius: 16;
+    -fx-text-fill: -text;
+    -fx-prompt-text-fill: -text-faint;
+    -fx-caret-color: -text;
     -fx-padding: 2 8 2 8;
     -fx-font-size: 13px;
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
     -fx-max-height: 30px;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.6), 8, 0.2, 0, 2);
 }
 
-/* Hover/focus for the fallback selectors */
-.all-existing-cards-pane TextField:hover,
-#allExistingCardsPane TextField:hover,
-.filter-pane TextField:hover,
-.header-pane TextField:hover,
-.display-vbox TextField:hover,
-.threepart-left-pane TextField:hover,
-.threepart-right-pane TextField:hover,
+/* Focus for the fallback selectors — the well lights up with the one accent */
 .all-existing-cards-pane TextField:focused,
 #allExistingCardsPane TextField:focused,
 .filter-pane TextField:focused,
@@ -572,9 +595,7 @@
 .display-vbox TextField:focused,
 .threepart-left-pane TextField:focused,
 .threepart-right-pane TextField:focused {
-    -fx-border-color: -accent;
-    -fx-border-width: 1.5;
-    -fx-effect: dropshadow(gaussian, -accent, 5, 0.55, 0, 0);
+    -fx-effect: dropshadow(gaussian, -signal-glow, 6, 0.5, 0, 0);
 }
 
 /* TabPane background and header area */
@@ -582,10 +603,14 @@
     -fx-background-color: -surface;
 }
 
-/* Header area (the bar that contains the tabs) */
+/* Header area (the bar that contains the tabs) — a shelf, not a flat strip:
+   padding gives the tabs room to sit above the content, the hairline bottom
+   edge is the same divider system used everywhere else. */
 #mainTabPane .tab-header-area {
-    -fx-background-color: -bg;
-    -fx-padding: 0;
+    -fx-background-color: -surface;
+    -fx-padding: 6 8 0 8;
+    -fx-border-color: transparent transparent -border-subtle transparent;
+    -fx-border-width: 0 0 1 0;
 }
 
 /* Tab header background (behind the tabs) */
@@ -593,50 +618,39 @@
     -fx-background-color: -surface;
 }
 
-/* Individual tab (unselected) */
+/* Individual tab (unselected) — flat against the strip, no border */
 #mainTabPane .tab {
-    -fx-background-color: -surface;
-    -fx-border-color: transparent;  /* no outline by default */
-    -fx-border-width: 1;
-    -fx-border-radius: 4;
-    -fx-background-radius: 4;
+    -fx-background-color: transparent;
+    -fx-background-radius: 10;
 }
 
 /* Tab label text color and default weight */
 #mainTabPane .tab .tab-label {
-    -fx-text-fill: -accent;
+    -fx-text-fill: -text-muted;
     -fx-font-weight: normal; /* not bold by default */
 }
 
-/* Prevent hover from making the label bold; keep hover visual subtle */
+/* Hover: label brightens, still no fill */
 #mainTabPane .tab:hover .tab-label {
     -fx-font-weight: normal;
-    -fx-text-fill: -accent;
+    -fx-text-fill: -text;
 }
 
-/* Selected tab: pane background, accent border on three sides,
-   bottom border matches background so it reads as attached to the content below */
+/* Selected tab: lifted off the strip via shadow, not a colored border */
 #mainTabPane .tab:selected {
-    -fx-background-color: -bg;
-    -fx-border-width: 1.5;
-    -fx-border-style: solid;
-    -fx-border-radius: 4;
-    -fx-background-radius: 4;
-
-    /* border-color: top right bottom left -> bottom set to match background */
-    -fx-border-color: -accent -accent -bg -accent;
+    -fx-background-color: -surface-raised;
+    -fx-background-radius: 10;
+    -fx-border-radius: 10;
+    -fx-border-color: -edge-highlight;
+    -fx-border-width: 1;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 12, 0.18, 0, 4);
 }
 
 /* Selected tab label stays bold, even when hovered */
 #mainTabPane .tab:selected .tab-label,
 #mainTabPane .tab:selected:hover .tab-label {
     -fx-font-weight: bold;
-    -fx-text-fill: -accent;
-}
-
-/* Keyboard focus ring on tabs, in the accent color instead of Modena's default blue */
-#mainTabPane .tab:focused {
-    -fx-effect: dropshadow(gaussian, -accent-glow, 6, 0.4, 0, 0);
+    -fx-text-fill: -text;
 }
 
 /* Tab content area matches the pane background */
@@ -644,47 +658,48 @@
     -fx-background-color: -bg;
 }
 
+/* Context menu — a floating panel, posed like a card rather than outlined */
 .context-menu {
-  -fx-background-color: -surface;
-  -fx-border-color: -accent;
+  -fx-background-color: -surface-raised;
+  -fx-background-radius: 16;
+  -fx-border-radius: 16;
+  -fx-border-color: -edge-highlight;
   -fx-border-width: 1;
+  -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.55), 20, 0.2, 0, 8);
 }
 .context-menu .menu-item .label {
-  -fx-text-fill: -accent;
+  -fx-text-fill: -text;
 }
 .context-menu .menu-item:armed {
-  -fx-background-color: -accent-faint-08;
+  -fx-background-color: -hover-overlay;
 }
 .context-menu .separator {
-  -fx-border-color: transparent transparent -accent transparent;
+  -fx-border-color: transparent transparent -border-subtle transparent;
   -fx-border-width: 0 0 1 0;
 }
 
-/* ── ComboBox styled to match the accent theme ── */
+/* ── ComboBox — sunken well like a text field, popup posed like a card ── */
 .accent-combo {
     -fx-background-color: transparent;
 }
 .accent-combo .combo-box-base {
-    -fx-background-color: -surface;
-    -fx-border-color: -accent;
-    -fx-border-width: 1.5;
-    -fx-border-radius: 4;
-    -fx-background-radius: 4;
+    -fx-background-color: -surface-sunken;
+    -fx-background-radius: 16;
     -fx-padding: 2 4 2 4;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.6), 8, 0.2, 0, 2);
 }
-.accent-combo .combo-box-base:hover,
 .accent-combo .combo-box-base:focused {
-    -fx-border-width: 2;
+    -fx-effect: dropshadow(gaussian, -signal-glow, 6, 0.5, 0, 0);
 }
 .accent-combo .combo-box-base .label {
-    -fx-text-fill: -accent;
+    -fx-text-fill: -text;
     -fx-font-size: 13px;
 }
 .accent-combo .combo-box-base .arrow-button {
     -fx-background-color: transparent;
 }
 .accent-combo .combo-box-base .arrow-button .arrow {
-    -fx-background-color: -accent;
+    -fx-background-color: -text-muted;
 }
 /* Editable ComboBox: JavaFX re-styles the arrow-button under :editable,
    so the rules above are not specific enough. Target it explicitly. */
@@ -693,50 +708,49 @@
     -fx-border-color: transparent;
 }
 .accent-combo .combo-box-base:editable .arrow-button .arrow {
-    -fx-background-color: -accent;
+    -fx-background-color: -text-muted;
 }
 .accent-combo .list-cell {
-    -fx-text-fill: -accent;
-    -fx-background-color: -surface;
+    -fx-text-fill: -text;
+    -fx-background-color: -surface-raised;
     -fx-font-size: 13px;
     -fx-padding: 4 8 4 8;
 }
 .accent-combo .list-cell:hover {
-    -fx-background-color: -accent-tint-hover;
+    -fx-background-color: -hover-overlay;
 }
+/* Selection is a legitimate use of -signal — same role as focus, an active state */
 .accent-combo .list-cell:selected {
-    -fx-background-color: -accent-tint-selected;
-    -fx-text-fill: -accent;
+    -fx-background-color: -selection-bg;
+    -fx-text-fill: -text;
 }
-/* selected + hover */
 .accent-combo .list-cell:selected:hover {
-    -fx-background-color: -accent-tint-selected-hover;
-    -fx-text-fill: -accent;
+    -fx-background-color: -selection-bg-hover;
+    -fx-text-fill: -text;
 }
-/* Dropdown list container */
+/* Dropdown list container — floats above the combo, posed like a card */
 .accent-combo .combo-popup .list-view {
-    -fx-background-color: -surface;
-    -fx-border-color: -accent;
+    -fx-background-color: -surface-raised;
+    -fx-background-radius: 16;
+    -fx-border-radius: 16;
+    -fx-border-color: -edge-highlight;
     -fx-border-width: 1;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.55), 20, 0.2, 0, 8);
 }
 
 /* ── Editable ComboBox inner TextField (accent-combo) ── */
 /* JavaFX renders the editor as a .text-input child of .combo-box-base.
-   Without this rule the editor keeps the default white-background styling
-   when the popup is in its own Stage (e.g. CardEditPopup). */
+   Transparent so the sunken well on .combo-box-base shows through seamlessly. */
 .accent-combo .combo-box-base .text-input {
-    -fx-background-color: -surface;
-    -fx-background-radius: 3;
-    -fx-border-color: transparent;   /* border already on .combo-box-base */
-    -fx-border-width: 0;
-    -fx-text-fill: -accent;
-    -fx-prompt-text-fill: -accent-glow;
-    -fx-caret-color: -accent;
+    -fx-background-color: transparent;
+    -fx-text-fill: -text;
+    -fx-prompt-text-fill: -text-faint;
+    -fx-caret-color: -text;
     -fx-padding: 0 2 0 2;
     -fx-font-size: 13px;
 }
 .accent-combo .combo-box-base .text-input:focused {
-    -fx-background-color: -surface;
+    -fx-background-color: transparent;
     -fx-effect: none;   /* glow already handled by .combo-box-base:focused */
 }
 
@@ -745,7 +759,7 @@
     -fx-pref-height: 1px;
     -fx-min-height: 1px;
     -fx-max-height: 1px;
-    -fx-background-color: -accent-faint-35;
+    -fx-background-color: -border-subtle;
     -fx-padding: 0;
 }
 
@@ -753,46 +767,52 @@
 
 /* ── Link markers button in FilterPane col 1 ── */
 .link-markers-button {
-    -fx-background-color: -surface;
-    -fx-border-color: -accent;
-    -fx-border-width: 1.5;
-    -fx-border-radius: 4;
-    -fx-background-radius: 4;
-    -fx-text-fill: -accent;
+    -fx-background-color: -surface-raised;
+    -fx-background-radius: 10;
+    -fx-border-radius: 10;
+    -fx-border-color: -edge-highlight;
+    -fx-border-width: 1;
+    -fx-text-fill: -text;
     -fx-font-size: 11px;
     -fx-padding: 3 4 3 4;
     -fx-pref-width: 82px;
     -fx-min-width: 82px;
     -fx-max-width: 82px;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 10, 0.18, 0, 3);
 }
 .link-markers-button:hover {
-    -fx-background-color: -accent-hover;
-    -fx-text-fill: black;
-    -fx-border-width: 2;
+    -fx-background-color: -surface-lift;
+    -fx-text-fill: -text;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.55), 14, 0.2, 0, 5);
 }
 .link-markers-button:pressed {
-    -fx-background-color: -accent-faint-25;
+    -fx-background-color: -surface-sunken;
+    -fx-text-fill: -text-muted;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.6), 6, 0.2, 0, 2);
 }
 
 /* ── Number buttons [1..5] in FilterPane col 4 ── */
 .number-button {
-    -fx-background-color: -surface;
-    -fx-border-color: -accent;
-    -fx-border-width: 1.5;
-    -fx-border-radius: 3;
-    -fx-background-radius: 3;
-    -fx-text-fill: -accent;
+    -fx-background-color: -surface-raised;
+    -fx-background-radius: 10;
+    -fx-border-radius: 10;
+    -fx-border-color: -edge-highlight;
+    -fx-border-width: 1;
+    -fx-text-fill: -text;
     -fx-font-size: 11px;
     -fx-font-weight: bold;
     -fx-padding: 0;
     -fx-alignment: center;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 10, 0.18, 0, 3);
 }
 .number-button:hover {
-    -fx-background-color: -accent-faint-12;
-    -fx-border-width: 2;
+    -fx-background-color: -surface-lift;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.55), 14, 0.2, 0, 5);
 }
 .number-button:pressed {
-    -fx-background-color: -accent-faint-25;
+    -fx-background-color: -surface-sunken;
+    -fx-text-fill: -text-muted;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.6), 6, 0.2, 0, 2);
 }
 .number-button:disabled {
     -fx-opacity: 0.4;
@@ -800,22 +820,25 @@
 
 /* ── Col-4 action buttons: Disable, Disable all, Active, All ── */
 .col4-button {
-    -fx-background-color: -surface;
-    -fx-border-color: -accent;
-    -fx-border-width: 1.5;
-    -fx-border-radius: 4;
-    -fx-background-radius: 4;
-    -fx-text-fill: -accent;
+    -fx-background-color: -surface-raised;
+    -fx-background-radius: 10;
+    -fx-border-radius: 10;
+    -fx-border-color: -edge-highlight;
+    -fx-border-width: 1;
+    -fx-text-fill: -text;
     -fx-font-size: 12px;
     -fx-padding: 3 8 3 8;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 10, 0.18, 0, 3);
 }
 .col4-button:hover {
-    -fx-background-color: -accent-hover;
-    -fx-text-fill: black;
-    -fx-border-width: 2;
+    -fx-background-color: -surface-lift;
+    -fx-text-fill: -text;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.55), 14, 0.2, 0, 5);
 }
 .col4-button:pressed {
-    -fx-background-color: -accent-faint-25;
+    -fx-background-color: -surface-sunken;
+    -fx-text-fill: -text-muted;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.6), 6, 0.2, 0, 2);
 }
 .col4-button:disabled {
     -fx-opacity: 0.4;
@@ -823,23 +846,26 @@
 
 /* ── Camera button in FilterPane col 4 ── */
 .camera-button {
-    -fx-background-color: -surface;
-    -fx-border-color: -accent;
-    -fx-border-width: 1.5;
-    -fx-border-radius: 4;
-    -fx-background-radius: 4;
-    -fx-text-fill: -accent;
+    -fx-background-color: -surface-raised;
+    -fx-background-radius: 10;
+    -fx-border-radius: 10;
+    -fx-border-color: -edge-highlight;
+    -fx-border-width: 1;
+    -fx-text-fill: -text;
     -fx-font-size: 15px;
     -fx-padding: 2 4 2 4;
     -fx-alignment: center;
     -fx-pref-height: 35px;
     -fx-min-height: 35px;
     -fx-max-height: 35px;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 10, 0.18, 0, 3);
 }
 .camera-button:hover {
-    -fx-background-color: -accent-faint-12;
-    -fx-border-width: 2;
+    -fx-background-color: -surface-lift;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.55), 14, 0.2, 0, 5);
 }
 .camera-button:pressed {
-    -fx-background-color: -accent-faint-25;
+    -fx-background-color: -surface-sunken;
+    -fx-text-fill: -text-muted;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.6), 6, 0.2, 0, 2);
 }

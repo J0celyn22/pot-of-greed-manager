@@ -55,7 +55,7 @@ public final class ContextMenuItemFactory {
     public static ContextMenu styledContextMenu() {
         ContextMenu contextMenu = new ContextMenu();
         contextMenu.setStyle(
-                "-fx-background-color: #100317; " +
+                "-fx-background-color: #121216; " +
                         "-fx-background-radius: 6; " +
                         "-fx-border-color: #3a3a3a; " +
                         "-fx-border-radius: 6; " +

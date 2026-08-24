@@ -295,7 +295,7 @@ public class RealMainController {
 
             // cardsDisplayContainer holds the live cards list/mosaic view (shared across tabs).
             cardsDisplayContainer = new AnchorPane();
-            cardsDisplayContainer.setStyle("-fx-background-color: #100317;");
+            cardsDisplayContainer.setStyle("-fx-background-color: #121216;");
 
             // ── List/Mosaic and Printed/Unique toggle buttons ─────────────────
             listMosaicButton = new Button("List");
@@ -558,11 +558,11 @@ public class RealMainController {
 
         HBox cardsTopBar = new HBox(10, viewModeGroup, sortGroup);
         cardsTopBar.setPadding(new Insets(5, 10, 5, 10));
-        cardsTopBar.setStyle("-fx-background-color: #100317;");
+        cardsTopBar.setStyle("-fx-background-color: #121216;");
 
         VBox.setVgrow(cardsDisplayContainer, Priority.ALWAYS);
         VBox rightContentVBox = new VBox(0, cardsTopBar, cardsDisplayContainer);
-        rightContentVBox.setStyle("-fx-background-color: #100317;");
+        rightContentVBox.setStyle("-fx-background-color: #121216;");
 
         AnchorPane rightContentPane = tab.getRightContentPane();
         rightContentPane.getChildren().clear();
@@ -640,7 +640,7 @@ public class RealMainController {
             mosaicListView.setCellFactory(
                     param -> new CardsMosaicRowCell(mosaicImageWidth, mosaicImageHeight));
             mosaicListView.setStyle(
-                    "-fx-background-color: #100317; -fx-control-inner-background: #100317;");
+                    "-fx-background-color: #121216; -fx-control-inner-background: #121216;");
             mosaicListView.addEventHandler(
                     javafx.scene.input.MouseEvent.MOUSE_CLICKED,
                     buildRightPaneEmptySpaceClearHandler());
@@ -651,7 +651,7 @@ public class RealMainController {
             listView.setCellFactory(
                     param -> new CardsListCell(isPrintedMode, listImageWidth, listImageHeight));
             listView.setStyle(
-                    "-fx-background-color: #100317; -fx-control-inner-background: #100317;");
+                    "-fx-background-color: #121216; -fx-control-inner-background: #121216;");
             listView.addEventHandler(
                     javafx.scene.input.MouseEvent.MOUSE_CLICKED,
                     buildRightPaneEmptySpaceClearHandler());
@@ -768,7 +768,9 @@ public class RealMainController {
     // =========================================================================
 
     private void applySortButtonSelectedStyle(Button btn) {
-        btn.setStyle("-fx-background-color: #cdfc04; -fx-text-fill: black; " + SORT_BTN_PADDING);
+        btn.setStyle("-fx-background-color: #2A2A30; -fx-text-fill: rgba(255,255,255,0.92); "
+                + "-fx-border-color: #6C63FF; -fx-border-width: 1.5; -fx-border-radius: 10; "
+                + "-fx-background-radius: 10; -fx-font-weight: bold; " + SORT_BTN_PADDING);
     }
 
     private void applySortButtonUnselectedStyle(Button btn) {
@@ -1055,22 +1057,23 @@ public class RealMainController {
         // The same static flag in CardTreeCell drives all three mosaic views,
         // but each tab has its own button instance so they all need to be wired.
         final String conditionRarityOnStyle =
-                "-fx-background-color: #cdfc04;"
-                        + "-fx-text-fill: black;"
-                        + "-fx-border-color: #cdfc04;"
+                "-fx-background-color: #2A2A30;"
+                        + "-fx-text-fill: rgba(255,255,255,0.92);"
+                        + "-fx-border-color: rgba(255,255,255,0.08);"
                         + "-fx-border-width: 1;"
-                        + "-fx-border-radius: 4;"
-                        + "-fx-background-radius: 4;"
+                        + "-fx-border-radius: 10;"
+                        + "-fx-background-radius: 10;"
                         + "-fx-font-size: 12px;"
+                        + "-fx-font-weight: bold;"
                         + "-fx-padding: 4 10 4 10;"
                         + "-fx-cursor: hand;";
         final String conditionRarityOffStyle =
-                "-fx-background-color: #100317;"
-                        + "-fx-text-fill: #cdfc04;"
-                        + "-fx-border-color: #cdfc04;"
+                "-fx-background-color: #08080A;"
+                        + "-fx-text-fill: rgba(255,255,255,0.55);"
+                        + "-fx-border-color: rgba(255,255,255,0.08);"
                         + "-fx-border-width: 1;"
-                        + "-fx-border-radius: 4;"
-                        + "-fx-background-radius: 4;"
+                        + "-fx-border-radius: 10;"
+                        + "-fx-background-radius: 10;"
                         + "-fx-font-size: 12px;"
                         + "-fx-padding: 4 10 4 10;"
                         + "-fx-cursor: hand;";

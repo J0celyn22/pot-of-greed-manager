@@ -20,7 +20,7 @@ public class ThreePartTab extends HBox {
 
         leftPane = new VBox();
         leftPane.getStyleClass().add("threepart-left-pane"); // added style class
-        leftPane.setStyle("-fx-background-color: #100317;");
+        leftPane.setStyle("-fx-background-color: #121216;");
         leftPane.setPrefWidth(375);
 
         Separator sep = new Separator();
@@ -31,11 +31,11 @@ public class ThreePartTab extends HBox {
         rightPane = new VBox();
         rightPane.getStyleClass().add("threepart-right-pane"); // added style class
         rightPane.setSpacing(0);
-        rightPane.setStyle("-fx-background-color: #100317;");
+        rightPane.setStyle("-fx-background-color: #121216;");
         rightPane.setPrefWidth(375);
 
         topRightPane = new AnchorPane();
-        topRightPane.setStyle("-fx-background-color: #100317; -fx-text-fill: white;");
+        topRightPane.setStyle("-fx-background-color: #121216; -fx-text-fill: white;");
         VBox.setVgrow(topRightPane, Priority.ALWAYS);
 
         Separator sepHoriz = new Separator();
@@ -43,7 +43,7 @@ public class ThreePartTab extends HBox {
         sepHoriz.setPrefHeight(2);
 
         bottomRightPane = new AnchorPane();
-        bottomRightPane.setStyle("-fx-background-color: #100317; -fx-text-fill: white;");
+        bottomRightPane.setStyle("-fx-background-color: #121216; -fx-text-fill: white;");
         VBox.setVgrow(bottomRightPane, Priority.ALWAYS);
 
         rightPane.getChildren().addAll(topRightPane, sepHoriz, bottomRightPane);

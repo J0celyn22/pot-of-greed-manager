@@ -46,7 +46,7 @@ import java.util.Set;
 public class ArchetypeCardSelectionPopup extends Stage {
 
     // ── Theme ────────────────────────────────────────────────────────────────
-    private static final String BG = "#100317";
+    private static final String BG = "#121216";
     private static final String ACCENT = "#cdfc04";
     private static final int THUMB_W = 80;
     private static final int THUMB_H = 116;

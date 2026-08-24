@@ -64,7 +64,7 @@ public class LinkMarkerPopup extends Popup {
         grid.setHgap(3);
         grid.setVgap(3);
         grid.setStyle(
-                "-fx-background-color: #100317;" +
+                "-fx-background-color: #121216;" +
                         "-fx-border-color: #cdfc04;" +
                         "-fx-border-width: 1.5;" +
                         "-fx-border-radius: 4;" +

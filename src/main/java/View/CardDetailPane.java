@@ -55,27 +55,27 @@ public class CardDetailPane extends VBox {
      */
     private static final double GRID_GAP = 4.0;
     private static final String BTN_NORMAL =
-            "-fx-background-color: #1e0535; " +
-                    "-fx-text-fill: #cdfc04; " +
+            "-fx-background-color: #2A2A30; " +
+                    "-fx-text-fill: rgba(255,255,255,0.92); " +
                     "-fx-font-size: 12; " +
                     "-fx-font-weight: bold; " +
                     "-fx-padding: 4 10; " +
                     "-fx-cursor: hand; " +
-                    "-fx-border-color: #cdfc04; " +
+                    "-fx-border-color: rgba(255,255,255,0.08); " +
                     "-fx-border-width: 1; " +
-                    "-fx-border-radius: 4; " +
-                    "-fx-background-radius: 4;";
+                    "-fx-border-radius: 10; " +
+                    "-fx-background-radius: 10;";
     private static final String BTN_HOVER =
-            "-fx-background-color: #cdfc04; " +
-                    "-fx-text-fill: #100317; " +
+            "-fx-background-color: #38383F; " +
+                    "-fx-text-fill: rgba(255,255,255,0.92); " +
                     "-fx-font-size: 12; " +
                     "-fx-font-weight: bold; " +
                     "-fx-padding: 4 10; " +
                     "-fx-cursor: hand; " +
-                    "-fx-border-color: #cdfc04; " +
+                    "-fx-border-color: rgba(255,255,255,0.08); " +
                     "-fx-border-width: 1; " +
-                    "-fx-border-radius: 4; " +
-                    "-fx-background-radius: 4;";
+                    "-fx-border-radius: 10; " +
+                    "-fx-background-radius: 10;";
     // ── Children ──────────────────────────────────────────────────────────────
     private final Button toggleButton;
     private final VBox contentBox;
@@ -89,7 +89,7 @@ public class CardDetailPane extends VBox {
 
     public CardDetailPane() {
         setSpacing(0);
-        setStyle("-fx-background-color: #100317;");
+        setStyle("-fx-background-color: #121216;");
         getStyleClass().add("card-detail-pane");
 
         toggleButton = new Button("▼  Card Detail");
@@ -99,7 +99,7 @@ public class CardDetailPane extends VBox {
 
         contentBox = new VBox(6);
         contentBox.setPadding(new Insets(8));
-        contentBox.setStyle("-fx-background-color: #100317;");
+        contentBox.setStyle("-fx-background-color: #121216;");
 
         getChildren().addAll(toggleButton, contentBox);
 
@@ -130,7 +130,7 @@ public class CardDetailPane extends VBox {
                                       java.util.List<Card> allCards) {
         VBox panel = new VBox(8);
         panel.setAlignment(Pos.TOP_LEFT);
-        panel.setStyle("-fx-background-color: #0a0015;");
+        panel.setStyle("-fx-background-color: #08080A;");
         panel.setPadding(new Insets(4, 0, 4, 0));
 
         if (element != null) {
@@ -223,7 +223,7 @@ public class CardDetailPane extends VBox {
 
             Label valueLabel = new Label("L " + linkVal);
             valueLabel.setStyle(
-                    "-fx-text-fill: #cdfc04; " +
+                    "-fx-text-fill: rgba(255,255,255,0.92); " +
                             "-fx-font-size: 11; " +
                             "-fx-font-weight: bold;");
 
@@ -269,7 +269,7 @@ public class CardDetailPane extends VBox {
 
         Label valueLabel = new Label(labelText);
         valueLabel.setStyle(
-                "-fx-text-fill: #cdfc04; " +
+                "-fx-text-fill: rgba(255,255,255,0.92); " +
                         "-fx-font-size: 11; " +
                         "-fx-font-weight: bold;");
 
@@ -300,7 +300,7 @@ public class CardDetailPane extends VBox {
         Label val = new Label(value);
         val.setWrapText(true);
         val.setStyle(
-                "-fx-text-fill: #cdfc04; " +
+                "-fx-text-fill: rgba(255,255,255,0.92); " +
                         "-fx-font-size: 11; " +
                         "-fx-font-weight: bold;");
         VBox entry = new VBox(1, lbl, val);
@@ -335,7 +335,7 @@ public class CardDetailPane extends VBox {
         area.setPrefSize(CONTENT_WIDTH, IMAGE_AREA_HEIGHT);
         area.setMaxSize(CONTENT_WIDTH, IMAGE_AREA_HEIGHT);
         area.setAlignment(Pos.TOP_LEFT);
-        area.setStyle("-fx-background-color: #0a0015;");
+        area.setStyle("-fx-background-color: #08080A;");
         return area;
     }
 
@@ -450,13 +450,13 @@ public class CardDetailPane extends VBox {
 
     private void applyToggleButtonStyle() {
         toggleButton.setStyle(
-                "-fx-background-color: #1e0535; " +
-                        "-fx-text-fill: #cdfc04; " +
+                "-fx-background-color: #18181C; " +
+                        "-fx-text-fill: rgba(255,255,255,0.92); " +
                         "-fx-font-size: 12; " +
                         "-fx-font-weight: bold; " +
                         "-fx-padding: 6 10; " +
                         "-fx-cursor: hand; " +
-                        "-fx-border-color: #cdfc04; " +
+                        "-fx-border-color: rgba(255,255,255,0.08); " +
                         "-fx-border-width: 0 0 1 0; " +
                         "-fx-background-radius: 0; " +
                         "-fx-alignment: center-left;"
@@ -548,7 +548,7 @@ public class CardDetailPane extends VBox {
         row.setMinHeight(IMAGE_AREA_HEIGHT);
         row.setPrefHeight(IMAGE_AREA_HEIGHT);
         row.setMaxHeight(IMAGE_AREA_HEIGHT);
-        row.setStyle("-fx-background-color: #0a0015;");
+        row.setStyle("-fx-background-color: #08080A;");
         return row;
     }
 
@@ -564,7 +564,7 @@ public class CardDetailPane extends VBox {
         scroll.setMinHeight(DESC_HEIGHT);
         scroll.setPrefHeight(DESC_HEIGHT);
         scroll.setMaxHeight(DESC_HEIGHT);
-        scroll.setStyle("-fx-background-color: #0a0015; -fx-background: #0a0015;");
+        scroll.setStyle("-fx-background-color: #08080A; -fx-background: #08080A;");
         scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         VBox.setVgrow(scroll, Priority.NEVER);
@@ -576,7 +576,7 @@ public class CardDetailPane extends VBox {
     private void buildMultiCardView(List<Card> cards) {
         Label countLabel = new Label(cards.size() + " cards");
         countLabel.setStyle(
-                "-fx-text-fill: #cdfc04; -fx-font-size: 13; -fx-font-weight: bold;");
+                "-fx-text-fill: rgba(255,255,255,0.92); -fx-font-size: 13; -fx-font-weight: bold;");
         contentBox.getChildren().add(countLabel);
         contentBox.getChildren().add(makeMultiImageArea(cards));
     }
@@ -636,7 +636,7 @@ public class CardDetailPane extends VBox {
         wrapper.setMinHeight(IMAGE_AREA_HEIGHT);
         wrapper.setPrefHeight(IMAGE_AREA_HEIGHT);
         wrapper.setMaxHeight(IMAGE_AREA_HEIGHT);
-        wrapper.setStyle("-fx-background-color: #0a0015;");
+        wrapper.setStyle("-fx-background-color: #08080A;");
         return wrapper;
     }
 

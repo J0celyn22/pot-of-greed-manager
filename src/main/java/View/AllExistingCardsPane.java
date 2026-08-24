@@ -25,7 +25,7 @@ public class AllExistingCardsPane extends VBox {
         this.setPadding(new Insets(10));
         this.setSpacing(0);
         this.getStyleClass().add("all-existing-cards-pane");
-        this.setStyle("-fx-background-color: #100317;");
+        this.setStyle("-fx-background-color: #121216;");
 
         VBox topSection = new VBox(5);
         topSection.setPadding(new Insets(10));

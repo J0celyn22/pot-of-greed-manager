@@ -231,7 +231,7 @@ public final class NavigationContextMenuBuilder {
 
         javafx.scene.control.DialogPane dialogPane = alert.getDialogPane();
         dialogPane.setStyle(
-                "-fx-background-color: #100317;"
+                "-fx-background-color: #121216;"
                         + "-fx-border-color: #cdfc04;"
                         + "-fx-border-width: 1.5;"
                         + "-fx-border-radius: 8;"
@@ -247,7 +247,7 @@ public final class NavigationContextMenuBuilder {
         javafx.scene.Node barNode = dialogPane.lookup(".button-bar");
         if (barNode instanceof javafx.scene.control.ButtonBar) {
             ((javafx.scene.control.ButtonBar) barNode).setStyle(
-                    "-fx-background-color: #100317; -fx-padding: 10 20 14 20;");
+                    "-fx-background-color: #121216; -fx-padding: 10 20 14 20;");
         }
 
         alert.getDialogPane().getScene().windowProperty().addListener(

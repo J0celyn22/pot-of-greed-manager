@@ -83,8 +83,7 @@ public class SharedCollectionTab extends HBox {
 
         // ── Assemble displayVBox ───────────────────────────────────────────────
         Separator horizontalSeparator = new Separator();
-        horizontalSeparator.setStyle("-fx-background-color: white;");
-        horizontalSeparator.setPrefHeight(2);
+        horizontalSeparator.setPrefHeight(1);
 
         displayVBox = new VBox();
         displayVBox.setSpacing(0);
@@ -133,8 +132,7 @@ public class SharedCollectionTab extends HBox {
         // Vertical separator between left and middle.
         Separator leftSeparator = new Separator();
         leftSeparator.setOrientation(Orientation.VERTICAL);
-        leftSeparator.setStyle("-fx-background-color: white;");
-        leftSeparator.setPrefWidth(2);
+        leftSeparator.setPrefWidth(1);
         return leftSeparator;
     }
 
@@ -146,13 +144,13 @@ public class SharedCollectionTab extends HBox {
         // ── Tab-specific header (~1/3 width) ──────────────────────────────────
         headerPane = new AnchorPane();
         headerPane.getStyleClass().add("header-pane");
-        headerPane.setStyle("-fx-background-color: #100317;");
+        headerPane.setStyle("-fx-background-color: #121216;");
         Node headerContent = createHeaderContentForTab(tabType);
         setHeaderContent(headerContent);
 
         // ── Right header: FilterPane owned here, wired by the controller (~2/3) ──
         rightHeaderPane = new AnchorPane();
-        rightHeaderPane.setStyle("-fx-background-color: #100317;");
+        rightHeaderPane.setStyle("-fx-background-color: #121216;");
         HBox.setHgrow(rightHeaderPane, Priority.ALWAYS);
 
         filterPane = new FilterPane();
@@ -164,8 +162,7 @@ public class SharedCollectionTab extends HBox {
 
         Separator headerVertSep = new Separator();
         headerVertSep.setOrientation(Orientation.VERTICAL);
-        headerVertSep.setStyle("-fx-background-color: white;");
-        headerVertSep.setPrefWidth(2);
+        headerVertSep.setPrefWidth(1);
 
         HBox headerRow = new HBox(0, headerPane, headerVertSep, rightHeaderPane);
         headerRow.setPrefHeight(DEFAULT_HEADER_ROW_HEIGHT);
@@ -187,13 +184,12 @@ public class SharedCollectionTab extends HBox {
 
         rightContentPane = new AnchorPane();
         rightContentPane.getStyleClass().add("right-content-pane");
-        rightContentPane.setStyle("-fx-background-color: #100317;");
+        rightContentPane.setStyle("-fx-background-color: #121216;");
         rightContentPane.setPrefWidth(375);
 
         Separator contentVertSep = new Separator();
         contentVertSep.setOrientation(Orientation.VERTICAL);
-        contentVertSep.setStyle("-fx-background-color: white;");
-        contentVertSep.setPrefWidth(2);
+        contentVertSep.setPrefWidth(1);
 
         HBox contentRow = new HBox(0, contentPane, contentVertSep, rightContentPane);
         VBox.setVgrow(contentRow, Priority.ALWAYS);
@@ -208,7 +204,6 @@ public class SharedCollectionTab extends HBox {
         cardDetailPane = new CardDetailPane();
 
         Separator detailNavSep = new Separator();
-        detailNavSep.setStyle("-fx-background-color: #333333;");
         detailNavSep.setPrefHeight(1);
 
         // menuScrollPane must grow to fill whatever height remains after the
@@ -217,7 +212,7 @@ public class SharedCollectionTab extends HBox {
 
         VBox leftColumnVBox = new VBox(0, cardDetailPane, detailNavSep, menuScrollPane);
         leftColumnVBox.setPrefWidth(375);
-        leftColumnVBox.setStyle("-fx-background-color: #100317;");
+        leftColumnVBox.setStyle("-fx-background-color: #121216;");
         return leftColumnVBox;
     }
 
@@ -801,7 +796,7 @@ public class SharedCollectionTab extends HBox {
             resultsListView.getItems().addAll(shopResults);
             resultsListView.setCellFactory(lv -> new ShopResultListCell());
             resultsListView.setStyle(
-                    "-fx-background-color: #100317;"
+                    "-fx-background-color: #121216;"
                             + "-fx-background-insets: 0;"
                             + "-fx-border-color: transparent;");
             AnchorPane.setTopAnchor(resultsListView, 0.0);
@@ -818,7 +813,7 @@ public class SharedCollectionTab extends HBox {
 
             VBox resultsWrapper = new VBox(0, summaryLabel, resultsListView);
             VBox.setVgrow(resultsListView, Priority.ALWAYS);
-            resultsWrapper.setStyle("-fx-background-color: #100317;");
+            resultsWrapper.setStyle("-fx-background-color: #121216;");
             AnchorPane.setTopAnchor(resultsWrapper, 0.0);
             AnchorPane.setBottomAnchor(resultsWrapper, 0.0);
             AnchorPane.setLeftAnchor(resultsWrapper, 0.0);
@@ -894,7 +889,7 @@ public class SharedCollectionTab extends HBox {
             resultsListView.getItems().addAll(shopResults);
             resultsListView.setCellFactory(lv -> new ShopResultListCell());
             resultsListView.setStyle(
-                    "-fx-background-color: #100317;"
+                    "-fx-background-color: #121216;"
                             + "-fx-background-insets: 0;"
                             + "-fx-border-color: transparent;");
             AnchorPane.setTopAnchor(resultsListView, 0.0);
@@ -911,7 +906,7 @@ public class SharedCollectionTab extends HBox {
 
             VBox resultsWrapper = new VBox(0, summaryLabel, resultsListView);
             VBox.setVgrow(resultsListView, Priority.ALWAYS);
-            resultsWrapper.setStyle("-fx-background-color: #100317;");
+            resultsWrapper.setStyle("-fx-background-color: #121216;");
             AnchorPane.setTopAnchor(resultsWrapper, 0.0);
             AnchorPane.setBottomAnchor(resultsWrapper, 0.0);
             AnchorPane.setLeftAnchor(resultsWrapper, 0.0);
@@ -1000,7 +995,7 @@ public class SharedCollectionTab extends HBox {
                 Node track = bar.lookup(".track");
                 if (track != null) {
                     track.setStyle(
-                            "-fx-background-color: #100317; " +
+                            "-fx-background-color: #121216; " +
                                     "-fx-background-image: null; " +
                                     "-fx-background-insets: 0; " +
                                     "-fx-background-radius: 4;"
@@ -1025,14 +1020,14 @@ public class SharedCollectionTab extends HBox {
                 Node inc = bar.lookup(".increment-button");
                 Node dec = bar.lookup(".decrement-button");
                 if (inc != null) {
-                    inc.setStyle("-fx-background-color: #100317; -fx-background-image: null; " +
+                    inc.setStyle("-fx-background-color: #121216; -fx-background-image: null; " +
                             "-fx-padding: 2; -fx-background-radius: 4;");
                     Node incArrow = inc.lookup(".increment-arrow");
                     if (incArrow == null) incArrow = inc.lookup(".arrow");
                     if (incArrow != null) incArrow.setStyle("-fx-background-color: #cdfc04;");
                 }
                 if (dec != null) {
-                    dec.setStyle("-fx-background-color: #100317; -fx-background-image: null; " +
+                    dec.setStyle("-fx-background-color: #121216; -fx-background-image: null; " +
                             "-fx-padding: 2; -fx-background-radius: 4;");
                     Node decArrow = dec.lookup(".decrement-arrow");
                     if (decArrow == null) decArrow = dec.lookup(".arrow");

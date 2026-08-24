@@ -209,7 +209,7 @@ public class CardsMosaicView extends FlowPane {
                     );
                     Node track = bar.lookup(".track");
                     if (track != null) track.setStyle(
-                            "-fx-background-color: #100317; " +
+                            "-fx-background-color: #121216; " +
                                     "-fx-background-image: null; " +
                                     "-fx-background-insets: 0; " +
                                     "-fx-background-radius: 4;"
@@ -228,7 +228,7 @@ public class CardsMosaicView extends FlowPane {
                     );
                     Node inc = bar.lookup(".increment-button");
                     if (inc != null) {
-                        inc.setStyle("-fx-background-color: #100317; -fx-background-image: null; " +
+                        inc.setStyle("-fx-background-color: #121216; -fx-background-image: null; " +
                                 "-fx-padding: 2; -fx-background-radius: 4;");
                         Node arrow = inc.lookup(".increment-arrow");
                         if (arrow == null) arrow = inc.lookup(".arrow");
@@ -236,7 +236,7 @@ public class CardsMosaicView extends FlowPane {
                     }
                     Node dec = bar.lookup(".decrement-button");
                     if (dec != null) {
-                        dec.setStyle("-fx-background-color: #100317; -fx-background-image: null; " +
+                        dec.setStyle("-fx-background-color: #121216; -fx-background-image: null; " +
                                 "-fx-padding: 2; -fx-background-radius: 4;");
                         Node arrow = dec.lookup(".decrement-arrow");
                         if (arrow == null) arrow = dec.lookup(".arrow");

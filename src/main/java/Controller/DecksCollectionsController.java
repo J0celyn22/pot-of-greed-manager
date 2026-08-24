@@ -155,7 +155,7 @@ public class DecksCollectionsController {
         decksAndCollectionsTreeView.setUserData("DECKS_COLLECTIONS");
         decksAndCollectionsTreeView.setCellFactory(
                 param -> new CardTreeCell(cardWidthProperty, cardHeightProperty));
-        decksAndCollectionsTreeView.setStyle("-fx-background-color: #100317;");
+        decksAndCollectionsTreeView.setStyle("-fx-background-color: #121216;");
         decksAndCollectionsTreeView.setShowRoot(false);
         decksAndCollectionsTreeView.addEventFilter(
                 javafx.scene.input.MouseEvent.MOUSE_CLICKED,

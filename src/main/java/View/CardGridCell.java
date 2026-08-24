@@ -1082,7 +1082,7 @@ class CardGridCell extends GridCell<CardElement> {
     private Label buildCornerBadge(String text) {
         Label label = new Label(text);
         label.setStyle(
-                "-fx-background-color: #0e0140; "
+                "-fx-background-color: #1A1A1D; "
                         + "-fx-text-fill: white; "
                         + "-fx-font-size: 9px; "
                         + "-fx-font-weight: bold; "

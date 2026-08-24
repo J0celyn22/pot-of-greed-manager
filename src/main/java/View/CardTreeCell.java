@@ -1673,7 +1673,7 @@ public class CardTreeCell extends TreeCell<String> {
             javafx.collections.transformation.FilteredList<CardElement> filteredItems) {
         VBox listBox = new VBox(4);
         listBox.setPadding(new Insets(5));
-        listBox.setStyle("-fx-background-color: #100317;");
+        listBox.setStyle("-fx-background-color: #121216;");
 
         for (CardElement cardElement : filteredItems) {
             if (cardElement == null || cardElement.getCard() == null) {
@@ -1694,7 +1694,7 @@ public class CardTreeCell extends TreeCell<String> {
                             + "-fx-border-width: 1; "
                             + "-fx-border-radius: 4; "
                             + "-fx-background-radius: 4; "
-                            + "-fx-background-color: #0a0012;");
+                            + "-fx-background-color: #08080A;");
 
             // Thumbnail
             ImageView img = new ImageView();
