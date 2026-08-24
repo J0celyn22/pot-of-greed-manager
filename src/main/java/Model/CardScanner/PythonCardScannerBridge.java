@@ -16,6 +16,8 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -87,6 +89,30 @@ public class PythonCardScannerBridge implements AutoCloseable {
     private BufferedReader processOutput;
     private Thread stderrDrainThread;
     private Thread stdoutReaderThread;
+
+    /**
+     * The most recently decoded preview frame not yet delivered to {@link #frameListener}, or
+     * {@code null} once delivered. Written by every {@link #handleFrameEvent} call on the
+     * {@link #stdoutReaderThread}; read and cleared by the single pending {@link Platform#runLater}
+     * callback on the JavaFX application thread — see {@link #frameDeliveryScheduled} for how the
+     * two stay coalesced into at most one pending delivery.
+     */
+    private final AtomicReference<Image> pendingFrame = new AtomicReference<>();
+
+    /**
+     * Whether a {@link Platform#runLater} call to drain {@link #pendingFrame} is currently
+     * queued. {@code card_scanner_bridge.py} pushes frames on its own schedule (12/s by default),
+     * regardless of whether the JavaFX application thread is keeping up — without this, every
+     * single decoded frame got its own {@code runLater} call, so the moment the FX thread fell
+     * even briefly behind (e.g. handling a card-add's view refresh), frames queued up faster than
+     * they drained: a growing backlog of already-stale, several-megabyte {@link Image} instances
+     * (worse with a higher-resolution camera) sitting in the FX event queue, each one still
+     * getting decoded and delivered even though only the very last one would ever be visible.
+     * That growing queue is the leading suspect for the scanner getting slower over a long
+     * session, reported 2026-08-24. Coalescing so only the latest frame is ever pending means the
+     * FX thread only ever has at most one frame update to do, however far behind it's fallen.
+     */
+    private final AtomicBoolean frameDeliveryScheduled = new AtomicBoolean(false);
 
     /**
      * @param frameListener        called on the JavaFX application thread with each decoded
@@ -243,7 +269,12 @@ public class PythonCardScannerBridge implements AutoCloseable {
         }
     }
 
-    private void handleFrameEvent(JSONObject event) {
+    /**
+     * Package-private rather than private so {@code PythonCardScannerBridgeFrameCoalescingTest}
+     * can exercise the coalescing behavior directly, without a real subprocess — same rationale
+     * as {@code Model.Database.CardNameIndex#levenshteinDistance}.
+     */
+    void handleFrameEvent(JSONObject event) {
         String jpegBase64 = event.optString("jpeg_base64", "");
         if (jpegBase64.isEmpty()) {
             logger.warn("card_scanner_bridge.py sent a \"frame\" event with no jpeg_base64 payload; ignoring.");
@@ -260,7 +291,30 @@ public class PythonCardScannerBridge implements AutoCloseable {
             return;
         }
 
-        Platform.runLater(() -> frameListener.accept(decodedFrame));
+        // Always publish the latest frame, but only schedule a runLater if none is currently
+        // pending — see pendingFrame/frameDeliveryScheduled's own javadoc for why. If a delivery
+        // is already queued, this frame is simply left in pendingFrame for that delivery to pick
+        // up once it runs, rather than queuing a second one.
+        pendingFrame.set(decodedFrame);
+        if (frameDeliveryScheduled.compareAndSet(false, true)) {
+            Platform.runLater(this::deliverPendingFrame);
+        }
+    }
+
+    /**
+     * Delivers whichever frame is currently in {@link #pendingFrame} to {@link #frameListener},
+     * then clears {@link #frameDeliveryScheduled} so the next {@link #handleFrameEvent} call
+     * schedules a fresh delivery instead of assuming one is still pending. Clearing the flag
+     * before reading {@link #pendingFrame} (rather than after) means a frame that arrives while
+     * this method is running always gets its own future delivery scheduled, rather than risking
+     * being left in {@link #pendingFrame} with nothing left to ever pick it up.
+     */
+    private void deliverPendingFrame() {
+        frameDeliveryScheduled.set(false);
+        Image latestFrame = pendingFrame.getAndSet(null);
+        if (latestFrame != null) {
+            frameListener.accept(latestFrame);
+        }
     }
 
     private void handleErrorEvent(JSONObject event) {
