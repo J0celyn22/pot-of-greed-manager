@@ -318,9 +318,11 @@ public class FilterPane extends VBox {
 
         // Line 2 – Disable/Enable (text updated dynamically)
         disableButton = FilterPaneWidgetFactory.makeCol4Button("Enable");   // all pages start disabled
+        disableButton.getStyleClass().add("btn-tertiary");
 
         // Line 3 – Disable all
         disableAllButton = FilterPaneWidgetFactory.makeCol4Button("Disable all");
+        disableAllButton.getStyleClass().add("btn-tertiary");
 
         // Line 4 – "Clear" plain text
         Text clearText = FilterPaneWidgetFactory.styledText("Clear", false);
@@ -329,10 +331,12 @@ public class FilterPane extends VBox {
 
         // Line 5 – Active + All
         activeButton = FilterPaneWidgetFactory.makeCol4Button("Active");
+        activeButton.getStyleClass().add("btn-secondary");
         activeButton.setPrefWidth(62);
         activeButton.setMinWidth(62);
         activeButton.setMaxWidth(62);
         allButton = FilterPaneWidgetFactory.makeCol4Button("All");
+        allButton.getStyleClass().add("btn-secondary");
         allButton.setPrefWidth(38);
         allButton.setMinWidth(38);
         allButton.setMaxWidth(38);

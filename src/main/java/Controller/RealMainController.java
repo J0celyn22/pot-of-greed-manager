@@ -299,7 +299,7 @@ public class RealMainController {
 
             // ── List/Mosaic and Printed/Unique toggle buttons ─────────────────
             listMosaicButton = new Button("List");
-            listMosaicButton.getStyleClass().add("small-button");
+            listMosaicButton.getStyleClass().addAll("small-button", "btn-secondary");
             listMosaicButton.setStyle("-fx-font-size: 12px; -fx-padding: 3 3 7 3;");
             listMosaicButton.setOnAction(event -> {
                 isMosaicMode = !isMosaicMode;
@@ -308,7 +308,7 @@ public class RealMainController {
             });
 
             printedUniqueButton = new Button("Printed");
-            printedUniqueButton.getStyleClass().add("small-button");
+            printedUniqueButton.getStyleClass().addAll("small-button", "btn-secondary");
             printedUniqueButton.setStyle("-fx-font-size: 12px; -fx-padding: 3 3 7 3;");
             printedUniqueButton.setOnAction(event -> {
                 isPrintedMode = !isPrintedMode;
@@ -321,10 +321,10 @@ public class RealMainController {
             sortAtkButton = new Button("ATK↓");
             sortDefButton = new Button("DEF↓");
             sortLvlButton = new Button("LVL↓");
-            sortAzButton.getStyleClass().add("sort-button");
-            sortAtkButton.getStyleClass().add("sort-button");
-            sortDefButton.getStyleClass().add("sort-button");
-            sortLvlButton.getStyleClass().add("sort-button");
+            sortAzButton.getStyleClass().addAll("sort-button", "btn-secondary");
+            sortAtkButton.getStyleClass().addAll("sort-button", "btn-secondary");
+            sortDefButton.getStyleClass().addAll("sort-button", "btn-secondary");
+            sortLvlButton.getStyleClass().addAll("sort-button", "btn-secondary");
 
             applySortButtonSelectedStyle(sortAtkButton);
             applySortButtonUnselectedStyle(sortAzButton);
@@ -1004,32 +1004,12 @@ public class RealMainController {
     private void wireViewToggleButtons() {
         if (myCollectionTab.getIncompleteMarkButton() != null) {
             Button incompleteMarkButton = myCollectionTab.getIncompleteMarkButton();
-            final String incompleteMarkButtonOnStyle =
-                    "-fx-background-color: #cdfc04;" +
-                            "-fx-text-fill: black;" +
-                            "-fx-border-color: #cdfc04;" +
-                            "-fx-border-width: 1;" +
-                            "-fx-border-radius: 4;" +
-                            "-fx-background-radius: 4;" +
-                            "-fx-font-size: 12px;" +
-                            "-fx-padding: 4 10 4 10;" +
-                            "-fx-cursor: hand;";
-            final String incompleteMarkButtonOffStyle =
-                    "-fx-background-color: #100317;" +
-                            "-fx-text-fill: #cdfc04;" +
-                            "-fx-border-color: #cdfc04;" +
-                            "-fx-border-width: 1;" +
-                            "-fx-border-radius: 4;" +
-                            "-fx-background-radius: 4;" +
-                            "-fx-font-size: 12px;" +
-                            "-fx-padding: 4 10 4 10;" +
-                            "-fx-cursor: hand;";
-            incompleteMarkButton.setStyle(incompleteMarkButtonOnStyle);
+            incompleteMarkButton.getStyleClass().setAll("toggle-button-on");
             incompleteMarkButton.setOnAction(event -> {
                 boolean nowEnabled = !CardTreeCell.isIncompleteMarkingEnabled();
                 CardTreeCell.setIncompleteMarkingEnabled(nowEnabled);
-                incompleteMarkButton.setStyle(
-                        nowEnabled ? incompleteMarkButtonOnStyle : incompleteMarkButtonOffStyle);
+                incompleteMarkButton.getStyleClass().setAll(
+                        nowEnabled ? "toggle-button-on" : "toggle-button-off");
                 try {
                     myCollectionController.populateMyCollectionMenu();
                 } catch (Exception exception) {
@@ -1046,26 +1026,6 @@ public class RealMainController {
 
         if (decksTab.getHideArchetypesButton() != null) {
             Button hideArchetypesButton = decksTab.getHideArchetypesButton();
-            final String hideArchetypesOnStyle =
-                    "-fx-background-color: #cdfc04;"
-                            + "-fx-text-fill: black;"
-                            + "-fx-border-color: #cdfc04;"
-                            + "-fx-border-width: 1;"
-                            + "-fx-border-radius: 4;"
-                            + "-fx-background-radius: 4;"
-                            + "-fx-font-size: 12px;"
-                            + "-fx-padding: 4 10 4 10;"
-                            + "-fx-cursor: hand;";
-            final String hideArchetypesOffStyle =
-                    "-fx-background-color: #100317;"
-                            + "-fx-text-fill: #cdfc04;"
-                            + "-fx-border-color: #cdfc04;"
-                            + "-fx-border-width: 1;"
-                            + "-fx-border-radius: 4;"
-                            + "-fx-background-radius: 4;"
-                            + "-fx-font-size: 12px;"
-                            + "-fx-padding: 4 10 4 10;"
-                            + "-fx-cursor: hand;";
 
             hideArchetypesButton.setOnAction(event -> {
                 boolean nowHiding =
@@ -1074,10 +1034,10 @@ public class RealMainController {
 
                 if (nowHiding) {
                     hideArchetypesButton.setText("Show archetypes & exceptions");
-                    hideArchetypesButton.setStyle(hideArchetypesOnStyle);
+                    hideArchetypesButton.getStyleClass().setAll("toggle-button-on");
                 } else {
                     hideArchetypesButton.setText("Hide archetypes & exceptions");
-                    hideArchetypesButton.setStyle(hideArchetypesOffStyle);
+                    hideArchetypesButton.getStyleClass().setAll("toggle-button-off");
                 }
 
                 // A full tree rebuild is required because the archetypes/exceptions

@@ -274,45 +274,99 @@
 
 /* ---------------------------
    Secondary / tertiary button tiers (opt-in, same geometry as the base
-   button). Not yet applied to any button — add "btn-secondary" or
-   "btn-tertiary" to a button's style class in Java to use them.
+   button, only the color changes) — add "btn-secondary" or "btn-tertiary"
+   to a button's style class in Java to use them.
+
+   The class is doubled in every selector below (".btn-secondary.btn-secondary")
+   purely to win specificity: JavaFX CSS specificity is (ids, classes, types),
+   and the base button rules are scoped as "<pane-class> Button" (1 class + 1
+   type) or dedicated single-class rules like ".col4-button" — a plain
+   ".btn-secondary" (1 class) loses to both. Doubling the class token matches
+   the same elements (a class selector matching twice is still just "has this
+   class") while counting as 2 class tokens, which beats every base rule this
+   is meant to layer on top of.
    --------------------------- */
-.btn-secondary {
+.btn-secondary.btn-secondary {
     -fx-text-fill: -accent-2;
     -fx-border-color: -accent-2;
 }
-.btn-secondary:hover {
+.btn-secondary.btn-secondary:hover {
     -fx-background-color: -accent-2-hover;
     -fx-text-fill: black;
     -fx-border-color: -accent-2;
 }
-.btn-secondary:pressed {
+.btn-secondary.btn-secondary:pressed {
     -fx-background-color: derive(-accent-2, -12%);
     -fx-text-fill: black;
     -fx-border-color: -accent-2;
 }
-.btn-secondary:disabled {
+.btn-secondary.btn-secondary:disabled {
     -fx-text-fill: -accent-2;
     -fx-border-color: -accent-2;
 }
 
-.btn-tertiary {
+.btn-tertiary.btn-tertiary {
     -fx-text-fill: -accent-3;
     -fx-border-color: -accent-3;
 }
-.btn-tertiary:hover {
+.btn-tertiary.btn-tertiary:hover {
     -fx-background-color: -accent-3-hover;
     -fx-text-fill: black;
     -fx-border-color: -accent-3;
 }
-.btn-tertiary:pressed {
+.btn-tertiary.btn-tertiary:pressed {
     -fx-background-color: derive(-accent-3, -12%);
     -fx-text-fill: black;
     -fx-border-color: -accent-3;
 }
-.btn-tertiary:disabled {
+.btn-tertiary.btn-tertiary:disabled {
     -fx-text-fill: -accent-3;
     -fx-border-color: -accent-3;
+}
+
+/* ---------------------------
+   Toggle-state buttons (on/off) — "Mark incomplete cards", "Show condition
+   / rarity", "Hide archetypes & exceptions", "Hide owned cards". Same
+   specificity trick as btn-secondary/btn-tertiary above, for the same
+   reason (these get applied to buttons already scoped by a pane selector).
+   Replaces per-call-site hardcoded -fx-... strings that were previously
+   duplicated across 8 call sites in 3 Java files.
+   --------------------------- */
+.toggle-button-off.toggle-button-off {
+    -fx-background-color: -bg;
+    -fx-text-fill: -accent;
+    -fx-border-color: -accent;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-font-size: 12px;
+    -fx-padding: 4 10 4 10;
+    -fx-cursor: hand;
+}
+.toggle-button-on.toggle-button-on {
+    -fx-background-color: -accent;
+    -fx-text-fill: black;
+    -fx-border-color: -accent;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-font-size: 12px;
+    -fx-padding: 4 10 4 10;
+    -fx-cursor: hand;
+}
+
+/* ---------------------------
+   Inline action buttons (CardTreeCell title-row buttons) — geometry only,
+   pair with btn-secondary/btn-tertiary for color.
+   --------------------------- */
+.inline-action-button {
+    -fx-background-color: transparent;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-font-size: 11px;
+    -fx-padding: 2 6 2 6;
+    -fx-cursor: hand;
 }
 
 /* ---------------------------

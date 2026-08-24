@@ -344,9 +344,9 @@ public class SharedCollectionTab extends HBox {
         Button browseButton = new Button("Browse");
         Button loadButton = new Button("Load");
         Button generateHtmlButton = new Button("Generate HTML");
-        browseButton.getStyleClass().add("small-button");
-        loadButton.getStyleClass().add("small-button");
-        generateHtmlButton.getStyleClass().add("small-button");
+        browseButton.getStyleClass().addAll("small-button", "btn-secondary");
+        loadButton.getStyleClass().addAll("small-button", "btn-secondary");
+        generateHtmlButton.getStyleClass().addAll("small-button", "btn-secondary");
 
         browseButton.setOnAction(e -> {
             Stage stage = (Stage) browseButton.getScene().getWindow();
@@ -379,32 +379,14 @@ public class SharedCollectionTab extends HBox {
         saveButton.getStyleClass().add("small-button");
         HBox row2 = new HBox(5, saveButton);
 
-        // Row 3: "Mark incomplete cards" toggle — off by default (dark bg, yellow border)
+        // Row 3: "Mark incomplete cards" toggle — off by default
         incompleteMarkButton = new Button("Mark incomplete cards");
-        incompleteMarkButton.setStyle(
-                "-fx-background-color: #100317;"
-                        + "-fx-text-fill: #cdfc04;"
-                        + "-fx-border-color: #cdfc04;"
-                        + "-fx-border-width: 1;"
-                        + "-fx-border-radius: 4;"
-                        + "-fx-background-radius: 4;"
-                        + "-fx-font-size: 12px;"
-                        + "-fx-padding: 4 10 4 10;"
-                        + "-fx-cursor: hand;");
+        incompleteMarkButton.getStyleClass().add("toggle-button-off");
         HBox row3 = new HBox(5, incompleteMarkButton);
 
-        // Row 4: "Show condition / rarity" toggle — on by default (yellow bg, black text)
+        // Row 4: "Show condition / rarity" toggle — on by default
         showConditionRarityButton = new Button("Show condition / rarity");
-        showConditionRarityButton.setStyle(
-                "-fx-background-color: #cdfc04;"
-                        + "-fx-text-fill: black;"
-                        + "-fx-border-color: #cdfc04;"
-                        + "-fx-border-width: 1;"
-                        + "-fx-border-radius: 4;"
-                        + "-fx-background-radius: 4;"
-                        + "-fx-font-size: 12px;"
-                        + "-fx-padding: 4 10 4 10;"
-                        + "-fx-cursor: hand;");
+        showConditionRarityButton.getStyleClass().add("toggle-button-on");
         HBox row4 = new HBox(5, showConditionRarityButton);
 
         group.getChildren().addAll(row1, row2, row3, row4);
@@ -429,9 +411,9 @@ public class SharedCollectionTab extends HBox {
         Button browseButton = new Button("Browse");
         Button loadButton = new Button("Load");
         Button generateHtmlButton = new Button("Generate HTML");
-        browseButton.getStyleClass().add("small-button");
-        loadButton.getStyleClass().add("small-button");
-        generateHtmlButton.getStyleClass().add("small-button");
+        browseButton.getStyleClass().addAll("small-button", "btn-secondary");
+        loadButton.getStyleClass().addAll("small-button", "btn-secondary");
+        generateHtmlButton.getStyleClass().addAll("small-button", "btn-secondary");
 
         browseButton.setOnAction(e -> {
             Stage stage = (Stage) browseButton.getScene().getWindow();
@@ -466,31 +448,13 @@ public class SharedCollectionTab extends HBox {
 
         // Row 2: "Hide archetypes & exceptions" toggle — off by default (dark bg, yellow border)
         hideArchetypesButton = new Button("Hide archetypes & exceptions");
-        hideArchetypesButton.setStyle(
-                "-fx-background-color: #100317;"
-                        + "-fx-text-fill: #cdfc04;"
-                        + "-fx-border-color: #cdfc04;"
-                        + "-fx-border-width: 1;"
-                        + "-fx-border-radius: 4;"
-                        + "-fx-background-radius: 4;"
-                        + "-fx-font-size: 12px;"
-                        + "-fx-padding: 4 10 4 10;"
-                        + "-fx-cursor: hand;");
+        hideArchetypesButton.getStyleClass().add("toggle-button-off");
         HBox row2 = new HBox(5, hideArchetypesButton);
         row2.setAlignment(Pos.CENTER_LEFT);
 
-        // Row 3: "Show condition / rarity" toggle — on by default (yellow bg, black text)
+        // Row 3: "Show condition / rarity" toggle — on by default
         showConditionRarityButton = new Button("Show condition / rarity");
-        showConditionRarityButton.setStyle(
-                "-fx-background-color: #cdfc04;"
-                        + "-fx-text-fill: black;"
-                        + "-fx-border-color: #cdfc04;"
-                        + "-fx-border-width: 1;"
-                        + "-fx-border-radius: 4;"
-                        + "-fx-background-radius: 4;"
-                        + "-fx-font-size: 12px;"
-                        + "-fx-padding: 4 10 4 10;"
-                        + "-fx-cursor: hand;");
+        showConditionRarityButton.getStyleClass().add("toggle-button-on");
         HBox row3 = new HBox(5, showConditionRarityButton);
         row3.setAlignment(Pos.CENTER_LEFT);
 
@@ -546,9 +510,9 @@ public class SharedCollectionTab extends HBox {
 
         // Row 4: Compact / Detailed mode toggle, Mosaic / List toggle
         compactDetailedButton = new Button("Compact mode");
-        compactDetailedButton.getStyleClass().add("small-button");
+        compactDetailedButton.getStyleClass().addAll("small-button", "btn-secondary");
         mosaicListButton = new Button("Mosaic");
-        mosaicListButton.getStyleClass().add("small-button");
+        mosaicListButton.getStyleClass().addAll("small-button", "btn-secondary");
         mosaicListButton.setVisible(false);
         mosaicListButton.setManaged(false);
 
@@ -574,33 +538,15 @@ public class SharedCollectionTab extends HBox {
         HBox row4 = new HBox(5, compactDetailedButton, mosaicListButton);
         row4.setAlignment(Pos.CENTER_LEFT);
 
-        // Row 5: "Hide owned cards" toggle — off by default (dark bg, yellow border)
+        // Row 5: "Hide owned cards" toggle — off by default
         hideOwnedCardsButton = new Button("Hide owned cards");
-        hideOwnedCardsButton.setStyle(
-                "-fx-background-color: #100317;"
-                        + "-fx-text-fill: #cdfc04;"
-                        + "-fx-border-color: #cdfc04;"
-                        + "-fx-border-width: 1;"
-                        + "-fx-border-radius: 4;"
-                        + "-fx-background-radius: 4;"
-                        + "-fx-font-size: 12px;"
-                        + "-fx-padding: 4 10 4 10;"
-                        + "-fx-cursor: hand;");
+        hideOwnedCardsButton.getStyleClass().add("toggle-button-off");
         HBox row5 = new HBox(5, hideOwnedCardsButton);
         row5.setAlignment(Pos.CENTER_LEFT);
 
-        // Row 6: "Show condition / rarity" toggle — on by default (yellow bg, black text)
+        // Row 6: "Show condition / rarity" toggle — on by default
         showConditionRarityButton = new Button("Show condition / rarity");
-        showConditionRarityButton.setStyle(
-                "-fx-background-color: #cdfc04;"
-                        + "-fx-text-fill: black;"
-                        + "-fx-border-color: #cdfc04;"
-                        + "-fx-border-width: 1;"
-                        + "-fx-border-radius: 4;"
-                        + "-fx-background-radius: 4;"
-                        + "-fx-font-size: 12px;"
-                        + "-fx-padding: 4 10 4 10;"
-                        + "-fx-cursor: hand;");
+        showConditionRarityButton.getStyleClass().add("toggle-button-on");
         HBox row6 = new HBox(5, showConditionRarityButton);
         row6.setAlignment(Pos.CENTER_LEFT);
 
@@ -627,8 +573,8 @@ public class SharedCollectionTab extends HBox {
 
         Button thirdPartyBrowseButton = new Button("Browse");
         Button thirdPartyLoadButton = new Button("Load");
-        thirdPartyBrowseButton.getStyleClass().add("small-button");
-        thirdPartyLoadButton.getStyleClass().add("small-button");
+        thirdPartyBrowseButton.getStyleClass().addAll("small-button", "btn-secondary");
+        thirdPartyLoadButton.getStyleClass().addAll("small-button", "btn-secondary");
 
         thirdPartyBrowseButton.setOnAction(e -> {
             Stage stage = (Stage) thirdPartyBrowseButton.getScene().getWindow();
@@ -660,8 +606,8 @@ public class SharedCollectionTab extends HBox {
 
         Button ouicheListBrowseButton = new Button("Browse");
         Button ouicheListLoadButton = new Button("Load");
-        ouicheListBrowseButton.getStyleClass().add("small-button");
-        ouicheListLoadButton.getStyleClass().add("small-button");
+        ouicheListBrowseButton.getStyleClass().addAll("small-button", "btn-secondary");
+        ouicheListLoadButton.getStyleClass().addAll("small-button", "btn-secondary");
 
         ouicheListBrowseButton.setOnAction(e -> {
             Stage stage = (Stage) ouicheListBrowseButton.getScene().getWindow();
@@ -749,11 +695,11 @@ public class SharedCollectionTab extends HBox {
         maxPriceRow.setAlignment(Pos.CENTER_LEFT);
 
         Button ultraJeuxButton = new Button("UltraJeux");
-        ultraJeuxButton.getStyleClass().add("small-button");
+        ultraJeuxButton.getStyleClass().addAll("small-button", "btn-secondary");
         ultraJeuxButton.setOnAction(e -> runUltraJeuxScrape(maxPriceField));
 
         Button cardMarketButton = new Button("CardMarket");
-        cardMarketButton.getStyleClass().add("small-button");
+        cardMarketButton.getStyleClass().addAll("small-button", "btn-secondary");
 
         ComboBox<Model.CardMarket.CardMarketSeller> cardMarketSellerCombo = new ComboBox<>();
         cardMarketSellerCombo.getItems().addAll(Model.CardMarket.CardMarketSellers.ALL_SELLERS);

@@ -50,8 +50,8 @@ public class AllExistingCardsPane extends VBox {
 
         // Ensure these right-pane buttons use the small-button class so they keep fixed small size
         searchButton.getStyleClass().add("small-button");
-        listMosaicButton.getStyleClass().add("small-button");
-        printedUniqueButton.getStyleClass().add("small-button");
+        listMosaicButton.getStyleClass().addAll("small-button", "btn-secondary");
+        printedUniqueButton.getStyleClass().addAll("small-button", "btn-secondary");
 
         topSection.getChildren().addAll(nameLabel, nameTextField, printcodeLabel, printcodeTextField, searchButton);
 

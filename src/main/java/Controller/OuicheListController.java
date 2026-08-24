@@ -903,31 +903,11 @@ public class OuicheListController {
                 hideOwnedCardsEnabled = nowHiding;
 
                 if (nowHiding) {
-                    // Active state: yellow-green background, black text
                     hideOwnedCardsButton.setText("Show owned cards");
-                    hideOwnedCardsButton.setStyle(
-                            "-fx-background-color: #cdfc04;"
-                                    + "-fx-text-fill: black;"
-                                    + "-fx-border-color: #cdfc04;"
-                                    + "-fx-border-width: 1;"
-                                    + "-fx-border-radius: 4;"
-                                    + "-fx-background-radius: 4;"
-                                    + "-fx-font-size: 12px;"
-                                    + "-fx-padding: 4 10 4 10;"
-                                    + "-fx-cursor: hand;");
+                    hideOwnedCardsButton.getStyleClass().setAll("toggle-button-on");
                 } else {
-                    // Default state: dark background, yellow-green text/border
                     hideOwnedCardsButton.setText("Hide owned cards");
-                    hideOwnedCardsButton.setStyle(
-                            "-fx-background-color: #100317;"
-                                    + "-fx-text-fill: #cdfc04;"
-                                    + "-fx-border-color: #cdfc04;"
-                                    + "-fx-border-width: 1;"
-                                    + "-fx-border-radius: 4;"
-                                    + "-fx-background-radius: 4;"
-                                    + "-fx-font-size: 12px;"
-                                    + "-fx-padding: 4 10 4 10;"
-                                    + "-fx-cursor: hand;");
+                    hideOwnedCardsButton.getStyleClass().setAll("toggle-button-off");
                 }
 
                 // Refresh whichever view is currently showing.

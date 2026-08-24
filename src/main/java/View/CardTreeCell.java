@@ -309,38 +309,18 @@ public class CardTreeCell extends TreeCell<String> {
      */
     private static Button makeInlineActionButton(String text) {
         Button btn = new Button(text);
-        btn.setStyle(
-                "-fx-background-color: transparent;" +
-                        "-fx-text-fill: #cdfc04;" +
-                        "-fx-border-color: #cdfc04;" +
-                        "-fx-border-width: 1;" +
-                        "-fx-border-radius: 4;" +
-                        "-fx-background-radius: 4;" +
-                        "-fx-font-size: 11px;" +
-                        "-fx-padding: 2 6 2 6;" +
-                        "-fx-cursor: hand;"
-        );
+        btn.getStyleClass().addAll("inline-action-button", "btn-secondary");
         return btn;
     }
 
     /**
-     * Same shape as {@link #makeInlineActionButton}, styled red for destructive
-     * actions (e.g. "Clear") — matches the red trash-can styling used by
-     * {@link NavigationContextMenuBuilder#makeRemoveItem()} in contextual menus.
+     * Same shape as {@link #makeInlineActionButton}, styled for destructive actions
+     * (e.g. "Clear") — the same tertiary/destructive accent used everywhere else
+     * (disable, cancel), rather than the separate hardcoded red this used to have.
      */
     private static Button makeInlineDestructiveActionButton(String text) {
         Button btn = new Button(text);
-        btn.setStyle(
-                "-fx-background-color: transparent;" +
-                        "-fx-text-fill: #ff4d4d;" +
-                        "-fx-border-color: #ff4d4d;" +
-                        "-fx-border-width: 1;" +
-                        "-fx-border-radius: 4;" +
-                        "-fx-background-radius: 4;" +
-                        "-fx-font-size: 11px;" +
-                        "-fx-padding: 2 6 2 6;" +
-                        "-fx-cursor: hand;"
-        );
+        btn.getStyleClass().addAll("inline-action-button", "btn-tertiary");
         return btn;
     }
 
