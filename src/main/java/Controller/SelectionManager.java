@@ -223,6 +223,45 @@ public class SelectionManager {
     }
 
     /**
+     * Replaces the MIDDLE-pane selection with exactly {@code elements}, in a single
+     * atomic update (one change notification), independent of how many elements are
+     * passed. Intended for operations that programmatically move the selection onto
+     * a freshly produced set of elements — e.g. moving the selection onto the
+     * duplicates created by "+1" — rather than for user click handling, which should
+     * keep using {@link #selectElement}, {@link #toggleElementSelection}, or
+     * {@link #rangeSelectElements}.
+     * <p>
+     * Passing {@code null} or an empty collection clears the selection instead.
+     * </p>
+     *
+     * @param elements the elements to select; {@code null} entries are ignored;
+     *                 the last non-null element becomes the last-selected element
+     *                 and the range anchor for a following Shift+click
+     */
+    public static void selectElements(Collection<CardElement> elements) {
+        if (elements == null || elements.isEmpty()) {
+            selectElement(null);
+            return;
+        }
+        if ("MIDDLE".equals(activePart) && !selectedMiddleElements.isEmpty()) {
+            lastMiddleSelectedCard = getLastCardInElementSet(selectedMiddleElements);
+        }
+        selectedMiddleElements.clear();
+        selectedRightCards.clear();
+        CardElement lastElement = null;
+        for (CardElement element : elements) {
+            if (element != null) {
+                selectedMiddleElements.add(element);
+                lastElement = element;
+            }
+        }
+        activePart = lastElement != null ? "MIDDLE" : null;
+        lastMiddleElement = lastElement;
+        rangeAnchorMiddleElement = lastElement;
+        notifySelectionChanged();
+    }
+
+    /**
      * Performs a Ctrl+click toggle in the MIDDLE pane.
      * <p>
      * If the element is already selected it is deselected; otherwise it is added
