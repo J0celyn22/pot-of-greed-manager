@@ -573,10 +573,16 @@ public final class CardGroupRegistry {
     /**
      * Refreshes only the live {@link GridView}s registered for {@code groups} directly, with
      * no owner-key resolution step. Scoped counterpart to {@link #refreshAllGridViews()} for
-     * callers that already know exactly which {@link CardsGroup}s need refreshing — currently
-     * the MIDDLE-pane selection-change listener in {@code RealMainController}, which only needs
-     * to refresh the group(s) whose selection highlight actually changed instead of sweeping
-     * every registered grid on every click.
+     * callers that already know exactly which {@link CardsGroup}s need refreshing.
+     *
+     * <p><b>Step 5 note (reactive-selection-highlight plan):</b> this method's original and
+     * only caller — the MIDDLE-pane selection-change listener in {@code RealMainController},
+     * which used it to refresh just the group(s) whose selection highlight changed — was
+     * removed in Step 3 once Step 2's per-cell {@link SelectionHighlightRegistry} binding made
+     * that sweep redundant. It currently has no callers anywhere in the codebase. Retained
+     * (rather than deleted) as a documented, deliberate fallback: a scoped, non-selection sweep
+     * for any future caller that knows exactly which groups need refreshing without wanting to
+     * pay for {@link #refreshAllGridViews()}'s whole-registry cost.
      *
      * <p>No-ops when {@code groups} is {@code null} or empty.
      *

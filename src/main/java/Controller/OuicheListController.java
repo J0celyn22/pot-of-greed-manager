@@ -259,6 +259,8 @@ public class OuicheListController {
         }
 
         ouicheListTreeView.refresh();
+        // Content-driven, per this method's own javadoc above — Step 4 audit,
+        // reactive-selection-highlight plan. Left as-is.
         CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[refreshOuicheListContentInPlace]");
     }
 
