@@ -734,33 +734,13 @@ class CardGridCell extends GridCell<CardElement> {
 
         subscribeToSelectionHighlight(cardElement);
 
-        // Camera scanner Unit 10: a single card addition's observableList.add() call was
-        // measured taking 600-900ms even though only one CardElement was inserted. That cost
-        // sits entirely inside this synchronous call, before any of the app's own refresh code
-        // runs, so it must come from GridView's own built-in reaction to the list mutation. This
-        // instrumentation tags every updateItem invocation with the card it's rendering so a
-        // single add can be checked for how many cells actually get touched, and where their
-        // time goes. Temporary diagnostic aid, per Utils.PerfLog's own documented lifecycle.
-        long cellUpdateStartNanos = Utils.PerfLog.start();
-        String cardLabel = cardElement.getCard() == null
-                ? "unknown"
-                : cardElement.getCard().getNameOrNumber();
-
         // --- Image loading (unchanged logic) ---
-        long imageLoadStartNanos = Utils.PerfLog.start();
         outer.imageLoader.loadCardImage(cardElement, cardImageView);
-        Utils.PerfLog.stage(logger, "CardGridCell.updateItem: image load (" + cardLabel + ")",
-                imageLoadStartNanos);
 
-        long glowComputeStartNanos = Utils.PerfLog.start();
         GlowComputationResult glowResult = computeGlowAndTooltips(cardElement);
-        Utils.PerfLog.stage(logger, "CardGridCell.updateItem: computeGlowAndTooltips (" + cardLabel + ")",
-                glowComputeStartNanos);
         applyGlowEffect(glowResult.glowPriority());
 
         if (applyOuicheGrayscaleOrSuppress(cardElement)) {
-            Utils.PerfLog.stage(logger, "CardGridCell.updateItem: total, suppressed (" + cardLabel + ")",
-                    cellUpdateStartNanos);
             return;
         }
 
@@ -774,14 +754,10 @@ class CardGridCell extends GridCell<CardElement> {
         currentGlowPriority = glowResult.glowPriority();
         currentTooltips = glowResult.tooltips();
 
-        long badgesStartNanos = Utils.PerfLog.start();
         applyConditionRarityBadges(cardElement);
-        Utils.PerfLog.stage(logger, "CardGridCell.updateItem: applyConditionRarityBadges (" + cardLabel + ")",
-                badgesStartNanos);
 
         // Finalize graphic
         setGraphic(wrapper);
-        Utils.PerfLog.stage(logger, "CardGridCell.updateItem: total (" + cardLabel + ")", cellUpdateStartNanos);
     }
 
     /**
