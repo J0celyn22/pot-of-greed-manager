@@ -438,9 +438,15 @@ public class RealMainController {
 
         // ── 14. Selection-change listener (keeps all trees in sync) ──────────
         SelectionManager.addSelectionChangeListener(() -> Platform.runLater(() -> {
-            if (myCollectionTreeView != null) {
-                myCollectionTreeView.refresh();
-            }
+            // myCollectionTreeView is deliberately NOT refreshed here (perf pass, see
+            // refreshFromModel()'s javadoc for the sibling fix this pairs with):
+            // CardTreeCell — myCollectionTreeView's cell factory — never reads
+            // SelectionManager anywhere in its rendering, so this refresh had no visual
+            // effect for that tree. It was previously the third of three
+            // myCollectionTreeView.refresh() calls firing on every single card add (each
+            // one able to force a full GridView-content rebuild for the visible group —
+            // see CardTreeCell.createCardsGroupCell's rebuild-counter log), for zero
+            // benefit here.
             if (decksAndCollectionsTreeView != null) {
                 decksAndCollectionsTreeView.refresh();
             }
@@ -1223,7 +1229,8 @@ public class RealMainController {
     // =========================================================================
 
     /**
-     * Generic owned-collection refresh: re-renders the four main tree views in place.
+     * Generic owned-collection refresh: re-renders the Decks &amp; Collections,
+     * OuicheList, and Archetypes tree views in place.
      *
      * <p>Registered via {@code registerOwnedCollectionRefresher} alongside
      * {@link MyCollectionController}'s own dedicated refresher, so this runs on every
@@ -1231,15 +1238,25 @@ public class RealMainController {
      * here, but that duplicated the grid-highlight refresh {@link MyCollectionController}'s
      * refresher already does in a scoped way, and was the second of two full unscoped sweeps
      * firing on every scanner add (Unit 10 latency fix; see the selection-change listener in
-     * {@link #initialize()} for the first). Only the cheap tree-level refresh remains here.
+     * {@link #initialize()} for the first).
+     *
+     * <p><b>{@code myCollectionTreeView} is deliberately NOT refreshed here</b> (perf pass
+     * following the Unit 10 fix above): {@code registerOwnedCollectionRefresher} runs every
+     * registered refresher in registration order on the very same call, and
+     * {@link MyCollectionController}'s refresher — registered first, so it always runs
+     * immediately before this one, synchronously, with no state change in between — already
+     * calls {@code myCollectionTreeView.refresh()} itself once it knows exactly which group
+     * changed. Calling {@code .refresh()} on the same tree a second time here was pure
+     * duplication: each call can force {@code CardTreeCell} to fully rebuild the visible
+     * group's GridView content (see {@code createCardsGroupCell}'s rebuild-counter log) even
+     * though nothing changed between the two calls, doubling that rebuild cost on every single
+     * card add. The other three tree views have no such dedicated refresher and still need the
+     * blanket refresh here.
      */
     public void refreshFromModel() {
         if (!Platform.isFxApplicationThread()) {
             Platform.runLater(this::refreshFromModel);
             return;
-        }
-        if (myCollectionTreeView != null) {
-            myCollectionTreeView.refresh();
         }
         if (decksAndCollectionsTreeView != null) {
             decksAndCollectionsTreeView.refresh();
