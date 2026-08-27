@@ -76,9 +76,12 @@ public final class MyCollectionNavigationPopulator {
                     && MyCollectionQualityChecks.boxHasIncompleteCards(box)) {
                 boxHasUnsorted = true;
                 boxInitMsg = "This box contains cards with no condition or rarity set.";
-            } else {
+            } else if (CardTreeCell.isUnsortedMarkingEnabled()) {
                 boxHasUnsorted = MyCollectionQualityChecks.boxHasUnsortedCards(box, boxName);
                 boxInitMsg = "This box contains unsorted cards.";
+            } else {
+                boxHasUnsorted = false;
+                boxInitMsg = "";
             }
             NavigationHelper.applyNavigationItemHighlight(boxItem, boxHasUnsorted, boxInitMsg);
 
@@ -121,9 +124,12 @@ public final class MyCollectionNavigationPopulator {
                             && MyCollectionQualityChecks.groupHasIncompleteCards(group)) {
                         groupHasUnsorted = true;
                         groupMsg = "This category contains cards with no condition or rarity set.";
-                    } else {
+                    } else if (CardTreeCell.isUnsortedMarkingEnabled()) {
                         groupHasUnsorted = MyCollectionQualityChecks.groupHasUnsortedCards(group, groupName);
                         groupMsg = "This category contains unsorted cards.";
+                    } else {
+                        groupHasUnsorted = false;
+                        groupMsg = "";
                     }
                     NavigationHelper.applyNavigationItemHighlight(groupItem, groupHasUnsorted, groupMsg);
                     if (groupHasUnsorted && !boxHasUnsorted) {
@@ -171,9 +177,12 @@ public final class MyCollectionNavigationPopulator {
                             && MyCollectionQualityChecks.boxHasIncompleteCards(subBox)) {
                         subBoxHasUnsorted = true;
                         subBoxMsg = "This box contains cards with no condition or rarity set.";
-                    } else {
+                    } else if (CardTreeCell.isUnsortedMarkingEnabled()) {
                         subBoxHasUnsorted = MyCollectionQualityChecks.boxHasUnsortedCards(subBox, subBoxName);
                         subBoxMsg = "This box contains unsorted cards.";
+                    } else {
+                        subBoxHasUnsorted = false;
+                        subBoxMsg = "";
                     }
                     NavigationHelper.applyNavigationItemHighlight(subBoxItem, subBoxHasUnsorted,
                             subBoxMsg);
@@ -225,10 +234,13 @@ public final class MyCollectionNavigationPopulator {
                                 groupHasUnsorted = true;
                                 groupMsg =
                                         "This category contains cards with no condition or rarity set.";
-                            } else {
+                            } else if (CardTreeCell.isUnsortedMarkingEnabled()) {
                                 groupHasUnsorted =
                                         MyCollectionQualityChecks.groupHasUnsortedCards(group, groupName);
                                 groupMsg = "This category contains unsorted cards.";
+                            } else {
+                                groupHasUnsorted = false;
+                                groupMsg = "";
                             }
                             NavigationHelper.applyNavigationItemHighlight(groupItem,
                                     groupHasUnsorted, groupMsg);
@@ -372,6 +384,9 @@ public final class MyCollectionNavigationPopulator {
             return new HighlightResult(
                     true, "This category contains cards with no condition or rarity set.");
         }
+        if (!CardTreeCell.isUnsortedMarkingEnabled()) {
+            return new HighlightResult(false, "");
+        }
         boolean unsorted = MyCollectionQualityChecks.groupHasUnsortedCards(group, groupName);
         return new HighlightResult(unsorted, "This category contains unsorted cards.");
     }
@@ -390,6 +405,9 @@ public final class MyCollectionNavigationPopulator {
                 && MyCollectionQualityChecks.boxHasIncompleteCards(box)) {
             return new HighlightResult(
                     true, "This box contains cards with no condition or rarity set.");
+        }
+        if (!CardTreeCell.isUnsortedMarkingEnabled()) {
+            return new HighlightResult(false, "");
         }
         boolean unsorted = MyCollectionQualityChecks.boxHasUnsortedCards(box, boxName);
         return new HighlightResult(unsorted, "This box contains unsorted cards.");

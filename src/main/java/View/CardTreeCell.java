@@ -51,6 +51,14 @@ public class CardTreeCell extends TreeCell<String> {
     static volatile boolean incompleteMarkingEnabled = true;
 
     /**
+     * When {@code true}, boxes/categories containing unsorted cards are
+     * highlighted in the My Collection navigation menu, and individual cards
+     * that need sorting (or a better copy elsewhere) glow white in the grid
+     * view. Toggled by the "Mark unsorted cards" button in the header.
+     */
+    static volatile boolean unsortedMarkingEnabled = true;
+
+    /**
      * When {@code true}, the condition/rarity overlay is rendered on cards
      * in the grid views. Toggled by the "Show condition/rarity" button in the header.
      */
@@ -216,6 +224,20 @@ public class CardTreeCell extends TreeCell<String> {
      */
     public static void setIncompleteMarkingEnabled(boolean enabled) {
         incompleteMarkingEnabled = enabled;
+    }
+
+    /**
+     * Returns whether the unsorted-card marking overlay is currently active.
+     */
+    public static boolean isUnsortedMarkingEnabled() {
+        return unsortedMarkingEnabled;
+    }
+
+    /**
+     * Enables or disables the unsorted-card marking overlay for My Collection.
+     */
+    public static void setUnsortedMarkingEnabled(boolean enabled) {
+        unsortedMarkingEnabled = enabled;
     }
     /**
      * Returns whether the condition/rarity overlay is currently active.

@@ -37,7 +37,8 @@ import java.util.stream.Collectors;
  *   <li>Shared state: card-size properties, the shared right panel (filter + card display),
  *       sort toggle buttons, view-mode flags ({@code isMosaicMode}, {@code isPrintedMode}).</li>
  *   <li>Tab-switch listener that delegates to the four sub-controllers.</li>
- *   <li>View toggle buttons (incomplete-mark, hide-archetypes, condition/rarity overlay).</li>
+ *   <li>View toggle buttons (incomplete-mark, unsorted-mark, hide-archetypes,
+ *       condition/rarity overlay).</li>
  *   <li>Coordinator-level helpers used by all sub-controllers:
  *       {@link #buildMiddlePaneEmptySpaceFilter()},
  *       {@link #doCardPasteOnNavItem}, {@link #updateTabDirtyIndicators()}, etc.</li>
@@ -986,7 +987,8 @@ public class RealMainController {
     }
 
     // =========================================================================
-    // View toggle buttons (incomplete-mark, hide-archetypes, condition/rarity)
+    // View toggle buttons (incomplete-mark, unsorted-mark, hide-archetypes,
+    // condition/rarity)
     // =========================================================================
 
     private void wireViewToggleButtons() {
@@ -1031,6 +1033,51 @@ public class RealMainController {
                     // reads via outer.incompleteMarkingEnabled, not a selection change) —
                     // Step 4 audit, reactive-selection-highlight plan. Left as-is.
                     CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[incompleteMarkToggle]");
+                }
+            });
+        }
+
+        if (myCollectionTab.getUnsortedMarkButton() != null) {
+            Button unsortedMarkButton = myCollectionTab.getUnsortedMarkButton();
+            final String unsortedMarkButtonOnStyle =
+                    "-fx-background-color: #cdfc04;" +
+                            "-fx-text-fill: black;" +
+                            "-fx-border-color: #cdfc04;" +
+                            "-fx-border-width: 1;" +
+                            "-fx-border-radius: 4;" +
+                            "-fx-background-radius: 4;" +
+                            "-fx-font-size: 12px;" +
+                            "-fx-padding: 4 10 4 10;" +
+                            "-fx-cursor: hand;";
+            final String unsortedMarkButtonOffStyle =
+                    "-fx-background-color: #100317;" +
+                            "-fx-text-fill: #cdfc04;" +
+                            "-fx-border-color: #cdfc04;" +
+                            "-fx-border-width: 1;" +
+                            "-fx-border-radius: 4;" +
+                            "-fx-background-radius: 4;" +
+                            "-fx-font-size: 12px;" +
+                            "-fx-padding: 4 10 4 10;" +
+                            "-fx-cursor: hand;";
+            unsortedMarkButton.setStyle(unsortedMarkButtonOnStyle);
+            unsortedMarkButton.setOnAction(event -> {
+                boolean nowEnabled = !CardTreeCell.isUnsortedMarkingEnabled();
+                CardTreeCell.setUnsortedMarkingEnabled(nowEnabled);
+                unsortedMarkButton.setStyle(
+                        nowEnabled ? unsortedMarkButtonOnStyle : unsortedMarkButtonOffStyle);
+                try {
+                    myCollectionController.populateMyCollectionMenu();
+                } catch (Exception exception) {
+                    logger.error(
+                            "Error refreshing My Collection menu after unsorted-mark toggle",
+                            exception);
+                }
+                if (myCollectionTreeView != null) {
+                    myCollectionTreeView.refresh();
+                    // Content-driven (toggles the unsorted-marking glow flag every cell
+                    // reads via outer.unsortedMarkingEnabled, not a selection change),
+                    // mirroring the incomplete-mark toggle above.
+                    CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[unsortedMarkToggle]");
                 }
             });
         }

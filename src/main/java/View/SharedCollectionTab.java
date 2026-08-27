@@ -235,6 +235,11 @@ public class SharedCollectionTab extends HBox {
     private Button hideOwnedCardsButton;
     private Button incompleteMarkButton;
     /**
+     * Toggle button that marks unsorted cards (nav highlighting and the per-card
+     * needs-sorting glow) on or off in the My Collection tab.
+     */
+    private Button unsortedMarkButton;
+    /**
      * Toggle button that hides / shows Archetypes and Exceptions sections in the Decks tab.
      */
     private Button hideArchetypesButton;
@@ -246,6 +251,10 @@ public class SharedCollectionTab extends HBox {
 
     public Button getIncompleteMarkButton() {
         return incompleteMarkButton;
+    }
+
+    public Button getUnsortedMarkButton() {
+        return unsortedMarkButton;
     }
 
     public Button getShowConditionRarityButton() {
@@ -324,7 +333,8 @@ public class SharedCollectionTab extends HBox {
 
     /**
      * Builds the My Collection tab header: Browse/Load/Generate HTML buttons,
-     * Save button, and the "Mark incomplete cards" and "Show condition / rarity" toggles.
+     * Save button, and the "Mark incomplete cards", "Mark unsorted cards", and
+     * "Show condition / rarity" toggles.
      */
     private VBox buildMyCollectionHeader() {
         VBox group = new VBox(8);
@@ -391,7 +401,21 @@ public class SharedCollectionTab extends HBox {
                         + "-fx-font-size: 12px;"
                         + "-fx-padding: 4 10 4 10;"
                         + "-fx-cursor: hand;");
-        HBox row3 = new HBox(5, incompleteMarkButton);
+        // "Mark unsorted cards" toggle — on by default (yellow bg, black text),
+        // matching the unsortedMarkingEnabled default of true.
+        unsortedMarkButton = new Button("Mark unsorted cards");
+        unsortedMarkButton.setStyle(
+                "-fx-background-color: #cdfc04;"
+                        + "-fx-text-fill: black;"
+                        + "-fx-border-color: #cdfc04;"
+                        + "-fx-border-width: 1;"
+                        + "-fx-border-radius: 4;"
+                        + "-fx-background-radius: 4;"
+                        + "-fx-font-size: 12px;"
+                        + "-fx-padding: 4 10 4 10;"
+                        + "-fx-cursor: hand;");
+
+        HBox row3 = new HBox(5, incompleteMarkButton, unsortedMarkButton);
 
         // Row 4: "Show condition / rarity" toggle — on by default (yellow bg, black text)
         showConditionRarityButton = new Button("Show condition / rarity");
