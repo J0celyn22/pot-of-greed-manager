@@ -49,13 +49,13 @@ public final class SelectionHighlightRegistry {
     /**
      * Returns how many elements currently have a registered property.
      * <p>
-     * Exposed only for regression/leak checks (Step 5 of the reactive-selection plan) — not
-     * used by any production code path.
+     * Originally exposed only for regression/leak checks (Step 5 of the reactive-selection
+     * plan); now also read by {@link CardScannerCoordinator}'s periodic memory-diagnostics log.
      * </p>
      *
      * @return the current number of tracked entries
      */
-    static synchronized int trackedElementCount() {
+    public static synchronized int trackedElementCount() {
         return selectedProperties.size();
     }
 }

@@ -90,4 +90,12 @@ public class LruImageCache {
     public static synchronized void clearCache() {
         imageCache.clear();
     }
+
+    /**
+     * @return the current number of cached entries (diagnostic use — see {@code CardScannerCoordinator}'s
+     * periodic memory-diagnostics log).
+     */
+    public static synchronized int size() {
+        return imageCache.size();
+    }
 }

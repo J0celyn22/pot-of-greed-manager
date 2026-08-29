@@ -148,6 +148,14 @@ public final class CardImageLoader {
     }
 
     /**
+     * @return the current number of entries in {@link #imagePathCache} (diagnostic use — see
+     * {@code Controller.CardScannerCoordinator}'s periodic memory-diagnostics log).
+     */
+    public static int pathCacheSize() {
+        return imagePathCache.size();
+    }
+
+    /**
      * Loads the image for {@code cardElement} into {@code imageView}, going
      * through the path cache and LRU image cache before hitting disk.
      *

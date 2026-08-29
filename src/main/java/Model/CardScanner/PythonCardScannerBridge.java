@@ -470,6 +470,15 @@ public class PythonCardScannerBridge implements AutoCloseable {
         closeQuietly(processOutput);
     }
 
+    /**
+     * @return how many preview frames have been delivered to {@link #frameListener} so far this
+     * session (diagnostic use — see {@code Controller.CardScannerCoordinator}'s periodic
+     * memory-diagnostics log).
+     */
+    public long getDeliveredFrameCount() {
+        return deliveredFrameCount.get();
+    }
+
     private void closeQuietly(Closeable closeable) {
         try {
             closeable.close();

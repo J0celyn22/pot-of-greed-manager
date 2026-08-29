@@ -105,6 +105,13 @@ public class CardScannerCoordinator {
     private static final long MATCH_PAUSE_AFTER_LOCK_MILLIS = 1000;
 
     /**
+     * How often {@link #memoryDiagnosticsTimer} logs a snapshot while the scanner is open. 15s
+     * is frequent enough to catch a leak within a normal scan session without flooding the log
+     * the way logging every frame would.
+     */
+    private static final long MEMORY_DIAGNOSTICS_INTERVAL_MILLIS = 15_000;
+
+    /**
      * Which tabs the camera button is even clickable on. My Collection, Decks and Collections,
      * and OuicheList — matching (and, for OuicheList, extending) the tabs
      * {@code KeyboardShortcutHandler}'s numpad/enter quick-add already supports. Archetypes
@@ -158,6 +165,15 @@ public class CardScannerCoordinator {
      * currently running" without extra state.
      */
     private PythonCardScannerBridge activeCardScannerBridge;
+    /**
+     * Periodic memory-diagnostics logger, running only while a scanner session is open (started
+     * in {@link #startCardScanner()}, cancelled in {@link #stopCardScanner()}). A stand-in for a
+     * real heap dump: a paid profiler isn't available in J0celyn's environment, so this logs the
+     * size of every cache/registry a leak was plausible in — see this class's own log line for
+     * the full list — every {@link #MEMORY_DIAGNOSTICS_INTERVAL_MILLIS} while scanning, so a
+     * real session's log shows which one (if any) actually grows unbounded.
+     */
+    private Timer memoryDiagnosticsTimer;
     /**
      * Reassigned fresh in {@link #startCardScanner()} on every open, not reused across sessions
      * — a card still in frame when one session ends must not suppress the very next session's
@@ -351,6 +367,7 @@ public class CardScannerCoordinator {
                 this::handleDetectionEvent);
         try {
             activeCardScannerBridge.start(selectedCameraIndex);
+            startMemoryDiagnosticsTimer();
         } catch (IOException startupIoException) {
             logger.error("Could not start the Python card-scanner bridge \u2014 check that Python is on "
                             + "PATH with the packages in python/requirements.txt installed, and that "
@@ -363,6 +380,48 @@ public class CardScannerCoordinator {
     }
 
     /**
+     * Starts {@link #memoryDiagnosticsTimer}, logging one {@code [MEM-DIAG]} line every
+     * {@link #MEMORY_DIAGNOSTICS_INTERVAL_MILLIS} for as long as the scanner stays open. See
+     * {@link #memoryDiagnosticsTimer}'s own comment for why this exists. Reads
+     * {@link #activeCardScannerBridge} fresh on every tick (via the enclosing instance) rather
+     * than capturing it, so a session restart (camera re-selected) picks up the new bridge
+     * without restarting this timer.
+     */
+    private void startMemoryDiagnosticsTimer() {
+        stopMemoryDiagnosticsTimer();
+        memoryDiagnosticsTimer = new Timer("card-scanner-memory-diagnostics", true);
+        memoryDiagnosticsTimer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                PythonCardScannerBridge bridge = activeCardScannerBridge;
+                Runtime runtime = Runtime.getRuntime();
+                long heapUsedMegabytes = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024);
+                long heapMaxMegabytes = runtime.maxMemory() / (1024 * 1024);
+                logger.info("[MEM-DIAG] heap {} MB / {} MB max | LruImageCache {} entries | "
+                                + "CardImageLoader path cache {} entries | "
+                                + "SelectionHighlightRegistry {} tracked elements | "
+                                + "frames delivered this session: {}",
+                        heapUsedMegabytes, heapMaxMegabytes,
+                        Utils.LruImageCache.size(),
+                        View.CardImageLoader.pathCacheSize(),
+                        SelectionHighlightRegistry.trackedElementCount(),
+                        bridge == null ? "n/a" : bridge.getDeliveredFrameCount());
+            }
+        }, MEMORY_DIAGNOSTICS_INTERVAL_MILLIS, MEMORY_DIAGNOSTICS_INTERVAL_MILLIS);
+    }
+
+    /**
+     * Stops {@link #memoryDiagnosticsTimer} if running. Safe to call even when it isn't (e.g.
+     * {@link #stopCardScanner}'s early-return path for a scanner that was never started).
+     */
+    private void stopMemoryDiagnosticsTimer() {
+        if (memoryDiagnosticsTimer != null) {
+            memoryDiagnosticsTimer.cancel();
+            memoryDiagnosticsTimer = null;
+        }
+    }
+
+    /**
      * Stops whichever {@link PythonCardScannerBridge} subprocess is currently running, if any.
      * No-op if the scanner wasn't open (e.g. a tab switch that happened while the ordinary
      * filters view was already showing). The actual shutdown wait runs on a background thread,
@@ -371,6 +430,7 @@ public class CardScannerCoordinator {
      * UI for that long every time the scanner pane closes.
      */
     private void stopCardScanner() {
+        stopMemoryDiagnosticsTimer();
         if (activeCardScannerBridge == null) {
             return;
         }
