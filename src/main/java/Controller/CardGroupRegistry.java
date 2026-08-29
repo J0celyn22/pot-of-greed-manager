@@ -787,6 +787,52 @@ public final class CardGroupRegistry {
     }
 
     /**
+     * Inserts {@code element} into {@code targetList} at {@code position}, tolerating a {@code
+     * targetList} that has shrunk out from under the caller's index bookkeeping between when
+     * {@code position} was computed and when this call actually runs (observed in the wild as an
+     * {@link IndexOutOfBoundsException} thrown from inside {@link #insertIntoGroupTrackingSources}'s
+     * insertion loops -- see that method's Javadoc). Rather than letting that exception propagate
+     * uncaught out of a drag-and-drop event handler -- which aborts the insertion loop partway and,
+     * because MOVE semantics already removed the element from its source group before this call,
+     * permanently drops the card from the model -- this re-clamps against a freshly read {@code
+     * targetList.size()} and retries once, then falls back to a plain append (always in range) if
+     * the retry still fails. The card is never silently lost; at worst it lands at the wrong index.
+     */
+    private static void safeInsert(ObservableList<CardElement> targetList, int position, CardElement element) {
+        int freshlyClampedPosition = Math.max(0, Math.min(position, targetList.size()));
+        try {
+            targetList.add(freshlyClampedPosition, element);
+            return;
+        } catch (IndexOutOfBoundsException firstFailure) {
+            logger.warn(
+                    "safeInsert: add(index={}, size-at-computation={}) failed (list now size={}),"
+                            + " retrying with a fresh clamp",
+                    freshlyClampedPosition,
+                    position,
+                    targetList.size(),
+                    firstFailure);
+        }
+        try {
+            int reclampedPosition = Math.max(0, Math.min(freshlyClampedPosition, targetList.size()));
+            targetList.add(reclampedPosition, element);
+            return;
+        } catch (IndexOutOfBoundsException secondFailure) {
+            logger.warn(
+                    "safeInsert: retry also failed (list now size={}), appending at the end instead"
+                            + " so the card is not dropped",
+                    targetList.size(),
+                    secondFailure);
+        }
+        try {
+            targetList.add(element);
+        } catch (RuntimeException lastResortFailure) {
+            logger.error(
+                    "safeInsert: append-at-end fallback also failed -- card may be lost", lastResortFailure);
+            throw lastResortFailure;
+        }
+    }
+
+    /**
      * Inserts {@code elementsToInsert} (MOVE semantics) or {@code cardsToInsert} (ADD semantics,
      * mutually exclusive with {@code elementsToInsert}) into {@code group} at {@code
      * insertionIndex}, removing MOVE elements from their current groups first. Shared by both the
@@ -851,7 +897,7 @@ public final class CardGroupRegistry {
             clampedIndex = Math.min(clampedIndex, targetList.size());
             for (int elementIndex = 0; elementIndex < elementsToInsert.size(); elementIndex++) {
                 int insertPosition = Math.min(clampedIndex + elementIndex, targetList.size());
-                targetList.add(insertPosition, elementsToInsert.get(elementIndex));
+                safeInsert(targetList, insertPosition, elementsToInsert.get(elementIndex));
             }
         } else if (cardsToInsert != null && !cardsToInsert.isEmpty()) {
             // ADD: create new CardElement wrappers.
@@ -864,7 +910,7 @@ public final class CardGroupRegistry {
                 }
                 int insertPosition = Math.min(clampedIndex + cardIndex, targetList.size());
                 CardElement newElement = new CardElement(card);
-                targetList.add(insertPosition, newElement);
+                safeInsert(targetList, insertPosition, newElement);
                 newlyAddedElements.add(newElement);
             }
             notifyOuicheListOfGroupAdditions(group, newlyAddedElements);
