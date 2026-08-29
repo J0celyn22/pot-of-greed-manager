@@ -106,7 +106,7 @@ public final class NavigationHelper {
         if (item == null) {
             return null;
         }
-        logger.debug("findNavItemByUserDataInItem: checking '{}' userData={}",
+        logger.trace("findNavItemByUserDataInItem: checking '{}' userData={}",
                 item.getLabel() != null ? item.getLabel().getText() : "?",
                 describeUserData(item.getUserData()));
         if (item.getUserData() == target) {

@@ -17,7 +17,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 /**
@@ -80,39 +80,41 @@ public class PythonCardScannerBridge implements AutoCloseable {
      */
     private static final int CAMERA_PROBE_WAIT_SECONDS = 15;
 
+    /**
+     * How often a delivered preview frame's FX-thread queue lag and JVM heap usage get logged —
+     * every Nth delivery rather than every one, so a 12fps preview session doesn't spam the log.
+     * Diagnostic aid for confirming {@link #deliverFrameToPreview} actually keeps the FX thread
+     * caught up over a long camera-scan session; see this class's own javadoc.
+     */
+    private static final int FRAME_LAG_LOG_SAMPLE_INTERVAL = 24;
+
     private final Consumer<Image> frameListener;
     private final Consumer<String> errorMessageListener;
     private final Consumer<List<String>> detectionListener;
+
+    /**
+     * Guards preview-frame backpressure: {@link #handleFrameEvent} only decodes and schedules a
+     * new frame when this is {@code false} (no undelivered frame currently in flight), and
+     * {@link #deliverFrameToPreview} clears it once the FX thread has actually consumed that
+     * frame. A frame event that arrives while this is {@code true} is dropped before its JPEG
+     * bytes are even decoded — not decoded-then-discarded — so a temporarily-busy FX thread
+     * reduces the sidecar's fixed frame rate down to the FX thread's own consumption rate rather
+     * than piling up either undelivered {@link Image}s or the decode work that produces them.
+     * See {@link #handleErrorEvent} for the same guard applied to error events, which can arrive
+     * in an unthrottled burst if the sidecar's own capture loop starts failing rapidly (e.g. the
+     * webcam disconnecting).
+     */
+    private final AtomicBoolean frameDeliveryPending = new AtomicBoolean(false);
+
+    private final AtomicBoolean errorDeliveryPending = new AtomicBoolean(false);
+
+    private final AtomicLong deliveredFrameCount = new AtomicLong(0);
 
     private Process process;
     private BufferedWriter processInput;
     private BufferedReader processOutput;
     private Thread stderrDrainThread;
     private Thread stdoutReaderThread;
-
-    /**
-     * The most recently decoded preview frame not yet delivered to {@link #frameListener}, or
-     * {@code null} once delivered. Written by every {@link #handleFrameEvent} call on the
-     * {@link #stdoutReaderThread}; read and cleared by the single pending {@link Platform#runLater}
-     * callback on the JavaFX application thread — see {@link #frameDeliveryScheduled} for how the
-     * two stay coalesced into at most one pending delivery.
-     */
-    private final AtomicReference<Image> pendingFrame = new AtomicReference<>();
-
-    /**
-     * Whether a {@link Platform#runLater} call to drain {@link #pendingFrame} is currently
-     * queued. {@code card_scanner_bridge.py} pushes frames on its own schedule (12/s by default),
-     * regardless of whether the JavaFX application thread is keeping up — without this, every
-     * single decoded frame got its own {@code runLater} call, so the moment the FX thread fell
-     * even briefly behind (e.g. handling a card-add's view refresh), frames queued up faster than
-     * they drained: a growing backlog of already-stale, several-megabyte {@link Image} instances
-     * (worse with a higher-resolution camera) sitting in the FX event queue, each one still
-     * getting decoded and delivered even though only the very last one would ever be visible.
-     * That growing queue is the leading suspect for the scanner getting slower over a long
-     * session, reported 2026-08-24. Coalescing so only the latest frame is ever pending means the
-     * FX thread only ever has at most one frame update to do, however far behind it's fallen.
-     */
-    private final AtomicBoolean frameDeliveryScheduled = new AtomicBoolean(false);
 
     /**
      * @param frameListener        called on the JavaFX application thread with each decoded
@@ -270,13 +272,25 @@ public class PythonCardScannerBridge implements AutoCloseable {
     }
 
     /**
+     * Only decodes and schedules a frame when no previously-decoded frame is still waiting on
+     * the FX thread — see {@link #frameDeliveryPending}'s javadoc for why this is a decode-side
+     * gate rather than a post-decode discard: skipping the JPEG decode entirely for frames that
+     * would just be thrown away anyway is what actually cuts allocation/CPU churn under sustained
+     * backpressure, rather than merely bounding how many decoded frames pile up.
+     * <p>
      * Package-private rather than private so {@code PythonCardScannerBridgeFrameCoalescingTest}
      * can exercise the coalescing behavior directly, without a real subprocess — same rationale
      * as {@code Model.Database.CardNameIndex#levenshteinDistance}.
      */
     void handleFrameEvent(JSONObject event) {
+        if (!frameDeliveryPending.compareAndSet(false, true)) {
+            return;
+        }
+
+        long decodeStartNanos = System.nanoTime();
         String jpegBase64 = event.optString("jpeg_base64", "");
         if (jpegBase64.isEmpty()) {
+            frameDeliveryPending.set(false);
             logger.warn("card_scanner_bridge.py sent a \"frame\" event with no jpeg_base64 payload; ignoring.");
             return;
         }
@@ -286,42 +300,58 @@ public class PythonCardScannerBridge implements AutoCloseable {
             byte[] jpegBytes = Base64.getDecoder().decode(jpegBase64);
             decodedFrame = new Image(new java.io.ByteArrayInputStream(jpegBytes));
         } catch (IllegalArgumentException decodeException) {
+            frameDeliveryPending.set(false);
             logger.warn("Could not decode a preview frame (bad base64 or bad JPEG bytes); skipping it.",
                     decodeException);
             return;
         }
 
-        // Always publish the latest frame, but only schedule a runLater if none is currently
-        // pending — see pendingFrame/frameDeliveryScheduled's own javadoc for why. If a delivery
-        // is already queued, this frame is simply left in pendingFrame for that delivery to pick
-        // up once it runs, rather than queuing a second one.
-        pendingFrame.set(decodedFrame);
-        if (frameDeliveryScheduled.compareAndSet(false, true)) {
-            Platform.runLater(this::deliverPendingFrame);
-        }
+        Platform.runLater(() -> deliverFrameToPreview(decodedFrame, decodeStartNanos));
     }
 
     /**
-     * Delivers whichever frame is currently in {@link #pendingFrame} to {@link #frameListener},
-     * then clears {@link #frameDeliveryScheduled} so the next {@link #handleFrameEvent} call
-     * schedules a fresh delivery instead of assuming one is still pending. Clearing the flag
-     * before reading {@link #pendingFrame} (rather than after) means a frame that arrives while
-     * this method is running always gets its own future delivery scheduled, rather than risking
-     * being left in {@link #pendingFrame} with nothing left to ever pick it up.
+     * Runs on the JavaFX application thread: delivers {@code frame} to {@link #frameListener},
+     * then clears {@link #frameDeliveryPending} so {@link #handleFrameEvent} can decode and
+     * schedule the next one. Every {@link #FRAME_LAG_LOG_SAMPLE_INTERVAL}th delivery also logs
+     * how long the frame sat waiting (from just before its decode to this callback actually
+     * running) and current JVM heap usage against the configured max, to confirm over a long
+     * scan session that the FX thread is staying caught up rather than progressively falling
+     * behind.
      */
-    private void deliverPendingFrame() {
-        frameDeliveryScheduled.set(false);
-        Image latestFrame = pendingFrame.getAndSet(null);
-        if (latestFrame != null) {
-            frameListener.accept(latestFrame);
+    private void deliverFrameToPreview(Image frame, long decodeStartNanos) {
+        long deliveryCount = deliveredFrameCount.incrementAndGet();
+        if (deliveryCount % FRAME_LAG_LOG_SAMPLE_INTERVAL == 0) {
+            Utils.PerfLog.stage(logger,
+                    "preview frame delivery #" + deliveryCount + ": FX-thread queue lag",
+                    decodeStartNanos);
+            Runtime runtime = Runtime.getRuntime();
+            long heapUsedMegabytes = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024);
+            long heapMaxMegabytes = runtime.maxMemory() / (1024 * 1024);
+            logger.info("[PERF] preview frame delivery #{}: JVM heap used {} MB / {} MB max",
+                    deliveryCount, heapUsedMegabytes, heapMaxMegabytes);
         }
+
+        frameListener.accept(frame);
+        frameDeliveryPending.set(false);
     }
 
+    /**
+     * Every error is logged unconditionally (cheap — just a string), but forwarding to {@link
+     * #errorMessageListener} on the FX thread is gated the same way {@link #handleFrameEvent}
+     * gates frames: if a previous error's {@link Platform#runLater} callback hasn't run yet,
+     * this one is dropped rather than scheduling another. Sidecar failures (e.g. the webcam
+     * disconnecting) can make {@code card_scanner_bridge.py} emit error events in a tight,
+     * unthrottled retry loop — without this gate, each one would schedule its own callback
+     * regardless of how far behind the FX thread already was.
+     */
     private void handleErrorEvent(JSONObject event) {
         String message = event.optString("message", "(no message)");
         logger.warn("[card_scanner_bridge.py] error: {}", message);
-        if (errorMessageListener != null) {
-            Platform.runLater(() -> errorMessageListener.accept(message));
+        if (errorMessageListener != null && errorDeliveryPending.compareAndSet(false, true)) {
+            Platform.runLater(() -> {
+                errorMessageListener.accept(message);
+                errorDeliveryPending.set(false);
+            });
         }
     }
 

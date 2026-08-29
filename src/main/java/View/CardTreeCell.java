@@ -51,6 +51,14 @@ public class CardTreeCell extends TreeCell<String> {
     static volatile boolean incompleteMarkingEnabled = true;
 
     /**
+     * When {@code true}, boxes/categories containing unsorted cards are
+     * highlighted in the My Collection navigation menu, and individual cards
+     * that need sorting (or a better copy elsewhere) glow white in the grid
+     * view. Toggled by the "Mark unsorted cards" button in the header.
+     */
+    static volatile boolean unsortedMarkingEnabled = true;
+
+    /**
      * When {@code true}, the condition/rarity overlay is rendered on cards
      * in the grid views. Toggled by the "Show condition/rarity" button in the header.
      */
@@ -216,6 +224,20 @@ public class CardTreeCell extends TreeCell<String> {
      */
     public static void setIncompleteMarkingEnabled(boolean enabled) {
         incompleteMarkingEnabled = enabled;
+    }
+
+    /**
+     * Returns whether the unsorted-card marking overlay is currently active.
+     */
+    public static boolean isUnsortedMarkingEnabled() {
+        return unsortedMarkingEnabled;
+    }
+
+    /**
+     * Enables or disables the unsorted-card marking overlay for My Collection.
+     */
+    public static void setUnsortedMarkingEnabled(boolean enabled) {
+        unsortedMarkingEnabled = enabled;
     }
     /**
      * Returns whether the condition/rarity overlay is currently active.
@@ -1777,8 +1799,36 @@ public class CardTreeCell extends TreeCell<String> {
             boolean isArchetype,
             String displayName,
             Set<String> missingForThisGroup) {
-        GridView<CardElement> grid = new GridView<>();
-        grid.getStyleClass().add("card-grid-view");
+        // Reuse an existing live GridView for this group instead of creating a fresh one on
+        // every rebuild. A GridView, like FilteredList a few lines up, registers itself as a
+        // permanent listener on whatever items list it's given via setItems() and has no way
+        // to detach itself -- so creating a fresh one here on every rebuild, all pointed at the
+        // same reused filteredItems, would leave every discarded GridView still listening
+        // (and still reachable, since its own listener closure keeps it alive) for as long as
+        // the group's FilteredList is reachable. That's exactly why observableList.add() got
+        // progressively slower over a scanning session: every add had to notify every GridView
+        // ever built for that group, not just the one currently on screen.
+        GridView<CardElement> reusedGrid = null;
+        java.lang.ref.WeakReference<GridView<CardElement>> existingGridRef =
+                CardGroupRegistry.GROUP_GRID_VIEWS.get(group);
+        if (existingGridRef != null) {
+            GridView<CardElement> existingGrid = existingGridRef.get();
+            if (existingGrid != null && existingGrid.getItems() == filteredItems) {
+                reusedGrid = existingGrid;
+                // A reused grid may still be parented under a previous rebuild's now-discarded
+                // VBox -- JavaFX throws if a Node already has a parent when added to a new one.
+                javafx.scene.Parent oldParent = reusedGrid.getParent();
+                if (oldParent instanceof javafx.scene.layout.Pane oldParentPane) {
+                    oldParentPane.getChildren().remove(reusedGrid);
+                }
+            }
+        }
+        // Effectively-final for the lambdas captured further down this method (drag handlers,
+        // the triangle click handler) -- assigned exactly once, here.
+        final GridView<CardElement> grid = reusedGrid != null ? reusedGrid : new GridView<>();
+        if (!grid.getStyleClass().contains("card-grid-view")) {
+            grid.getStyleClass().add("card-grid-view");
+        }
         grid.setCellFactory(gridView -> new CardGridCell(this));
         CardGroupRegistry.GROUP_GRID_VIEWS.put(group, new java.lang.ref.WeakReference<>(grid));
         grid.setItems(filteredItems);

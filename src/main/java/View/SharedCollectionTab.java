@@ -230,6 +230,11 @@ public class SharedCollectionTab extends HBox {
     private Button hideOwnedCardsButton;
     private Button incompleteMarkButton;
     /**
+     * Toggle button that marks unsorted cards (nav highlighting and the per-card
+     * needs-sorting glow) on or off in the My Collection tab.
+     */
+    private Button unsortedMarkButton;
+    /**
      * Toggle button that hides / shows Archetypes and Exceptions sections in the Decks tab.
      */
     private Button hideArchetypesButton;
@@ -241,6 +246,10 @@ public class SharedCollectionTab extends HBox {
 
     public Button getIncompleteMarkButton() {
         return incompleteMarkButton;
+    }
+
+    public Button getUnsortedMarkButton() {
+        return unsortedMarkButton;
     }
 
     public Button getShowConditionRarityButton() {
@@ -319,7 +328,8 @@ public class SharedCollectionTab extends HBox {
 
     /**
      * Builds the My Collection tab header: Browse/Load/Generate HTML buttons,
-     * Save button, and the "Mark incomplete cards" and "Show condition / rarity" toggles.
+     * Save button, and the "Mark incomplete cards", "Mark unsorted cards", and
+     * "Show condition / rarity" toggles.
      */
     private VBox buildMyCollectionHeader() {
         VBox group = new VBox(8);
@@ -377,7 +387,11 @@ public class SharedCollectionTab extends HBox {
         // Row 3: "Mark incomplete cards" toggle — off by default
         incompleteMarkButton = new Button("Mark incomplete cards");
         incompleteMarkButton.getStyleClass().add("toggle-button-off");
-        HBox row3 = new HBox(5, incompleteMarkButton);
+        // "Mark unsorted cards" toggle — on by default, matching the
+        // unsortedMarkingEnabled default of true.
+        unsortedMarkButton = new Button("Mark unsorted cards");
+        unsortedMarkButton.getStyleClass().add("toggle-button-on");
+        HBox row3 = new HBox(5, incompleteMarkButton, unsortedMarkButton);
 
         // Row 4: "Show condition / rarity" toggle — on by default
         showConditionRarityButton = new Button("Show condition / rarity");

@@ -41,14 +41,21 @@ class CardGridCell extends GridCell<CardElement> {
      * 0 = none | 1 = white (archetype/artwork missing or needs-sort)
      * 2 = orange (condition or rarity not set) | 3 = red (no printCode).
      * The glow is only applied when outer.incompleteMarkingEnabled for priorities 2 & 3.
+     * The needs-sorting/upgrade/downgrade reasons within priority 1 are skipped
+     * entirely (not computed, no glow, no tooltip) when outer.unsortedMarkingEnabled
+     * is false; the archetype-missing and missing-artwork reasons within priority 1
+     * are unaffected by that flag.
      */
     private int currentGlowPriority = 0;
     /**
-     * All applicable tooltip warnings for this cell, computed unconditionally.
+     * All applicable tooltip warnings for this cell.
      * Each entry is a two-element array: [message, cssColor].
      * Priorities 2 & 3 (My Collection completeness) are always collected even
      * when outer.incompleteMarkingEnabled is false, so the hover tooltip is always
-     * informative regardless of whether the glow overlay is active.
+     * informative regardless of whether that glow overlay is active. The
+     * needs-sorting/upgrade/downgrade tooltips within priority 1 are the exception:
+     * they are skipped along with the computation when outer.unsortedMarkingEnabled
+     * is false, to avoid the per-card sorting-rule cost when unsorted marking is off.
      */
     private java.util.List<String[]> currentTooltips = new java.util.ArrayList<>();
     /**
@@ -803,12 +810,15 @@ class CardGridCell extends GridCell<CardElement> {
      * highest-priority visual effect that should be applied to the cell.
      *
      * <p>Priorities (higher wins): 4 = OuicheList substandard-quality (red),
-     * 3 = missing print code (red), 2 = missing condition/rarity (white, only when
-     * incomplete-marking is enabled), 1 = archetype/artwork missing or needs-sorting
-     * (white).</p>
+     * 3 = missing print code (red, only when incomplete-marking is enabled),
+     * 2 = missing condition/rarity (white, only when incomplete-marking is
+     * enabled), 1 = archetype/artwork missing (white, always) or needs-sorting/
+     * upgrade-candidate/downgrade (white, only when unsorted-marking is enabled).</p>
      */
     private GlowComputationResult computeGlowAndTooltips(CardElement cardElement) {
-        // Tooltip list: always computed, regardless of marking toggle.
+        // Tooltip list: mostly computed regardless of marking toggles, except the
+        // needs-sorting/upgrade/downgrade tooltips in section 1c, which are skipped
+        // (along with their underlying computation) when unsortedMarkingEnabled is false.
         // Each entry: [message, cssColor]
         java.util.List<String[]> tooltips = new java.util.ArrayList<>();
         int glowPriority = 0;
@@ -924,12 +934,14 @@ class CardGridCell extends GridCell<CardElement> {
                                     "#EB9E34"});
                         } else if (myCollTab) {
                             // Non-archetype needs-sorting: My Collection tab only.
-                            if (glowPriority == 0) {
-                                glowPriority = 1;
-                            }
+                            // Tooltip is always collected; the glow is only applied
+                            // when outer.unsortedMarkingEnabled.
                             tooltips.add(new String[]{
                                     CardHoverPopup.NEEDS_SORTING_WARNING,
                                     "#EB9E34"});
+                            if (outer.unsortedMarkingEnabled && glowPriority == 0) {
+                                glowPriority = 1;
+                            }
                         }
                     }
                 }
@@ -951,7 +963,12 @@ class CardGridCell extends GridCell<CardElement> {
 
                 // 1c — sorting check: only on My Collection tab.
                 //      Cards in D&C get DOWNGRADE_WARNING via 1d below, not here.
-                if (elementNameFromUserData != null
+                // Skipped entirely (no CardSortingRules / CardQualityService calls, no
+                // tooltip) when outer.unsortedMarkingEnabled is false, so disabling
+                // unsorted-marking actually avoids the per-card computation cost rather
+                // than just hiding the glow.
+                if (outer.unsortedMarkingEnabled
+                        && elementNameFromUserData != null
                         && !elementNameFromUserData.trim().isEmpty()
                         && outer.isMyCollectionTabSelected()) {
                     try {
@@ -973,19 +990,19 @@ class CardGridCell extends GridCell<CardElement> {
                         }
 
                         if (genuinelyNeeded) {
-                            if (glowPriority == 0) {
-                                glowPriority = 1;
-                            }
                             tooltips.add(new String[]{
                                     CardHoverPopup.NEEDS_SORTING_WARNING,
                                     "#EB9E34"});
-                        } else if (upgradeNeeded) {
                             if (glowPriority == 0) {
                                 glowPriority = 1;
                             }
+                        } else if (upgradeNeeded) {
                             tooltips.add(new String[]{
                                     CardHoverPopup.UPGRADE_CANDIDATE_WARNING,
                                     "#EB9E34"});
+                            if (glowPriority == 0) {
+                                glowPriority = 1;
+                            }
                         } else {
                             // Reason 4: this card IS in a D&C-named sorting category and
                             // a better outside copy exists in the owned collection.
@@ -1003,12 +1020,12 @@ class CardGridCell extends GridCell<CardElement> {
                                             .isDegradedCopyInDeckOrCollection(
                                                     cardElement, elementNameFromUserData);
                                     if (isDegraded) {
-                                        if (glowPriority == 0) {
-                                            glowPriority = 1;
-                                        }
                                         tooltips.add(new String[]{
                                                 CardHoverPopup.DOWNGRADE_WARNING,
                                                 "#EB9E34"});
+                                        if (glowPriority == 0) {
+                                            glowPriority = 1;
+                                        }
                                     }
                                 }
                             } catch (Throwable ignored) {

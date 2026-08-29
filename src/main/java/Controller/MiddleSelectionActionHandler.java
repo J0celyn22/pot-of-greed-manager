@@ -650,7 +650,7 @@ final class MiddleSelectionActionHandler {
         CardElement targetElement = getQuickAddTargetMiddleElement(activeTreeView);
         if (targetElement != null
                 && pasteCardsAfterElement(toInsert, targetElement, activeTabIndex)) {
-            selectElementAfterQuickAddInsert(targetElement, totalInserted, activeTreeView);
+            selectElementAfterQuickAddInsert(targetElement, totalInserted, activeTreeView, activeTabIndex);
             return;
         }
 
@@ -672,7 +672,7 @@ final class MiddleSelectionActionHandler {
         if (!allElements.isEmpty()) {
             CardElement lastElement = allElements.get(allElements.size() - 1);
             if (pasteCardsAfterElement(toInsert, lastElement, activeTabIndex)) {
-                selectElementAfterQuickAddInsert(lastElement, totalInserted, activeTreeView);
+                selectElementAfterQuickAddInsert(lastElement, totalInserted, activeTreeView, activeTabIndex);
                 return;
             }
         }
@@ -691,14 +691,30 @@ final class MiddleSelectionActionHandler {
      * @return the last-selected middle element, if the MIDDLE selection is active and belongs
      * to {@code activeTreeView}; otherwise the last-clicked middle element, if it still belongs
      * to {@code activeTreeView}; otherwise {@code null}.
+     * <p>
+     * When exactly one element is selected — the case after every quick-add, since {@link
+     * #selectElementAfterQuickAddInsert} always leaves a single-element selection — that element
+     * is trivially the "last selected element in tree order" and is returned directly, without
+     * walking the tree. The tree is only walked (to find which of several selected elements is
+     * last in display order) when the MIDDLE selection genuinely has more than one element, e.g.
+     * a manual multi-select the user made before triggering a quick-add — not something repeated
+     * scanning does.
      */
     private static CardElement getQuickAddTargetMiddleElement(TreeView<String> activeTreeView) {
         if ("MIDDLE".equals(SelectionManager.getActivePart())
                 && !SelectionManager.getSelectedMiddleElements().isEmpty()
                 && activeTreeView != null) {
+            java.util.Set<CardElement> selected = SelectionManager.getSelectedMiddleElements();
+            if (selected.size() == 1) {
+                return selected.iterator().next();
+            }
+            long treeWalkStartNanos = Utils.PerfLog.start();
             List<CardElement> allElements =
                     CardTreeCell.collectAllElementsInTreeOrder(activeTreeView.getRoot());
-            java.util.Set<CardElement> selected = SelectionManager.getSelectedMiddleElements();
+            Utils.PerfLog.stage(logger,
+                    "getQuickAddTargetMiddleElement: full-tree-walk (multi-select, "
+                            + selected.size() + " selected, " + allElements.size() + " elements)",
+                    treeWalkStartNanos);
             for (int index = allElements.size() - 1; index >= 0; index--) {
                 if (selected.contains(allElements.get(index))) {
                     return allElements.get(index);
@@ -713,14 +729,47 @@ final class MiddleSelectionActionHandler {
      * Selects the element {@code count} positions after {@code anchor} in tree order (clamped
      * to the last element), i.e. the last of the just-inserted cards — so a following quick-add
      * continues from there.
+     * <p>
+     * {@code count} cards were just inserted immediately after {@code anchor} inside its own
+     * direct container (the {@link CardsGroup} or deck/collection list found via {@link
+     * #findDirectContainer}) — see {@link CardPasteInsertHandler#handleInsertCardsAfterElement}.
+     * So the target element is always found within that single container, without needing to
+     * walk the whole active tree to locate it. The one case that container lookup can't resolve
+     * — {@code anchor} no longer found in its expected container, which should not normally
+     * happen immediately after a successful insert — falls back to the previous full-tree-walk
+     * behavior so selection still lands somewhere reasonable rather than silently doing nothing.
+     *
+     * @param activeTabIndex the currently selected main-tab index (0 = My Collection,
+     *                       1 = Decks and Collections), needed to resolve {@code anchor}'s
+     *                       direct container via {@link #findDirectContainer}
      */
     private static void selectElementAfterQuickAddInsert(CardElement anchor, int count,
-                                                         TreeView<String> activeTreeView) {
+                                                         TreeView<String> activeTreeView,
+                                                         int activeTabIndex) {
         if (activeTreeView == null) {
             return;
         }
+
+        long localLookupStartNanos = Utils.PerfLog.start();
+        List<CardElement> anchorContainer = findDirectContainer(anchor, activeTabIndex);
+        int anchorLocalIndex = anchorContainer != null ? anchorContainer.indexOf(anchor) : -1;
+        if (anchorContainer != null && anchorLocalIndex >= 0) {
+            int localTargetIndex = Math.min(anchorLocalIndex + count, anchorContainer.size() - 1);
+            Utils.PerfLog.stage(logger,
+                    "selectElementAfterQuickAddInsert: local-container lookup ("
+                            + anchorContainer.size() + " elements)",
+                    localLookupStartNanos);
+            SelectionManager.selectElement(anchorContainer.get(localTargetIndex));
+            return;
+        }
+
+        long fullTreeWalkStartNanos = Utils.PerfLog.start();
         List<CardElement> allElements =
                 CardTreeCell.collectAllElementsInTreeOrder(activeTreeView.getRoot());
+        Utils.PerfLog.stage(logger,
+                "selectElementAfterQuickAddInsert: full-tree-walk fallback ("
+                        + allElements.size() + " elements)",
+                fullTreeWalkStartNanos);
         int anchorIndex = allElements.indexOf(anchor);
         if (anchorIndex < 0) {
             return;

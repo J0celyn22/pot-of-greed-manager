@@ -2,7 +2,6 @@ package Controller;
 
 import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
-import Model.CardsLists.CardsGroup;
 import Model.CardsLists.SubListCreator;
 import View.*;
 import View.SharedCollectionTab.TabType;
@@ -38,7 +37,8 @@ import java.util.stream.Collectors;
  *   <li>Shared state: card-size properties, the shared right panel (filter + card display),
  *       sort toggle buttons, view-mode flags ({@code isMosaicMode}, {@code isPrintedMode}).</li>
  *   <li>Tab-switch listener that delegates to the four sub-controllers.</li>
- *   <li>View toggle buttons (incomplete-mark, hide-archetypes, condition/rarity overlay).</li>
+ *   <li>View toggle buttons (incomplete-mark, unsorted-mark, hide-archetypes,
+ *       condition/rarity overlay).</li>
  *   <li>Coordinator-level helpers used by all sub-controllers:
  *       {@link #buildMiddlePaneEmptySpaceFilter()},
  *       {@link #doCardPasteOnNavItem}, {@link #updateTabDirtyIndicators()}, etc.</li>
@@ -97,15 +97,6 @@ public class RealMainController {
                     + "-fx-pref-width: 36px; "
                     + "-fx-max-width: 36px;";
     private final java.util.Set<FilterPane> wiredEnterPanes = new java.util.HashSet<>();
-
-    /**
-     * The {@link CardsGroup}s whose grid was refreshed for MIDDLE-pane selection highlighting
-     * the last time the {@link SelectionManager} listener ran (see {@link #initialize()}).
-     * Diffed against the live selection on each run so that a group losing the selection (the
-     * user selected a different card, or switched to the RIGHT pane) gets its stale highlight
-     * cleared, without re-sweeping every registered grid in the session to find it.
-     */
-    private final java.util.Set<CardsGroup> previouslySelectedMiddleGroups = new java.util.LinkedHashSet<>();
 
     private Tab myCollectionTabHandle;
 
@@ -272,6 +263,9 @@ public class RealMainController {
         UserInterfaceFunctions.registerDecksTreeRefresher(() -> {
             if (decksAndCollectionsTreeView != null) {
                 decksAndCollectionsTreeView.refresh();
+                // Content-driven (archetype-card glow reflects model content — which cards
+                // exist where — not MIDDLE-pane selection) — Step 4 audit,
+                // reactive-selection-highlight plan. Left as-is.
                 Controller.CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[decksTreeRefresher]");
             }
         });
@@ -280,6 +274,7 @@ public class RealMainController {
         UserInterfaceFunctions.registerArchetypesRefresher(() -> {
             if (archetypesTreeView != null) {
                 archetypesTreeView.refresh();
+                // Content-driven, same reasoning as decksTreeRefresher above — Step 4 audit.
                 Controller.CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[archetypesRefresher]");
             }
         });
@@ -443,9 +438,15 @@ public class RealMainController {
 
         // ── 14. Selection-change listener (keeps all trees in sync) ──────────
         SelectionManager.addSelectionChangeListener(() -> Platform.runLater(() -> {
-            if (myCollectionTreeView != null) {
-                myCollectionTreeView.refresh();
-            }
+            // myCollectionTreeView is deliberately NOT refreshed here (perf pass, see
+            // refreshFromModel()'s javadoc for the sibling fix this pairs with):
+            // CardTreeCell — myCollectionTreeView's cell factory — never reads
+            // SelectionManager anywhere in its rendering, so this refresh had no visual
+            // effect for that tree. It was previously the third of three
+            // myCollectionTreeView.refresh() calls firing on every single card add (each
+            // one able to force a full GridView-content rebuild for the visible group —
+            // see CardTreeCell.createCardsGroupCell's rebuild-counter log), for zero
+            // benefit here.
             if (decksAndCollectionsTreeView != null) {
                 decksAndCollectionsTreeView.refresh();
             }
@@ -455,22 +456,9 @@ public class RealMainController {
             if (archetypesTreeView != null) {
                 archetypesTreeView.refresh();
             }
-            java.util.Set<CardsGroup> currentlySelectedMiddleGroups = new java.util.LinkedHashSet<>();
-            for (CardElement selectedElement : SelectionManager.getSelectedMiddleElements()) {
-                CardsGroup group = CardGroupRegistry.findGroupForCardElement(selectedElement);
-                if (group != null) {
-                    currentlySelectedMiddleGroups.add(group);
-                }
-            }
-            // Union with the previous run's groups too, so a group that just lost the
-            // selection (different card selected, or switched to the RIGHT pane) still gets
-            // refreshed to clear its now-stale highlight.
-            java.util.Set<CardsGroup> groupsNeedingHighlightRefresh =
-                    new java.util.LinkedHashSet<>(previouslySelectedMiddleGroups);
-            groupsNeedingHighlightRefresh.addAll(currentlySelectedMiddleGroups);
-            CardGroupRegistry.refreshGridViewsForGroups(groupsNeedingHighlightRefresh);
-            previouslySelectedMiddleGroups.clear();
-            previouslySelectedMiddleGroups.addAll(currentlySelectedMiddleGroups);
+            // Grid-cell selection borders are kept correct reactively (each rendered
+            // CardGridCell observes its own SelectionHighlightRegistry property directly —
+            // see the reactive-selection-highlight plan), so no grid sweep is needed here.
             if (cardsDisplayContainer != null) {
                 for (Node node : cardsDisplayContainer.getChildren()) {
                     if (node instanceof ListView) {
@@ -926,7 +914,12 @@ public class RealMainController {
                     for (int index = startIndex; index < targetElements.size(); index++) {
                         SelectionManager.toggleElementSelection(targetElements.get(index));
                     }
-                    CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[numpadQuickSelect]");
+                    // Selection-driven (Step 4 audit, reactive-selection-highlight plan):
+                    // highlighting these newly-selected elements is handled reactively by
+                    // each cell's own SelectionHighlightRegistry binding — no grid sweep
+                    // needed. The pasted content itself is already visible via the target
+                    // group's ObservableList<CardElement> plus pasteCardsIntoNavigationItem's
+                    // own refreshOwnedCollectionView() call.
                 });
             }
         }
@@ -953,6 +946,8 @@ public class RealMainController {
     void refreshDecksAndCollectionsTreeView() {
         if (decksAndCollectionsTreeView != null) {
             decksAndCollectionsTreeView.refresh();
+            // Content-driven (a non-structural model change, per this method's javadoc
+            // above) — Step 4 audit, reactive-selection-highlight plan. Left as-is.
             CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[refreshDecksAndCollectionsTreeView]");
         }
     }
@@ -1000,7 +995,8 @@ public class RealMainController {
     }
 
     // =========================================================================
-    // View toggle buttons (incomplete-mark, hide-archetypes, condition/rarity)
+    // View toggle buttons (incomplete-mark, unsorted-mark, hide-archetypes,
+    // condition/rarity)
     // =========================================================================
 
     private void wireViewToggleButtons() {
@@ -1021,7 +1017,35 @@ public class RealMainController {
                 }
                 if (myCollectionTreeView != null) {
                     myCollectionTreeView.refresh();
+                    // Content-driven (toggles the incomplete-marking glow flag every cell
+                    // reads via outer.incompleteMarkingEnabled, not a selection change) —
+                    // Step 4 audit, reactive-selection-highlight plan. Left as-is.
                     CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[incompleteMarkToggle]");
+                }
+            });
+        }
+
+        if (myCollectionTab.getUnsortedMarkButton() != null) {
+            Button unsortedMarkButton = myCollectionTab.getUnsortedMarkButton();
+            unsortedMarkButton.getStyleClass().setAll("toggle-button-on");
+            unsortedMarkButton.setOnAction(event -> {
+                boolean nowEnabled = !CardTreeCell.isUnsortedMarkingEnabled();
+                CardTreeCell.setUnsortedMarkingEnabled(nowEnabled);
+                unsortedMarkButton.getStyleClass().setAll(
+                        nowEnabled ? "toggle-button-on" : "toggle-button-off");
+                try {
+                    myCollectionController.populateMyCollectionMenu();
+                } catch (Exception exception) {
+                    logger.error(
+                            "Error refreshing My Collection menu after unsorted-mark toggle",
+                            exception);
+                }
+                if (myCollectionTreeView != null) {
+                    myCollectionTreeView.refresh();
+                    // Content-driven (toggles the unsorted-marking glow flag every cell
+                    // reads via outer.unsortedMarkingEnabled, not a selection change),
+                    // mirroring the incomplete-mark toggle above.
+                    CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[unsortedMarkToggle]");
                 }
             });
         }
@@ -1101,6 +1125,10 @@ public class RealMainController {
                     if (ouicheListTreeView != null) {
                         ouicheListTreeView.refresh();
                     }
+                    // Content-driven (toggles the condition/rarity badge overlay every cell
+                    // reads via CardTreeCell.isShowConditionRarityOverlayEnabled(), not a
+                    // selection change) — Step 4 audit, reactive-selection-highlight plan.
+                    // Left as-is.
                     CardGroupRegistry.refreshAllGridViews("refreshAllGridViews[conditionRarityOverlayToggle]");
                 };
 
@@ -1144,7 +1172,8 @@ public class RealMainController {
     // =========================================================================
 
     /**
-     * Generic owned-collection refresh: re-renders the four main tree views in place.
+     * Generic owned-collection refresh: re-renders the Decks &amp; Collections,
+     * OuicheList, and Archetypes tree views in place.
      *
      * <p>Registered via {@code registerOwnedCollectionRefresher} alongside
      * {@link MyCollectionController}'s own dedicated refresher, so this runs on every
@@ -1152,15 +1181,25 @@ public class RealMainController {
      * here, but that duplicated the grid-highlight refresh {@link MyCollectionController}'s
      * refresher already does in a scoped way, and was the second of two full unscoped sweeps
      * firing on every scanner add (Unit 10 latency fix; see the selection-change listener in
-     * {@link #initialize()} for the first). Only the cheap tree-level refresh remains here.
+     * {@link #initialize()} for the first).
+     *
+     * <p><b>{@code myCollectionTreeView} is deliberately NOT refreshed here</b> (perf pass
+     * following the Unit 10 fix above): {@code registerOwnedCollectionRefresher} runs every
+     * registered refresher in registration order on the very same call, and
+     * {@link MyCollectionController}'s refresher — registered first, so it always runs
+     * immediately before this one, synchronously, with no state change in between — already
+     * calls {@code myCollectionTreeView.refresh()} itself once it knows exactly which group
+     * changed. Calling {@code .refresh()} on the same tree a second time here was pure
+     * duplication: each call can force {@code CardTreeCell} to fully rebuild the visible
+     * group's GridView content (see {@code createCardsGroupCell}'s rebuild-counter log) even
+     * though nothing changed between the two calls, doubling that rebuild cost on every single
+     * card add. The other three tree views have no such dedicated refresher and still need the
+     * blanket refresh here.
      */
     public void refreshFromModel() {
         if (!Platform.isFxApplicationThread()) {
             Platform.runLater(this::refreshFromModel);
             return;
-        }
-        if (myCollectionTreeView != null) {
-            myCollectionTreeView.refresh();
         }
         if (decksAndCollectionsTreeView != null) {
             decksAndCollectionsTreeView.refresh();
