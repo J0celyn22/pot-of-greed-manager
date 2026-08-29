@@ -159,7 +159,7 @@ public class TabSwitchCoordinator {
 
                     coordinator.updateTabDirtyIndicators();
                 } catch (Exception exception) {
-                    logger.warn("Decks refresher failed", exception);
+                    logger.error("Decks refresher failed", exception);
                 }
             });
             decksController.displayDecksAndCollections();

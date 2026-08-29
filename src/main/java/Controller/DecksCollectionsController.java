@@ -121,7 +121,6 @@ public class DecksCollectionsController {
      */
     public void displayDecksAndCollections() throws Exception {
         AnchorPane contentPane = decksTab.getContentPane();
-        contentPane.getChildren().clear();
 
         if (UserInterfaceFunctions.getDecksList() == null) {
             UserInterfaceFunctions.loadDecksAndCollectionsDirectory();
@@ -161,6 +160,7 @@ public class DecksCollectionsController {
                 javafx.scene.input.MouseEvent.MOUSE_CLICKED,
                 coordinator.buildMiddlePaneEmptySpaceFilter());
 
+        contentPane.getChildren().clear();
         contentPane.getChildren().add(decksAndCollectionsTreeView);
         AnchorPane.setTopAnchor(decksAndCollectionsTreeView, 0.0);
         AnchorPane.setBottomAnchor(decksAndCollectionsTreeView, 0.0);
