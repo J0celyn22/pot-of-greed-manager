@@ -1,5 +1,6 @@
 package Model.CardsLists;
 
+import Utils.PriceFormat;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -92,7 +93,7 @@ class BoxTest {
 
     @Test
     void getPrice_emptyBox_returnsZero() {
-        assertEquals("0.0", new Box("MyBox").getPrice());
+        assertEquals(PriceFormat.format2(0f), new Box("MyBox").getPrice());
     }
 
     @Test
@@ -103,7 +104,7 @@ class BoxTest {
         box.AddCategory("Extra Deck");
         box.getContent().get(1).addCard(withPrice("2.5"));
 
-        assertEquals("4.0", box.getPrice());
+        assertEquals(PriceFormat.format2(4.0f), box.getPrice());
     }
 
     // ── toString ─────────────────────────────────────────────────────────────

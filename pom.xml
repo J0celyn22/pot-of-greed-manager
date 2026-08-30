@@ -96,6 +96,17 @@
 
     <build>
         <plugins>
+            <!-- Skip @Tag("integration") tests (real, uncached HTTP calls to external
+                 hosts, e.g. IntegrationTest) during a plain `mvn test`. Run them
+                 deliberately with -Dgroups=integration. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <excludedGroups>integration</excludedGroups>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.openjfx</groupId>
                 <artifactId>javafx-maven-plugin</artifactId>

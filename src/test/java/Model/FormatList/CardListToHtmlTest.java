@@ -2,6 +2,7 @@ package Model.FormatList;
 
 import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
+import Utils.PriceFormat;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -85,7 +86,7 @@ class CardListToHtmlTest {
         CardListToHtml.generateHtml(List.of(element), dirPath, "MyList");
 
         String content = Files.readString(tempDir.resolve("Lists/MyList.html"));
-        assertTrue(content.contains("<h1>MyList (1 / " + String.format("%.2f", 3.0f) + "€)</h1>"));
+        assertTrue(content.contains("<h1>MyList (1 / " + PriceFormat.format2(3.0f) + "€)</h1>"));
     }
 
     @Test

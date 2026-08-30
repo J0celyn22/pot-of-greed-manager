@@ -21,8 +21,8 @@ import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.doReturn;
 
 // Excluded from the default `mvn test` run (see the surefire excludedGroups
-// configuration in pom.xml): testFetchFile alone makes 9 real, uncached HTTP
-// requests to 4 external hosts every time it runs, which risks rate-limiting
+// configuration in pom.xml): testFetchFile alone makes 8 real, uncached HTTP
+// requests to 3 external hosts every time it runs, which risks rate-limiting
 // or an IP block if run routinely. Run deliberately with -Dgroups=integration.
 @Tag("integration")
 @SuppressWarnings({"DuplicateExpressions", "InstantiationOfUtilityClass"})
@@ -37,13 +37,15 @@ public class IntegrationTest {
             "_sets.txt, ygoresources\\printcode\\_sets.txt, https://db.ygoresources.com/data/idx/printcode/_sets",
             "15AX-JP.json, ygoresources\\printcode\\15AX-JP.json, https://db.ygoresources.com/data/idx/printcode/15AX-JP",
             "46986414.jpg, ygoprodeck\\images\\46986414.jpg, https://images.ygoprodeck.com/images/cards/46986414.jpg",
-            "cards_Lite.json, mdpro3\\cards_Lite.json, https://code.moenext.com/sherry_chaos/MDPro3/-/blob/master/Data/cards_Lite.json",
+            // cards_Lite.json / code.moenext.com dropped: that host no longer accepts
+            // connections, so this row could never succeed. Re-add once/if a working
+            // MDPro3 cards_Lite.json source is found.
             "archetypes.json, ygoprodeck\\archetypes.json, https://db.ygoprodeck.com/api/v7/archetypes.php"
     })
     public void testFetchFile(String input, String expectedPath, String expectedAddress) throws IOException, URISyntaxException {
-        // Space out requests: this test fires once per CSV row (9 rows) against real
-        // external servers (ygoprodeck.com, ygoresources.com, code.moenext.com), and
-        // JUnit runs parameterized invocations back-to-back with no delay by default.
+        // Space out requests: this test fires once per CSV row (8 rows) against real
+        // external servers (ygoprodeck.com, ygoresources.com), and JUnit runs
+        // parameterized invocations back-to-back with no delay by default.
         try {
             Thread.sleep(750);
         } catch (InterruptedException interruptedException) {

@@ -2,6 +2,7 @@ package Model.FormatList;
 
 import Model.CardsLists.Card;
 import Model.CardsLists.CardElement;
+import Utils.PriceFormat;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -43,19 +44,19 @@ class HtmlGeneratorTest {
     }
 
     /**
-     * Mirrors HtmlGenerator's own {@code String.format("%.2f", ...)} /
-     * {@code String.format("%.1f", ...)} calls, which don't pin a Locale and
-     * so render with whatever decimal separator the JVM's default locale
-     * uses (e.g. "2,50" on a French-locale machine, "2.50" on a US one).
-     * Computing expected values the same way keeps these tests passing
-     * regardless of locale, rather than hardcoding one separator.
+     * Mirrors HtmlGenerator's own {@link PriceFormat#format2(float)} /
+     * {@link PriceFormat#format1(float)} calls, which pin the decimal
+     * separator to a period ({@link java.util.Locale#US}) regardless of the
+     * JVM's default locale. Computing expected values the same way keeps
+     * these tests passing on any machine, rather than risking a mismatch
+     * between a locale-dependent expectation and locale-independent output.
      */
     private static String fmt2(float value) {
-        return String.format("%.2f", value);
+        return PriceFormat.format2(value);
     }
 
     private static String fmt1(float value) {
-        return String.format("%.1f", value);
+        return PriceFormat.format1(value);
     }
 
     private static CardElement missingCard(String price) {

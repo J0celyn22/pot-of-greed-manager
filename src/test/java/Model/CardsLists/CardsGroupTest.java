@@ -1,5 +1,6 @@
 package Model.CardsLists;
 
+import Utils.PriceFormat;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -64,7 +65,7 @@ class CardsGroupTest {
 
     @Test
     void getPrice_emptyGroup_returnsZero() {
-        assertEquals("0.0", new CardsGroup("Empty").getPrice());
+        assertEquals(PriceFormat.format2(0f), new CardsGroup("Empty").getPrice());
     }
 
     @Test
@@ -72,7 +73,7 @@ class CardsGroupTest {
         CardsGroup group = new CardsGroup("Main Deck");
         group.addCard(withPrice("1.5"));
         group.addCard(withPrice("2.5"));
-        assertEquals("4.0", group.getPrice());
+        assertEquals(PriceFormat.format2(4.0f), group.getPrice());
     }
 
     @Test
@@ -80,7 +81,7 @@ class CardsGroupTest {
         CardsGroup group = new CardsGroup("Main Deck");
         group.addCard(new CardElement(null, false, false, false, false));
         group.addCard(withPrice("2.5"));
-        assertEquals("2.5", group.getPrice());
+        assertEquals(PriceFormat.format2(2.5f), group.getPrice());
     }
 
     @Test
@@ -88,7 +89,7 @@ class CardsGroupTest {
         CardsGroup group = new CardsGroup("Main Deck");
         group.addCard(withPrice(null));
         group.addCard(withPrice("2.5"));
-        assertEquals("2.5", group.getPrice());
+        assertEquals(PriceFormat.format2(2.5f), group.getPrice());
     }
 
     @Test
