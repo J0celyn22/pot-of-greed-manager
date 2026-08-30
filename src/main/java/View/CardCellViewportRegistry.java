@@ -9,11 +9,7 @@ import org.controlsfx.control.GridView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
-import java.util.IdentityHashMap;
-import java.util.Map;
-import java.util.Set;
-import java.util.WeakHashMap;
+import java.util.*;
 
 /**
  * Tracks every live {@link CardGridCell} and decides, on scroll or resize, which ones are
@@ -39,18 +35,33 @@ public final class CardCellViewportRegistry {
     private static final Logger logger = LoggerFactory.getLogger(CardCellViewportRegistry.class);
 
     /**
-     * How many consecutive sweeps a grid is allowed to report unresolved geometry (not yet
-     * laid out, or detached from the scene) before the registry stops automatically
-     * rescheduling on its account. Without this bound, a permanently detached grid would
-     * keep requesting another sweep forever.
+     * How long a streak of unresolved geometry (not yet laid out, or detached from the scene)
+     * is allowed to keep requesting another sweep before the registry gives up on it. Without
+     * this bound, a permanently detached grid would keep rescheduling forever.
+     *
+     * <p>Originally a fixed pulse count (3), which turned out to be far too tight: a bulk
+     * operation like "Generate Archetype Lists" attaches many groups at once, and their
+     * {@code GridView}s can take several hundred milliseconds to finish settling — this file's
+     * own {@code DIAGNOSTIC_BURST_WINDOW_MILLIS} (300ms, in {@code CardTreeCell}) documents
+     * exactly that kind of burst for the same kind of bulk operation. 3 pulses under FX-thread
+     * load (itself busy building the new tree) could easily be exhausted well before real
+     * geometry ever resolved, silently stranding every cell of the still-settling groups on
+     * the placeholder forever — visible as Yu-Gi-Oh card backs never turning into artwork,
+     * reported 2026-08-30. Wall-clock time survives that variability; a pulse count doesn't.</p>
      */
-    private static final int MAX_UNRESOLVED_RETRIES = 3;
+    private static final long MAX_UNRESOLVED_STREAK_MILLIS = 3000;
 
     private static final Set<CardGridCell> registeredCells =
             Collections.newSetFromMap(new WeakHashMap<>());
 
     private static boolean sweepScheduled = false;
-    private static int unresolvedRetryCount = 0;
+    /**
+     * When the current unresolved streak started, or 0 when no streak is in progress. Reset to
+     * 0 whenever a sweep finds every grid resolved, so each new burst of activity gets its own
+     * fresh {@link #MAX_UNRESOLVED_STREAK_MILLIS} budget rather than inheriting time already
+     * spent on an earlier, unrelated one.
+     */
+    private static long unresolvedStreakStartMillis = 0;
 
     private CardCellViewportRegistry() {
     }
@@ -133,35 +144,64 @@ public final class CardCellViewportRegistry {
         boolean anyUnresolved = false;
 
         for (CardGridCell cell : registeredCells) {
-            if (cell.isEmpty() || cell.getItem() == null) {
-                continue;
-            }
-            GridView<CardElement> grid = cell.getGridView();
-            if (grid == null) {
-                continue;
-            }
+            try {
+                if (cell.isEmpty() || cell.getItem() == null) {
+                    continue;
+                }
+                GridView<CardElement> grid = cell.getGridView();
+                if (grid == null) {
+                    continue;
+                }
 
-            int[] loadRange = loadRangeByGrid.computeIfAbsent(grid,
-                    key -> computeRangeOrNull(key, 1.0));
-            int[] retentionRange = retentionRangeByGrid.computeIfAbsent(grid,
-                    key -> computeRangeOrNull(key, 3.0));
+                // Not computeIfAbsent: its contract explicitly does not record a null result, so
+                // an unresolved grid would recompute (and re-run the CardTreeCell lookup below)
+                // once per cell instead of once per grid, defeating the memoization this method
+                // documents. containsKey correctly caches a null just as well as a real range.
+                int[] loadRange;
+                if (loadRangeByGrid.containsKey(grid)) {
+                    loadRange = loadRangeByGrid.get(grid);
+                } else {
+                    loadRange = computeRangeOrNull(grid, cell.outer, 1.0);
+                    loadRangeByGrid.put(grid, loadRange);
+                }
+                int[] retentionRange;
+                if (retentionRangeByGrid.containsKey(grid)) {
+                    retentionRange = retentionRangeByGrid.get(grid);
+                } else {
+                    retentionRange = computeRangeOrNull(grid, cell.outer, 3.0);
+                    retentionRangeByGrid.put(grid, retentionRange);
+                }
 
-            if (loadRange == null || retentionRange == null) {
-                anyUnresolved = true;
-                continue;
+                if (loadRange == null || retentionRange == null) {
+                    anyUnresolved = true;
+                    continue;
+                }
+
+                int index = cell.getIndex();
+                boolean withinLoadBand = index >= loadRange[0] && index <= loadRange[1];
+                boolean withinRetentionBand = index >= retentionRange[0] && index <= retentionRange[1];
+                cell.applyViewportState(withinLoadBand, withinRetentionBand);
+            } catch (Exception exception) {
+                logger.warn("sweep() threw while processing cell for item {} — skipping this "
+                        + "cell, continuing sweep", cell.getItem(), exception);
             }
-
-            int index = cell.getIndex();
-            boolean withinLoadBand = index >= loadRange[0] && index <= loadRange[1];
-            boolean withinRetentionBand = index >= retentionRange[0] && index <= retentionRange[1];
-            cell.applyViewportState(withinLoadBand, withinRetentionBand);
         }
 
-        if (anyUnresolved && unresolvedRetryCount < MAX_UNRESOLVED_RETRIES) {
-            unresolvedRetryCount++;
+        if (!anyUnresolved) {
+            unresolvedStreakStartMillis = 0;
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (unresolvedStreakStartMillis == 0) {
+            unresolvedStreakStartMillis = now;
+        }
+        if (now - unresolvedStreakStartMillis < MAX_UNRESOLVED_STREAK_MILLIS) {
             markDirty();
         } else {
-            unresolvedRetryCount = 0;
+            logger.warn("Giving up on unresolved grid geometry after {}ms — a group's cells "
+                            + "may stay on the placeholder until the next scroll or resize",
+                    MAX_UNRESOLVED_STREAK_MILLIS);
+            unresolvedStreakStartMillis = 0;
         }
     }
 
@@ -173,13 +213,11 @@ public final class CardCellViewportRegistry {
      * an empty range, or a group opened without ever being scrolled would stay permanently
      * blank.
      */
-    private static int[] computeRangeOrNull(GridView<CardElement> grid, double marginInViewports) {
+    private static int[] computeRangeOrNull(
+            GridView<CardElement> grid, CardTreeCell owner, double marginInViewports) {
         if (grid.getScene() == null) {
             return null;
         }
-        // The grid's cell factory always builds CardGridCell instances whose `outer` field
-        // is the owning CardTreeCell; any realized cell of this grid gives us that reference.
-        CardTreeCell owner = findOwner(grid);
         if (owner == null || owner.getTreeView() == null) {
             return null;
         }
@@ -211,19 +249,5 @@ public final class CardCellViewportRegistry {
                 columns,
                 itemCount,
                 marginPixels);
-    }
-
-    /**
-     * Finds the {@code CardTreeCell} that owns {@code grid}, via any of its currently
-     * realized {@code CardGridCell} children. {@code GridView} does not expose its owning
-     * {@code TreeCell} directly, but every cell it creates carries that reference.
-     */
-    private static CardTreeCell findOwner(GridView<CardElement> grid) {
-        for (CardGridCell cell : registeredCells) {
-            if (cell.getGridView() == grid) {
-                return cell.outer;
-            }
-        }
-        return null;
     }
 }

@@ -784,6 +784,13 @@ public class CardTreeCell extends TreeCell<String> {
                             group.getName(), System.identityHashCode(group), System.identityHashCode(this));
                     return;
                 }
+                logger.info("[PERF-DIAG] updateItem: REBUILDING group '{}' (group identity {}, "
+                                + "lastRenderedGroup identity {}, sameGroupIdentity={}, "
+                                + "sameMissingSet={}, cell instance {})",
+                        group.getName(), System.identityHashCode(group),
+                        System.identityHashCode(lastRenderedGroup), group == lastRenderedGroup,
+                        Objects.equals(missingForThisGroup, lastRenderedMissingSet),
+                        System.identityHashCode(this));
                 setText(null);
                 setGraphic(null);
                 getStyleClass().setAll("card-tree-cell");

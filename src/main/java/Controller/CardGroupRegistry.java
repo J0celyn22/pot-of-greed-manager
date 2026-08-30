@@ -142,6 +142,13 @@ public final class CardGroupRegistry {
      * Returns (or creates) the {@link ObservableList} that backs the {@link GridView} for
      * the given group.  Adding or removing through this list updates both the model and the
      * GridView automatically.
+     *
+     * <p>Backed by {@link CardGroupObservableList} rather than a plain
+     * {@code FXCollections.observableList(...)} wrapper: every add/remove/set made through the
+     * returned list detaches the group's live GridView (if any) first and reattaches it once the
+     * change has settled, working around a ControlsFX {@code GridCell} defect that otherwise
+     * crashes mid-render whenever a live, on-screen group's card count shrinks. See
+     * {@link CardGroupObservableList}'s class Javadoc for the full explanation.
      */
     public static ObservableList<CardElement> observableListFor(CardsGroup group) {
         if (group == null) {
@@ -153,7 +160,7 @@ public final class CardGroupRegistry {
                 backing = new ArrayList<>();
                 targetGroup.setCardList(backing);
             }
-            return FXCollections.observableList(backing);
+            return new CardGroupObservableList(backing, targetGroup);
         });
     }
 
@@ -406,7 +413,9 @@ public final class CardGroupRegistry {
                 continue;
             }
 
+            GridViewDetachment detachment = detachGridViewForGroup(group);
             filteredList.setPredicate(buildCombinedPredicate(activeMiddleFilter));
+            reattachGridViewForGroup(detachment);
 
             // Recompute height using the post-filter count.
             WeakReference<GridView<CardElement>> gridRef = GROUP_GRID_VIEWS.get(group);
@@ -640,6 +649,96 @@ public final class CardGroupRegistry {
             return getDeckSectionGroup(deckSectionOwner.deck(), deckSectionOwner.section());
         }
         return null;
+    }
+
+    /**
+     * Detaches {@code group}'s live {@link GridView} (if any) from its {@link FilteredList} by
+     * swapping in a fresh empty list, so it stops reacting to an about-to-happen change that
+     * could shrink the list while its cells are still attached.
+     *
+     * <p>That shrink-while-attached situation is what triggers a ControlsFX {@code GridCell}
+     * defect (still open upstream as of 11.2.1 — see controlsfx issues #1065 and #1070): a
+     * {@code GridCell}'s index-invalidation listener reads {@code gridView.getItems().get(index)}
+     * with no bounds check, and {@code GridRowSkin} does not reconcile cell indices against a
+     * newly-shrunk list before that listener fires. The result is an uncaught
+     * {@link IndexOutOfBoundsException} on the JavaFX Application Thread that aborts ControlsFX's
+     * cell-recycling pass partway through, leaving most cards in the group's grid rendered blank
+     * even though the underlying model list is completely unaffected.
+     *
+     * <p>Callers that are about to perform a change which could shrink a group's rendered card
+     * count — a structural mutation of its {@link ObservableList} (see
+     * {@link CardGroupObservableList}) or a predicate re-push in {@link #applyFilterToAllGroups}
+     * — should call this first, make the change, then call {@link #reattachGridViewForGroup}
+     * with the returned value once the change has fully settled.
+     *
+     * <p>Uses an empty {@link ObservableList} rather than {@code null} as the temporary
+     * placeholder — see {@link #refreshAllGridViews()}'s note on why {@code setItems(null)}
+     * triggers its own, uncatchable {@link NullPointerException} on a later layout pulse.
+     *
+     * @return a handle to reattach with, or {@code null} if {@code group} has no live GridView
+     * currently bound to its FilteredList (nothing to detach)
+     */
+    static GridViewDetachment detachGridViewForGroup(CardsGroup group) {
+        if (group == null) {
+            return null;
+        }
+        WeakReference<GridView<CardElement>> gridViewReference = GROUP_GRID_VIEWS.get(group);
+        GridView<CardElement> liveGridView = gridViewReference == null ? null : gridViewReference.get();
+        WeakReference<FilteredList<CardElement>> filteredListReference = GROUP_FILTERED_LISTS.get(group);
+        FilteredList<CardElement> liveFilteredList = filteredListReference == null
+                ? null : filteredListReference.get();
+
+        if (liveGridView == null || liveFilteredList == null || liveGridView.getItems() != liveFilteredList) {
+            return null;
+        }
+
+        try {
+            liveGridView.setItems(FXCollections.observableArrayList());
+        } catch (Exception exception) {
+            logger.warn("detachGridViewForGroup: temporary empty-items swap failed for group '{}'",
+                    group.getName(), exception);
+            return null;
+        }
+        return new GridViewDetachment(liveGridView, liveFilteredList);
+    }
+
+    /**
+     * Reattaches a {@link GridView} previously detached by {@link #detachGridViewForGroup},
+     * deferred to the next JavaFX pulse via {@link Platform#runLater} so that whatever change
+     * prompted the detach has fully propagated through the group's {@link FilteredList} first —
+     * reattaching any earlier would just reintroduce the live-incremental-update race being
+     * worked around. One clean {@code setItems()} call against an already-settled list makes
+     * ControlsFX rebuild every row and cell from scratch, instead of processing the change as a
+     * live incremental update, which is the code path where the {@code GridCell} defect lives.
+     *
+     * <p>No-ops silently when {@code detachment} is {@code null} (nothing was detached) or the
+     * JavaFX toolkit isn't running, e.g. in this project's own unit tests.
+     */
+    static void reattachGridViewForGroup(GridViewDetachment detachment) {
+        if (detachment == null) {
+            return;
+        }
+        try {
+            Platform.runLater(() -> detachment.gridView.setItems(detachment.filteredList));
+        } catch (IllegalStateException toolkitNotInitialized) {
+            logger.debug("Skipped GridView reattachment — JavaFX toolkit not running",
+                    toolkitNotInitialized);
+        }
+    }
+
+    /**
+     * Small holder pairing a detached {@link GridView} with the {@link FilteredList} it should
+     * be reattached to. Returned by {@link #detachGridViewForGroup}, consumed by
+     * {@link #reattachGridViewForGroup}.
+     */
+    static final class GridViewDetachment {
+        private final GridView<CardElement> gridView;
+        private final FilteredList<CardElement> filteredList;
+
+        private GridViewDetachment(GridView<CardElement> gridView, FilteredList<CardElement> filteredList) {
+            this.gridView = gridView;
+            this.filteredList = filteredList;
+        }
     }
 
     /**
