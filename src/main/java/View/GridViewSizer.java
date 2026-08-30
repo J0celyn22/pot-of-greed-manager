@@ -25,6 +25,12 @@ public final class GridViewSizer {
      */
     private static final double CELL_INNER_PADDING = 5.0;
 
+    /**
+     * Shared empty-range sentinel returned by {@link #computeVisibleIndexRange} — avoids an
+     * allocation on what can be a hot path (evaluated per grid, per viewport sweep).
+     */
+    private static final int[] EMPTY_INDEX_RANGE = new int[]{-1, -1};
+
     private GridViewSizer() {
     }
 
@@ -125,6 +131,56 @@ public final class GridViewSizer {
             return;
         }
         applyGridPrefHeight(grid, computeGridPrefHeight(grid, itemCount));
+    }
+
+    /**
+     * Computes the inclusive index range of cards whose row intersects the band
+     * {@code [viewportTop - margin, viewportBottom + margin]}, all coordinates given in the
+     * same (scene) pixel space. Pure function of primitives — no {@link GridView} instance —
+     * so it can be exercised in a test without the FX toolkit.
+     *
+     * <p>{@code rowSpan} must use the same {@code cardHeight + 2 * CELL_INNER_PADDING +
+     * verticalSpacing} definition as {@link #computeGridPrefHeight}, or the two will silently
+     * disagree about where rows actually fall.</p>
+     *
+     * @return {@code {fromIndex, toIndex}} inclusive, or {@link #EMPTY_INDEX_RANGE} when
+     * nothing in {@code [0, itemCount)} intersects the band
+     */
+    public static int[] computeVisibleIndexRange(
+            double gridTopInScene,
+            double viewportTopInScene,
+            double viewportBottomInScene,
+            double paddingTop,
+            double rowSpan,
+            int columns,
+            int itemCount,
+            double marginPixels) {
+
+        if (itemCount <= 0 || columns < 1 || rowSpan <= 0) {
+            return EMPTY_INDEX_RANGE;
+        }
+
+        double contentTop = gridTopInScene + paddingTop;
+        double topOffset = viewportTopInScene - marginPixels - contentTop;
+        double bottomOffset = viewportBottomInScene + marginPixels - contentTop;
+        if (bottomOffset < 0) {
+            return EMPTY_INDEX_RANGE;
+        }
+
+        int firstRow = Math.max(0, (int) Math.floor(topOffset / rowSpan));
+        int lastRow = (int) Math.floor(bottomOffset / rowSpan);
+
+        int fromIndex = firstRow * columns;
+        if (fromIndex >= itemCount) {
+            return EMPTY_INDEX_RANGE;
+        }
+
+        int toIndex = Math.min(itemCount - 1, (lastRow + 1) * columns - 1);
+        if (toIndex < fromIndex) {
+            return EMPTY_INDEX_RANGE;
+        }
+
+        return new int[]{fromIndex, toIndex};
     }
 
     /**

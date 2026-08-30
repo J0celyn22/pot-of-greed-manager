@@ -208,6 +208,29 @@ public final class CardImageLoader {
     }
 
     /**
+     * Cancels {@code imageView}'s outstanding load, if any, and clears the expected-path
+     * marker used to guard against a stale load overwriting a recycled cell.
+     *
+     * <p>Used by the viewport gate ({@code CardCellViewportRegistry}) when a cell scrolls out
+     * of the retention band: without this, a fast scroll through several screens would leave
+     * every crossed cell's load still queued on {@link #imageLoadingExecutor}, decoding images
+     * nobody will see by the time they finish.</p>
+     *
+     * @param imageView the view whose load should be cancelled
+     */
+    public void cancelLoad(ImageView imageView) {
+        Future<?> pending = outstandingLoads.remove(imageView);
+        if (pending != null) {
+            // false: the underlying `new Image(...)` decode isn't interruptible anyway —
+            // cancel(true) would only add interrupt noise to the pool. This still prevents
+            // any load that hasn't started yet from ever starting, which is the case that
+            // matters during a fast scroll.
+            pending.cancel(false);
+        }
+        imageView.getProperties().remove("expectedImagePath");
+    }
+
+    /**
      * Resolves the on-disk path for {@code imageKey}, first checking
      * {@link #imagePathCache} and then delegating to
      * {@link DataBaseUpdate#getAddresses} on the background resolver thread.

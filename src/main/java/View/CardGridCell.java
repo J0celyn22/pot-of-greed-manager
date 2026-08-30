@@ -21,7 +21,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.concurrent.Future;
 
 /**
  * CardGridCell — a {@link GridCell} rendering one {@link CardElement} in the middle-pane
@@ -34,8 +33,15 @@ class CardGridCell extends GridCell<CardElement> {
 
     private final ImageView cardImageView;
     final StackPane wrapper;
-    private Future<?> imageLoadFuture;
     private String currentImageKey;
+    /**
+     * Whether {@link #currentImageKey}'s image has been loaded (or a load kicked off) at the
+     * current viewport pass. Reset to {@code false} whenever the item changes, so a cell
+     * recycled onto a new card always reloads regardless of what its previous item's state
+     * was. Read and written only from {@link #applyViewportState} and {@link #updateItem},
+     * both FX-thread-only.
+     */
+    private boolean imageLoaded;
     /**
      * Glow priority for this cell, read by the hover handler.
      * 0 = none | 1 = white (archetype/artwork missing or needs-sort)
@@ -721,6 +727,7 @@ class CardGridCell extends GridCell<CardElement> {
 
         // Clear previous state for empty cells
         if (empty || cardElement == null) {
+            CardCellViewportRegistry.unregister(this);
             subscribeToSelectionHighlight(null);
             cardImageView.setImage(null);
             cardImageView.setEffect(null);
@@ -728,14 +735,30 @@ class CardGridCell extends GridCell<CardElement> {
             wrapper.setStyle("-fx-background-color: transparent;");
             currentGlowPriority = 0;
             currentTooltips = new java.util.ArrayList<>();
+            currentImageKey = null;
+            imageLoaded = false;
             setGraphic(wrapper);
             return;
         }
 
         subscribeToSelectionHighlight(cardElement);
 
-        // --- Image loading (unchanged logic) ---
-        outer.imageLoader.loadCardImage(cardElement, cardImageView);
+        // --- Image loading: gated by viewport visibility, not unconditional ---
+        // GridView's height is locked to its full content height (GridViewSizer,
+        // so it never collapses inside its parent TreeCell), which means ControlsFX's
+        // own virtualization never kicks in here — every cell in a group is realized
+        // regardless of scroll position. CardCellViewportRegistry restores the missing
+        // gate: it decides, after layout, which realized cells are actually near the
+        // viewport and should load. Only the image-cache key comparison happens here,
+        // to avoid re-flashing the placeholder when TreeView.refresh() redraws this
+        // cell on the same item it already had.
+        String imageKey = CardImageLoader.safeImageKey(cardElement);
+        if (!Objects.equals(imageKey, currentImageKey)) {
+            currentImageKey = imageKey;
+            imageLoaded = false;
+            cardImageView.setImage(CardImageLoader.getPlaceholder());
+        }
+        CardCellViewportRegistry.register(this);
 
         GlowComputationResult glowResult = computeGlowAndTooltips(cardElement);
         applyGlowEffect(glowResult.glowPriority());
@@ -758,6 +781,40 @@ class CardGridCell extends GridCell<CardElement> {
 
         // Finalize graphic
         setGraphic(wrapper);
+    }
+
+    /**
+     * Called by {@link CardCellViewportRegistry} after a viewport sweep: loads this cell's
+     * image if it is close to the visible area and not already loaded, or releases it back
+     * to a placeholder if it has scrolled far enough away. Does not touch glow, tooltips, or
+     * selection — those keep running for every realized cell regardless of visibility, only
+     * image I/O is gated.
+     *
+     * @param withinLoadBand      {@code true} if this cell's row is within one viewport height
+     *                            of the visible area (load, or keep loaded)
+     * @param withinRetentionBand {@code true} if within the wider retention band (three
+     *                            viewport heights); an already-loaded image is only released
+     *                            once the cell falls outside this band, so a small amount of
+     *                            scroll back-and-forth doesn't thrash load/unload every sweep
+     */
+    void applyViewportState(boolean withinLoadBand, boolean withinRetentionBand) {
+        if (getGraphic() == null) {
+            // applyOuicheGrayscaleOrSuppress hid this cell (e.g. "hide owned cards"); an
+            // image arriving late would just get shown on a cell meant to stay suppressed.
+            return;
+        }
+        if (withinLoadBand) {
+            if (!imageLoaded) {
+                outer.imageLoader.loadCardImage(getItem(), cardImageView);
+                imageLoaded = true;
+            }
+            return;
+        }
+        if (!withinRetentionBand && imageLoaded) {
+            outer.imageLoader.cancelLoad(cardImageView);
+            cardImageView.setImage(CardImageLoader.getPlaceholder());
+            imageLoaded = false;
+        }
     }
 
     /**
