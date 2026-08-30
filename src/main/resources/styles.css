@@ -729,7 +729,7 @@
     -fx-text-fill: -text;
 }
 /* Dropdown list container — floats above the combo, posed like a card */
-.accent-combo .combo-popup .list-view {
+.accent-combo .combo-box-popup .list-view {
     -fx-background-color: -surface-raised;
     -fx-background-radius: 16;
     -fx-border-radius: 16;
