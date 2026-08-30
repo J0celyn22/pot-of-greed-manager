@@ -782,9 +782,10 @@ public class OuicheListController {
         }
 
         final String resolvedPath = "file:" + addresses[0];
+        final int decodeWidth = Utils.CardImageResolution.quantizeDecodeWidth(fitWidth);
 
         // Fast path: already cached on the FX thread.
-        Image cached = Utils.LruImageCache.getImage(resolvedPath);
+        Image cached = Utils.LruImageCache.getImage(resolvedPath, decodeWidth);
         if (cached != null) {
             imageView.setImage(cached);
             return;
@@ -795,7 +796,7 @@ public class OuicheListController {
             try {
                 Image loadedImage =
                         new Image(resolvedPath, fitWidth, fitHeight, true, true);
-                Utils.LruImageCache.addImage(resolvedPath, loadedImage);
+                Utils.LruImageCache.addImage(resolvedPath, decodeWidth, loadedImage);
                 javafx.application.Platform.runLater(() -> imageView.setImage(loadedImage));
             } catch (Exception exception) {
                 logger.debug("loadCardImageInto: failed to load image for {}",

@@ -73,18 +73,23 @@ public final class CardImageLoader {
     final ConcurrentHashMap<ImageView, Future<?>> outstandingLoads =
             new ConcurrentHashMap<>();
     /**
-     * Width to request when loading a new {@link Image} from disk.
+     * No longer read for decode sizing — that now comes from
+     * {@link Utils.CardImageResolution#getActiveDecodeWidth()}, a single global tier shared
+     * by every consumer of this loader (see {@link #loadCardImage}). Kept, along with the
+     * constructor parameters below, because this constructor is also called from
+     * {@code CardScannerArtworkGallery} (itself constructed by
+     * {@code Controller.CardScannerCoordinator}); changing the signature would ripple into
+     * files outside this fix's scope for a cosmetic gain. Candidate for removal in a
+     * follow-up cleanup pass.
      */
     private final DoubleProperty cardWidthProperty;
-    /**
-     * Height to request when loading a new {@link Image} from disk.
-     */
     private final DoubleProperty cardHeightProperty;
 
     // ── Placeholder ───────────────────────────────────────────────────────────
 
     /**
-     * Creates a loader bound to the given cell dimensions.
+     * Creates a loader. {@code cardWidthProperty}/{@code cardHeightProperty} are stored but
+     * no longer used for decode sizing (see the field javadoc above).
      *
      * @param cardWidthProperty  the cell's current card-width property
      * @param cardHeightProperty the cell's current card-height property
@@ -163,20 +168,26 @@ public final class CardImageLoader {
      * immediately (so the cell never shows a blank gap) and then kicks off
      * async resolution and loading as needed.</p>
      *
+     * <p>The decode width ({@link Utils.CardImageResolution#getActiveDecodeWidth()}) is read
+     * exactly once here and threaded through every step of this call, rather than re-read at
+     * cache-write time — a zoom change landing mid-flight would otherwise read under one tier
+     * and write under another, silently missing the cache on every subsequent lookup.</p>
+     *
      * @param cardElement the card whose image to load
      * @param imageView   the view to update when the image is ready
      */
     public void loadCardImage(CardElement cardElement, ImageView imageView) {
         String imageKey = safeImageKey(cardElement);
         String cachedFullPath = imageKey == null ? null : imagePathCache.get(imageKey);
+        int decodeWidth = Utils.CardImageResolution.getActiveDecodeWidth();
 
         if (cachedFullPath != null) {
-            Image cached = LruImageCache.getImage(cachedFullPath);
+            Image cached = LruImageCache.getImage(cachedFullPath, decodeWidth);
             if (cached != null) {
                 imageView.setImage(cached);
             } else {
                 imageView.setImage(getPlaceholder());
-                Future<?> future = loadAsync(cardElement, imageView, cachedFullPath);
+                Future<?> future = loadAsync(cardElement, imageView, cachedFullPath, decodeWidth);
                 if (future != null) {
                     outstandingLoads.put(imageView, future);
                 }
@@ -187,7 +198,7 @@ public final class CardImageLoader {
                 if (resolvedPath == null) {
                     return;
                 }
-                Image cached = LruImageCache.getImage(resolvedPath);
+                Image cached = LruImageCache.getImage(resolvedPath, decodeWidth);
                 if (cached != null) {
                     Platform.runLater(() -> {
                         Object expected = imageView.getProperties().get("expectedImagePath");
@@ -198,7 +209,7 @@ public final class CardImageLoader {
                     });
                 } else {
                     imageView.getProperties().put("expectedImagePath", resolvedPath);
-                    Future<?> future = loadAsync(cardElement, imageView, resolvedPath);
+                    Future<?> future = loadAsync(cardElement, imageView, resolvedPath, decodeWidth);
                     if (future != null) {
                         outstandingLoads.put(imageView, future);
                     }
@@ -277,20 +288,25 @@ public final class CardImageLoader {
      * @param cardElement  the card being loaded (used for error logging only)
      * @param imageView    the target view
      * @param resolvedPath the {@code file:} URL to load
+     * @param decodeWidth  the decode width to load and cache at (see
+     *                     {@link Utils.CardImageResolution}) — captured once by the caller,
+     *                     not re-read here, so a load started under one zoom tier can't write
+     *                     under a different one if the zoom changes mid-flight
      * @return the submitted {@link Future}, or {@code null} if the image was
      * served from cache synchronously
      */
     Future<?> loadAsync(
             CardElement cardElement,
             ImageView imageView,
-            String resolvedPath) {
+            String resolvedPath,
+            int decodeWidth) {
 
         if (resolvedPath == null) {
             Platform.runLater(() -> imageView.setImage(getPlaceholder()));
             return null;
         }
 
-        Image cached = LruImageCache.getImage(resolvedPath);
+        Image cached = LruImageCache.getImage(resolvedPath, decodeWidth);
         if (cached != null) {
             Platform.runLater(() -> {
                 Object expected = imageView.getProperties().get("expectedImagePath");
@@ -309,12 +325,12 @@ public final class CardImageLoader {
             try {
                 Image image = new Image(
                         resolvedPath,
-                        cardWidthProperty.get(),
-                        cardHeightProperty.get(),
+                        decodeWidth,
+                        Utils.CardImageResolution.decodeHeightFor(decodeWidth),
                         true, true, true);
 
                 if (image.getProgress() >= 1.0) {
-                    LruImageCache.addImage(resolvedPath, image);
+                    LruImageCache.addImage(resolvedPath, decodeWidth, image);
                     Platform.runLater(() -> {
                         Object expected = imageView.getProperties().get("expectedImagePath");
                         if (Objects.equals(expected, resolvedPath)) {
@@ -326,7 +342,7 @@ public final class CardImageLoader {
                     Platform.runLater(() -> {
                         image.progressProperty().addListener((obs, oldValue, newValue) -> {
                             if (newValue.doubleValue() >= 1.0) {
-                                LruImageCache.addImage(resolvedPath, image);
+                                LruImageCache.addImage(resolvedPath, decodeWidth, image);
                                 Object expected =
                                         imageView.getProperties().get("expectedImagePath");
                                 if (Objects.equals(expected, resolvedPath)) {

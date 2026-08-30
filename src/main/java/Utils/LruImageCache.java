@@ -13,7 +13,8 @@ import java.util.Map;
  * <p>
  * An enhanced image cache using a least-recently-used (LRU) algorithm.
  * Images are stored in memory via SoftReferences to allow JVM garbage collection when needed.
- * This version uses the original caching logic (with file path as the key).
+ * Keyed by file path plus decode width (see {@link CardImageResolution#cacheKey}), so an
+ * image decoded small never gets served back as a substitute for one wanted larger.
  */
 public class LruImageCache {
 
@@ -56,32 +57,42 @@ public class LruImageCache {
             };
 
     /**
-     * Retrieves an image from the cache by its file path.
+     * Retrieves an image decoded at {@code decodeWidth} from the cache, by file path.
      *
-     * @param imagePath the file path of the image
+     * <p>The decode width is part of the key, not just the path: an image decoded small and
+     * then found here for a larger display size would have to be upscaled by the
+     * {@code ImageView}, which is exactly the blur this dimension-aware key exists to avoid.
+     * See {@link CardImageResolution} for why the width is quantized into tiers rather than
+     * used as an exact pixel value.</p>
+     *
+     * @param imagePath   the file path of the image
+     * @param decodeWidth the decode width it was (or would be) loaded at
      * @return the cached Image if available; otherwise, null.
      */
-    public static synchronized Image getImage(String imagePath) {
-        SoftReference<Image> ref = imageCache.get(imagePath);
+    public static synchronized Image getImage(String imagePath, int decodeWidth) {
+        String key = CardImageResolution.cacheKey(imagePath, decodeWidth);
+        SoftReference<Image> ref = imageCache.get(key);
         if (ref != null) {
             Image image = ref.get();
             if (image != null) {
                 return image;
             } else {
-                imageCache.remove(imagePath);
+                imageCache.remove(key);
             }
         }
         return null;
     }
 
     /**
-     * Caches an image under its file path.
+     * Caches an image under its file path and the decode width it was loaded at.
      *
-     * @param imagePath the file path of the image
-     * @param image     the Image to cache
+     * @param imagePath   the file path of the image
+     * @param decodeWidth the decode width it was loaded at
+     * @param image       the Image to cache
      */
-    public static synchronized void addImage(String imagePath, Image image) {
-        imageCache.put(imagePath, new SoftReference<>(image));
+    public static synchronized void addImage(String imagePath, int decodeWidth, Image image) {
+        String key = CardImageResolution.cacheKey(imagePath, decodeWidth);
+        imageCache.put(key, new SoftReference<>(image));
     }
 
     /**

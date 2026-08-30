@@ -116,7 +116,8 @@ public final class CardGridCellDropHandler {
             String imageKey = card != null ? card.getImagePath() : null;
             String resolvedPath = imageKey != null ? CardImageLoader.imagePathCache.get(imageKey) : null;
             ghostImages.add(resolvedPath != null
-                    ? Utils.LruImageCache.getImage(resolvedPath) : null);
+                    ? Utils.LruImageCache.getImage(resolvedPath, Utils.CardImageResolution.getActiveDecodeWidth())
+                    : null);
         }
 
         Dragboard dragboard = wrapper.startDragAndDrop(TransferMode.MOVE);
@@ -163,7 +164,8 @@ public final class CardGridCellDropHandler {
             String imageKey = card.getImagePath();
             String resolvedPath = imageKey != null ? CardImageLoader.imagePathCache.get(imageKey) : null;
             ghostImages.add(resolvedPath != null
-                    ? Utils.LruImageCache.getImage(resolvedPath) : null);
+                    ? Utils.LruImageCache.getImage(resolvedPath, Utils.CardImageResolution.getActiveDecodeWidth())
+                    : null);
         }
 
         Dragboard dragboard = wrapper.startDragAndDrop(TransferMode.MOVE);

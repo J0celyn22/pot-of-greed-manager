@@ -114,13 +114,18 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
             return;
         }
 
+        int decodeWidth = Utils.CardImageResolution.quantizeDecodeWidth(imageWidth);
         for (Card card : row) {
             String fullImageUrl = getImagePath(card);
             Image image;
             try {
-                image = LruImageCache.getImage(fullImageUrl);
+                image = LruImageCache.getImage(fullImageUrl, decodeWidth);
                 if (image == null) {
                     image = new Image(fullImageUrl, imageWidth, imageHeight, true, true);
+                    // Previously never cached from here — only the main grid wrote to
+                    // LruImageCache, under its own dimensions. Caching here too avoids
+                    // re-decoding synchronously on the FX thread on every cell recycle.
+                    LruImageCache.addImage(fullImageUrl, decodeWidth, image);
                 }
             } catch (Exception exception) {
                 image = new Image("file:./src/main/resources/placeholder.jpg",
@@ -205,7 +210,9 @@ public class CardsMosaicRowCell extends ListCell<List<Card>> {
                 for (int index = 0; index < ghostCount; index++) {
                     Card dragCard = dragCards.get(index);
                     String path = getImagePath(dragCard);
-                    Image cachedImage = path != null ? LruImageCache.getImage(path) : null;
+                    Image cachedImage = path != null
+                            ? LruImageCache.getImage(path, Utils.CardImageResolution.quantizeDecodeWidth(imageWidth))
+                            : null;
                     if (cachedImage == null && path != null) {
                         try {
                             cachedImage = new Image(path, imageWidth, imageHeight, true, true);

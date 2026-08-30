@@ -127,10 +127,13 @@ public class ShopResultListCell extends ListCell<ShopResultEntry> {
             String[] addresses = DataBaseUpdate.getAddresses(card.getImagePath() + ".jpg");
             if (addresses != null && addresses.length > 0) {
                 String url = "file:" + addresses[0];
-                Image cached = LruImageCache.getImage(url);
+                int decodeWidth = Utils.CardImageResolution.quantizeDecodeWidth(IMG_W);
+                Image cached = LruImageCache.getImage(url, decodeWidth);
                 if (cached != null) return cached;
                 try {
-                    return new Image(url, IMG_W, IMG_H, true, true);
+                    Image loaded = new Image(url, IMG_W, IMG_H, true, true);
+                    LruImageCache.addImage(url, decodeWidth, loaded);
+                    return loaded;
                 } catch (Exception ignored) { /* fall through to placeholder */ }
             }
         }

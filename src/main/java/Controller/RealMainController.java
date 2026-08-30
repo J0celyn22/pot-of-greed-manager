@@ -74,6 +74,19 @@ public class RealMainController {
     private final DoubleProperty cardWidthProperty = new SimpleDoubleProperty(100);
     private final DoubleProperty cardHeightProperty = new SimpleDoubleProperty(146);
 
+    /**
+     * Debounces the card-image decode resolution (see {@link Utils.CardImageResolution})
+     * against zoom gestures. A trackpad pinch or Ctrl+scroll fires 20-40 {@link ScrollEvent}s
+     * per second via {@link #adjustCardSize} — reloading every visible card's image on each
+     * one would mean dozens of full-resolution JPEG decodes per second. Restarted on every
+     * zoom step; only once it fires (200ms after the gesture actually stops) does the active
+     * decode tier change, so mid-gesture {@code markDirty()} calls from the resulting height
+     * relayouts never trigger a reload — the loaded/active tier comparison in
+     * {@code CardGridCell.applyViewportState} stays false throughout the gesture.
+     */
+    private final javafx.animation.PauseTransition zoomSettleDelay =
+            new javafx.animation.PauseTransition(javafx.util.Duration.millis(200));
+
     // ── FXML fields (must stay here — wired by FXML loader) ──────────────────
 
     @FXML
@@ -198,6 +211,15 @@ public class RealMainController {
         archetypesTab = new SharedCollectionTab(TabType.ARCHETYPES);
         friendsTab = new SharedCollectionTab(TabType.FRIENDS);
         shopsTab = new SharedCollectionTab(TabType.SHOPS);
+
+        zoomSettleDelay.setOnFinished(event -> {
+            int settledDecodeWidth = Utils.CardImageResolution.quantizeDecodeWidth(cardWidthProperty.get());
+            if (settledDecodeWidth == Utils.CardImageResolution.getActiveDecodeWidth()) {
+                return;
+            }
+            Utils.CardImageResolution.setActiveDecodeWidth(settledDecodeWidth);
+            View.CardCellViewportRegistry.markDirty();
+        });
 
         setupZoom(myCollectionTab);
         setupZoom(decksTab);
@@ -828,6 +850,7 @@ public class RealMainController {
         }
         cardWidthProperty.set(newWidth);
         cardHeightProperty.set(newWidth * 146.0 / 100.0);
+        zoomSettleDelay.playFromStart();
     }
 
     // =========================================================================

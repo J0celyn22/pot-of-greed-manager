@@ -78,7 +78,8 @@ public class CardsListCell extends ListCell<Card> {
             for (int index = 0; index < ghostCount; index++) {
                 Card dragCard = dragCards.get(index);
                 String imagePath = getImagePath(dragCard);
-                Image cachedImage = imagePath != null ? LruImageCache.getImage(imagePath) : null;
+                int decodeWidth = Utils.CardImageResolution.quantizeDecodeWidth(imageWidth);
+                Image cachedImage = imagePath != null ? LruImageCache.getImage(imagePath, decodeWidth) : null;
                 if (cachedImage == null && imagePath != null) {
                     try {
                         cachedImage = new Image(imagePath, imageWidth, imageHeight, true, true);
@@ -140,10 +141,17 @@ public class CardsListCell extends ListCell<Card> {
         String fullImageUrl = getImagePath(card);
         Image image;
         if (fullImageUrl != null) {
-            image = LruImageCache.getImage(fullImageUrl);
+            int decodeWidth = Utils.CardImageResolution.quantizeDecodeWidth(imageWidth);
+            image = LruImageCache.getImage(fullImageUrl, decodeWidth);
             if (image == null) {
                 try {
                     image = new Image(fullImageUrl, imageWidth, imageHeight, true, true);
+                    // This cell previously never wrote to the cache at all — only the main
+                    // grid did, under its own (uncoordinated) dimensions. Caching here too
+                    // means a later scroll-recycle of this same cell, or the main grid
+                    // loading the same card at a compatible tier, can hit instead of
+                    // re-decoding synchronously on the FX thread every time.
+                    LruImageCache.addImage(fullImageUrl, decodeWidth, image);
                 } catch (Exception exception) {
                     logger.error("Error loading card image from {}", fullImageUrl, exception);
                     image = new Image("file:./src/main/resources/placeholder.jpg",

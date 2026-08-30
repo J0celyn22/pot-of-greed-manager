@@ -126,7 +126,10 @@ public class CardsMosaicView extends FlowPane {
     }
 
     private Node createCardCell(Card card, double cellWidth, double cellHeight) {
-        Image image = LruImageCache.getImage(card.getImagePath());
+        // Dead code (no usage of this class outside this file, confirmed 2026-08-30): same
+        // unreachable lookup as CardsListView.createCardCell — see its comment.
+        Image image = LruImageCache.getImage(
+                card.getImagePath(), Utils.CardImageResolution.quantizeDecodeWidth(cellWidth));
         boolean usedPlaceholder = (image == null || image.isError());
 
         if (usedPlaceholder) {

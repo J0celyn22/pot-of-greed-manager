@@ -364,10 +364,15 @@ public class CardDetailPane extends VBox {
 
         if (fullUrl != null) {
             // For single-card: load directly at the requested height so we get
-            // full resolution. The cached thumbnail would look blurry at 220 px.
-            // For multi-card: cache is fine because cellH is small.
+            // full resolution. For multi-card: cache is fine because cellH is small — and
+            // now that the cache key includes decode width, a hit here is guaranteed to be
+            // at least this tall, never the blurry-thumbnail case this bypass used to guard
+            // against (that was really the pre-tiered-cache version of the same zoom-blur
+            // bug fixed elsewhere by CardImageResolution).
             if (!preferHighRes) {
-                image = LruImageCache.getImage(fullUrl);
+                int decodeWidth = Utils.CardImageResolution.quantizeDecodeWidth(
+                        fitHeight / Utils.CardImageResolution.CARD_ASPECT_RATIO);
+                image = LruImageCache.getImage(fullUrl, decodeWidth);
             }
 
             if (image == null || image.isError()) {

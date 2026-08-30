@@ -61,7 +61,13 @@ public class CardsListView extends VBox {
                         "-fx-border-radius: 5; " +
                         "-fx-background-radius: 5;");
 
-        Image image = LruImageCache.getImage(card.getImagePath());
+        // Dead code (no usage of this class outside this file, confirmed 2026-08-30): this
+        // lookup uses card.getImagePath() as the key, a bare token, never the "file:"-prefixed
+        // URL every writer of LruImageCache actually stores under -- it could never hit even
+        // before the cache key gained a decode-width component. Left as-is, decode width
+        // chosen arbitrarily since it can't affect anything reachable.
+        Image image = LruImageCache.getImage(
+                card.getImagePath(), Utils.CardImageResolution.quantizeDecodeWidth(imageWidth));
         if (image == null) {
             image = new Image("file:./src/main/resources/placeholder.jpg");
         }

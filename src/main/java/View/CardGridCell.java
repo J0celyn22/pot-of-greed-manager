@@ -207,7 +207,9 @@ class CardGridCell extends GridCell<CardElement> {
                     Card ghostCard = cards.get(i);
                     String key = ghostCard.getImagePath();
                     String resolvedPath = key != null ? CardImageLoader.imagePathCache.get(key) : null;
-                    ghostImages.add(resolvedPath != null ? LruImageCache.getImage(resolvedPath) : null);
+                    ghostImages.add(resolvedPath != null
+                            ? LruImageCache.getImage(resolvedPath, Utils.CardImageResolution.getActiveDecodeWidth())
+                            : null);
                 }
                 javafx.scene.input.Dragboard dragboard =
                         wrapper.startDragAndDrop(javafx.scene.input.TransferMode.MOVE);
@@ -248,7 +250,9 @@ class CardGridCell extends GridCell<CardElement> {
                 Card card = dragElement.getCard();
                 String key = card != null ? card.getImagePath() : null;
                 String resolvedPath = key != null ? CardImageLoader.imagePathCache.get(key) : null;
-                ghostImages.add(resolvedPath != null ? LruImageCache.getImage(resolvedPath) : null);
+                ghostImages.add(resolvedPath != null
+                        ? LruImageCache.getImage(resolvedPath, Utils.CardImageResolution.getActiveDecodeWidth())
+                        : null);
             }
 
             javafx.scene.input.Dragboard dragboard =

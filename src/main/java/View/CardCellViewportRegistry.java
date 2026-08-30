@@ -34,7 +34,7 @@ import java.util.WeakHashMap;
  * its {@code ImageView}, decoded {@code Image}, and parent {@code CardTreeCell}) alive
  * forever, which is exactly the kind of leak this project is already chasing elsewhere.</p>
  */
-final class CardCellViewportRegistry {
+public final class CardCellViewportRegistry {
 
     private static final Logger logger = LoggerFactory.getLogger(CardCellViewportRegistry.class);
 
@@ -87,7 +87,7 @@ final class CardCellViewportRegistry {
      * Requests a viewport sweep. Coalesced onto the next pulse — safe and cheap to call from
      * a tight loop (scroll events, bounds listeners firing on every realized cell).
      */
-    static void markDirty() {
+    public static void markDirty() {
         if (sweepScheduled) {
             return;
         }
