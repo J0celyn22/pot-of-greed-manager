@@ -39,18 +39,33 @@ public final class CardCellViewportRegistry {
     private static final Logger logger = LoggerFactory.getLogger(CardCellViewportRegistry.class);
 
     /**
-     * How many consecutive sweeps a grid is allowed to report unresolved geometry (not yet
-     * laid out, or detached from the scene) before the registry stops automatically
-     * rescheduling on its account. Without this bound, a permanently detached grid would
-     * keep requesting another sweep forever.
+     * How long a streak of unresolved geometry (not yet laid out, or detached from the scene)
+     * is allowed to keep requesting another sweep before the registry gives up on it. Without
+     * this bound, a permanently detached grid would keep rescheduling forever.
+     *
+     * <p>Originally a fixed pulse count (3), which turned out to be far too tight: a bulk
+     * operation like "Generate Archetype Lists" attaches many groups at once, and their
+     * {@code GridView}s can take several hundred milliseconds to finish settling — this file's
+     * own {@code DIAGNOSTIC_BURST_WINDOW_MILLIS} (300ms, in {@code CardTreeCell}) documents
+     * exactly that kind of burst for the same kind of bulk operation. 3 pulses under FX-thread
+     * load (itself busy building the new tree) could easily be exhausted well before real
+     * geometry ever resolved, silently stranding every cell of the still-settling groups on
+     * the placeholder forever — visible as Yu-Gi-Oh card backs never turning into artwork,
+     * reported 2026-08-30. Wall-clock time survives that variability; a pulse count doesn't.</p>
      */
-    private static final int MAX_UNRESOLVED_RETRIES = 3;
+    private static final long MAX_UNRESOLVED_STREAK_MILLIS = 3000;
 
     private static final Set<CardGridCell> registeredCells =
             Collections.newSetFromMap(new WeakHashMap<>());
 
     private static boolean sweepScheduled = false;
-    private static int unresolvedRetryCount = 0;
+    /**
+     * When the current unresolved streak started, or 0 when no streak is in progress. Reset to
+     * 0 whenever a sweep finds every grid resolved, so each new burst of activity gets its own
+     * fresh {@link #MAX_UNRESOLVED_STREAK_MILLIS} budget rather than inheriting time already
+     * spent on an earlier, unrelated one.
+     */
+    private static long unresolvedStreakStartMillis = 0;
 
     private CardCellViewportRegistry() {
     }
@@ -157,11 +172,21 @@ public final class CardCellViewportRegistry {
             cell.applyViewportState(withinLoadBand, withinRetentionBand);
         }
 
-        if (anyUnresolved && unresolvedRetryCount < MAX_UNRESOLVED_RETRIES) {
-            unresolvedRetryCount++;
+        if (!anyUnresolved) {
+            unresolvedStreakStartMillis = 0;
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (unresolvedStreakStartMillis == 0) {
+            unresolvedStreakStartMillis = now;
+        }
+        if (now - unresolvedStreakStartMillis < MAX_UNRESOLVED_STREAK_MILLIS) {
             markDirty();
         } else {
-            unresolvedRetryCount = 0;
+            logger.warn("Giving up on unresolved grid geometry after {}ms — a group's cells "
+                    + "may stay on the placeholder until the next scroll or resize",
+                    MAX_UNRESOLVED_STREAK_MILLIS);
+            unresolvedStreakStartMillis = 0;
         }
     }
 
