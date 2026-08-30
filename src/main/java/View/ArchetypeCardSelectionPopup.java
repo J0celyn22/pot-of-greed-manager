@@ -328,19 +328,32 @@ public class ArchetypeCardSelectionPopup extends Stage {
         Set<String> existingCards = existingKonamiIds(collection.getCardsList());
         Set<String> existingExceptions = existingKonamiIds(collection.getExceptionsToNotAdd());
 
+        // Through the registry rather than collection.getCardsList()/getExceptionsToNotAdd()
+        // directly, so this detaches/reattaches the collection's live GridViews (if any) around
+        // each add and notifies their FilteredLists -- see CardGroupObservableList's Javadoc for
+        // why a raw add() here eventually crashes ControlsFX's GridCell.
+        javafx.collections.ObservableList<CardElement> cardsObservableList =
+                Controller.CardGroupRegistry.observableListFor(
+                        Controller.CardGroupRegistry.getOrCreateCollectionCardsGroup(
+                                collection, collection.getCardsList()));
+        javafx.collections.ObservableList<CardElement> exceptionsObservableList =
+                Controller.CardGroupRegistry.observableListFor(
+                        Controller.CardGroupRegistry.getOrCreateCollectionExceptionsGroup(
+                                collection, collection.getExceptionsToNotAdd()));
+
         for (Card card : archetypeCards) {
             String kid = card.getKonamiId();
 
             if (selected.contains(card)) {
                 // → cardsList
                 if (kid == null || !existingCards.contains(kid)) {
-                    collection.getCardsList().add(new CardElement(card));
+                    cardsObservableList.add(new CardElement(card));
                     if (kid != null) existingCards.add(kid);
                 }
             } else {
                 // → exceptionsToNotAdd
                 if (kid == null || !existingExceptions.contains(kid)) {
-                    collection.getExceptionsToNotAdd().add(new CardElement(card));
+                    exceptionsObservableList.add(new CardElement(card));
                     if (kid != null) existingExceptions.add(kid);
                 }
             }

@@ -56,9 +56,15 @@ final class CardBulkRemoveFromDecksHandler {
                     continue;
                 }
                 List<CardElement> removedFromCards =
-                        removeMatchingAndCollect(themeCollection.getCardsList(), matchesPredicate);
+                        removeMatchingAndCollect(
+                                CardGroupRegistry.getOrCreateCollectionCardsGroup(
+                                        themeCollection, themeCollection.getCardsList()),
+                                matchesPredicate);
                 List<CardElement> removedFromExceptions =
-                        removeMatchingAndCollect(themeCollection.getExceptionsToNotAdd(), matchesPredicate);
+                        removeMatchingAndCollect(
+                                CardGroupRegistry.getOrCreateCollectionExceptionsGroup(
+                                        themeCollection, themeCollection.getExceptionsToNotAdd()),
+                                matchesPredicate);
                 if (!removedFromCards.isEmpty() || !removedFromExceptions.isEmpty()) {
                     dirtyOwners.add(themeCollection);
                     if (ouicheListGenerated) {
@@ -77,11 +83,20 @@ final class CardBulkRemoveFromDecksHandler {
                                 continue;
                             }
                             List<CardElement> removedMain =
-                                    removeMatchingAndCollect(deck.getMainDeck(), matchesPredicate);
+                                    removeMatchingAndCollect(
+                                            CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                                    deck, "main", "Main Deck", deck.getMainDeck()),
+                                            matchesPredicate);
                             List<CardElement> removedExtra =
-                                    removeMatchingAndCollect(deck.getExtraDeck(), matchesPredicate);
+                                    removeMatchingAndCollect(
+                                            CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                                    deck, "extra", "Extra Deck", deck.getExtraDeck()),
+                                            matchesPredicate);
                             List<CardElement> removedSide =
-                                    removeMatchingAndCollect(deck.getSideDeck(), matchesPredicate);
+                                    removeMatchingAndCollect(
+                                            CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                                    deck, "side", "Side Deck", deck.getSideDeck()),
+                                            matchesPredicate);
                             if (!removedMain.isEmpty() || !removedExtra.isEmpty() || !removedSide.isEmpty()) {
                                 dirtyOwners.add(deck);
                                 if (ouicheListGenerated) {
@@ -110,11 +125,20 @@ final class CardBulkRemoveFromDecksHandler {
                     continue;
                 }
                 List<CardElement> removedMain =
-                        removeMatchingAndCollect(deck.getMainDeck(), matchesPredicate);
+                        removeMatchingAndCollect(
+                                CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                        deck, "main", "Main Deck", deck.getMainDeck()),
+                                matchesPredicate);
                 List<CardElement> removedExtra =
-                        removeMatchingAndCollect(deck.getExtraDeck(), matchesPredicate);
+                        removeMatchingAndCollect(
+                                CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                        deck, "extra", "Extra Deck", deck.getExtraDeck()),
+                                matchesPredicate);
                 List<CardElement> removedSide =
-                        removeMatchingAndCollect(deck.getSideDeck(), matchesPredicate);
+                        removeMatchingAndCollect(
+                                CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                        deck, "side", "Side Deck", deck.getSideDeck()),
+                                matchesPredicate);
                 if (!removedMain.isEmpty() || !removedExtra.isEmpty() || !removedSide.isEmpty()) {
                     dirtyOwners.add(deck);
                     if (ouicheListGenerated) {
@@ -178,9 +202,15 @@ final class CardBulkRemoveFromDecksHandler {
                     continue;
                 }
                 List<CardElement> removedFromCards =
-                        removeMatchingAndCollect(themeCollection.getCardsList(), matchesPredicate);
+                        removeMatchingAndCollect(
+                                CardGroupRegistry.getOrCreateCollectionCardsGroup(
+                                        themeCollection, themeCollection.getCardsList()),
+                                matchesPredicate);
                 List<CardElement> removedFromExceptions =
-                        removeMatchingAndCollect(themeCollection.getExceptionsToNotAdd(), matchesPredicate);
+                        removeMatchingAndCollect(
+                                CardGroupRegistry.getOrCreateCollectionExceptionsGroup(
+                                        themeCollection, themeCollection.getExceptionsToNotAdd()),
+                                matchesPredicate);
                 if (!removedFromCards.isEmpty() || !removedFromExceptions.isEmpty()) {
                     dirtyOwners.add(themeCollection);
                     if (ouicheListGenerated) {
@@ -199,11 +229,20 @@ final class CardBulkRemoveFromDecksHandler {
                                 continue;
                             }
                             List<CardElement> removedMain =
-                                    removeMatchingAndCollect(deck.getMainDeck(), matchesPredicate);
+                                    removeMatchingAndCollect(
+                                            CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                                    deck, "main", "Main Deck", deck.getMainDeck()),
+                                            matchesPredicate);
                             List<CardElement> removedExtra =
-                                    removeMatchingAndCollect(deck.getExtraDeck(), matchesPredicate);
+                                    removeMatchingAndCollect(
+                                            CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                                    deck, "extra", "Extra Deck", deck.getExtraDeck()),
+                                            matchesPredicate);
                             List<CardElement> removedSide =
-                                    removeMatchingAndCollect(deck.getSideDeck(), matchesPredicate);
+                                    removeMatchingAndCollect(
+                                            CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                                    deck, "side", "Side Deck", deck.getSideDeck()),
+                                            matchesPredicate);
                             if (!removedMain.isEmpty() || !removedExtra.isEmpty() || !removedSide.isEmpty()) {
                                 dirtyOwners.add(deck);
                                 if (ouicheListGenerated) {
@@ -232,11 +271,20 @@ final class CardBulkRemoveFromDecksHandler {
                     continue;
                 }
                 List<CardElement> removedMain =
-                        removeMatchingAndCollect(deck.getMainDeck(), matchesPredicate);
+                        removeMatchingAndCollect(
+                                CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                        deck, "main", "Main Deck", deck.getMainDeck()),
+                                matchesPredicate);
                 List<CardElement> removedExtra =
-                        removeMatchingAndCollect(deck.getExtraDeck(), matchesPredicate);
+                        removeMatchingAndCollect(
+                                CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                        deck, "extra", "Extra Deck", deck.getExtraDeck()),
+                                matchesPredicate);
                 List<CardElement> removedSide =
-                        removeMatchingAndCollect(deck.getSideDeck(), matchesPredicate);
+                        removeMatchingAndCollect(
+                                CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                        deck, "side", "Side Deck", deck.getSideDeck()),
+                                matchesPredicate);
                 if (!removedMain.isEmpty() || !removedExtra.isEmpty() || !removedSide.isEmpty()) {
                     dirtyOwners.add(deck);
                     if (ouicheListGenerated) {
@@ -267,16 +315,24 @@ final class CardBulkRemoveFromDecksHandler {
     }
 
     /**
-     * Removes all elements from {@code list} that satisfy {@code predicate},
-     * returning the removed elements. Returns an empty list if {@code list} is
-     * {@code null} or nothing matched.
+     * Removes all elements from {@code group}'s live card list that satisfy {@code predicate},
+     * returning the removed elements. Returns an empty list if {@code group} is {@code null} or
+     * nothing matched.
+     *
+     * <p>Mutates through {@link CardGroupRegistry#observableListFor(CardsGroup)} rather than the
+     * raw backing list directly (e.g. {@code deck.getMainDeck()}), so this detaches/reattaches
+     * the group's live GridView around the removal and correctly notifies its FilteredList —
+     * see {@link CardGroupObservableList}'s class Javadoc. Removing through the raw list instead
+     * changes its size with no notification at all, which is what used to make a card removed
+     * here eventually crash ControlsFX's {@code GridCell} on a later, unrelated layout pass.
      */
     private static List<CardElement> removeMatchingAndCollect(
-            List<CardElement> list, java.util.function.Predicate<CardElement> predicate) {
+            CardsGroup group, java.util.function.Predicate<CardElement> predicate) {
         List<CardElement> removed = new ArrayList<>();
-        if (list == null) {
+        if (group == null) {
             return removed;
         }
+        List<CardElement> list = CardGroupRegistry.observableListFor(group);
         java.util.Iterator<CardElement> iterator = list.iterator();
         while (iterator.hasNext()) {
             CardElement element = iterator.next();

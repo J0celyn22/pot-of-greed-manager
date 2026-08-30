@@ -62,11 +62,19 @@ public final class DecksNavMenuBuilder {
                     if (collection.getCardsList() == null) {
                         collection.setCardsList(new java.util.ArrayList<>());
                     }
+                    // Through the registry rather than collection.getCardsList().add(...) directly,
+                    // so this detaches/reattaches the collection's live GridView (if any) around
+                    // each add and notifies its FilteredList -- see CardGroupObservableList's
+                    // Javadoc for why a raw add() here eventually crashes ControlsFX's GridCell.
+                    javafx.collections.ObservableList<Model.CardsLists.CardElement> cardsObservableList =
+                            Controller.CardGroupRegistry.observableListFor(
+                                    Controller.CardGroupRegistry.getOrCreateCollectionCardsGroup(
+                                            collection, collection.getCardsList()));
                     for (Model.CardsLists.CardElement clipboardElement
                             : Controller.CardClipboard.getContents()) {
                         if (clipboardElement != null
                                 && clipboardElement.getCard() != null) {
-                            collection.getCardsList().add(
+                            cardsObservableList.add(
                                     new Model.CardsLists.CardElement(
                                             clipboardElement.getCard()));
                         }
@@ -144,10 +152,14 @@ public final class DecksNavMenuBuilder {
         }
         menuItems.add(makeDecksRenameItem(deck));
         menuItems.add(NavigationContextMenuBuilder.makePasteItem(() -> {
+            javafx.collections.ObservableList<Model.CardsLists.CardElement> mainDeckObservableList =
+                    Controller.CardGroupRegistry.observableListFor(
+                            Controller.CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                    deck, "main", "Main Deck", deck.getMainDeck()));
             for (Model.CardsLists.CardElement clipboardElement
                     : Controller.CardClipboard.getContents()) {
                 if (clipboardElement != null && clipboardElement.getCard() != null) {
-                    deck.getMainDeck().add(
+                    mainDeckObservableList.add(
                             new Model.CardsLists.CardElement(clipboardElement.getCard()));
                 }
             }

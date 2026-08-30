@@ -539,7 +539,15 @@ class CardGridCell extends GridCell<CardElement> {
             logger.debug("Error invoking MenuActionHandler.handleRemove", t);
         }
 
-        // 2) Fallback: remove from owned collection directly
+        // 2) Fallback: remove from owned collection directly.
+        // Removal goes through CardGroupRegistry.observableListFor(g) rather than a raw
+        // g.getCardList().iterator().remove() so the FilteredList/GridView backing this group,
+        // if one is live, is notified of the change and detached/reattached around it. A raw
+        // removal on the backing list changes its size without ever notifying the FilteredList,
+        // which then reads a stale, too-large index the next time anything asks it for an item.
+        // The index of the matching element is looked up by reference identity first (not
+        // List.remove(Object), which would match by CardElement#equals and could remove a
+        // different, value-equal copy) and then removed by index.
         try {
             Model.CardsLists.OwnedCardsCollection owned = null;
             try {
@@ -563,15 +571,20 @@ class CardGridCell extends GridCell<CardElement> {
                     if (b.getContent() != null) {
                         for (Model.CardsLists.CardsGroup g : b.getContent()) {
                             if (g == null || g.getCardList() == null) continue;
-                            Iterator<Model.CardsLists.CardElement> it = g.getCardList().iterator();
-                            while (it.hasNext()) {
-                                Model.CardsLists.CardElement candidateElement = it.next();
-                                if (candidateElement == cardElement) {
-                                    it.remove();
-                                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
-                                    Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-                                    break outer;
+                            List<Model.CardsLists.CardElement> observableCardList =
+                                    CardGroupRegistry.observableListFor(g);
+                            int indexOfElementToRemove = -1;
+                            for (int index = 0; index < observableCardList.size(); index++) {
+                                if (observableCardList.get(index) == cardElement) {
+                                    indexOfElementToRemove = index;
+                                    break;
                                 }
+                            }
+                            if (indexOfElementToRemove >= 0) {
+                                observableCardList.remove(indexOfElementToRemove);
+                                Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                                Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                                break outer;
                             }
                         }
                     }
@@ -580,15 +593,20 @@ class CardGridCell extends GridCell<CardElement> {
                             if (sb == null || sb.getContent() == null) continue;
                             for (Model.CardsLists.CardsGroup g : sb.getContent()) {
                                 if (g == null || g.getCardList() == null) continue;
-                                Iterator<Model.CardsLists.CardElement> it = g.getCardList().iterator();
-                                while (it.hasNext()) {
-                                    Model.CardsLists.CardElement candidateElement = it.next();
-                                    if (candidateElement == cardElement) {
-                                        it.remove();
-                                        Controller.UserInterfaceFunctions.markMyCollectionDirty();
-                                        Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-                                        break outer;
+                                List<Model.CardsLists.CardElement> observableCardList =
+                                        CardGroupRegistry.observableListFor(g);
+                                int indexOfElementToRemove = -1;
+                                for (int index = 0; index < observableCardList.size(); index++) {
+                                    if (observableCardList.get(index) == cardElement) {
+                                        indexOfElementToRemove = index;
+                                        break;
                                     }
+                                }
+                                if (indexOfElementToRemove >= 0) {
+                                    observableCardList.remove(indexOfElementToRemove);
+                                    Controller.UserInterfaceFunctions.markMyCollectionDirty();
+                                    Controller.UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
+                                    break outer;
                                 }
                             }
                         }
@@ -815,8 +833,6 @@ class CardGridCell extends GridCell<CardElement> {
             return;
         }
         if (!withinRetentionBand && imageLoaded) {
-            logger.info("[IMG-DIAG] evicting to placeholder (left retention band) for item={}",
-                    getItem());
             outer.imageLoader.cancelLoad(cardImageView);
             cardImageView.setImage(CardImageLoader.getPlaceholder());
             imageLoaded = false;

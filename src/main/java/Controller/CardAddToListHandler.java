@@ -126,14 +126,27 @@ final class CardAddToListHandler {
 
         CardElement newElement = new CardElement(card);
         String sectionName;
+        // Mutating through CardGroupRegistry.observableListFor(...) rather than the raw
+        // targetDeck.getXDeck() list directly: a raw add() changes the list's size with no
+        // ObservableList notification at all, which is what eventually crashes ControlsFX's
+        // GridCell on a later, unrelated layout pass -- see CardGroupObservableList's Javadoc.
         if (Utils.DeckCompatibility.isMainDeckSection(effectiveSectionName)) {
-            targetDeck.getMainDeck().add(newElement);
+            CardGroupRegistry.observableListFor(
+                            CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                    targetDeck, "main", "Main Deck", targetDeck.getMainDeck()))
+                    .add(newElement);
             sectionName = "main";
         } else if (Utils.DeckCompatibility.isExtraDeckSection(effectiveSectionName)) {
-            targetDeck.getExtraDeck().add(newElement);
+            CardGroupRegistry.observableListFor(
+                            CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                    targetDeck, "extra", "Extra Deck", targetDeck.getExtraDeck()))
+                    .add(newElement);
             sectionName = "extra";
         } else {
-            targetDeck.getSideDeck().add(newElement);
+            CardGroupRegistry.observableListFor(
+                            CardGroupRegistry.getOrCreateDeckSectionGroup(
+                                    targetDeck, "side", "Side Deck", targetDeck.getSideDeck()))
+                    .add(newElement);
             sectionName = "side";
         }
         logger.debug("doAddToDeck: added '{}' to '{}'", card.getName_EN(), handlerTarget);
@@ -285,7 +298,10 @@ final class CardAddToListHandler {
             foundCollection.setCardsList(new ArrayList<>());
         }
         CardElement newElement = new CardElement(card);
-        foundCollection.getCardsList().add(newElement);
+        CardGroupRegistry.observableListFor(
+                        CardGroupRegistry.getOrCreateCollectionCardsGroup(
+                                foundCollection, foundCollection.getCardsList()))
+                .add(newElement);
         logger.debug("handleAddToCollectionCards: added '{}' to collection '{}'",
                 card.getName_EN(), collectionName);
 
@@ -375,7 +391,10 @@ final class CardAddToListHandler {
         if (foundCollection.getExceptionsToNotAdd() == null) {
             foundCollection.setExceptionsToNotAdd(new ArrayList<>());
         }
-        foundCollection.getExceptionsToNotAdd().add(new CardElement(card));
+        CardGroupRegistry.observableListFor(
+                        CardGroupRegistry.getOrCreateCollectionExceptionsGroup(
+                                foundCollection, foundCollection.getExceptionsToNotAdd()))
+                .add(new CardElement(card));
         logger.debug("handleAddToExclusionList: added '{}' to exclusion list of '{}'",
                 card.getName_EN(), collectionName);
 
