@@ -336,6 +336,13 @@ public final class CardImageLoader {
                         if (Objects.equals(expected, resolvedPath)) {
                             imageView.setImage(image);
                             imageView.getProperties().remove("expectedImagePath");
+                            logger.info("[IMG-DIAG] applied real image (sync decode) for {}",
+                                    resolvedPath);
+                        } else {
+                            logger.info("[IMG-DIAG] decode finished (sync) for {} but "
+                                            + "expectedImagePath was '{}' — discarding, cell was "
+                                            + "reassigned or cancelled before this landed",
+                                    resolvedPath, expected);
                         }
                     });
                 } else {
@@ -348,6 +355,13 @@ public final class CardImageLoader {
                                 if (Objects.equals(expected, resolvedPath)) {
                                     imageView.setImage(image);
                                     imageView.getProperties().remove("expectedImagePath");
+                                    logger.info("[IMG-DIAG] applied real image (async decode) "
+                                            + "for {}", resolvedPath);
+                                } else {
+                                    logger.info("[IMG-DIAG] decode finished (async) for {} but "
+                                                    + "expectedImagePath was '{}' — discarding, cell "
+                                                    + "was reassigned or cancelled before this landed",
+                                            resolvedPath, expected);
                                 }
                             }
                         });

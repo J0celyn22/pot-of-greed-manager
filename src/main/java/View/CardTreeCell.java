@@ -106,6 +106,11 @@ public class CardTreeCell extends TreeCell<String> {
      */
     private javafx.beans.value.ChangeListener<Number> cardWidthRebuildListener;
     private javafx.beans.value.ChangeListener<Number> treeWidthRebuildListener;
+    // The exact WeakChangeListener wrapper instances currently attached to the shared
+    // properties, kept so removeListener can find them again — removeListener(plainListener)
+    // does not match a WeakChangeListener wrapper around it, since it's a different object.
+    private javafx.beans.value.WeakChangeListener<Number> attachedCardWidthWeakListener;
+    private javafx.beans.value.WeakChangeListener<Number> attachedTreeWidthWeakListener;
 
     /**
      * TEMPORARY diagnostic aid (camera-scanner Unit 10 add-latency investigation, round 2) —
@@ -1882,14 +1887,19 @@ public class CardTreeCell extends TreeCell<String> {
         Platform.runLater(() -> adjustGridViewHeight(group));
 
         // Listeners: deferred so grid.getWidth() reflects the new size after layout.
-        // Detach the previous rebuild's pair first — both properties are shared across
-        // this cell's whole lifetime, so leaving the old ones attached here would leak
-        // one more pair of listeners onto them every time this group gets rebuilt.
-        if (cardWidthRebuildListener != null) {
-            cardWidthProperty.removeListener(cardWidthRebuildListener);
+        // Detach the previous rebuild's pair first — covers the common case where this same
+        // instance is simply being rebuilt for a new group. Wrapping in WeakChangeListener
+        // covers the other case: TreeView creating more CardTreeCell instances than it ends
+        // up needing (seen during initial population) and discarding the extras without ever
+        // calling this method on them again, which would otherwise leave their listener pair
+        // permanently attached to the shared cardWidthProperty / treeView.widthProperty() —
+        // a leaked listener fires (and reschedules an adjustGridViewHeight call) on every
+        // future width-affecting change for the rest of the session, not just once.
+        if (attachedCardWidthWeakListener != null) {
+            cardWidthProperty.removeListener(attachedCardWidthWeakListener);
         }
-        if (treeWidthRebuildListener != null) {
-            getTreeView().widthProperty().removeListener(treeWidthRebuildListener);
+        if (attachedTreeWidthWeakListener != null) {
+            getTreeView().widthProperty().removeListener(attachedTreeWidthWeakListener);
         }
         // Unit 10 diagnostic instrumentation (camera-scanner real-world tuning pass): logs every
         // time one of these fires, so a re-adjustment triggered by a width change after an add
@@ -1906,8 +1916,10 @@ public class CardTreeCell extends TreeCell<String> {
                     displayName, oldVal, newVal);
             Platform.runLater(() -> adjustGridViewHeight(group));
         };
-        cardWidthProperty.addListener(cardWidthRebuildListener);
-        getTreeView().widthProperty().addListener(treeWidthRebuildListener);
+        attachedCardWidthWeakListener = new javafx.beans.value.WeakChangeListener<>(cardWidthRebuildListener);
+        attachedTreeWidthWeakListener = new javafx.beans.value.WeakChangeListener<>(treeWidthRebuildListener);
+        cardWidthProperty.addListener(attachedCardWidthWeakListener);
+        getTreeView().widthProperty().addListener(attachedTreeWidthWeakListener);
 
         customTriangleLabel.setOnMouseClicked(event -> {
             boolean isExpanded = !grid.isVisible();
