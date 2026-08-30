@@ -54,7 +54,30 @@ public final class CardCellViewportRegistry {
     private static final Set<CardGridCell> registeredCells =
             Collections.newSetFromMap(new WeakHashMap<>());
 
-    private static boolean sweepScheduled = false;
+    /**
+     * How long a sweep waits for viewport-affecting activity to go quiet before actually
+     * running. Debounced rather than scheduled on the next pulse: {@code CardTreeCell}'s own
+     * diagnostics show height recalculation arriving in bursts of a dozen-plus calls inside a
+     * ~300ms window during bulk operations (see its {@code DIAGNOSTIC_BURST_WINDOW_MILLIS}).
+     * Sweeping on every one of those was the real cost — each sweep that flips a cell out of
+     * the retention band and back cancels and resubmits its image load, and since {@link
+     * CardImageLoader#cancelLoad} can only stop a decode that hasn't started yet (image
+     * decoding isn't interruptible), an already-running decode always finishes and consumes a
+     * full slot on the decode executor even though its result gets thrown away the moment a
+     * newer request for the same cell completes first. Under a fast enough burst that backlog
+     * compounds faster than it drains and never recovers — every card stuck permanently on the
+     * placeholder despite genuinely successful decodes, reported 2026-08-30. One sweep after
+     * the burst settles evaluates final, stable geometry instead of every intermediate value.
+     */
+    private static final long SWEEP_DEBOUNCE_MILLIS = 120;
+
+    private static final javafx.animation.PauseTransition sweepDebounce =
+            new javafx.animation.PauseTransition(javafx.util.Duration.millis(SWEEP_DEBOUNCE_MILLIS));
+
+    static {
+        sweepDebounce.setOnFinished(event -> sweep());
+    }
+
     /**
      * When the current unresolved streak started, or 0 when no streak is in progress. Reset to
      * 0 whenever a sweep finds every grid resolved, so each new burst of activity gets its own
@@ -95,15 +118,18 @@ public final class CardCellViewportRegistry {
     }
 
     /**
-     * Requests a viewport sweep. Coalesced onto the next pulse — safe and cheap to call from
-     * a tight loop (scroll events, bounds listeners firing on every realized cell).
+     * Requests a viewport sweep, debounced by {@link #SWEEP_DEBOUNCE_MILLIS} — safe and cheap
+     * to call from a tight loop (scroll events, bounds listeners firing on every realized
+     * cell, a burst of height recalculations). Each call restarts the timer, so a sweep only
+     * actually runs once the triggering activity has been quiet for the debounce window,
+     * rather than once per call.
      */
     public static void markDirty() {
-        if (sweepScheduled) {
+        if (!Platform.isFxApplicationThread()) {
+            Platform.runLater(sweepDebounce::playFromStart);
             return;
         }
-        sweepScheduled = true;
-        Platform.runLater(CardCellViewportRegistry::sweep);
+        sweepDebounce.playFromStart();
     }
 
     /**
@@ -138,7 +164,6 @@ public final class CardCellViewportRegistry {
      * than transforming bounds per cell.
      */
     private static void sweep() {
-        sweepScheduled = false;
         Map<GridView<CardElement>, int[]> loadRangeByGrid = new IdentityHashMap<>();
         Map<GridView<CardElement>, int[]> retentionRangeByGrid = new IdentityHashMap<>();
         boolean anyUnresolved = false;

@@ -833,6 +833,8 @@ class CardGridCell extends GridCell<CardElement> {
             return;
         }
         if (!withinRetentionBand && imageLoaded) {
+            logger.info("[IMG-DIAG] evicting to placeholder (left retention band) for item={}",
+                    getItem());
             outer.imageLoader.cancelLoad(cardImageView);
             cardImageView.setImage(CardImageLoader.getPlaceholder());
             imageLoaded = false;
