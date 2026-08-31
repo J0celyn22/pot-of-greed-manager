@@ -336,8 +336,13 @@ public final class CardImageLoader {
                         if (Objects.equals(expected, resolvedPath)) {
                             imageView.setImage(image);
                             imageView.getProperties().remove("expectedImagePath");
-                            logger.info("[IMG-DIAG] applied real image (sync decode) for {}",
-                                    resolvedPath);
+                            logger.info("[IMG-DIAG] applied real image (sync decode) for {} — "
+                                            + "inScene={}, hasParent={}, visible={}, managed={}, "
+                                            + "fitW={}, fitH={}",
+                                    resolvedPath, imageView.getScene() != null,
+                                    imageView.getParent() != null, imageView.isVisible(),
+                                    imageView.isManaged(), imageView.getFitWidth(),
+                                    imageView.getFitHeight());
                         } else {
                             logger.info("[IMG-DIAG] decode finished (sync) for {} but "
                                             + "expectedImagePath was '{}' — discarding, cell was "
@@ -356,7 +361,12 @@ public final class CardImageLoader {
                                     imageView.setImage(image);
                                     imageView.getProperties().remove("expectedImagePath");
                                     logger.info("[IMG-DIAG] applied real image (async decode) "
-                                            + "for {}", resolvedPath);
+                                                    + "for {} — inScene={}, hasParent={}, visible={}, "
+                                                    + "managed={}, fitW={}, fitH={}",
+                                            resolvedPath, imageView.getScene() != null,
+                                            imageView.getParent() != null, imageView.isVisible(),
+                                            imageView.isManaged(), imageView.getFitWidth(),
+                                            imageView.getFitHeight());
                                 } else {
                                     logger.info("[IMG-DIAG] decode finished (async) for {} but "
                                                     + "expectedImagePath was '{}' — discarding, cell "
