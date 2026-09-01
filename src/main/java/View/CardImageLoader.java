@@ -330,19 +330,20 @@ public final class CardImageLoader {
                         true, true, true);
 
                 if (image.getProgress() >= 1.0) {
+                    if (image.isError()) {
+                        logger.warn("[IMG-DIAG] decode finished but isError()=true (sync) for "
+                                        + "{} — file missing or unreadable, leaving placeholder", resolvedPath,
+                                image.getException());
+                        return;
+                    }
                     LruImageCache.addImage(resolvedPath, decodeWidth, image);
                     Platform.runLater(() -> {
                         Object expected = imageView.getProperties().get("expectedImagePath");
                         if (Objects.equals(expected, resolvedPath)) {
                             imageView.setImage(image);
                             imageView.getProperties().remove("expectedImagePath");
-                            logger.info("[IMG-DIAG] applied real image (sync decode) for {} — "
-                                            + "inScene={}, hasParent={}, visible={}, managed={}, "
-                                            + "fitW={}, fitH={}",
-                                    resolvedPath, imageView.getScene() != null,
-                                    imageView.getParent() != null, imageView.isVisible(),
-                                    imageView.isManaged(), imageView.getFitWidth(),
-                                    imageView.getFitHeight());
+                            logger.info("[IMG-DIAG] applied real image (sync decode) for {}",
+                                    resolvedPath);
                         } else {
                             logger.info("[IMG-DIAG] decode finished (sync) for {} but "
                                             + "expectedImagePath was '{}' — discarding, cell was "
@@ -354,6 +355,13 @@ public final class CardImageLoader {
                     Platform.runLater(() -> {
                         image.progressProperty().addListener((obs, oldValue, newValue) -> {
                             if (newValue.doubleValue() >= 1.0) {
+                                if (image.isError()) {
+                                    logger.warn("[IMG-DIAG] decode finished but isError()=true "
+                                                    + "(async) for {} — file missing or unreadable, "
+                                                    + "leaving placeholder", resolvedPath,
+                                            image.getException());
+                                    return;
+                                }
                                 LruImageCache.addImage(resolvedPath, decodeWidth, image);
                                 Object expected =
                                         imageView.getProperties().get("expectedImagePath");
@@ -361,12 +369,7 @@ public final class CardImageLoader {
                                     imageView.setImage(image);
                                     imageView.getProperties().remove("expectedImagePath");
                                     logger.info("[IMG-DIAG] applied real image (async decode) "
-                                                    + "for {} — inScene={}, hasParent={}, visible={}, "
-                                                    + "managed={}, fitW={}, fitH={}",
-                                            resolvedPath, imageView.getScene() != null,
-                                            imageView.getParent() != null, imageView.isVisible(),
-                                            imageView.isManaged(), imageView.getFitWidth(),
-                                            imageView.getFitHeight());
+                                            + "for {}", resolvedPath);
                                 } else {
                                     logger.info("[IMG-DIAG] decode finished (async) for {} but "
                                                     + "expectedImagePath was '{}' — discarding, cell "
