@@ -35,13 +35,31 @@ class CardGridCell extends GridCell<CardElement> {
     final StackPane wrapper;
     private String currentImageKey;
     /**
+     * Cap on {@link #failedLoadAttempts} before {@link #applyViewportState} pauses retrying
+     * this cell's current item until it next leaves and re-enters the load band.
+     */
+    private static final int MAX_LOAD_ATTEMPTS = 3;
+    /**
      * Whether {@link #currentImageKey}'s image has been loaded (or a load kicked off) at the
      * current viewport pass. Reset to {@code false} whenever the item changes, so a cell
      * recycled onto a new card always reloads regardless of what its previous item's state
-     * was. Read and written only from {@link #applyViewportState} and {@link #updateItem},
-     * both FX-thread-only.
+     * was. Also reset to {@code false} by {@link #applyViewportState}'s own failure callback
+     * when a kicked-off load ends without ever reaching {@link #cardImageView} (no on-disk
+     * address, or a decode error), so the next viewport sweep re-arms it. Read and written
+     * only from {@link #applyViewportState} and {@link #updateItem}, both FX-thread-only.
      */
     private boolean imageLoaded;
+    /**
+     * How many consecutive times {@link #currentImageKey}'s load has failed via {@link
+     * #applyViewportState}'s failure callback since this cell last entered the load band.
+     * Reset whenever the item changes, and also reset every time {@link #applyViewportState}
+     * finds the cell outside the load band — so a cell that exhausts {@link #MAX_LOAD_ATTEMPTS}
+     * only stops retrying while it stays continuously in view; scrolling it away and back always
+     * grants a fresh attempt budget. Bounds retries at {@link #MAX_LOAD_ATTEMPTS} so a card with
+     * genuinely no image on disk (a missing database entry, logged separately by {@code
+     * CardImageLoader}) doesn't get re-requested on every single sweep while sitting still.
+     */
+    private int failedLoadAttempts;
     /**
      * Glow priority for this cell, read by the hover handler.
      * 0 = none | 1 = white (archetype/artwork missing or needs-sort)
@@ -759,6 +777,7 @@ class CardGridCell extends GridCell<CardElement> {
             currentTooltips = new java.util.ArrayList<>();
             currentImageKey = null;
             imageLoaded = false;
+            failedLoadAttempts = 0;
             setGraphic(wrapper);
             return;
         }
@@ -778,6 +797,7 @@ class CardGridCell extends GridCell<CardElement> {
         if (!Objects.equals(imageKey, currentImageKey)) {
             currentImageKey = imageKey;
             imageLoaded = false;
+            failedLoadAttempts = 0;
             cardImageView.setImage(CardImageLoader.getPlaceholder());
         }
         CardCellViewportRegistry.register(this);
@@ -826,12 +846,20 @@ class CardGridCell extends GridCell<CardElement> {
             return;
         }
         if (withinLoadBand) {
-            if (!imageLoaded) {
-                outer.imageLoader.loadCardImage(getItem(), cardImageView);
+            if (!imageLoaded && failedLoadAttempts < MAX_LOAD_ATTEMPTS) {
                 imageLoaded = true;
+                outer.imageLoader.loadCardImage(getItem(), cardImageView, () -> {
+                    imageLoaded = false;
+                    failedLoadAttempts++;
+                });
             }
             return;
         }
+        // Outside the load band: whatever attempt count this residency in the load band ran up
+        // is done accruing. Clearing it here — not only on eviction below — is what lets a
+        // cell that exhausted MAX_LOAD_ATTEMPTS retry after being scrolled away and back,
+        // instead of staying latched out for the rest of the session.
+        failedLoadAttempts = 0;
         if (!withinRetentionBand && imageLoaded) {
             logger.info("[IMG-DIAG] evicting to placeholder (left retention band) for item={}",
                     getItem());

@@ -164,6 +164,22 @@ public final class CardImageLoader {
      * Loads the image for {@code cardElement} into {@code imageView}, going
      * through the path cache and LRU image cache before hitting disk.
      *
+     * <p>This is the primary entry point for callers that don't need to know whether the
+     * load ultimately failed. Equivalent to {@link #loadCardImage(CardElement, ImageView,
+     * Runnable)} with a no-op failure callback.</p>
+     *
+     * @param cardElement the card whose image to load
+     * @param imageView   the view to update when the image is ready
+     */
+    public void loadCardImage(CardElement cardElement, ImageView imageView) {
+        loadCardImage(cardElement, imageView, () -> {
+        });
+    }
+
+    /**
+     * Loads the image for {@code cardElement} into {@code imageView}, going
+     * through the path cache and LRU image cache before hitting disk.
+     *
      * <p>This is the primary entry point for callers. It sets the placeholder
      * immediately (so the cell never shows a blank gap) and then kicks off
      * async resolution and loading as needed.</p>
@@ -173,10 +189,21 @@ public final class CardImageLoader {
      * cache-write time — a zoom change landing mid-flight would otherwise read under one tier
      * and write under another, silently missing the cache on every subsequent lookup.</p>
      *
-     * @param cardElement the card whose image to load
-     * @param imageView   the view to update when the image is ready
+     * <p>{@code onLoadFailed} runs on the FX thread whenever this call ends without an image
+     * ever reaching {@code imageView}: no on-disk address for the card, or the decode itself
+     * erroring out (missing/unreadable file). It intentionally does not run when a load is
+     * superseded — the cell was recycled onto a different item, or the load was cancelled
+     * because the cell scrolled out of the retention band — since both of those already reset
+     * the caller's own load-tracking state through their own paths ({@link
+     * CardGridCell#updateItem} and {@link #cancelLoad}), and re-signalling failure there would
+     * race against a legitimate new load already in flight for the same {@code imageView}.</p>
+     *
+     * @param cardElement  the card whose image to load
+     * @param imageView    the view to update when the image is ready
+     * @param onLoadFailed invoked on the FX thread if the load ends without an image being
+     *                     applied, so the caller can re-arm and retry
      */
-    public void loadCardImage(CardElement cardElement, ImageView imageView) {
+    public void loadCardImage(CardElement cardElement, ImageView imageView, Runnable onLoadFailed) {
         String imageKey = safeImageKey(cardElement);
         String cachedFullPath = imageKey == null ? null : imagePathCache.get(imageKey);
         int decodeWidth = Utils.CardImageResolution.getActiveDecodeWidth();
@@ -187,7 +214,8 @@ public final class CardImageLoader {
                 imageView.setImage(cached);
             } else {
                 imageView.setImage(getPlaceholder());
-                Future<?> future = loadAsync(cardElement, imageView, cachedFullPath, decodeWidth);
+                Future<?> future =
+                        loadAsync(cardElement, imageView, cachedFullPath, decodeWidth, onLoadFailed);
                 if (future != null) {
                     outstandingLoads.put(imageView, future);
                 }
@@ -196,6 +224,9 @@ public final class CardImageLoader {
             imageView.setImage(getPlaceholder());
             resolvePathAsync(imageKey, resolvedPath -> {
                 if (resolvedPath == null) {
+                    logger.info("[IMG-DIAG] no on-disk address resolved for imageKey={} "
+                            + "(cardElement={}) — leaving placeholder", imageKey, cardElement);
+                    onLoadFailed.run();
                     return;
                 }
                 Image cached = LruImageCache.getImage(resolvedPath, decodeWidth);
@@ -209,7 +240,8 @@ public final class CardImageLoader {
                     });
                 } else {
                     imageView.getProperties().put("expectedImagePath", resolvedPath);
-                    Future<?> future = loadAsync(cardElement, imageView, resolvedPath, decodeWidth);
+                    Future<?> future =
+                            loadAsync(cardElement, imageView, resolvedPath, decodeWidth, onLoadFailed);
                     if (future != null) {
                         outstandingLoads.put(imageView, future);
                     }
@@ -246,7 +278,15 @@ public final class CardImageLoader {
      * {@link #imagePathCache} and then delegating to
      * {@link DataBaseUpdate#getAddresses} on the background resolver thread.
      * The resolved path (or {@code null} if not found) is delivered to
-     * {@code callback} from the resolver thread.
+     * {@code callback}.
+     *
+     * <p>{@code callback} always runs on the FX thread. The two cache-hit branches above
+     * already run there (every caller of this method is FX-thread-only), so they invoke it
+     * directly; the actual-lookup branch below hands off to {@link Platform#runLater} before
+     * invoking it, since {@link DataBaseUpdate#getAddresses} runs on {@link
+     * #pathResolverExecutor}, a background thread. Without that hand-off, callers that mutate
+     * {@code imageView.getProperties()} from {@code callback} (as {@link #loadCardImage} does)
+     * would be doing so off the FX thread, racing the FX thread's own reads of that same map.
      *
      * @param imageKey the cache key (may be {@code null})
      * @param callback receives the resolved {@code file:} URL, or {@code null}
@@ -269,10 +309,11 @@ public final class CardImageLoader {
                     resolved = "file:" + addresses[0];
                     imagePathCache.put(imageKey, resolved);
                 }
-                callback.accept(resolved);
+                String finalResolved = resolved;
+                Platform.runLater(() -> callback.accept(finalResolved));
             } catch (Exception exception) {
                 logger.warn("Failed to resolve image path for key {}", imageKey, exception);
-                callback.accept(null);
+                Platform.runLater(() -> callback.accept(null));
             }
         });
     }
@@ -292,6 +333,9 @@ public final class CardImageLoader {
      *                     {@link Utils.CardImageResolution}) — captured once by the caller,
      *                     not re-read here, so a load started under one zoom tier can't write
      *                     under a different one if the zoom changes mid-flight
+     * @param onLoadFailed invoked on the FX thread if the decode errors out or
+     *                     {@code resolvedPath} is {@code null}; see {@link #loadCardImage(
+     *CardElement, ImageView, Runnable)} for when this does and doesn't fire
      * @return the submitted {@link Future}, or {@code null} if the image was
      * served from cache synchronously
      */
@@ -299,10 +343,14 @@ public final class CardImageLoader {
             CardElement cardElement,
             ImageView imageView,
             String resolvedPath,
-            int decodeWidth) {
+            int decodeWidth,
+            Runnable onLoadFailed) {
 
         if (resolvedPath == null) {
-            Platform.runLater(() -> imageView.setImage(getPlaceholder()));
+            Platform.runLater(() -> {
+                imageView.setImage(getPlaceholder());
+                onLoadFailed.run();
+            });
             return null;
         }
 
@@ -334,6 +382,7 @@ public final class CardImageLoader {
                         logger.warn("[IMG-DIAG] decode finished but isError()=true (sync) for "
                                         + "{} — file missing or unreadable, leaving placeholder", resolvedPath,
                                 image.getException());
+                        Platform.runLater(onLoadFailed);
                         return;
                     }
                     LruImageCache.addImage(resolvedPath, decodeWidth, image);
@@ -360,6 +409,7 @@ public final class CardImageLoader {
                                                     + "(async) for {} — file missing or unreadable, "
                                                     + "leaving placeholder", resolvedPath,
                                             image.getException());
+                                    onLoadFailed.run();
                                     return;
                                 }
                                 LruImageCache.addImage(resolvedPath, decodeWidth, image);
@@ -390,6 +440,7 @@ public final class CardImageLoader {
                     if (expected == null || Objects.equals(expected, resolvedPath)) {
                         imageView.setImage(getPlaceholder());
                         imageView.getProperties().remove("expectedImagePath");
+                        onLoadFailed.run();
                     }
                 });
             } finally {
