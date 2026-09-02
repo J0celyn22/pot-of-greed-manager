@@ -35,11 +35,6 @@ class CardGridCell extends GridCell<CardElement> {
     final StackPane wrapper;
     private String currentImageKey;
     /**
-     * Cap on {@link #failedLoadAttempts} before {@link #applyViewportState} pauses retrying
-     * this cell's current item until it next leaves and re-enters the load band.
-     */
-    private static final int MAX_LOAD_ATTEMPTS = 3;
-    /**
      * Whether {@link #currentImageKey}'s image has been loaded (or a load kicked off) at the
      * current viewport pass. Reset to {@code false} whenever the item changes, so a cell
      * recycled onto a new card always reloads regardless of what its previous item's state
@@ -50,14 +45,20 @@ class CardGridCell extends GridCell<CardElement> {
      */
     private boolean imageLoaded;
     /**
+     * Cap on {@link #failedLoadAttempts} before {@link #applyViewportState} gives up retrying
+     * this cell's current item for the rest of its time on screen.
+     */
+    private static final int MAX_LOAD_ATTEMPTS = 3;
+    /**
      * How many consecutive times {@link #currentImageKey}'s load has failed via {@link
-     * #applyViewportState}'s failure callback since this cell last entered the load band.
-     * Reset whenever the item changes, and also reset every time {@link #applyViewportState}
-     * finds the cell outside the load band — so a cell that exhausts {@link #MAX_LOAD_ATTEMPTS}
-     * only stops retrying while it stays continuously in view; scrolling it away and back always
-     * grants a fresh attempt budget. Bounds retries at {@link #MAX_LOAD_ATTEMPTS} so a card with
+     * #applyViewportState}'s failure callback. Reset on two occasions: whenever the item
+     * changes ({@link #updateItem}), and whenever this cell leaves the retention band ({@link
+     * #applyViewportState}) — the latter independently of {@link #imageLoaded}, so a cell that
+     * has already maxed out (and therefore has {@code imageLoaded == false}) still gets
+     * re-armed by scrolling away and back, instead of being locked out for the rest of its
+     * time on the same item. Bounds retries at {@link #MAX_LOAD_ATTEMPTS} so a card with
      * genuinely no image on disk (a missing database entry, logged separately by {@code
-     * CardImageLoader}) doesn't get re-requested on every single sweep while sitting still.
+     * CardImageLoader}) doesn't get re-requested on every single viewport sweep forever.
      */
     private int failedLoadAttempts;
     /**
@@ -855,17 +856,27 @@ class CardGridCell extends GridCell<CardElement> {
             }
             return;
         }
-        // Outside the load band: whatever attempt count this residency in the load band ran up
-        // is done accruing. Clearing it here — not only on eviction below — is what lets a
-        // cell that exhausted MAX_LOAD_ATTEMPTS retry after being scrolled away and back,
-        // instead of staying latched out for the rest of the session.
-        failedLoadAttempts = 0;
-        if (!withinRetentionBand && imageLoaded) {
-            logger.info("[IMG-DIAG] evicting to placeholder (left retention band) for item={}",
-                    getItem());
-            outer.imageLoader.cancelLoad(cardImageView);
-            cardImageView.setImage(CardImageLoader.getPlaceholder());
-            imageLoaded = false;
+        if (!withinRetentionBand) {
+            if (imageLoaded) {
+                logger.info("[IMG-DIAG] evicting to placeholder (left retention band) for item={}",
+                        getItem());
+                outer.imageLoader.cancelLoad(cardImageView);
+                cardImageView.setImage(CardImageLoader.getPlaceholder());
+                imageLoaded = false;
+            }
+            // Reset independently of imageLoaded: once failedLoadAttempts hits
+            // MAX_LOAD_ATTEMPTS, the failure callback has already set imageLoaded to
+            // false, so gating this reset on imageLoaded (as before) meant a
+            // maxed-out cell could never be re-armed by scrolling — only a genuine
+            // item change (updateItem) reset it. Leaving the retention band is a
+            // legitimate second reset point: the cell is about to become invisible,
+            // so any in-flight notion of "this attempt failed" is stale by the time
+            // it scrolls back into the load band.
+            if (failedLoadAttempts != 0) {
+                logger.info("[IMG-DIAG] resetting failedLoadAttempts ({} -> 0) on retention-band "
+                        + "exit for item={}", failedLoadAttempts, getItem());
+                failedLoadAttempts = 0;
+            }
         }
     }
 

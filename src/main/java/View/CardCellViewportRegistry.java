@@ -86,6 +86,17 @@ public final class CardCellViewportRegistry {
      */
     private static long unresolvedStreakStartMillis = 0;
 
+    /**
+     * Human-readable reason the most recent {@link #computeRangeOrNull} call in the current
+     * sweep returned {@code null}, or {@code null} if every grid resolved. Overwritten on every
+     * unresolved call, so by the time {@link #sweep()} decides whether to give up it reflects
+     * whichever unresolved grid was evaluated last that sweep — enough to tell the three
+     * failure modes apart (never attached to a scene, stale/orphaned {@code CardTreeCell}, or
+     * zero-height bounds) without turning this into a per-call log spray across up to ~25
+     * retried sweeps in a single 3-second streak.
+     */
+    private static String lastUnresolvedReason = null;
+
     private CardCellViewportRegistry() {
     }
 
@@ -214,6 +225,7 @@ public final class CardCellViewportRegistry {
 
         if (!anyUnresolved) {
             unresolvedStreakStartMillis = 0;
+            lastUnresolvedReason = null;
             return;
         }
         long now = System.currentTimeMillis();
@@ -223,10 +235,12 @@ public final class CardCellViewportRegistry {
         if (now - unresolvedStreakStartMillis < MAX_UNRESOLVED_STREAK_MILLIS) {
             markDirty();
         } else {
-            logger.warn("Giving up on unresolved grid geometry after {}ms — a group's cells "
-                            + "may stay on the placeholder until the next scroll or resize",
-                    MAX_UNRESOLVED_STREAK_MILLIS);
+            logger.warn("Giving up on unresolved grid geometry after {}ms (reason: {}) — a "
+                            + "group's cells may stay on the placeholder until the next scroll "
+                            + "or resize",
+                    MAX_UNRESOLVED_STREAK_MILLIS, lastUnresolvedReason);
             unresolvedStreakStartMillis = 0;
+            lastUnresolvedReason = null;
         }
     }
 
@@ -237,13 +251,22 @@ public final class CardCellViewportRegistry {
      * {@code null} means "unknown", never "nothing visible" — callers must not treat it as
      * an empty range, or a group opened without ever being scrolled would stay permanently
      * blank.
+     *
+     * <p>Every {@code null}-returning branch records why in {@link #lastUnresolvedReason}
+     * first. Overwriting on each call is intentional: the field only needs to hold a
+     * plausible culprit by the time {@link #sweep()} finally gives up and logs it, not a
+     * full history of every unresolved call across a streak.</p>
      */
     private static int[] computeRangeOrNull(
             GridView<CardElement> grid, CardTreeCell owner, double marginInViewports) {
         if (grid.getScene() == null) {
+            lastUnresolvedReason = "grid not attached to a Scene (getScene()==null)";
             return null;
         }
         if (owner == null || owner.getTreeView() == null) {
+            lastUnresolvedReason = owner == null
+                    ? "cell's owning CardTreeCell is null"
+                    : "owning CardTreeCell's getTreeView() is null (stale/orphaned cell?)";
             return null;
         }
         javafx.scene.control.TreeView<String> treeView = owner.getTreeView();
@@ -252,6 +275,12 @@ public final class CardCellViewportRegistry {
         Bounds gridBounds = grid.localToScene(grid.getBoundsInLocal());
         if (viewportBounds == null || gridBounds == null
                 || viewportBounds.getHeight() <= 0 || gridBounds.getHeight() <= 0) {
+            lastUnresolvedReason = String.format(
+                    "invalid bounds (viewportBounds=%s, gridBounds=%s, viewportHeight=%s, "
+                            + "gridHeight=%s)",
+                    viewportBounds, gridBounds,
+                    viewportBounds == null ? "n/a" : viewportBounds.getHeight(),
+                    gridBounds == null ? "n/a" : gridBounds.getHeight());
             return null;
         }
 
