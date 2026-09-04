@@ -33,34 +33,6 @@ class CardGridCell extends GridCell<CardElement> {
 
     private final ImageView cardImageView;
     final StackPane wrapper;
-    private String currentImageKey;
-    /**
-     * Whether {@link #currentImageKey}'s image has been loaded (or a load kicked off) at the
-     * current viewport pass. Reset to {@code false} whenever the item changes, so a cell
-     * recycled onto a new card always reloads regardless of what its previous item's state
-     * was. Also reset to {@code false} by {@link #applyViewportState}'s own failure callback
-     * when a kicked-off load ends without ever reaching {@link #cardImageView} (no on-disk
-     * address, or a decode error), so the next viewport sweep re-arms it. Read and written
-     * only from {@link #applyViewportState} and {@link #updateItem}, both FX-thread-only.
-     */
-    private boolean imageLoaded;
-    /**
-     * Cap on {@link #failedLoadAttempts} before {@link #applyViewportState} gives up retrying
-     * this cell's current item for the rest of its time on screen.
-     */
-    private static final int MAX_LOAD_ATTEMPTS = 3;
-    /**
-     * How many consecutive times {@link #currentImageKey}'s load has failed via {@link
-     * #applyViewportState}'s failure callback. Reset on two occasions: whenever the item
-     * changes ({@link #updateItem}), and whenever this cell leaves the retention band ({@link
-     * #applyViewportState}) — the latter independently of {@link #imageLoaded}, so a cell that
-     * has already maxed out (and therefore has {@code imageLoaded == false}) still gets
-     * re-armed by scrolling away and back, instead of being locked out for the rest of its
-     * time on the same item. Bounds retries at {@link #MAX_LOAD_ATTEMPTS} so a card with
-     * genuinely no image on disk (a missing database entry, logged separately by {@code
-     * CardImageLoader}) doesn't get re-requested on every single viewport sweep forever.
-     */
-    private int failedLoadAttempts;
     /**
      * Glow priority for this cell, read by the hover handler.
      * 0 = none | 1 = white (archetype/artwork missing or needs-sort)
@@ -768,7 +740,6 @@ class CardGridCell extends GridCell<CardElement> {
 
         // Clear previous state for empty cells
         if (empty || cardElement == null) {
-            CardCellViewportRegistry.unregister(this);
             subscribeToSelectionHighlight(null);
             cardImageView.setImage(null);
             cardImageView.setEffect(null);
@@ -776,32 +747,14 @@ class CardGridCell extends GridCell<CardElement> {
             wrapper.setStyle("-fx-background-color: transparent;");
             currentGlowPriority = 0;
             currentTooltips = new java.util.ArrayList<>();
-            currentImageKey = null;
-            imageLoaded = false;
-            failedLoadAttempts = 0;
             setGraphic(wrapper);
             return;
         }
 
         subscribeToSelectionHighlight(cardElement);
 
-        // --- Image loading: gated by viewport visibility, not unconditional ---
-        // GridView's height is locked to its full content height (GridViewSizer,
-        // so it never collapses inside its parent TreeCell), which means ControlsFX's
-        // own virtualization never kicks in here — every cell in a group is realized
-        // regardless of scroll position. CardCellViewportRegistry restores the missing
-        // gate: it decides, after layout, which realized cells are actually near the
-        // viewport and should load. Only the image-cache key comparison happens here,
-        // to avoid re-flashing the placeholder when TreeView.refresh() redraws this
-        // cell on the same item it already had.
-        String imageKey = CardImageLoader.safeImageKey(cardElement);
-        if (!Objects.equals(imageKey, currentImageKey)) {
-            currentImageKey = imageKey;
-            imageLoaded = false;
-            failedLoadAttempts = 0;
-            cardImageView.setImage(CardImageLoader.getPlaceholder());
-        }
-        CardCellViewportRegistry.register(this);
+        // --- Image loading (unchanged logic) ---
+        outer.imageLoader.loadCardImage(cardElement, cardImageView);
 
         GlowComputationResult glowResult = computeGlowAndTooltips(cardElement);
         applyGlowEffect(glowResult.glowPriority());
@@ -824,60 +777,6 @@ class CardGridCell extends GridCell<CardElement> {
 
         // Finalize graphic
         setGraphic(wrapper);
-    }
-
-    /**
-     * Called by {@link CardCellViewportRegistry} after a viewport sweep: loads this cell's
-     * image if it is close to the visible area and not already loaded, or releases it back
-     * to a placeholder if it has scrolled far enough away. Does not touch glow, tooltips, or
-     * selection — those keep running for every realized cell regardless of visibility, only
-     * image I/O is gated.
-     *
-     * @param withinLoadBand      {@code true} if this cell's row is within one viewport height
-     *                            of the visible area (load, or keep loaded)
-     * @param withinRetentionBand {@code true} if within the wider retention band (three
-     *                            viewport heights); an already-loaded image is only released
-     *                            once the cell falls outside this band, so a small amount of
-     *                            scroll back-and-forth doesn't thrash load/unload every sweep
-     */
-    void applyViewportState(boolean withinLoadBand, boolean withinRetentionBand) {
-        if (getGraphic() == null) {
-            // applyOuicheGrayscaleOrSuppress hid this cell (e.g. "hide owned cards"); an
-            // image arriving late would just get shown on a cell meant to stay suppressed.
-            return;
-        }
-        if (withinLoadBand) {
-            if (!imageLoaded && failedLoadAttempts < MAX_LOAD_ATTEMPTS) {
-                imageLoaded = true;
-                outer.imageLoader.loadCardImage(getItem(), cardImageView, () -> {
-                    imageLoaded = false;
-                    failedLoadAttempts++;
-                });
-            }
-            return;
-        }
-        if (!withinRetentionBand) {
-            if (imageLoaded) {
-                logger.info("[IMG-DIAG] evicting to placeholder (left retention band) for item={}",
-                        getItem());
-                outer.imageLoader.cancelLoad(cardImageView);
-                cardImageView.setImage(CardImageLoader.getPlaceholder());
-                imageLoaded = false;
-            }
-            // Reset independently of imageLoaded: once failedLoadAttempts hits
-            // MAX_LOAD_ATTEMPTS, the failure callback has already set imageLoaded to
-            // false, so gating this reset on imageLoaded (as before) meant a
-            // maxed-out cell could never be re-armed by scrolling — only a genuine
-            // item change (updateItem) reset it. Leaving the retention band is a
-            // legitimate second reset point: the cell is about to become invisible,
-            // so any in-flight notion of "this attempt failed" is stale by the time
-            // it scrolls back into the load band.
-            if (failedLoadAttempts != 0) {
-                logger.info("[IMG-DIAG] resetting failedLoadAttempts ({} -> 0) on retention-band "
-                        + "exit for item={}", failedLoadAttempts, getItem());
-                failedLoadAttempts = 0;
-            }
-        }
     }
 
     /**

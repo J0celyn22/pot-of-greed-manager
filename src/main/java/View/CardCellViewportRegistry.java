@@ -213,10 +213,13 @@ public final class CardCellViewportRegistry {
                     continue;
                 }
 
-                int index = cell.getIndex();
-                boolean withinLoadBand = index >= loadRange[0] && index <= loadRange[1];
-                boolean withinRetentionBand = index >= retentionRange[0] && index <= retentionRange[1];
-                cell.applyViewportState(withinLoadBand, withinRetentionBand);
+                // Rolled back (see CardGridCell/CardTreeCell): image loading is unconditional
+                // again, so this registry is never populated and this line never runs — kept
+                // only so a future attempt to revive viewport gating doesn't start from zero.
+                // int index = cell.getIndex();
+                // boolean withinLoadBand = index >= loadRange[0] && index <= loadRange[1];
+                // boolean withinRetentionBand = index >= retentionRange[0] && index <= retentionRange[1];
+                // cell.applyViewportState(withinLoadBand, withinRetentionBand);
             } catch (Exception exception) {
                 logger.warn("sweep() threw while processing cell for item {} — skipping this "
                         + "cell, continuing sweep", cell.getItem(), exception);

@@ -215,15 +215,6 @@ public class CardTreeCell extends TreeCell<String> {
         hoverPopup.getContent().add(hoverPopupBox);
         hoverPopup.setAutoFix(true);
         hoverPopup.setAutoHide(false);
-
-        // VirtualFlow repositions every realized TreeCell on scroll (wheel/trackpad,
-        // scrollbar drag, keyboard navigation, scrollTo, expand/collapse, drag autoscroll),
-        // which changes its boundsInParent regardless of the trigger. That makes this the
-        // most reliable scroll signal available for CardCellViewportRegistry — no skin
-        // lookup, no dependency on VirtualFlow internals, and the listener's lifetime is
-        // this cell's own (self-referential, so it can never leak).
-        boundsInParentProperty().addListener(
-                (observable, oldBounds, newBounds) -> CardCellViewportRegistry.markDirty());
     }
 
     /**
@@ -1859,7 +1850,6 @@ public class CardTreeCell extends TreeCell<String> {
         grid.setVerticalCellSpacing(6);
         grid.setPadding(new Insets(5));
         grid.prefWidthProperty().bind(getTreeView().widthProperty().subtract(50));
-        CardCellViewportRegistry.attachScrollHooks(getTreeView());
 
         /*
          * Store a Map as userData so the renderer has both pieces of information:
