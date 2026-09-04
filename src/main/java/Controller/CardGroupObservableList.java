@@ -12,8 +12,8 @@ import java.util.function.Supplier;
  * list, returned by {@link CardGroupRegistry#observableListFor}. Behaves exactly like a plain
  * {@code FXCollections.observableList(backing)} wrapper — every structural mutation still
  * updates {@code backing} directly and fires the usual ObservableList change notifications — but
- * additionally detaches the group's live {@link org.controlsfx.control.GridView} (if any) before
- * each mutation and reattaches it afterward, once the mutation has fully settled.
+ * a removal additionally detaches the group's live {@link org.controlsfx.control.GridView} (if
+ * any) beforehand and reattaches it afterward, once the mutation has fully settled.
  *
  * <p><b>Why this exists.</b> ControlsFX 11.2.1's {@code GridCell} reacts to its own index changes
  * with an unbounded {@code gridView.getItems().get(getIndex())} call — no check that
@@ -32,6 +32,17 @@ import java.util.function.Supplier;
  * against a list that has already reached its final size, which it lays out from scratch every
  * time. See {@link CardGroupRegistry#detachGridViewForGroup} for the mechanics, including why an
  * empty list is used as the placeholder instead of {@code null}.
+ *
+ * <p><b>Why only removal is protected.</b> The defect above can only fire when a cell is left
+ * holding an index that has become out of range, which requires the list to get smaller — adding
+ * an element, or replacing one in place via {@link #doSet}, can never do that, so neither needs
+ * the workaround. Routing every mutation through it uniformly used to force a full
+ * teardown-and-rebuild-from-scratch of the GridView's rows and cells on every single card add —
+ * an O(group size) cost paid on every add, growing with the group as a scanning session went on —
+ * instead of letting GridView handle the (perfectly safe) growth incrementally, the way it is
+ * designed to. That full rebuild, repeated on every add, is also what was producing spurious
+ * {@code "index exceeds maxCellCount"} warnings from ControlsFX's {@code GridRowSkin} whenever the
+ * rebuild landed on a partially-filled trailing row.
  *
  * <p>Every add/remove/move call site in the codebase already goes through
  * {@link CardGroupRegistry#observableListFor}, so routing that method through this class protects
@@ -59,15 +70,19 @@ final class CardGroupObservableList extends ModifiableObservableListBase<CardEle
 
     @Override
     protected void doAdd(int index, CardElement element) {
-        runWithGridViewDetached(() -> {
-            backingList.add(index, element);
-            return null;
-        });
+        // Growing the list can never leave a GridCell holding an out-of-range index, so the
+        // shrink defect this class otherwise guards against does not apply here. Mutating
+        // directly lets GridView pick up the addition the normal way -- an incremental,
+        // in-place cell-recycling update -- instead of a full detach/reattach cycle that
+        // tears the whole GridView down and rebuilds every row and cell from scratch.
+        backingList.add(index, element);
     }
 
     @Override
     protected CardElement doSet(int index, CardElement element) {
-        return runWithGridViewDetached(() -> backingList.set(index, element));
+        // Same reasoning as doAdd: replacing an element in place never changes the group's
+        // size, so it cannot trigger the shrink defect either.
+        return backingList.set(index, element);
     }
 
     @Override
