@@ -6,6 +6,7 @@ import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.ToggleButton;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseEvent;
@@ -74,11 +75,20 @@ import java.util.function.BiConsumer;
  * (or Cmd on macOS, i.e. {@link MouseEvent#isShortcutDown()}) held during the click makes it
  * select-only, even if the other side already has a selection that would otherwise trigger an
  * add.
+ *
+ * <p>{@link #getRapidScanToggle()} adds a "rapid scanning mode" switch next to the camera
+ * picker. Like every other control this class exposes, flipping it has no behavior of its own
+ * here — {@code Controller.CardScannerCoordinator} reads the toggle's selected state and is the
+ * one that actually tells the Python sidecar to restrict OCR to a sub-rectangle of each frame
+ * (see {@code Model.CardScanner.PythonCardScannerBridge#setDetectionRoi}). This pane doesn't
+ * currently draw the guide rectangle showing that sub-rectangle on the preview itself — that's
+ * still to come as its own piece of work.
  */
 public class CardScannerPane extends VBox {
 
     private final Button closeButton;
     private final Button chooseCameraButton;
+    private final ToggleButton rapidScanToggle;
     private final Label previewStatusLabel;
     private final StackPane previewContainer;
     private final Label detectionFeedbackLabel;
@@ -145,10 +155,13 @@ public class CardScannerPane extends VBox {
         chooseCameraButton = new Button("Camera");
         chooseCameraButton.setPrefWidth(80);
 
+        rapidScanToggle = new ToggleButton("Rapid Scan");
+        rapidScanToggle.setPrefWidth(110);
+
         closeButton = new Button("Close");
         closeButton.setPrefWidth(80);
 
-        HBox topBar = new HBox(10, titleLabel, chooseCameraButton, closeButton);
+        HBox topBar = new HBox(10, titleLabel, chooseCameraButton, rapidScanToggle, closeButton);
         topBar.setAlignment(Pos.CENTER_LEFT);
 
         previewStatusLabel = new Label("Camera preview will appear here.");
@@ -241,6 +254,17 @@ public class CardScannerPane extends VBox {
      */
     public Button getChooseCameraButton() {
         return chooseCameraButton;
+    }
+
+    /**
+     * The switch that turns "rapid scanning mode" on and off. Toggling it has no behavior of its
+     * own here — {@code CardScannerCoordinator} listens to {@link ToggleButton#selectedProperty()}
+     * and is the one that tells the running {@code PythonCardScannerBridge} to start or stop
+     * restricting OCR to a sub-rectangle of each frame, the same division of responsibility as
+     * {@link #getCloseButton()} and {@link #getChooseCameraButton()}.
+     */
+    public ToggleButton getRapidScanToggle() {
+        return rapidScanToggle;
     }
 
     /**

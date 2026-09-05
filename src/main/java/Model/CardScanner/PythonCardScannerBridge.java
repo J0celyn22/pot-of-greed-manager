@@ -26,18 +26,21 @@ import java.util.function.Consumer;
  * {@link Model.CardMarket.PythonCardMarketBridge}'s bridge to {@code cardmarket_bridge.py}, but
  * an async event stream instead of blocking request/response: the sidecar pushes {@code
  * "frame"}/{@code "status"}/{@code "error"} events on its own schedule as soon as it starts,
- * rather than only replying to a request Java sent first. Java's write side stays
- * request-shaped (currently just {@code "shutdown"}) but one-way — no response line is paired
- * with a command.
+ * rather than only replying to a request Java sent first. Java's write side stays request-shaped
+ * (currently {@code "shutdown"} and {@code "set_detection_roi"}, see {@link #setDetectionRoi})
+ * but one-way — no response line is paired with a command.
  * <p>
  * Unit 4 of the camera card-scanner feature (see the project's camera-scanner plan doc): proves
  * this live-video path end-to-end with a "dumb" feed only — no OCR or card detection is wired
- * through here yet. Unit 6 adds the {@code "detection"} event: the sidecar now also runs OCR on
- * a throttled subset of captured frames and reports whatever text it read with confidence above
- * its own threshold, as an ordered list of candidate strings (highest confidence first, possibly
- * empty). This class stays a dumb transport for that too — resolving a candidate list into an
- * actual {@link Model.CardsLists.Card} (and deciding whether to add it) is
- * {@code Controller.CardScannerCoordinator}'s job, not this class's.
+ * through here yet. Unit 6 adds the {@code "detection"} event: the sidecar runs OCR on its own
+ * dedicated thread, independent of the capture loop that produces {@code "frame"} events, and
+ * reports whatever text it read with confidence above its own threshold as an ordered list of
+ * candidate strings (highest confidence first, possibly empty). A later pass adds
+ * {@link #setDetectionRoi}, letting a caller restrict that OCR to a sub-rectangle of each frame
+ * instead of the whole thing — "rapid scanning mode," wired from
+ * {@code Controller.CardScannerCoordinator}. This class stays a dumb transport for all of that —
+ * resolving a candidate list into an actual {@link Model.CardsLists.Card} (and deciding whether
+ * to add it) is {@code Controller.CardScannerCoordinator}'s job, not this class's.
  * <p>
  * One instance is meant to be started once per scanner-pane-open and closed once per
  * scanner-pane-close (see {@code Controller.RealMainController}'s {@code startCardScanner()}/
@@ -442,17 +445,9 @@ public class PythonCardScannerBridge implements AutoCloseable {
         if (process == null) {
             return;
         }
-        try {
-            if (process.isAlive()) {
-                JSONObject shutdownRequest = new JSONObject();
-                shutdownRequest.put("action", "shutdown");
-                processInput.write(shutdownRequest.toString());
-                processInput.newLine();
-                processInput.flush();
-            }
-        } catch (IOException ioException) {
-            logger.debug("Could not send a clean shutdown request (non-fatal): {}", ioException.getMessage());
-        }
+        JSONObject shutdownRequest = new JSONObject();
+        shutdownRequest.put("action", "shutdown");
+        sendCommand(shutdownRequest);
 
         try {
             boolean exitedCleanly = process.waitFor(SHUTDOWN_WAIT_SECONDS, TimeUnit.SECONDS);
@@ -477,6 +472,57 @@ public class PythonCardScannerBridge implements AutoCloseable {
      */
     public long getDeliveredFrameCount() {
         return deliveredFrameCount.get();
+    }
+
+    /**
+     * Tells the sidecar to run OCR on only a sub-rectangle of each captured frame instead of the
+     * whole thing — "rapid scanning mode"'s actual speed lever, since less pixels into OCR means
+     * less time per detection cycle. {@code x}/{@code y}/{@code width}/{@code height} are
+     * fractions (0 to 1) of the frame's own dimensions, not pixels, so the same rectangle keeps
+     * meaning the same thing regardless of which camera is in use or what resolution it captures
+     * at; {@code Controller.CardScannerCoordinator} owns the actual fractions. Passing
+     * {@code enabled = false} clears any previously set rectangle and reverts to running OCR on
+     * the full frame — the fraction arguments are ignored in that case (still required so a
+     * caller can't accidentally disable rapid scanning while forgetting to pass a rectangle it
+     * meant to keep).
+     * <p>
+     * This class draws no guide rectangle of its own on the preview showing where {@code x}/
+     * {@code y}/{@code width}/{@code height} actually falls — that's
+     * {@code View.CardScannerPane}'s and {@code Controller.CardScannerCoordinator}'s concern, not
+     * this transport's.
+     */
+    public void setDetectionRoi(boolean enabled, double x, double y, double width, double height) {
+        JSONObject roiRequest = new JSONObject();
+        roiRequest.put("action", "set_detection_roi");
+        roiRequest.put("enabled", enabled);
+        if (enabled) {
+            roiRequest.put("x", x);
+            roiRequest.put("y", y);
+            roiRequest.put("width", width);
+            roiRequest.put("height", height);
+        }
+        sendCommand(roiRequest);
+    }
+
+    /**
+     * Writes a single one-way JSON command line to the sidecar's stdin and flushes it — the
+     * shared write path behind both {@link #close()}'s shutdown request and
+     * {@link #setDetectionRoi}. Silently a no-op if the process was never started or has already
+     * exited; a command with nowhere to go isn't worth failing over, matching how {@link #close()}
+     * already treated its own shutdown request before this method existed to share that logic.
+     */
+    private void sendCommand(JSONObject command) {
+        if (process == null || !process.isAlive()) {
+            return;
+        }
+        try {
+            processInput.write(command.toString());
+            processInput.newLine();
+            processInput.flush();
+        } catch (IOException ioException) {
+            logger.debug("Could not send {} command to the card-scanner bridge (non-fatal): {}",
+                    command.optString("action", "<unknown>"), ioException.getMessage());
+        }
     }
 
     private void closeQuietly(Closeable closeable) {

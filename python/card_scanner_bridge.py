@@ -130,6 +130,20 @@ latest_frame = None
 latest_frame_id = 0
 latest_frame_lock = threading.Lock()
 
+# Set by a "set_detection_roi" command from Java (see listen_for_commands and
+# parse_detection_roi_request): None means run OCR on the full captured frame — the default —
+# otherwise an (x, y, width, height) tuple of fractions in [0, 1] of the frame's own dimensions
+# to crop to before OCR, "rapid scanning mode"'s actual speed lever. A single reference, swapped
+# atomically under the GIL by listen_for_commands' own thread; unlike latest_frame/
+# latest_frame_id above, this is one field rather than a pair that has to move together, so no
+# separate lock is needed to read or write it safely from run_detection_loop's thread.
+detection_roi = None
+
+# Returned by parse_detection_roi_request() to mean "this command was malformed; leave
+# detection_roi exactly as it was" — distinct from a valid parse that legitimately returns None
+# (meaning "explicitly disable cropping"), since both are otherwise indistinguishable sentinels.
+_ROI_PARSE_FAILED = object()
+
 shutdown_event = threading.Event()
 
 
@@ -210,13 +224,35 @@ def run_detection(frame):
     return scored_lines[:MAX_DETECTION_CANDIDATES]
 
 
+def crop_frame_to_roi(frame, roi):
+    """Returns a cropped copy of frame for the given (x, y, width, height) fraction tuple (see
+    parse_detection_roi_request), converting fractions to pixel bounds against this specific
+    frame's own dimensions so the same ROI works regardless of the camera's actual resolution.
+    Bounds are clamped defensively in case rounding ever pushes a computed edge a pixel past the
+    frame's own — OCR running on a very slightly smaller-than-requested crop is harmless; an
+    index error taking down the detection thread over a one-pixel rounding difference is not.
+    """
+    frame_height, frame_width = frame.shape[:2]
+    roi_x, roi_y, roi_width, roi_height = roi
+
+    left = max(0, min(frame_width, round(roi_x * frame_width)))
+    top = max(0, min(frame_height, round(roi_y * frame_height)))
+    right = max(left, min(frame_width, round((roi_x + roi_width) * frame_width)))
+    bottom = max(top, min(frame_height, round((roi_y + roi_height) * frame_height)))
+
+    return frame[top:bottom, left:right].copy()
+
+
 def run_detection_loop():
     """Runs for the sidecar's whole life on its own thread, independent of and never blocking
     stream_preview_frames()'s capture loop. Each cycle waits (via a short poll, see
     DETECTION_POLL_INTERVAL_SECONDS) for a frame newer than the last one it processed, then runs
     OCR on whatever is currently newest in the shared latest_frame slot — never a queued backlog,
     since working through stale frames after falling behind would only add latency to detections
-    that matter, not reduce it.
+    that matter, not reduce it. When detection_roi is set, OCR runs on a crop of that frame (see
+    crop_frame_to_roi) instead of the whole thing — "rapid scanning mode"'s actual speed lever,
+    since less pixels in means less OCR time per cycle; when it's None, this runs on the full
+    frame exactly as before that mode existed.
 
     A "detection" event is sent after every OCR cycle this loop actually runs, including empty
     results — same contract as before this loop existed, so Java's debounce logic still sees
@@ -238,6 +274,10 @@ def run_detection_loop():
             continue
 
         last_processed_frame_id = frame_to_process_id
+        current_roi = detection_roi
+        if current_roi is not None:
+            frame_to_process = crop_frame_to_roi(frame_to_process, current_roi)
+
         detection_start_time = time.time()
         scored_candidates = run_detection(frame_to_process)
         detection_elapsed_ms = (time.time() - detection_start_time) * 1000
@@ -288,16 +328,50 @@ def list_available_cameras():
     return available_camera_indices
 
 
+def parse_detection_roi_request(request):
+    """Validates a "set_detection_roi" command's fields and returns either None (run OCR on the
+    full frame) or an (x, y, width, height) tuple of fractions in [0, 1] of the frame's own
+    dimensions for run_detection_loop() to crop to. Returns _ROI_PARSE_FAILED on any malformed
+    input, logging why, so the caller can leave detection_roi exactly as it was rather than
+    guessing a fallback rectangle — a bad command here is a bug on the Java side worth surfacing,
+    not something to paper over silently.
+    """
+    if not request.get("enabled", False):
+        return None
+
+    try:
+        roi_x = float(request["x"])
+        roi_y = float(request["y"])
+        roi_width = float(request["width"])
+        roi_height = float(request["height"])
+    except (KeyError, TypeError, ValueError) as parse_error:
+        log(f"Malformed set_detection_roi command, ignoring: {parse_error}")
+        return _ROI_PARSE_FAILED
+
+    roi_is_in_bounds = (
+            0.0 <= roi_x < 1.0 and 0.0 <= roi_y < 1.0
+            and 0.0 < roi_width <= 1.0 - roi_x and 0.0 < roi_height <= 1.0 - roi_y
+    )
+    if not roi_is_in_bounds:
+        log(f"set_detection_roi fields out of [0, 1] bounds, ignoring: "
+            f"x={roi_x}, y={roi_y}, width={roi_width}, height={roi_height}")
+        return _ROI_PARSE_FAILED
+
+    return (roi_x, roi_y, roi_width, roi_height)
+
+
 def listen_for_commands():
     """Runs on its own thread for this process's whole life, reading one-way commands from
     stdin. Has to be a separate thread rather than a periodic non-blocking check on the main
     thread, because the main thread spends nearly all of its time blocked inside
     VideoCapture.read() — a blocking stdin readline() there would stall frame capture, and a
     non-blocking poll would need to interrupt that read on every loop iteration for no benefit.
-    Currently only understands "shutdown"; unrecognized actions are logged and ignored rather
-    than treated as fatal, so a future command type can be added on the Java side first without
-    breaking an older running instance of this script.
+    Understands "shutdown" and "set_detection_roi" (see parse_detection_roi_request);
+    unrecognized actions are logged and ignored rather than treated as fatal, so a future command
+    type can be added on the Java side first without breaking an older running instance of this
+    script.
     """
+    global detection_roi
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -313,6 +387,17 @@ def listen_for_commands():
             log("Shutdown requested.")
             shutdown_event.set()
             return
+
+        if action == "set_detection_roi":
+            parsed_roi = parse_detection_roi_request(request)
+            if parsed_roi is not _ROI_PARSE_FAILED:
+                detection_roi = parsed_roi
+                if detection_roi is None:
+                    log("Detection ROI cleared; running OCR on the full frame.")
+                else:
+                    log(f"Detection ROI set to {detection_roi!r}.")
+            continue
+
         log(f"Unknown action, ignoring: {action!r}")
 
     # stdin closed without an explicit shutdown command — the parent Java process most likely

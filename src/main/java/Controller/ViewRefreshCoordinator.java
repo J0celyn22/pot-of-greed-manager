@@ -51,6 +51,13 @@ public class ViewRefreshCoordinator {
     private static final ViewRefresherRegistry explicitDecksRefreshers =
             new ViewRefresherRegistry("refreshDecksAndCollectionsView");
 
+    // Scoped counterpart to explicitDecksRefreshers: takes the affected owners so the controller
+    // can refresh just those collections' archetype sections instead of rebuilding the whole
+    // tree. Same Consumer-not-ViewRefresherRegistry reasoning as ouicheListAffectedGroupsRefresher
+    // above — exactly one registrant in practice (DecksCollectionsController, via
+    // TabSwitchCoordinator).
+    private static Consumer<Set<Object>> decksAffectedOwnersRefresher = null;
+
     // ── OuicheList refreshers ──────────────────────────────────────────────────
     private static final ViewRefresherRegistry explicitOuicheListRefreshers =
             new ViewRefresherRegistry("refreshOuicheListView");
@@ -282,6 +289,53 @@ public class ViewRefreshCoordinator {
 
     public static void registerDecksCollectionsRefresher(Runnable refresher) {
         explicitDecksRefreshers.register(refresher);
+    }
+
+    /**
+     * Registers the callback invoked by {@link #refreshDecksAndCollectionsViewForAffectedOwners}.
+     * Replaces any previously registered callback — same reasoning as
+     * {@link #registerOuicheListAffectedGroupsRefresher}.
+     *
+     * @param refresher the callback to register (ignored if {@code null})
+     */
+    public static void registerDecksAffectedOwnersRefresher(Consumer<Set<Object>> refresher) {
+        if (refresher != null) {
+            decksAffectedOwnersRefresher = refresher;
+        }
+    }
+
+    /**
+     * Scoped counterpart to {@link #refreshDecksAndCollectionsView()} for a plain card-level
+     * edit (add/move/reorder within an existing group): refreshes just {@code affectedOwners}'
+     * content instead of forcing a full tree rebuild across every collection and deck. See
+     * {@link DecksCollectionsController#refreshDecksAndCollectionsContentForAffectedOwners} for
+     * what this can and can't handle in place, and when it falls back to a full rebuild itself.
+     *
+     * <p>Always deferred via {@link #deferToFxThread}, for the same reason
+     * {@link #refreshDecksAndCollectionsView()} is: the registered callback can fall back to a
+     * full tree rebuild, which is unsafe to run synchronously from inside an in-flight drop
+     * event on that same tree.
+     *
+     * @param affectedOwners the owners whose content just changed; {@code null} or empty is a
+     *                       no-op
+     */
+    public static void refreshDecksAndCollectionsViewForAffectedOwners(Set<Object> affectedOwners) {
+        if (affectedOwners == null || affectedOwners.isEmpty()) {
+            return;
+        }
+        deferToFxThread(() -> doRefreshDecksAndCollectionsViewForAffectedOwners(affectedOwners));
+    }
+
+    private static void doRefreshDecksAndCollectionsViewForAffectedOwners(Set<Object> affectedOwners) {
+        if (decksAffectedOwnersRefresher == null) {
+            return;
+        }
+        try {
+            decksAffectedOwnersRefresher.accept(affectedOwners);
+        } catch (Throwable throwable) {
+            logger.debug("refreshDecksAndCollectionsViewForAffectedOwners: refresher threw",
+                    throwable);
+        }
     }
 
     public static void refreshDecksAndCollectionsView() {

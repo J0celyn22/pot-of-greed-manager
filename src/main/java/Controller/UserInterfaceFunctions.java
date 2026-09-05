@@ -424,6 +424,14 @@ public class UserInterfaceFunctions {
         ViewRefreshCoordinator.registerDecksCollectionsRefresher(refresher);
     }
 
+    public static void registerDecksAffectedOwnersRefresher(Consumer<Set<Object>> refresher) {
+        ViewRefreshCoordinator.registerDecksAffectedOwnersRefresher(refresher);
+    }
+
+    public static void refreshDecksAndCollectionsViewForAffectedOwners(Set<Object> affectedOwners) {
+        ViewRefreshCoordinator.refreshDecksAndCollectionsViewForAffectedOwners(affectedOwners);
+    }
+
     public static void refreshDecksAndCollectionsView() {
         ViewRefreshCoordinator.refreshDecksAndCollectionsView();
     }

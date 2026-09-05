@@ -493,8 +493,14 @@ class CardGridCell extends GridCell<CardElement> {
                 moveSourceGroups =
                         CardGroupRegistry.dropInsertIntoGroup(effectiveGroup, insertionIndex, srcElements, null);
                 movedElements = srcElements;
+                // effectiveGroup (the destination) is marked dirty unconditionally below. For a
+                // same-group reorder, dropInsertIntoGroup reports effectiveGroup itself as a
+                // modified source group, so it is skipped here to avoid marking it dirty twice
+                // and queuing two full Decks & Collections rebuilds for a single drop.
                 for (CardsGroup sourceGroup : moveSourceGroups) {
-                    CardGroupRegistry.markDirtyAndRefreshForGroup(sourceGroup);
+                    if (sourceGroup != effectiveGroup) {
+                        CardGroupRegistry.markDirtyAndRefreshForGroup(sourceGroup);
+                    }
                 }
             } else {
                 java.util.List<Model.CardsLists.Card> srcCards =

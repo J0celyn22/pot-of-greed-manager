@@ -8,6 +8,8 @@ import javafx.application.Platform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Set;
+
 /**
  * Handles tab-switch events on the main tab pane: injecting the shared right
  * panel, refreshing the middle pane, and lazily populating/displaying
@@ -53,6 +55,7 @@ public class TabSwitchCoordinator {
         // registered exactly once, mirroring how RealMainController registers its My
         // Collection refresher in initialize(), avoids the accumulation entirely.
         UserInterfaceFunctions.registerDecksCollectionsRefresher(this::runDecksRefresh);
+        UserInterfaceFunctions.registerDecksAffectedOwnersRefresher(this::runDecksAffectedOwnersRefresh);
     }
 
     /**
@@ -151,6 +154,26 @@ public class TabSwitchCoordinator {
             coordinator.updateTabDirtyIndicators();
         } catch (Exception exception) {
             logger.error("Decks refresher failed", exception);
+        }
+    }
+
+    /**
+     * Runs the scoped Decks &amp; Collections refresh for a plain card-level edit: forwards
+     * {@code affectedOwners} to {@link
+     * DecksCollectionsController#refreshDecksAndCollectionsContentForAffectedOwners}, which
+     * falls back to a full {@link DecksCollectionsController#displayDecksAndCollections()} on
+     * its own when it can't handle the change in place. Registered once, in the constructor, as
+     * the single {@code registerDecksAffectedOwnersRefresher} callback for this coordinator's
+     * whole lifetime — see {@link #runDecksRefresh()}'s constructor-registration comment for why
+     * that matters.
+     *
+     * @param affectedOwners the owners whose content just changed
+     */
+    private void runDecksAffectedOwnersRefresh(Set<Object> affectedOwners) {
+        try {
+            decksController.refreshDecksAndCollectionsContentForAffectedOwners(affectedOwners);
+        } catch (Exception exception) {
+            logger.error("Decks affected-owners refresher failed", exception);
         }
     }
 

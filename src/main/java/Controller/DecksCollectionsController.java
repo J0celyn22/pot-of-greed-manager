@@ -176,6 +176,113 @@ public class DecksCollectionsController {
         logger.info("Decks and Collections displayed using the unified layout.");
     }
 
+    /**
+     * Scoped counterpart to {@link #displayDecksAndCollections()} for a plain card-level edit
+     * (add/move/reorder/clear within an existing group) — refreshes just the parts of the tree
+     * a card change can affect, instead of tearing down and rebuilding every collection and deck
+     * from scratch.
+     *
+     * <p>A collection's own "Cards"/"Decks"/"Exceptions" sections are already reactively wired
+     * (see the {@code ListChangeListener}s in {@link #createThemeCollectionTreeItem}): they
+     * add/remove themselves as their backing list becomes non-empty/empty, and their
+     * {@code GridView}s already redraw from the same {@link CardsGroup} observable list a card
+     * move mutates directly — nothing needs to be done for them here. The "Archetypes" section is
+     * the one part that is <b>not</b> reactive — it is a snapshot of {@code getArchetypes()}
+     * taken once, at build time — so it is the only part rebuilt: for each affected
+     * {@link ThemeCollection}, its existing "Archetypes" child is replaced with a freshly
+     * computed one via {@link #addArchetypesSectionToCollection}, which is safe to call
+     * repeatedly — it only ever constructs new, unwired {@link CardsGroup}s, never touching
+     * {@link CardGroupRegistry#observableListFor}, so unlike re-calling
+     * {@link #createThemeCollectionTreeItem} it cannot accumulate duplicate
+     * {@code ListChangeListener}s on the model's observable lists.
+     *
+     * <p>{@link Deck} owners are not yet scoped this way: a card moved into or out of a deck can
+     * change the archetype completion of whichever collection(s) link that deck (see
+     * {@link DeckCollectionQualityChecks#isKonamiIdPresentInCollection}), and resolving that
+     * reverse link safely is left for a follow-up — falls back to a full
+     * {@link #displayDecksAndCollections()} for those. Also falls back for anything else this
+     * can't safely handle in place: the tree isn't currently displayed, or an owner isn't found
+     * as an existing top-level tree item (shouldn't normally happen for a plain edit, since the
+     * owner must already be rendered to have received the edit).
+     *
+     * @param affectedOwners the {@link ThemeCollection}/{@link Deck} objects whose content just
+     *                       changed; {@code null} or empty is a no-op
+     * @throws Exception if a full-rebuild fallback is needed and the model cannot be loaded
+     */
+    public void refreshDecksAndCollectionsContentForAffectedOwners(Set<Object> affectedOwners)
+            throws Exception {
+        if (affectedOwners == null || affectedOwners.isEmpty()) {
+            return;
+        }
+        if (decksAndCollectionsTreeView == null || decksAndCollectionsTreeView.getRoot() == null) {
+            displayDecksAndCollections();
+            return;
+        }
+        TreeItem<String> root = decksAndCollectionsTreeView.getRoot();
+
+        for (Object owner : affectedOwners) {
+            if (!(owner instanceof ThemeCollection collection)) {
+                // Deck owner: not yet scoped (see javadoc above) — fall back to a full rebuild
+                // so any linking collection's archetype section stays correct.
+                displayDecksAndCollections();
+                return;
+            }
+
+            DataTreeItem<Object> collectionItem = findTopLevelItem(root, collection);
+            if (collectionItem == null) {
+                displayDecksAndCollections();
+                return;
+            }
+
+            javafx.collections.ObservableList<TreeItem<String>> siblings = collectionItem.getChildren();
+            int archetypesIndex = -1;
+            for (int i = 0; i < siblings.size(); i++) {
+                TreeItem<String> child = siblings.get(i);
+                if (child instanceof DataTreeItem<?> dataChild
+                        && "ARCHETYPES_SECTION".equals(dataChild.getData())) {
+                    archetypesIndex = i;
+                    break;
+                }
+            }
+            if (archetypesIndex >= 0) {
+                siblings.remove(archetypesIndex);
+            }
+
+            if (!hideArchetypesEnabled) {
+                Set<String> missingArtworkSet =
+                        DeckCollectionQualityChecks.computeCardsWithMissingArtworks(collection);
+                // Appends the fresh section at the end of siblings; move it back to where the
+                // old one was (e.g. before "Cards not to add") so this doesn't visibly reorder
+                // the collection's sections every time a card moves.
+                int sizeBefore = siblings.size();
+                addArchetypesSectionToCollection(collection, collectionItem, missingArtworkSet);
+                if (siblings.size() > sizeBefore && archetypesIndex >= 0
+                        && archetypesIndex < siblings.size() - 1) {
+                    TreeItem<String> freshArchetypesNode = siblings.remove(siblings.size() - 1);
+                    siblings.add(Math.min(archetypesIndex, siblings.size()), freshArchetypesNode);
+                }
+            }
+        }
+
+        decksAndCollectionsTreeView.refresh();
+    }
+
+    /**
+     * Finds {@code owner}'s existing top-level {@link DataTreeItem} among {@code root}'s
+     * children, by identity.
+     *
+     * @return the matching item, or {@code null} if not found
+     */
+    @SuppressWarnings("unchecked")
+    private DataTreeItem<Object> findTopLevelItem(TreeItem<String> root, Object owner) {
+        for (TreeItem<String> child : root.getChildren()) {
+            if (child instanceof DataTreeItem<?> dataChild && dataChild.getData() == owner) {
+                return (DataTreeItem<Object>) dataChild;
+            }
+        }
+        return null;
+    }
+
     // ── Navigation menu ───────────────────────────────────────────────────────
 
     /**

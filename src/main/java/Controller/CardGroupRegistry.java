@@ -1706,12 +1706,16 @@ public final class CardGroupRegistry {
         Object dacOwner = findOwnerForGroup(group);
         if (dacOwner != null) {
             UserInterfaceFunctions.markDirty(dacOwner);
-            // Any card addition, removal or move in any D&C group can affect the
-            // archetype missing-sets inside Collections, so always request a full tree
-            // rebuild so that archetype-card glow states recompute correctly.
-            UserInterfaceFunctions.setPendingDecksFullRebuild();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();
-            UserInterfaceFunctions.refreshDecksAndCollectionsView();
+            // A plain card-level change (add/move/reorder/clear) only affects dacOwner's own
+            // archetype completion -- see
+            // DecksCollectionsController#refreshDecksAndCollectionsContentForAffectedOwners for
+            // exactly what that recomputes and which cases it still falls back to a full
+            // displayDecksAndCollections() rebuild for -- so there is no need to rebuild every
+            // other collection and deck here. Structural changes (create/rename/move/delete a
+            // deck or collection) go through their own call sites, which call
+            // setPendingDecksFullRebuild() directly and are unaffected by this.
+            UserInterfaceFunctions.refreshDecksAndCollectionsViewForAffectedOwners(Set.of(dacOwner));
         } else {
             UserInterfaceFunctions.markMyCollectionDirty();
             UserInterfaceFunctions.triggerTabDirtyIndicatorUpdate();

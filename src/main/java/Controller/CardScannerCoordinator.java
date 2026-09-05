@@ -11,6 +11,7 @@ import View.FilterPane;
 import View.SharedCollectionTab;
 import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
+import javafx.geometry.Rectangle2D;
 import javafx.geometry.Side;
 import javafx.scene.control.*;
 import javafx.scene.layout.AnchorPane;
@@ -110,6 +111,20 @@ public class CardScannerCoordinator {
      * the way logging every frame would.
      */
     private static final long MEMORY_DIAGNOSTICS_INTERVAL_MILLIS = 15_000;
+
+    /**
+     * The sub-rectangle of each captured frame OCR is restricted to while "rapid scanning mode"
+     * ({@link CardScannerPane#getRapidScanToggle()}) is on, as fractions (0 to 1) of the frame's
+     * own width/height — see {@link PythonCardScannerBridge#setDetectionRoi} for why fractions
+     * rather than pixels. Positioned center-to-bottom-right rather than dead center: measured
+     * against a real scan, the print code sits at roughly x 0.50-0.69, y 0.59-0.68, and the
+     * center-left quadrant is where the light used for contrast tends to cause glare. This is a
+     * starting rectangle from one example, generously margined around that measurement, not a
+     * tuned final value — expect to adjust once the guide rectangle (not yet drawn on the preview
+     * — see {@link CardScannerPane}'s own javadoc) makes it easy to see what it actually covers
+     * while aligning a real card.
+     */
+    private static final Rectangle2D RAPID_SCAN_ROI = new Rectangle2D(0.40, 0.42, 0.55, 0.40);
 
     /**
      * Which tabs the camera button is even clickable on. My Collection, Decks and Collections,
@@ -302,6 +317,8 @@ public class CardScannerCoordinator {
                 }
             });
             sharedCardScannerPane.getChooseCameraButton().setOnAction(event -> chooseCameraRequested());
+            sharedCardScannerPane.getRapidScanToggle().selectedProperty().addListener(
+                    (observable, wasEnabled, isEnabled) -> applyRapidScanMode(isEnabled));
         }
         headerPane.getChildren().clear();
         headerPane.getChildren().add(sharedCardScannerPane);
@@ -368,6 +385,7 @@ public class CardScannerCoordinator {
         try {
             activeCardScannerBridge.start(selectedCameraIndex);
             startMemoryDiagnosticsTimer();
+            applyRapidScanMode(sharedCardScannerPane.getRapidScanToggle().isSelected());
         } catch (IOException startupIoException) {
             logger.error("Could not start the Python card-scanner bridge \u2014 check that Python is on "
                             + "PATH with the packages in python/requirements.txt installed, and that "
@@ -377,6 +395,27 @@ public class CardScannerCoordinator {
                     "Could not start the camera process. See the application log for details.");
             activeCardScannerBridge = null;
         }
+    }
+
+    /**
+     * Applies (or clears) {@link #RAPID_SCAN_ROI} on whichever bridge is currently running. A
+     * no-op if none is (e.g. the toggle was flipped before a camera ever started, or startup
+     * itself failed) — {@link #startCardScanner()} calls this again once a bridge does exist, so
+     * nothing is lost by the toggle's own listener silently doing nothing in the meantime.
+     * <p>
+     * Called from two places: {@link CardScannerPane#getRapidScanToggle()}'s own listener when
+     * the person flips it, and once after every fresh {@link PythonCardScannerBridge} starts in
+     * {@link #startCardScanner()} — {@link #sharedCardScannerPane} (and so the toggle's selected
+     * state) is reused across opens, but the subprocess behind it is not, so a brand new process
+     * has to be told explicitly rather than assuming it already knows the toggle was left on.
+     */
+    private void applyRapidScanMode(boolean enabled) {
+        if (activeCardScannerBridge == null) {
+            return;
+        }
+        activeCardScannerBridge.setDetectionRoi(enabled,
+                RAPID_SCAN_ROI.getMinX(), RAPID_SCAN_ROI.getMinY(),
+                RAPID_SCAN_ROI.getWidth(), RAPID_SCAN_ROI.getHeight());
     }
 
     /**
