@@ -2,11 +2,14 @@
 
 Unit 4 of the camera card-scanner feature (see docs/camera-scanner-plan.md) proved the
 Python-to-Java live video path end-to-end with a "dumb" feed only. Unit 6 adds the actual
-detection step: a throttled subset of captured frames also gets run through OCR, and whatever
-text is read with confidence above OCR_CONFIDENCE_THRESHOLD is pushed to Java as a "detection"
-event. This script still only reports raw recognized text — resolving that text into an actual
-Card, deciding whether it's confident enough to add, and the add/lock/release debounce logic all
-live on the Java side (see Controller.CardScannerCoordinator and Model.CardScanner.
+detection step, and a later pass decoupled it from the capture loop: OCR now runs on its own
+dedicated thread, always working on the most recently captured frame rather than a fixed-cadence
+subset of frames, so a slow OCR cycle can never stall preview capture — see run_detection_loop()
+and stream_preview_frames() for how the two threads hand frames off to each other. Whatever text
+is read with confidence above OCR_CONFIDENCE_THRESHOLD is pushed to Java as a "detection" event.
+This script still only reports raw recognized text — resolving that text into an actual Card,
+deciding whether it's confident enough to add, and the add/lock/release debounce logic all live
+on the Java side (see Controller.CardScannerCoordinator and Model.CardScanner.
 ScanLockDebouncer) so this stays a thin, replaceable OCR sensor rather than growing its own copy
 of the app's card-matching logic.
 
@@ -81,20 +84,21 @@ DEFAULT_CAMERA_INDEX = 0
 # more than this many cameras attached is an edge case not worth a configurable option for yet.
 MAX_CAMERAS_TO_PROBE = 5
 
-# Preview frame rate sent to Java, independent of the detection rate below. Starting point per
-# the project's plan doc; tune once this is actually running against real hardware.
+# Preview frame rate sent to Java. OCR detection is no longer tied to this rate — see
+# run_detection_loop() — so this only governs how often stream_preview_frames() captures,
+# encodes, and sends a "frame" event. Starting point per the project's plan doc; tune once this
+# is actually running against real hardware.
 TARGET_PREVIEW_FPS = 12
 
 # JPEG quality (0-100) for preview frames. Preview only needs to look reasonable on screen, not
 # be detection-grade, so this favors smaller/faster frames over maximum fidelity.
 JPEG_QUALITY = 70
 
-# How often OCR actually runs, independent of TARGET_PREVIEW_FPS — OCR is far slower than
-# encoding a JPEG, and running it on every previewed frame would drag preview smoothness down to
-# OCR speed. Starting value; the real bottleneck here is per-frame OCR inference time, which is
-# explicitly a Unit 7 tuning concern per the plan doc, not something to pre-optimize now.
-TARGET_DETECTION_FPS = 4
-PREVIEW_FRAMES_PER_DETECTION = max(1, round(TARGET_PREVIEW_FPS / TARGET_DETECTION_FPS))
+# How long run_detection_loop() sleeps between polls of the shared latest-frame slot when it has
+# already processed the newest frame available. Short enough to add negligible latency once a
+# new frame does show up, long enough not to spin the detection thread's CPU core between OCR
+# cycles.
+DETECTION_POLL_INTERVAL_SECONDS = 0.01
 
 # Minimum OCR confidence (RapidOCR's own per-line score, 0-1) for a recognized text line to be
 # forwarded to Java at all. Starting value, not tuned against any real scan yet — see
@@ -114,6 +118,17 @@ MAX_DETECTION_CANDIDATES = 5
 # with it.
 ocr_engine = None
 ocr_engine_failed = False
+
+# The most recently captured frame, handed off from stream_preview_frames() (the capture thread)
+# to run_detection_loop() (the detection thread) without a queue: the detection thread always
+# works on whatever is newest here, never a backlog, since a card held up to the camera is best
+# served by the freshest frame available rather than catching up on stale ones once OCR falls
+# behind. latest_frame_id increments on every capture so the detection thread can tell whether a
+# new frame has arrived since its last OCR cycle. Both fields are only ever read or written
+# together, under latest_frame_lock.
+latest_frame = None
+latest_frame_id = 0
+latest_frame_lock = threading.Lock()
 
 shutdown_event = threading.Event()
 
@@ -195,6 +210,47 @@ def run_detection(frame):
     return scored_lines[:MAX_DETECTION_CANDIDATES]
 
 
+def run_detection_loop():
+    """Runs for the sidecar's whole life on its own thread, independent of and never blocking
+    stream_preview_frames()'s capture loop. Each cycle waits (via a short poll, see
+    DETECTION_POLL_INTERVAL_SECONDS) for a frame newer than the last one it processed, then runs
+    OCR on whatever is currently newest in the shared latest_frame slot — never a queued backlog,
+    since working through stale frames after falling behind would only add latency to detections
+    that matter, not reduce it.
+
+    A "detection" event is sent after every OCR cycle this loop actually runs, including empty
+    results — same contract as before this loop existed, so Java's debounce logic still sees
+    "nothing detected this cycle" as its own event. Detection cadence is now whatever OCR
+    inference time on this machine allows, rather than a fixed target; ScanLockDebouncer's
+    lock/release timing is wall-clock-based specifically so it doesn't depend on that cadence
+    being regular (see its own javadoc on the Java side). Each cycle's OCR wall-clock time is
+    logged so the actual achievable detection rate on this machine is visible instead of assumed.
+    """
+    last_processed_frame_id = 0
+
+    while not shutdown_event.is_set():
+        with latest_frame_lock:
+            frame_to_process = latest_frame
+            frame_to_process_id = latest_frame_id
+
+        if frame_to_process is None or frame_to_process_id == last_processed_frame_id:
+            time.sleep(DETECTION_POLL_INTERVAL_SECONDS)
+            continue
+
+        last_processed_frame_id = frame_to_process_id
+        detection_start_time = time.time()
+        scored_candidates = run_detection(frame_to_process)
+        detection_elapsed_ms = (time.time() - detection_start_time) * 1000
+        log(f"OCR cycle took {detection_elapsed_ms:.0f}ms "
+            f"({len(scored_candidates)} candidate(s) above threshold).")
+        send_response({
+            "type": "detection",
+            "candidates": [
+                {"text": text, "confidence": score} for text, score in scored_candidates
+            ],
+        })
+
+
 def parse_camera_index_arg():
     """Reads a `--camera-index N` argument from sys.argv, defaulting to DEFAULT_CAMERA_INDEX if
     it's absent or its value isn't a plain integer. A malformed value is logged and treated the
@@ -272,13 +328,13 @@ def stream_preview_frames(capture):
     "error" event and skipped, rather than treated as a reason to stop the whole stream — a
     single dropped frame (camera momentarily busy, a driver hiccup) shouldn't end the session.
 
-    Every PREVIEW_FRAMES_PER_DETECTION-th captured frame also gets run through OCR and sent as a
-    "detection" event, in addition to (not instead of) that frame's ordinary "frame" event — see
-    TARGET_DETECTION_FPS's own comment for why this runs at a separate, slower cadence than
-    preview.
+    Every successfully captured frame is also published to the shared latest_frame slot (under
+    latest_frame_lock) for run_detection_loop() to pick up on its own thread. This loop never
+    runs OCR itself and never blocks waiting for the detection thread — a slow OCR cycle can only
+    ever affect how often detection results arrive, not this preview loop's own frame rate.
     """
+    global latest_frame, latest_frame_id
     frame_interval_seconds = 1.0 / TARGET_PREVIEW_FPS
-    frames_since_last_detection = 0
 
     while not shutdown_event.is_set():
         frame_start_time = time.time()
@@ -297,16 +353,9 @@ def stream_preview_frames(capture):
         jpeg_base64 = base64.b64encode(jpeg_bytes).decode("ascii")
         send_response({"type": "frame", "jpeg_base64": jpeg_base64})
 
-        frames_since_last_detection += 1
-        if frames_since_last_detection >= PREVIEW_FRAMES_PER_DETECTION:
-            frames_since_last_detection = 0
-            scored_candidates = run_detection(frame)
-            send_response({
-                "type": "detection",
-                "candidates": [
-                    {"text": text, "confidence": score} for text, score in scored_candidates
-                ],
-            })
+        with latest_frame_lock:
+            latest_frame = frame
+            latest_frame_id += 1
 
         elapsed_seconds = time.time() - frame_start_time
         remaining_seconds = frame_interval_seconds - elapsed_seconds
@@ -339,8 +388,18 @@ def main():
         log("Failed to open the webcam; exiting.")
         return
 
+    # Best-effort: ask the backend to keep at most one frame buffered internally, so a brief
+    # stall on the capture loop can't leave capture.read() draining an increasingly stale
+    # backlog once the loop catches back up. Not every backend honors this property; silently
+    # having no effect is fine here, not a reason to fail startup over it.
+    capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
     send_response({"type": "status", "status": "camera_opened"})
     log("Webcam opened. Streaming preview frames...")
+
+    detection_thread = threading.Thread(
+        target=run_detection_loop, name="card-scanner-detection", daemon=True)
+    detection_thread.start()
 
     try:
         stream_preview_frames(capture)
