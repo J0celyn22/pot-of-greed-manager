@@ -97,7 +97,7 @@ public final class GridViewSizer {
         double bottom = (padding != null) ? padding.getBottom() : 0;
         double cardHeight = grid.getCellHeight();
         double verticalSpacing = grid.getVerticalCellSpacing();
-        double actualCellHeight = cardHeight + 2 * CELL_INNER_PADDING;
+        double actualCellHeight = cardHeight + 2 * CELL_INNER_PADDING - 4;
         double rowSpan = actualCellHeight + verticalSpacing;
 
         return top + bottom + rows * rowSpan + 1.0;
