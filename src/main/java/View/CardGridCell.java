@@ -6,6 +6,7 @@ import Utils.CardNameUtils;
 import Utils.LruImageCache;
 import javafx.application.Platform;
 import javafx.beans.value.ChangeListener;
+import javafx.beans.value.WeakChangeListener;
 import javafx.geometry.Insets;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
@@ -21,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * CardGridCell — a {@link GridCell} rendering one {@link CardElement} in the middle-pane
@@ -64,6 +66,43 @@ class CardGridCell extends GridCell<CardElement> {
     private final ChangeListener<Boolean> selectionHighlightListener =
             (observable, wasSelected, isSelectedNow) -> applySelectionBorder(Boolean.TRUE.equals(isSelectedNow));
     /**
+     * TEMPORARY diagnostic counter (camera-scanner memory-leak investigation): total number of
+     * {@link CardGridCell} instances ever constructed, across the whole application lifetime.
+     * {@link GridView} is virtualized — it should only ever need enough cell instances to cover
+     * the largest visible area, recycling them (via {@link #updateItem}) for different elements
+     * as the user scrolls or the underlying list changes — so this count should plateau quickly
+     * and stay flat. If it instead keeps climbing well past that (visible-area-sized) ceiling as
+     * more cards are added, that confirms cells are being discarded and freshly recreated rather
+     * than recycled, which is the premise {@link #weakSelectionHighlightListener}'s fix and
+     * {@link Controller.SelectionHighlightRegistry#activeSubscriptionCount()} both rest on.
+     * Logged periodically by {@link Controller.CardScannerCoordinator}'s memory-diagnostics
+     * timer. Remove this field and {@link #instancesCreatedCount()} once the leak this was added
+     * to chase is confirmed fixed.
+     */
+    private static final AtomicLong instancesCreated = new AtomicLong(0);
+    /**
+     * Weak wrapper around {@link #selectionHighlightListener}, registered on {@link
+     * Controller.SelectionHighlightRegistry} instead of the raw listener.
+     * <p>
+     * {@link #subscribeToSelectionHighlight} only tears down a cell's subscription when this
+     * same cell instance is later recycled onto a different element, or set empty — the normal
+     * {@link GridView} case. It is never called on a cell that {@link GridView} simply discards
+     * instead of recycling (e.g. during one of {@link CardGroupRegistry}'s forced full-rebuild
+     * item-swaps, documented on {@link CardGroupRegistry#detachGridViewForGroup}), since nothing
+     * calls {@code updateItem(null, true)} on a cell that is never reused again. A plain,
+     * strongly-referenced listener registered on a {@link CardElement}'s selection property —
+     * which lives for as long as the card stays in the collection, i.e. effectively forever —
+     * would keep every such discarded cell (and its {@link ImageView}'s decoded {@link Image})
+     * permanently reachable. Wrapping in {@link WeakChangeListener} means a discarded cell that
+     * is otherwise unreachable (not part of the live scene graph) becomes collectible instead,
+     * the same fix already applied to {@link CardTreeCell#cardWidthRebuildListener}/{@link
+     * CardTreeCell#treeWidthRebuildListener} for the equivalent leak at the tree-cell level. A
+     * cell still actually on screen is unaffected — it stays reachable via the scene graph
+     * regardless of whether its own listener registration is weak or strong.
+     */
+    private final WeakChangeListener<Boolean> weakSelectionHighlightListener =
+            new WeakChangeListener<>(selectionHighlightListener);
+    /**
      * The {@link CardElement} this cell's {@link #selectionHighlightListener} is currently
      * subscribed to in {@link Controller.SelectionHighlightRegistry}, or {@code null} when
      * this cell has no active subscription (an empty cell, or before the first
@@ -74,6 +113,7 @@ class CardGridCell extends GridCell<CardElement> {
     private CardElement subscribedSelectionElement;
 
     public CardGridCell(CardTreeCell outerCell) {
+        instancesCreated.incrementAndGet();
         this.outer = outerCell;
         cardImageView = new ImageView();
         cardImageView.setPreserveRatio(true);
@@ -94,6 +134,17 @@ class CardGridCell extends GridCell<CardElement> {
         setupHoverPopup();
         setupDropTarget();
     } // end CardGridCell()
+
+    /**
+     * @return the total number of {@link CardGridCell} instances ever constructed (temporary
+     * diagnostic — see {@link #instancesCreated}'s own javadoc). Package-private, like this
+     * class itself — {@link CardTreeCell#cardGridCellInstancesCreatedCount()} re-exposes this
+     * publicly for callers (e.g. {@link Controller.CardScannerCoordinator}'s memory-diagnostics
+     * log) outside this package.
+     */
+    static long instancesCreatedCount() {
+        return instancesCreated.get();
+    }
 
     /**
      * Builds the three context-menu variants for this cell (My Collection, Decks &amp;
@@ -794,13 +845,12 @@ class CardGridCell extends GridCell<CardElement> {
             return;
         }
         if (subscribedSelectionElement != null) {
-            Controller.SelectionHighlightRegistry.getOrCreateSelectedProperty(subscribedSelectionElement)
-                    .removeListener(selectionHighlightListener);
+            Controller.SelectionHighlightRegistry.unsubscribe(
+                    subscribedSelectionElement, weakSelectionHighlightListener);
         }
         subscribedSelectionElement = cardElement;
         if (cardElement != null) {
-            Controller.SelectionHighlightRegistry.getOrCreateSelectedProperty(cardElement)
-                    .addListener(selectionHighlightListener);
+            Controller.SelectionHighlightRegistry.subscribe(cardElement, weakSelectionHighlightListener);
         }
     }
 

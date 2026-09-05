@@ -224,8 +224,8 @@ public final class CardImageLoader {
             imageView.setImage(getPlaceholder());
             resolvePathAsync(imageKey, resolvedPath -> {
                 if (resolvedPath == null) {
-                    logger.info("[IMG-DIAG] no on-disk address resolved for imageKey={} "
-                            + "(cardElement={}) — leaving placeholder", imageKey, cardElement);
+                    /*logger.info("[IMG-DIAG] no on-disk address resolved for imageKey={} "
+                            + "(cardElement={}) — leaving placeholder", imageKey, cardElement);*/
                     onLoadFailed.run();
                     return;
                 }
@@ -391,13 +391,13 @@ public final class CardImageLoader {
                         if (Objects.equals(expected, resolvedPath)) {
                             imageView.setImage(image);
                             imageView.getProperties().remove("expectedImagePath");
-                            logger.info("[IMG-DIAG] applied real image (sync decode) for {}",
-                                    resolvedPath);
+                            /*logger.info("[IMG-DIAG] applied real image (sync decode) for {}",
+                                    resolvedPath);*/
                         } else {
-                            logger.info("[IMG-DIAG] decode finished (sync) for {} but "
+                            /*logger.info("[IMG-DIAG] decode finished (sync) for {} but "
                                             + "expectedImagePath was '{}' — discarding, cell was "
                                             + "reassigned or cancelled before this landed",
-                                    resolvedPath, expected);
+                                    resolvedPath, expected);*/
                         }
                     });
                 } else {
@@ -418,13 +418,13 @@ public final class CardImageLoader {
                                 if (Objects.equals(expected, resolvedPath)) {
                                     imageView.setImage(image);
                                     imageView.getProperties().remove("expectedImagePath");
-                                    logger.info("[IMG-DIAG] applied real image (async decode) "
-                                            + "for {}", resolvedPath);
+                                    /*logger.info("[IMG-DIAG] applied real image (async decode) "
+                                            + "for {}", resolvedPath);*/
                                 } else {
-                                    logger.info("[IMG-DIAG] decode finished (async) for {} but "
+                                    /*logger.info("[IMG-DIAG] decode finished (async) for {} but "
                                                     + "expectedImagePath was '{}' — discarding, cell "
                                                     + "was reassigned or cancelled before this landed",
-                                            resolvedPath, expected);
+                                            resolvedPath, expected);*/
                                 }
                             }
                         });

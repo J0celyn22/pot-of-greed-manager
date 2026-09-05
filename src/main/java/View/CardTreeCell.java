@@ -2143,4 +2143,15 @@ public class CardTreeCell extends TreeCell<String> {
         Utils.PerfLog.stage(logger, "adjustGridViewHeight: total", adjustGridViewHeightStartNanos);
     }
     // CardGridCell is implemented in View/CardGridCell.java — instantiated via new CardGridCell(this)
+
+    /**
+     * @return the total number of {@link CardGridCell} instances ever constructed (temporary
+     * diagnostic — see {@link CardGridCell#instancesCreatedCount()}'s own javadoc). Re-exposed
+     * here, publicly, since {@link CardGridCell} itself is package-private — this lets callers
+     * outside this package (e.g. {@link Controller.CardScannerCoordinator}'s periodic
+     * memory-diagnostics log) read the count.
+     */
+    public static long cardGridCellInstancesCreatedCount() {
+        return CardGridCell.instancesCreatedCount();
+    }
 }

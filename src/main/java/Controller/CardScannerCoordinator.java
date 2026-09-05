@@ -399,12 +399,15 @@ public class CardScannerCoordinator {
                 long heapMaxMegabytes = runtime.maxMemory() / (1024 * 1024);
                 logger.info("[MEM-DIAG] heap {} MB / {} MB max | LruImageCache {} entries | "
                                 + "CardImageLoader path cache {} entries | "
-                                + "SelectionHighlightRegistry {} tracked elements | "
+                                + "SelectionHighlightRegistry {} tracked elements, {} active listener "
+                                + "subscriptions | CardGridCell {} instances ever created | "
                                 + "frames delivered this session: {}",
                         heapUsedMegabytes, heapMaxMegabytes,
                         Utils.LruImageCache.size(),
                         View.CardImageLoader.pathCacheSize(),
                         SelectionHighlightRegistry.trackedElementCount(),
+                        SelectionHighlightRegistry.activeSubscriptionCount(),
+                        View.CardTreeCell.cardGridCellInstancesCreatedCount(),
                         bridge == null ? "n/a" : bridge.getDeliveredFrameCount());
             }
         }, MEMORY_DIAGNOSTICS_INTERVAL_MILLIS, MEMORY_DIAGNOSTICS_INTERVAL_MILLIS);
