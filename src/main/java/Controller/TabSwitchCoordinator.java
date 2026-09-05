@@ -42,6 +42,116 @@ public class TabSwitchCoordinator {
         this.ouicheListController = ouicheListController;
         this.archetypesController = archetypesController;
         this.decksTab = decksTab;
+
+        // Registered once here, for the lifetime of this coordinator, rather than inside
+        // handleDecksTabSelected(). That method reruns on every switch to the Decks &
+        // Collections tab, and ViewRefresherRegistry.register() dedups by reference — a
+        // fresh lambda object created on every visit can never match an earlier one, so
+        // registering there left one more copy of this refresher permanently registered
+        // per tab visit, all of which then ran (and each triggered its own full Decks &
+        // Collections tree rebuild) on every subsequent edit. A stable method reference
+        // registered exactly once, mirroring how RealMainController registers its My
+        // Collection refresher in initialize(), avoids the accumulation entirely.
+        UserInterfaceFunctions.registerDecksCollectionsRefresher(this::runDecksRefresh);
+    }
+
+    /**
+     * Runs the Decks &amp; Collections refresh: consumes whatever pending UI-action state
+     * (rename/expand/scroll targets, the full-rebuild flag) accumulated since the last run,
+     * rebuilds or refreshes the tree accordingly, then re-applies any pending navigation
+     * targets. Registered once, in the constructor, as the single {@code
+     * registerDecksCollectionsRefresher} callback for this coordinator's whole lifetime.
+     */
+    private void runDecksRefresh() {
+        try {
+            String cardTarget = MenuActionHandler.getAndClearLastDecksAddedTarget();
+            Object deckMoveTarget =
+                    UserInterfaceFunctions.getAndClearPendingDecksScrollTarget();
+            Object[] createCollData =
+                    UserInterfaceFunctions.getAndClearPendingDecksCreateCollectionData();
+            Object renameTarget =
+                    UserInterfaceFunctions.getAndClearPendingDecksRenameTarget();
+            boolean needsFullRebuild =
+                    UserInterfaceFunctions.getAndClearPendingDecksFullRebuild();
+            Object expandTarget =
+                    UserInterfaceFunctions.getAndClearPendingDecksExpandTarget();
+
+            decksController.populateDecksAndCollectionsMenu();
+
+            boolean isStructuralChange = deckMoveTarget != null
+                    || createCollData != null
+                    || renameTarget != null
+                    || needsFullRebuild;
+
+            if (isStructuralChange || cardTarget != null) {
+                final double savedScroll = decksController.getDecksTreeScrollPosition();
+                decksController.displayDecksAndCollections();
+                Platform.runLater(() ->
+                        decksController.restoreDecksTreeScrollPosition(savedScroll));
+            } else {
+                coordinator.refreshDecksAndCollectionsTreeView();
+            }
+
+            if (cardTarget != null) {
+                decksController.scrollToTargetInDecksTree(cardTarget);
+            }
+            if (deckMoveTarget != null) {
+                decksController.scrollToMovedDeck(deckMoveTarget);
+            }
+
+            if (createCollData != null && createCollData.length == 2
+                    && createCollData[0] instanceof ThemeCollection newCollection
+                    && createCollData[1] instanceof Deck movedDeck) {
+                Platform.runLater(() -> {
+                    NavigationItem toRename = NavigationHelper.findNavItemInMenuVBox(
+                            decksTab.getMenuVBox(), newCollection);
+                    if (toRename != null) {
+                        toRename.setExpanded(true);
+                        NavigationHelper.expandNavAncestors(toRename);
+                        NavigationHelper.scrollNavToItem(decksTab, toRename);
+                        decksController.startDecksCreateCollectionRename(
+                                toRename, newCollection, movedDeck);
+                    } else {
+                        logger.warn("Create-Collection rename: NavigationItem not found"
+                                + " for '{}'", newCollection.getName());
+                    }
+                });
+            }
+
+            if (renameTarget != null) {
+                final Object finalTarget = renameTarget;
+                Platform.runLater(() -> {
+                    NavigationItem toRename = NavigationHelper.findNavItemInMenuVBox(
+                            decksTab.getMenuVBox(), finalTarget);
+                    if (toRename != null) {
+                        NavigationHelper.expandNavAncestors(toRename);
+                        NavigationHelper.scrollNavToItem(decksTab, toRename);
+                        decksController.startDecksAddRename(toRename, finalTarget);
+                    } else {
+                        logger.warn(
+                                "Pending decks rename: NavigationItem not found for {}",
+                                finalTarget);
+                    }
+                });
+            }
+
+            if (expandTarget != null) {
+                final Object finalExpand = expandTarget;
+                Platform.runLater(() -> {
+                    NavigationItem toExpand = NavigationHelper.findNavItemInMenuVBox(
+                            decksTab.getMenuVBox(), finalExpand);
+                    if (toExpand != null) {
+                        toExpand.setExpanded(true);
+                        NavigationHelper.expandNavAncestors(toExpand);
+                        NavigationHelper.scrollNavToItem(decksTab, toExpand);
+                    }
+                });
+            }
+
+            coordinator.updateTabDirtyIndicators();
+        } catch (Exception exception) {
+            logger.error("Decks refresher failed", exception);
+        }
     }
 
     /**
@@ -71,97 +181,6 @@ public class TabSwitchCoordinator {
     private void handleDecksTabSelected() {
         try {
             decksController.populateDecksAndCollectionsMenu();
-            UserInterfaceFunctions.registerDecksCollectionsRefresher(() -> {
-                try {
-                    String cardTarget = MenuActionHandler.getAndClearLastDecksAddedTarget();
-                    Object deckMoveTarget =
-                            UserInterfaceFunctions.getAndClearPendingDecksScrollTarget();
-                    Object[] createCollData =
-                            UserInterfaceFunctions.getAndClearPendingDecksCreateCollectionData();
-                    Object renameTarget =
-                            UserInterfaceFunctions.getAndClearPendingDecksRenameTarget();
-                    boolean needsFullRebuild =
-                            UserInterfaceFunctions.getAndClearPendingDecksFullRebuild();
-                    Object expandTarget =
-                            UserInterfaceFunctions.getAndClearPendingDecksExpandTarget();
-
-                    decksController.populateDecksAndCollectionsMenu();
-
-                    boolean isStructuralChange = deckMoveTarget != null
-                            || createCollData != null
-                            || renameTarget != null
-                            || needsFullRebuild;
-
-                    if (isStructuralChange || cardTarget != null) {
-                        final double savedScroll = decksController.getDecksTreeScrollPosition();
-                        decksController.displayDecksAndCollections();
-                        Platform.runLater(() ->
-                                decksController.restoreDecksTreeScrollPosition(savedScroll));
-                    } else {
-                        coordinator.refreshDecksAndCollectionsTreeView();
-                    }
-
-                    if (cardTarget != null) {
-                        decksController.scrollToTargetInDecksTree(cardTarget);
-                    }
-                    if (deckMoveTarget != null) {
-                        decksController.scrollToMovedDeck(deckMoveTarget);
-                    }
-
-                    if (createCollData != null && createCollData.length == 2
-                            && createCollData[0] instanceof ThemeCollection newCollection
-                            && createCollData[1] instanceof Deck movedDeck) {
-                        Platform.runLater(() -> {
-                            NavigationItem toRename = NavigationHelper.findNavItemInMenuVBox(
-                                    decksTab.getMenuVBox(), newCollection);
-                            if (toRename != null) {
-                                toRename.setExpanded(true);
-                                NavigationHelper.expandNavAncestors(toRename);
-                                NavigationHelper.scrollNavToItem(decksTab, toRename);
-                                decksController.startDecksCreateCollectionRename(
-                                        toRename, newCollection, movedDeck);
-                            } else {
-                                logger.warn("Create-Collection rename: NavigationItem not found"
-                                        + " for '{}'", newCollection.getName());
-                            }
-                        });
-                    }
-
-                    if (renameTarget != null) {
-                        final Object finalTarget = renameTarget;
-                        Platform.runLater(() -> {
-                            NavigationItem toRename = NavigationHelper.findNavItemInMenuVBox(
-                                    decksTab.getMenuVBox(), finalTarget);
-                            if (toRename != null) {
-                                NavigationHelper.expandNavAncestors(toRename);
-                                NavigationHelper.scrollNavToItem(decksTab, toRename);
-                                decksController.startDecksAddRename(toRename, finalTarget);
-                            } else {
-                                logger.warn(
-                                        "Pending decks rename: NavigationItem not found for {}",
-                                        finalTarget);
-                            }
-                        });
-                    }
-
-                    if (expandTarget != null) {
-                        final Object finalExpand = expandTarget;
-                        Platform.runLater(() -> {
-                            NavigationItem toExpand = NavigationHelper.findNavItemInMenuVBox(
-                                    decksTab.getMenuVBox(), finalExpand);
-                            if (toExpand != null) {
-                                toExpand.setExpanded(true);
-                                NavigationHelper.expandNavAncestors(toExpand);
-                                NavigationHelper.scrollNavToItem(decksTab, toExpand);
-                            }
-                        });
-                    }
-
-                    coordinator.updateTabDirtyIndicators();
-                } catch (Exception exception) {
-                    logger.error("Decks refresher failed", exception);
-                }
-            });
             decksController.displayDecksAndCollections();
         } catch (Exception exception) {
             logger.error("Error displaying Decks and Collections", exception);
